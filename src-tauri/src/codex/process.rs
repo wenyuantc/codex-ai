@@ -64,38 +64,72 @@ pub async fn start_codex(
         manager.add_process(employee_id.clone(), CodexChild { child });
     }
 
-    // Read stdout and emit as codex-stdout
+    // Use a shared dedup set: codex exec writes the same lines to both
+    // stdout and stderr. We track recently emitted lines and skip duplicates.
+    let seen = Arc::new(Mutex::new(std::collections::HashSet::<String>::new()));
+
+    // Read stdout — emit only unseen lines
     let app_clone = app.clone();
     let eid = employee_id.clone();
+    let seen_stdout = seen.clone();
     tauri::async_runtime::spawn(async move {
         let reader = BufReader::new(stdout);
         let mut lines = reader.lines();
         while let Ok(Some(line)) = lines.next_line().await {
-            let _ = app_clone.emit(
-                "codex-stdout",
-                CodexOutput {
-                    employee_id: eid.clone(),
-                    line,
-                },
-            );
+            let is_dup = {
+                let mut s = seen_stdout.lock().unwrap();
+                if s.contains(&line) {
+                    true
+                } else {
+                    s.insert(line.clone());
+                    // Keep set bounded — remove entries older than 200 lines
+                    if s.len() > 200 {
+                        s.clear();
+                    }
+                    false
+                }
+            };
+            if !is_dup {
+                let _ = app_clone.emit(
+                    "codex-stdout",
+                    CodexOutput {
+                        employee_id: eid.clone(),
+                        line,
+                    },
+                );
+            }
         }
     });
 
-    // Read stderr — merge into codex-stdout to avoid duplicates
-    // (codex exec writes the same content to both stdout and stderr)
+    // Read stderr — emit only unseen lines
     let app_clone = app.clone();
     let eid = employee_id.clone();
+    let seen_stderr = seen.clone();
     tauri::async_runtime::spawn(async move {
         let reader = BufReader::new(stderr);
         let mut lines = reader.lines();
         while let Ok(Some(line)) = lines.next_line().await {
-            let _ = app_clone.emit(
-                "codex-stdout",
-                CodexOutput {
-                    employee_id: eid.clone(),
-                    line,
-                },
-            );
+            let is_dup = {
+                let mut s = seen_stderr.lock().unwrap();
+                if s.contains(&line) {
+                    true
+                } else {
+                    s.insert(line.clone());
+                    if s.len() > 200 {
+                        s.clear();
+                    }
+                    false
+                }
+            };
+            if !is_dup {
+                let _ = app_clone.emit(
+                    "codex-stdout",
+                    CodexOutput {
+                        employee_id: eid.clone(),
+                        line,
+                    },
+                );
+            }
         }
     });
 
