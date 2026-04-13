@@ -24,7 +24,7 @@ import {
 import { Separator } from "@/components/ui/separator";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Trash2, Sparkles, Loader2, Play, Square, Eraser } from "lucide-react";
-import { aiSuggestAssignee, aiAnalyzeComplexity, aiGenerateComment, startCodex, stopCodex } from "@/lib/codex";
+import { aiSuggestAssignee, aiAnalyzeComplexity, aiGenerateComment, aiSplitSubtasks, startCodex, stopCodex } from "@/lib/codex";
 import { SubtaskList } from "./SubtaskList";
 import { CommentList } from "./CommentList";
 import { DeleteTaskDialog } from "./DeleteTaskDialog";
@@ -42,7 +42,7 @@ export function TaskDetailDialog({
   open,
   onOpenChange,
 }: TaskDetailDialogProps) {
-  const { updateTask, deleteTask, addComment, updateTaskStatus, fetchSubtasks } = useTaskStore();
+  const { updateTask, deleteTask, addComment, updateTaskStatus, fetchSubtasks, addSubtasks } = useTaskStore();
   const { employees, fetchEmployees, codexProcesses, updateEmployeeStatus, setCodexRunning, clearCodexOutput } = useEmployeeStore();
   const projects = useProjectStore((s) => s.projects);
   const projectRepoPath = projects.find((p) => p.id === task.project_id)?.repo_path;
@@ -203,6 +203,34 @@ export function TaskDetailDialog({
       await addComment(task.id, result, undefined, true);
     } catch (e) {
       console.error("AI comment failed:", e);
+    } finally {
+      setAiLoading(null);
+    }
+  };
+
+  const handleAiSplitSubtasks = async () => {
+    const taskTitle = title.trim();
+    const taskDescription = description.trim();
+
+    if (!taskTitle && !taskDescription) {
+      setAiResult("请先填写任务标题或描述，再执行 AI 拆分。");
+      return;
+    }
+
+    setAiLoading("subtasks");
+    setAiResult(null);
+    try {
+      const generatedSubtasks = await aiSplitSubtasks(taskTitle, taskDescription);
+      const { inserted, skipped } = await addSubtasks(task.id, generatedSubtasks);
+
+      if (inserted === 0) {
+        setAiResult(skipped > 0 ? "AI 已完成拆分，但结果与现有子任务重复，未新增内容。" : "AI 未生成可写入的子任务。");
+        return;
+      }
+
+      setAiResult(`AI 已写入 ${inserted} 个子任务${skipped > 0 ? `，跳过 ${skipped} 个重复项` : ""}。`);
+    } catch (e) {
+      setAiResult(`AI拆分子任务失败: ${e}`);
     } finally {
       setAiLoading(null);
     }
@@ -430,6 +458,18 @@ export function TaskDetailDialog({
                 <Sparkles className="h-3 w-3" />
               )}
               复杂度分析
+            </button>
+            <button
+              onClick={handleAiSplitSubtasks}
+              disabled={aiLoading !== null}
+              className="flex items-center gap-1 px-2 py-1 text-xs bg-primary/10 text-primary rounded hover:bg-primary/20 transition-colors disabled:opacity-50"
+            >
+              {aiLoading === "subtasks" ? (
+                <Loader2 className="h-3 w-3 animate-spin" />
+              ) : (
+                <Sparkles className="h-3 w-3" />
+              )}
+              AI拆分子任务
             </button>
             <button
               onClick={handleAiComment}

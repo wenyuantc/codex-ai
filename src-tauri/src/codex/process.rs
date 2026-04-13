@@ -5,6 +5,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime};
 
+use serde::Deserialize;
 use tauri::{AppHandle, Emitter, Manager, State};
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::{Child, Command};
@@ -16,6 +17,11 @@ use crate::db::models::{CodexExit, CodexOutput, CodexSession};
 const SUPPORTED_MODELS: &[&str] = &["gpt-5.4", "gpt-5.4-mini", "gpt-5.3-codex", "gpt-5.2"];
 const SUPPORTED_REASONING_EFFORTS: &[&str] = &["low", "medium", "high", "xhigh"];
 const SESSION_ID_PREFIX: &str = "session id:";
+
+#[derive(Debug, Deserialize)]
+struct AiSubtasksPayload {
+    subtasks: Vec<String>,
+}
 
 fn normalize_model(model: Option<&str>) -> &'static str {
     match model {
@@ -505,9 +511,96 @@ async fn run_ai_command(prompt: String) -> Result<String, String> {
     }
 }
 
+fn extract_markdown_code_blocks(raw: &str) -> Vec<String> {
+    let mut blocks = Vec::new();
+    let mut remaining = raw;
+
+    while let Some(start) = remaining.find("```") {
+        let after_start = &remaining[start + 3..];
+        let Some(end) = after_start.find("```") else {
+            break;
+        };
+
+        let block = after_start[..end].trim();
+        let block = block
+            .strip_prefix("json")
+            .or_else(|| block.strip_prefix("JSON"))
+            .map(str::trim)
+            .unwrap_or(block);
+
+        if !block.is_empty() {
+            blocks.push(block.to_string());
+        }
+
+        remaining = &after_start[end + 3..];
+    }
+
+    blocks
+}
+
+fn extract_balanced_json_segment(raw: &str, open: char, close: char) -> Option<String> {
+    let start = raw.find(open)?;
+    let mut depth = 0;
+
+    for (offset, ch) in raw[start..].char_indices() {
+        if ch == open {
+            depth += 1;
+        } else if ch == close {
+            depth -= 1;
+            if depth == 0 {
+                let end = start + offset + ch.len_utf8();
+                return Some(raw[start..end].to_string());
+            }
+        }
+    }
+
+    None
+}
+
+fn normalize_subtask_titles(items: Vec<String>) -> Vec<String> {
+    items.into_iter()
+        .map(|title| title.trim().to_string())
+        .filter(|title| !title.is_empty())
+        .collect()
+}
+
+fn parse_ai_subtasks_response(raw: &str) -> Result<Vec<String>, String> {
+    let trimmed = raw.trim();
+    let mut candidates = Vec::new();
+
+    if !trimmed.is_empty() {
+        candidates.push(trimmed.to_string());
+    }
+    candidates.extend(extract_markdown_code_blocks(trimmed));
+    if let Some(object) = extract_balanced_json_segment(trimmed, '{', '}') {
+        candidates.push(object);
+    }
+    if let Some(array) = extract_balanced_json_segment(trimmed, '[', ']') {
+        candidates.push(array);
+    }
+
+    for candidate in candidates {
+        if let Ok(payload) = serde_json::from_str::<AiSubtasksPayload>(&candidate) {
+            let subtasks = normalize_subtask_titles(payload.subtasks);
+            if !subtasks.is_empty() {
+                return Ok(subtasks);
+            }
+        }
+
+        if let Ok(payload) = serde_json::from_str::<Vec<String>>(&candidate) {
+            let subtasks = normalize_subtask_titles(payload);
+            if !subtasks.is_empty() {
+                return Ok(subtasks);
+            }
+        }
+    }
+
+    Err("AI response did not contain valid subtasks JSON".to_string())
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{compose_codex_prompt, extract_session_id_from_output};
+    use super::{compose_codex_prompt, extract_session_id_from_output, parse_ai_subtasks_response};
 
     #[test]
     fn extracts_session_id_from_stdout_line() {
@@ -539,6 +632,37 @@ mod tests {
             compose_codex_prompt("只执行任务", Some("   ")),
             "只执行任务"
         );
+    }
+
+    #[test]
+    fn parses_subtasks_from_json_object() {
+        let subtasks = parse_ai_subtasks_response(
+            r#"{"subtasks":["整理需求说明","拆分前端交互","补充后端接口"]}"#,
+        )
+        .expect("should parse subtasks");
+
+        assert_eq!(
+            subtasks,
+            vec!["整理需求说明", "拆分前端交互", "补充后端接口"]
+        );
+    }
+
+    #[test]
+    fn parses_subtasks_from_markdown_code_block() {
+        let subtasks = parse_ai_subtasks_response(
+            "下面是结果：\n```json\n{\"subtasks\":[\"梳理现状\",\"实现按钮\"]}\n```",
+        )
+        .expect("should parse fenced json");
+
+        assert_eq!(subtasks, vec!["梳理现状", "实现按钮"]);
+    }
+
+    #[test]
+    fn parses_subtasks_from_json_array() {
+        let subtasks = parse_ai_subtasks_response("[\"任务一\", \"任务二\"]")
+            .expect("should parse array");
+
+        assert_eq!(subtasks, vec!["任务一", "任务二"]);
     }
 }
 
@@ -574,4 +698,25 @@ pub async fn ai_generate_comment(
         task_title, task_description, context
     );
     run_ai_command(prompt).await
+}
+
+#[tauri::command]
+pub async fn ai_split_subtasks(
+    task_title: String,
+    task_description: String,
+) -> Result<Vec<String>, String> {
+    let prompt = format!(
+        "你是任务拆分助手。请根据任务标题和描述拆分 3 到 8 个可执行、可验证、粒度适中的子任务。\n\
+要求：\n\
+- 只返回 JSON，不要 Markdown，不要额外解释\n\
+- 返回格式必须是 {{\"subtasks\":[\"子任务1\",\"子任务2\"]}}\n\
+- 每个子任务一句话，使用中文，避免重复和空泛表述\n\
+- 如果描述信息有限，也基于现有信息给出合理拆分\n\n\
+任务标题：{}\n\
+任务描述：{}",
+        task_title.trim(),
+        task_description.trim()
+    );
+    let raw = run_ai_command(prompt).await?;
+    parse_ai_subtasks_response(&raw)
 }

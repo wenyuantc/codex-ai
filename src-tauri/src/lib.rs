@@ -35,6 +35,7 @@ pub fn run() {
             codex::ai_suggest_assignee,
             codex::ai_analyze_complexity,
             codex::ai_generate_comment,
+            codex::ai_split_subtasks,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

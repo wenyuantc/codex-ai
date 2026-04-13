@@ -86,3 +86,7 @@ export async function aiAnalyzeComplexity(taskDescription: string): Promise<stri
 export async function aiGenerateComment(taskTitle: string, taskDescription: string, context: string): Promise<string> {
   return invoke<string>("ai_generate_comment", { taskTitle, taskDescription, context });
 }
+
+export async function aiSplitSubtasks(taskTitle: string, taskDescription: string): Promise<string[]> {
+  return invoke<string[]>("ai_split_subtasks", { taskTitle, taskDescription });
+}

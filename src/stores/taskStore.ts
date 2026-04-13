@@ -4,6 +4,10 @@ import type { Task, Subtask, Comment, TaskStatus } from "@/lib/types";
 import { logActivity } from "@/lib/utils";
 import { onCodexSession, type CodexSession } from "@/lib/codex";
 
+function normalizeSubtaskTitle(title: string): string {
+  return title.trim().replace(/\s+/g, " ").toLocaleLowerCase();
+}
+
 interface TaskStore {
   tasks: Task[];
   subtasks: Record<string, Subtask[]>;
@@ -17,6 +21,7 @@ interface TaskStore {
   updateTask: (id: string, updates: Partial<Pick<Task, "title" | "description" | "priority" | "status" | "assignee_id" | "complexity" | "ai_suggestion" | "last_codex_session_id">>) => Promise<void>;
   deleteTask: (id: string) => Promise<void>;
   addSubtask: (taskId: string, title: string) => Promise<void>;
+  addSubtasks: (taskId: string, titles: string[]) => Promise<{ inserted: number; skipped: number }>;
   toggleSubtask: (subtaskId: string, status: string) => Promise<void>;
   deleteSubtask: (subtaskId: string) => Promise<void>;
   addComment: (taskId: string, content: string, employeeId?: string, isAiGenerated?: boolean) => Promise<void>;
@@ -125,6 +130,37 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
       [id, taskId, title, taskId]
     );
     await get().fetchSubtasks(taskId);
+  },
+
+  addSubtasks: async (taskId, titles) => {
+    await get().fetchSubtasks(taskId);
+
+    const currentSubtasks = get().subtasks[taskId] ?? [];
+    const existingTitles = new Set(currentSubtasks.map((subtask) => normalizeSubtaskTitle(subtask.title)));
+    let nextSortOrder = currentSubtasks.reduce((max, subtask) => Math.max(max, subtask.sort_order), 0);
+    let inserted = 0;
+    let skipped = 0;
+
+    for (const rawTitle of titles) {
+      const title = rawTitle.trim().replace(/\s+/g, " ");
+      const normalizedTitle = normalizeSubtaskTitle(title);
+
+      if (!normalizedTitle || existingTitles.has(normalizedTitle)) {
+        skipped += 1;
+        continue;
+      }
+
+      nextSortOrder += 1;
+      await execute(
+        "INSERT INTO subtasks (id, task_id, title, sort_order) VALUES ($1, $2, $3, $4)",
+        [crypto.randomUUID(), taskId, title, nextSortOrder]
+      );
+      existingTitles.add(normalizedTitle);
+      inserted += 1;
+    }
+
+    await get().fetchSubtasks(taskId);
+    return { inserted, skipped };
   },
 
   toggleSubtask: async (subtaskId, status) => {
