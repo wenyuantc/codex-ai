@@ -7,6 +7,8 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { RepoPathField } from "@/components/projects/RepoPathField";
 
 interface CreateProjectDialogProps {
   open: boolean;
@@ -44,6 +46,17 @@ export function CreateProjectDialog({ open, onOpenChange }: CreateProjectDialogP
     }
   };
 
+  const handleRepoPathSelected = (path: string) => {
+    if (name.trim()) return;
+
+    const normalized = path.replace(/[\\/]+$/, "");
+    const directoryName = normalized.split(/[\\/]/).filter(Boolean).pop();
+
+    if (directoryName) {
+      setName(directoryName);
+    }
+  };
+
   return (
     <Dialog open={open} onOpenChange={handleOpen}>
       <DialogContent className="max-w-md">
@@ -64,23 +77,19 @@ export function CreateProjectDialog({ open, onOpenChange }: CreateProjectDialogP
 
           <div>
             <label className="text-xs font-medium text-muted-foreground">描述</label>
-            <textarea
+            <Textarea
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               placeholder="项目描述（可选）"
-              className="w-full mt-1 text-sm border border-input rounded-md p-2 bg-background min-h-[60px] resize-y"
+              className="mt-1 min-h-[60px] resize-y"
             />
           </div>
 
-          <div>
-            <label className="text-xs font-medium text-muted-foreground">仓库路径</label>
-            <Input
-              value={repoPath}
-              onChange={(e) => setRepoPath(e.target.value)}
-              placeholder="/path/to/repo（可选）"
-              className="mt-1"
-            />
-          </div>
+          <RepoPathField
+            value={repoPath}
+            onChange={setRepoPath}
+            onDirectorySelected={handleRepoPathSelected}
+          />
 
           <div className="flex justify-end gap-2 pt-2">
             <button

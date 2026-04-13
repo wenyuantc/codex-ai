@@ -1,11 +1,12 @@
 import { create } from "zustand";
 import { select, execute } from "@/lib/database";
-import type { Employee } from "@/lib/types";
+import type { Employee, ReasoningEffort, CodexModelId } from "@/lib/types";
 import { onCodexOutput, onCodexExit, type CodexOutput } from "@/lib/codex";
 
 interface CodexProcessState {
   output: string[];
   running: boolean;
+  activeTaskId?: string | null;
 }
 
 interface EmployeeStore {
@@ -13,17 +14,25 @@ interface EmployeeStore {
   loading: boolean;
   codexProcesses: Record<string, CodexProcessState>;
   fetchEmployees: () => Promise<void>;
-  createEmployee: (data: { name: string; role: string; model?: string; specialization?: string; system_prompt?: string; project_id?: string }) => Promise<void>;
-  updateEmployee: (id: string, updates: Partial<Pick<Employee, "name" | "role" | "model" | "specialization" | "system_prompt" | "project_id" | "status">>) => Promise<void>;
+  createEmployee: (data: { name: string; role: string; model?: CodexModelId; reasoning_effort?: ReasoningEffort; specialization?: string; system_prompt?: string; project_id?: string }) => Promise<void>;
+  updateEmployee: (id: string, updates: Partial<Pick<Employee, "name" | "role" | "model" | "reasoning_effort" | "specialization" | "system_prompt" | "project_id" | "status">>) => Promise<void>;
   deleteEmployee: (id: string) => Promise<void>;
   updateEmployeeStatus: (id: string, status: string) => Promise<void>;
   addCodexOutput: (employeeId: string, line: string) => void;
-  setCodexRunning: (employeeId: string, running: boolean) => void;
+  setCodexRunning: (employeeId: string, running: boolean, activeTaskId?: string | null) => void;
   clearCodexOutput: (employeeId: string) => void;
   initCodexListeners: () => () => void;
 }
 
-let codexListenersActive = false;
+let codexListenerRefCount = 0;
+let codexListenersInitPromise: Promise<void> | null = null;
+let codexListenersCleanup: (() => void) | null = null;
+
+function releaseCodexListeners() {
+  codexListenersCleanup?.();
+  codexListenersCleanup = null;
+  codexListenersInitPromise = null;
+}
 
 export const useEmployeeStore = create<EmployeeStore>((set, get) => ({
   employees: [],
@@ -44,8 +53,8 @@ export const useEmployeeStore = create<EmployeeStore>((set, get) => ({
   createEmployee: async (data) => {
     const id = crypto.randomUUID();
     await execute(
-      "INSERT INTO employees (id, name, role, model, specialization, system_prompt, project_id) VALUES ($1, $2, $3, $4, $5, $6, $7)",
-      [id, data.name, data.role, data.model ?? "gpt-4", data.specialization ?? null, data.system_prompt ?? null, data.project_id ?? null]
+      "INSERT INTO employees (id, name, role, model, reasoning_effort, specialization, system_prompt, project_id) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
+      [id, data.name, data.role, data.model ?? "gpt-5.4", data.reasoning_effort ?? "high", data.specialization ?? null, data.system_prompt ?? null, data.project_id ?? null]
     );
     await get().fetchEmployees();
   },
@@ -87,19 +96,22 @@ export const useEmployeeStore = create<EmployeeStore>((set, get) => ({
         [employeeId]: {
           ...state.codexProcesses[employeeId],
           output: [...(state.codexProcesses[employeeId]?.output ?? []).slice(-199), line],
-          running: true,
+          running: state.codexProcesses[employeeId]?.running ?? false,
         },
       },
     }));
   },
 
-  setCodexRunning: (employeeId, running) => {
+  setCodexRunning: (employeeId, running, activeTaskId) => {
     set((state) => ({
       codexProcesses: {
         ...state.codexProcesses,
         [employeeId]: {
           ...state.codexProcesses[employeeId],
           running,
+          activeTaskId: running
+            ? activeTaskId ?? state.codexProcesses[employeeId]?.activeTaskId ?? null
+            : null,
         },
       },
     }));
@@ -118,24 +130,46 @@ export const useEmployeeStore = create<EmployeeStore>((set, get) => ({
   },
 
   initCodexListeners: () => {
-    if (codexListenersActive) return () => {};
-    codexListenersActive = true;
+    codexListenerRefCount += 1;
 
-    const unlisteners: (() => void)[] = [];
+    if (!codexListenersInitPromise && !codexListenersCleanup) {
+      codexListenersInitPromise = Promise.all([
+        onCodexOutput((output: CodexOutput) => {
+          get().addCodexOutput(output.employee_id, output.line);
+        }),
+        onCodexExit((exit) => {
+          get().setCodexRunning(exit.employee_id, false, null);
+          get().addCodexOutput(exit.employee_id, `[EXIT] Code: ${exit.code ?? "unknown"}`);
+          void get().updateEmployeeStatus(exit.employee_id, "offline");
+        }),
+      ])
+        .then((unlisteners) => {
+          codexListenersCleanup = () => {
+            unlisteners.forEach((unlisten) => unlisten());
+          };
+          codexListenersInitPromise = null;
 
-      onCodexOutput((output: CodexOutput) => {
-        get().addCodexOutput(output.employee_id, output.line);
-      }).then((unlisten) => unlisteners.push(unlisten));
+          if (codexListenerRefCount === 0) {
+            releaseCodexListeners();
+          }
+        })
+        .catch((error) => {
+          console.error("Failed to initialize Codex listeners:", error);
+          codexListenersInitPromise = null;
+          codexListenersCleanup = null;
+        });
+    }
 
-      onCodexExit((exit) => {
-      get().setCodexRunning(exit.employee_id, false);
-      get().addCodexOutput(exit.employee_id, `[EXIT] Code: ${exit.code ?? "unknown"}`);
-      get().updateEmployeeStatus(exit.employee_id, "offline");
-    }).then((unlisten) => unlisteners.push(unlisten));
+    let released = false;
 
     return () => {
-      unlisteners.forEach((unlisten) => unlisten());
-      codexListenersActive = false;
+      if (released) return;
+      released = true;
+      codexListenerRefCount = Math.max(0, codexListenerRefCount - 1);
+
+      if (codexListenerRefCount === 0 && codexListenersCleanup) {
+        releaseCodexListeners();
+      }
     };
   },
 }));

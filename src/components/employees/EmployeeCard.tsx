@@ -1,12 +1,13 @@
-import { useState } from "react";
-import type { Employee } from "@/lib/types";
+import { useEffect, useState } from "react";
+import { CODEX_MODEL_OPTIONS, REASONING_EFFORT_OPTIONS, type Employee } from "@/lib/types";
 import { useEmployeeStore } from "@/stores/employeeStore";
 import { EmployeeStatusBadge } from "./EmployeeStatusBadge";
+import { EditEmployeeDialog } from "./EditEmployeeDialog";
 import { CodexControls } from "@/components/codex/CodexControls";
 import { CodexTerminal } from "@/components/codex/CodexTerminal";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Progress } from "@/components/ui/progress";
-import { Trash2, Terminal, ChevronDown } from "lucide-react";
+import { Trash2, Terminal, ChevronDown, Pencil } from "lucide-react";
 
 interface EmployeeCardProps {
   employee: Employee;
@@ -19,10 +20,18 @@ export function EmployeeCard({ employee, taskCount = 0 }: EmployeeCardProps) {
   const deleteEmployee = useEmployeeStore((s) => s.deleteEmployee);
   const updateEmployeeStatus = useEmployeeStore((s) => s.updateEmployeeStatus);
   const stopCodex = useEmployeeStore((s) => s.clearCodexOutput);
+  const isRunning = useEmployeeStore((s) => s.codexProcesses[employee.id]?.running ?? false);
   const [showTerminal, setShowTerminal] = useState(false);
+  const [showEdit, setShowEdit] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
 
   const workload = Math.min((taskCount / MAX_TASKS) * 100, 100);
+
+  useEffect(() => {
+    if (isRunning) {
+      setShowTerminal(true);
+    }
+  }, [isRunning]);
 
   const handleDelete = async () => {
     if (!confirmDelete) {
@@ -41,6 +50,8 @@ export function EmployeeCard({ employee, taskCount = 0 }: EmployeeCardProps) {
     tester: "测试员",
     coordinator: "协调员",
   };
+  const modelLabel = CODEX_MODEL_OPTIONS.find((option) => option.value === employee.model)?.label ?? employee.model;
+  const reasoningLabel = REASONING_EFFORT_OPTIONS.find((option) => option.value === employee.reasoning_effort)?.label ?? employee.reasoning_effort;
 
   return (
     <div className="bg-card rounded-lg border border-border overflow-hidden">
@@ -55,6 +66,9 @@ export function EmployeeCard({ employee, taskCount = 0 }: EmployeeCardProps) {
             <div className="text-xs text-muted-foreground">
               {roleLabels[employee.role] ?? employee.role}
               {employee.specialization && ` · ${employee.specialization}`}
+            </div>
+            <div className="text-[11px] text-muted-foreground/80 truncate">
+              {modelLabel} · 推理{reasoningLabel}
             </div>
           </div>
           <EmployeeStatusBadge status={employee.status} />
@@ -74,7 +88,13 @@ export function EmployeeCard({ employee, taskCount = 0 }: EmployeeCardProps) {
 
       {/* Controls */}
       <div className="px-4 pb-3">
-        <CodexControls employeeId={employee.id} employeeStatus={employee.status} />
+        <CodexControls
+          employeeId={employee.id}
+          employeeStatus={employee.status}
+          model={employee.model}
+          reasoningEffort={employee.reasoning_effort}
+          systemPrompt={employee.system_prompt}
+        />
       </div>
 
       {/* Terminal toggle */}
@@ -91,8 +111,15 @@ export function EmployeeCard({ employee, taskCount = 0 }: EmployeeCardProps) {
         </CollapsibleContent>
       </Collapsible>
 
-      {/* Delete button */}
-      <div className="px-4 pb-3 flex justify-end">
+      {/* Actions */}
+      <div className="px-4 pb-3 flex justify-end gap-2">
+        <button
+          onClick={() => setShowEdit(true)}
+          className="p-1 text-muted-foreground transition-colors hover:text-foreground"
+          title="编辑员工"
+        >
+          <Pencil className="h-3.5 w-3.5" />
+        </button>
         <button
           onClick={handleDelete}
           className={`p-1 transition-colors ${
@@ -105,6 +132,12 @@ export function EmployeeCard({ employee, taskCount = 0 }: EmployeeCardProps) {
           <Trash2 className="h-3.5 w-3.5" />
         </button>
       </div>
+
+      <EditEmployeeDialog
+        open={showEdit}
+        onOpenChange={setShowEdit}
+        employee={employee}
+      />
     </div>
   );
 }

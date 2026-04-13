@@ -6,7 +6,7 @@ interface ProjectCardProps {
   project: Project;
   taskCount?: number;
   onEdit: (project: Project) => void;
-  onDelete: (id: string) => void;
+  onDelete: (project: Project) => void;
 }
 
 export function ProjectCard({ project, taskCount, onEdit, onDelete }: ProjectCardProps) {
@@ -33,7 +33,7 @@ export function ProjectCard({ project, taskCount, onEdit, onDelete }: ProjectCar
             <Edit2 className="h-3.5 w-3.5" />
           </button>
           <button
-            onClick={() => onDelete(project.id)}
+            onClick={() => onDelete(project)}
             className="p-1 text-muted-foreground hover:text-destructive transition-colors"
             title="删除项目"
           >

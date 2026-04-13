@@ -2,15 +2,22 @@ import { Outlet } from "react-router-dom";
 import { Sidebar } from "./Sidebar";
 import { Header } from "./Header";
 import { useEmployeeStore } from "@/stores/employeeStore";
+import { useTaskStore } from "@/stores/taskStore";
 import { useEffect } from "react";
 
 export function MainLayout() {
   const initCodexListeners = useEmployeeStore((s) => s.initCodexListeners);
+  const initCodexSessionListeners = useTaskStore((s) => s.initCodexSessionListeners);
 
   useEffect(() => {
     const cleanup = initCodexListeners();
     return cleanup;
   }, [initCodexListeners]);
+
+  useEffect(() => {
+    const cleanup = initCodexSessionListeners();
+    return cleanup;
+  }, [initCodexSessionListeners]);
 
   // Keyboard shortcuts
   useEffect(() => {

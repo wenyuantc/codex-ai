@@ -55,7 +55,14 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
   },
 
   deleteProject: async (id) => {
+    await execute("DELETE FROM activity_logs WHERE project_id = $1 OR task_id IN (SELECT id FROM tasks WHERE project_id = $1)", [id]);
+    await execute("UPDATE employees SET project_id = NULL WHERE project_id = $1", [id]);
+    await execute("DELETE FROM project_employees WHERE project_id = $1", [id]);
+    await execute("DELETE FROM tasks WHERE project_id = $1", [id]);
     await execute("DELETE FROM projects WHERE id = $1", [id]);
+    set((state) => ({
+      currentProject: state.currentProject?.id === id ? null : state.currentProject,
+    }));
     await get().fetchProjects();
   },
 }));

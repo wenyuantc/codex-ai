@@ -21,6 +21,7 @@ pub struct Employee {
     pub name: String,
     pub role: String,
     pub model: String,
+    pub reasoning_effort: String,
     pub status: String,
     pub specialization: Option<String>,
     pub system_prompt: Option<String>,
@@ -40,6 +41,7 @@ pub struct Task {
     pub assignee_id: Option<String>,
     pub complexity: Option<i32>,
     pub ai_suggestion: Option<String>,
+    pub last_codex_session_id: Option<String>,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -118,6 +120,7 @@ pub struct CreateEmployee {
     pub name: String,
     pub role: String,
     pub model: Option<String>,
+    pub reasoning_effort: Option<String>,
     pub specialization: Option<String>,
     pub system_prompt: Option<String>,
     pub project_id: Option<String>,
@@ -128,6 +131,7 @@ pub struct UpdateEmployee {
     pub name: Option<String>,
     pub role: Option<String>,
     pub model: Option<String>,
+    pub reasoning_effort: Option<String>,
     pub status: Option<String>,
     pub specialization: Option<String>,
     pub system_prompt: Option<String>,
@@ -152,6 +156,7 @@ pub struct UpdateTask {
     pub assignee_id: Option<String>,
     pub complexity: Option<i32>,
     pub ai_suggestion: Option<String>,
+    pub last_codex_session_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -180,4 +185,11 @@ pub struct CodexOutput {
 pub struct CodexExit {
     pub employee_id: String,
     pub code: Option<i32>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CodexSession {
+    pub employee_id: String,
+    pub task_id: Option<String>,
+    pub session_id: String,
 }

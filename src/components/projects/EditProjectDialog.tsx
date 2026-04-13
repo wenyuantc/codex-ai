@@ -8,6 +8,16 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
+import { RepoPathField } from "@/components/projects/RepoPathField";
+import { getStatusLabel } from "@/lib/utils";
 
 interface EditProjectDialogProps {
   open: boolean;
@@ -68,34 +78,32 @@ export function EditProjectDialog({ open, onOpenChange, project }: EditProjectDi
 
           <div>
             <label className="text-xs font-medium text-muted-foreground">描述</label>
-            <textarea
+            <Textarea
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               placeholder="项目描述（可选）"
-              className="w-full mt-1 text-sm border border-input rounded-md p-2 bg-background min-h-[60px] resize-y"
+              className="mt-1 min-h-[60px] resize-y"
             />
           </div>
 
-          <div>
-            <label className="text-xs font-medium text-muted-foreground">仓库路径</label>
-            <Input
-              value={repoPath}
-              onChange={(e) => setRepoPath(e.target.value)}
-              placeholder="/path/to/repo（可选）"
-              className="mt-1"
-            />
-          </div>
+          <RepoPathField value={repoPath} onChange={setRepoPath} />
 
           <div>
             <label className="text-xs font-medium text-muted-foreground">状态</label>
-            <select
+            <Select
               value={status}
-              onChange={(e) => setStatus(e.target.value)}
-              className="w-full mt-1 text-sm border border-input rounded-md px-2 py-1.5 bg-background"
+              onValueChange={(value) => setStatus(value ?? "active")}
             >
-              <option value="active">活跃</option>
-              <option value="archived">归档</option>
-            </select>
+              <SelectTrigger className="mt-1">
+                <SelectValue placeholder="选择状态">
+                  {(value) => (typeof value === "string" ? getStatusLabel(value) : "选择状态")}
+                </SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="active">活跃</SelectItem>
+                <SelectItem value="archived">归档</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
 
           <div className="flex justify-end gap-2 pt-2">

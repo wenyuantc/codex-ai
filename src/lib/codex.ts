@@ -11,16 +11,47 @@ export interface CodexExit {
   code: number | null;
 }
 
-export async function startCodex(employeeId: string, taskDescription: string, workingDir?: string): Promise<void> {
-  await invoke("start_codex", { employeeId, taskDescription, workingDir: workingDir ?? null });
+export interface CodexSession {
+  employee_id: string;
+  task_id: string | null;
+  session_id: string;
+}
+
+interface StartCodexOptions {
+  model?: string;
+  reasoningEffort?: string;
+  systemPrompt?: string | null;
+  workingDir?: string;
+  taskId?: string;
+  resumeSessionId?: string;
+}
+
+export async function startCodex(employeeId: string, taskDescription: string, options: StartCodexOptions = {}): Promise<void> {
+  await invoke("start_codex", {
+    employeeId,
+    taskDescription,
+    model: options.model ?? null,
+    reasoningEffort: options.reasoningEffort ?? null,
+    systemPrompt: options.systemPrompt ?? null,
+    workingDir: options.workingDir ?? null,
+    taskId: options.taskId ?? null,
+    resumeSessionId: options.resumeSessionId ?? null,
+  });
 }
 
 export async function stopCodex(employeeId: string): Promise<void> {
   await invoke("stop_codex", { employeeId });
 }
 
-export async function restartCodex(employeeId: string, taskDescription: string, workingDir?: string): Promise<void> {
-  await invoke("restart_codex", { employeeId, taskDescription, workingDir: workingDir ?? null });
+export async function restartCodex(employeeId: string, taskDescription: string, options: StartCodexOptions = {}): Promise<void> {
+  await invoke("restart_codex", {
+    employeeId,
+    taskDescription,
+    model: options.model ?? null,
+    reasoningEffort: options.reasoningEffort ?? null,
+    systemPrompt: options.systemPrompt ?? null,
+    workingDir: options.workingDir ?? null,
+  });
 }
 
 export async function sendCodexInput(employeeId: string, input: string): Promise<void> {
@@ -37,6 +68,10 @@ export function onCodexError(callback: (output: CodexOutput) => void) {
 
 export function onCodexExit(callback: (exit: CodexExit) => void) {
   return listen<CodexExit>("codex-exit", (event) => callback(event.payload));
+}
+
+export function onCodexSession(callback: (session: CodexSession) => void) {
+  return listen<CodexSession>("codex-session", (event) => callback(event.payload));
 }
 
 // AI-powered features

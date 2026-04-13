@@ -5,7 +5,6 @@ import {
 } from "@dnd-kit/sortable";
 import type { Task, TaskStatus } from "@/lib/types";
 import { TaskCard } from "./TaskCard";
-import { Plus } from "lucide-react";
 
 interface KanbanColumnProps {
   status: TaskStatus;
@@ -55,13 +54,6 @@ export function KanbanColumn({
           )}
         </div>
       </SortableContext>
-
-      <div className="px-2 pb-2">
-        <button className="w-full flex items-center justify-center gap-1 py-1.5 text-xs text-muted-foreground hover:text-foreground hover:bg-accent rounded-md transition-colors">
-          <Plus className="h-3 w-3" />
-          添加任务
-        </button>
-      </div>
     </div>
   );
 }

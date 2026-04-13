@@ -1,12 +1,15 @@
-import { useState } from "react";
-import { useEmployeeStore } from "@/stores/employeeStore";
-import { useProjectStore } from "@/stores/projectStore";
+import { useEffect, useState } from "react";
 import {
   CODEX_MODEL_OPTIONS,
   REASONING_EFFORT_OPTIONS,
+  normalizeCodexModel,
+  normalizeReasoningEffort,
   type CodexModelId,
+  type Employee,
   type ReasoningEffort,
 } from "@/lib/types";
+import { useEmployeeStore } from "@/stores/employeeStore";
+import { useProjectStore } from "@/stores/projectStore";
 import {
   Dialog,
   DialogContent,
@@ -31,13 +34,14 @@ const EMPLOYEE_ROLE_OPTIONS = [
 
 const NO_PROJECT_VALUE = "__no_project__";
 
-interface CreateEmployeeDialogProps {
+interface EditEmployeeDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  employee: Employee | null;
 }
 
-export function CreateEmployeeDialog({ open, onOpenChange }: CreateEmployeeDialogProps) {
-  const { createEmployee } = useEmployeeStore();
+export function EditEmployeeDialog({ open, onOpenChange, employee }: EditEmployeeDialogProps) {
+  const { updateEmployee } = useEmployeeStore();
   const { projects, fetchProjects } = useProjectStore();
   const [name, setName] = useState("");
   const [role, setRole] = useState("developer");
@@ -48,44 +52,44 @@ export function CreateEmployeeDialog({ open, onOpenChange }: CreateEmployeeDialo
   const [projectId, setProjectId] = useState("");
   const [saving, setSaving] = useState(false);
 
-  const handleOpen = (isOpen: boolean) => {
-    if (isOpen) {
-      fetchProjects();
-      setName("");
-      setRole("developer");
-      setModel("gpt-5.4");
-      setReasoningEffort("high");
-      setSpecialization("");
-      setSystemPrompt("");
-      setProjectId("");
-    }
-    onOpenChange(isOpen);
-  };
+  useEffect(() => {
+    if (!open || !employee) return;
 
-  const handleCreate = async () => {
-    if (!name.trim()) return;
+    fetchProjects();
+    setName(employee.name);
+    setRole(employee.role);
+    setModel(normalizeCodexModel(employee.model));
+    setReasoningEffort(normalizeReasoningEffort(employee.reasoning_effort));
+    setSpecialization(employee.specialization ?? "");
+    setSystemPrompt(employee.system_prompt ?? "");
+    setProjectId(employee.project_id ?? "");
+  }, [employee, fetchProjects, open]);
+
+  const handleSave = async () => {
+    if (!employee || !name.trim()) return;
+
     setSaving(true);
     try {
-      await createEmployee({
+      await updateEmployee(employee.id, {
         name: name.trim(),
         role,
         model,
         reasoning_effort: reasoningEffort,
-        specialization: specialization.trim() || undefined,
-        system_prompt: systemPrompt.trim() || undefined,
-        project_id: projectId || undefined,
+        specialization: specialization.trim() || null,
+        system_prompt: systemPrompt.trim() || null,
+        project_id: projectId || null,
       });
-      handleOpen(false);
+      onOpenChange(false);
     } finally {
       setSaving(false);
     }
   };
 
   return (
-    <Dialog open={open} onOpenChange={handleOpen}>
+    <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-md">
         <DialogHeader>
-          <DialogTitle>添加员工</DialogTitle>
+          <DialogTitle>编辑员工</DialogTitle>
         </DialogHeader>
 
         <div className="space-y-3">
@@ -240,17 +244,17 @@ export function CreateEmployeeDialog({ open, onOpenChange }: CreateEmployeeDialo
 
           <div className="flex justify-end gap-2 pt-2">
             <button
-              onClick={() => handleOpen(false)}
+              onClick={() => onOpenChange(false)}
               className="px-3 py-1.5 text-sm border border-input rounded-md hover:bg-accent"
             >
               取消
             </button>
             <button
-              onClick={handleCreate}
-              disabled={!name.trim() || saving}
+              onClick={handleSave}
+              disabled={!name.trim() || !employee || saving}
               className="px-3 py-1.5 text-sm bg-primary text-primary-foreground rounded-md hover:bg-primary/90 disabled:opacity-50"
             >
-              {saving ? "创建中..." : "创建"}
+              {saving ? "保存中..." : "保存"}
             </button>
           </div>
         </div>

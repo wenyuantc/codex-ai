@@ -10,6 +10,16 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+
+const UNASSIGNED_VALUE = "__unassigned__";
 
 interface CreateTaskDialogProps {
   open: boolean;
@@ -87,11 +97,11 @@ export function CreateTaskDialog({
             <label className="text-xs font-medium text-muted-foreground">
               描述
             </label>
-            <textarea
+            <Textarea
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               placeholder="任务描述（可选）"
-              className="w-full mt-1 text-sm border border-input rounded-md p-2 bg-background min-h-[60px] resize-y"
+              className="mt-1 min-h-[60px] resize-y"
             />
           </div>
 
@@ -100,35 +110,54 @@ export function CreateTaskDialog({
               <label className="text-xs font-medium text-muted-foreground">
                 项目 *
               </label>
-              <select
-                value={selectedProjectId}
-                onChange={(e) => setSelectedProjectId(e.target.value)}
-                className="w-full mt-1 text-sm border border-input rounded-md px-2 py-1.5 bg-background"
+              <Select
+                value={selectedProjectId || null}
+                onValueChange={(value) => setSelectedProjectId(value ?? "")}
               >
-                <option value="">选择项目</option>
-                {projects.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.name}
-                  </option>
-                ))}
-              </select>
+                <SelectTrigger className="mt-1 bg-background">
+                  <SelectValue placeholder="选择项目">
+                    {(value) =>
+                      typeof value === "string"
+                        ? projects.find((project) => project.id === value)?.name ?? "选择项目"
+                        : "选择项目"
+                    }
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                  {projects.map((project) => (
+                    <SelectItem key={project.id} value={project.id}>
+                      {project.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
 
             <div>
               <label className="text-xs font-medium text-muted-foreground">
                 优先级
               </label>
-              <select
+              <Select
                 value={priority}
-                onChange={(e) => setPriority(e.target.value)}
-                className="w-full mt-1 text-sm border border-input rounded-md px-2 py-1.5 bg-background"
+                onValueChange={(value) => setPriority(value ?? "medium")}
               >
-                {PRIORITIES.map((p) => (
-                  <option key={p.value} value={p.value}>
-                    {p.label}
-                  </option>
-                ))}
-              </select>
+                <SelectTrigger className="mt-1 bg-background">
+                  <SelectValue placeholder="选择优先级">
+                    {(value) =>
+                      typeof value === "string"
+                        ? PRIORITIES.find((item) => item.value === value)?.label ?? "选择优先级"
+                        : "选择优先级"
+                    }
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                  {PRIORITIES.map((item) => (
+                    <SelectItem key={item.value} value={item.value}>
+                      {item.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
           </div>
 
@@ -136,18 +165,33 @@ export function CreateTaskDialog({
             <label className="text-xs font-medium text-muted-foreground">
               指派给
             </label>
-            <select
-              value={assigneeId}
-              onChange={(e) => setAssigneeId(e.target.value)}
-              className="w-full mt-1 text-sm border border-input rounded-md px-2 py-1.5 bg-background"
+            <Select
+              value={assigneeId || UNASSIGNED_VALUE}
+              onValueChange={(value) => {
+                setAssigneeId(!value || value === UNASSIGNED_VALUE ? "" : value);
+              }}
             >
-              <option value="">未指派</option>
-              {employees.map((emp) => (
-                <option key={emp.id} value={emp.id}>
-                  {emp.name} ({emp.role})
-                </option>
-              ))}
-            </select>
+              <SelectTrigger className="mt-1 bg-background">
+                <SelectValue>
+                  {(value) => {
+                    if (!value || value === UNASSIGNED_VALUE) {
+                      return "未指派";
+                    }
+
+                    const employee = employees.find((emp) => emp.id === value);
+                    return employee ? `${employee.name} (${employee.role})` : "未指派";
+                  }}
+                </SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={UNASSIGNED_VALUE}>未指派</SelectItem>
+                {employees.map((emp) => (
+                  <SelectItem key={emp.id} value={emp.id}>
+                    {emp.name} ({emp.role})
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
 
           <div className="flex justify-end gap-2 pt-2">

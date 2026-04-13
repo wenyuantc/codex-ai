@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useParams, Link } from "react-router-dom";
+import { useParams, Link, useNavigate } from "react-router-dom";
 import { useProjectStore } from "@/stores/projectStore";
 import { useTaskStore } from "@/stores/taskStore";
 import { useEmployeeStore } from "@/stores/employeeStore";
@@ -8,28 +8,21 @@ import type { Employee } from "@/lib/types";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+import { EditProjectDialog } from "@/components/projects/EditProjectDialog";
+import { DeleteProjectDialog } from "@/components/projects/DeleteProjectDialog";
 import { ArrowLeft, Edit2, Trash2 } from "lucide-react";
 import { getStatusLabel, getStatusColor, getPriorityLabel, formatDate } from "@/lib/utils";
 
 export function ProjectDetailPage() {
   const { id } = useParams<{ id: string }>();
-  const { projects, updateProject, deleteProject } = useProjectStore();
+  const navigate = useNavigate();
+  const { projects, deleteProject } = useProjectStore();
   const { tasks, fetchTasks } = useTaskStore();
   const { fetchEmployees } = useEmployeeStore();
   const [projectEmployees, setProjectEmployees] = useState<Employee[]>([]);
   const [showEdit, setShowEdit] = useState(false);
-  const [editName, setEditName] = useState("");
-  const [editDesc, setEditDesc] = useState("");
-  const [editRepoPath, setEditRepoPath] = useState("");
-  const [editStatus, setEditStatus] = useState("active");
-  const [saving, setSaving] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   const project = projects.find((p) => p.id === id);
 
@@ -55,15 +48,6 @@ export function ProjectDetailPage() {
     }
   };
 
-  useEffect(() => {
-    if (project) {
-      setEditName(project.name);
-      setEditDesc(project.description ?? "");
-      setEditRepoPath(project.repo_path ?? "");
-      setEditStatus(project.status);
-    }
-  }, [project]);
-
   if (!project) {
     return (
       <div className="text-center py-12">
@@ -75,24 +59,15 @@ export function ProjectDetailPage() {
     );
   }
 
-  const handleEdit = async () => {
-    if (!editName.trim()) return;
-    setSaving(true);
-    try {
-      await updateProject(project.id, {
-        name: editName.trim(),
-        description: editDesc.trim() || null,
-        repo_path: editRepoPath.trim() || null,
-        status: editStatus,
-      });
-      setShowEdit(false);
-    } finally {
-      setSaving(false);
-    }
-  };
-
   const handleDelete = async () => {
-    await deleteProject(project.id);
+    setDeleting(true);
+    try {
+      await deleteProject(project.id);
+      setShowDeleteConfirm(false);
+      navigate("/projects");
+    } finally {
+      setDeleting(false);
+    }
   };
 
   const tasksByStatus = {
@@ -125,7 +100,7 @@ export function ProjectDetailPage() {
           <Edit2 className="h-3.5 w-3.5 mr-1" />
           编辑
         </Button>
-        <Button variant="destructive" size="sm" onClick={handleDelete}>
+        <Button variant="destructive" size="sm" onClick={() => setShowDeleteConfirm(true)}>
           <Trash2 className="h-3.5 w-3.5 mr-1" />
           删除
         </Button>
@@ -193,60 +168,17 @@ export function ProjectDetailPage() {
         )}
       </Card>
 
-      {/* Edit Dialog */}
-      <Dialog open={showEdit} onOpenChange={setShowEdit}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>编辑项目</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-3">
-            <div>
-              <label className="text-xs font-medium text-muted-foreground">名称</label>
-              <Input
-                value={editName}
-                onChange={(e) => setEditName(e.target.value)}
-                className="mt-1"
-              />
-            </div>
-            <div>
-              <label className="text-xs font-medium text-muted-foreground">描述</label>
-              <textarea
-                value={editDesc}
-                onChange={(e) => setEditDesc(e.target.value)}
-                className="w-full mt-1 text-sm border border-input rounded-md p-2 bg-background min-h-[60px] resize-y"
-              />
-            </div>
-            <div>
-              <label className="text-xs font-medium text-muted-foreground">仓库路径</label>
-              <Input
-                value={editRepoPath}
-                onChange={(e) => setEditRepoPath(e.target.value)}
-                placeholder="/path/to/repo（可选）"
-                className="mt-1"
-              />
-            </div>
-            <div>
-              <label className="text-xs font-medium text-muted-foreground">状态</label>
-              <select
-                value={editStatus}
-                onChange={(e) => setEditStatus(e.target.value)}
-                className="w-full mt-1 text-sm border border-input rounded-md px-2 py-1.5 bg-background"
-              >
-                <option value="active">活跃</option>
-                <option value="archived">归档</option>
-              </select>
-            </div>
-            <div className="flex justify-end gap-2 pt-2">
-              <Button variant="outline" onClick={() => setShowEdit(false)}>
-                取消
-              </Button>
-              <Button onClick={handleEdit} disabled={!editName.trim() || saving}>
-                {saving ? "保存中..." : "保存"}
-              </Button>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
+      <EditProjectDialog open={showEdit} onOpenChange={setShowEdit} project={project} />
+
+      <DeleteProjectDialog
+        open={showDeleteConfirm}
+        onOpenChange={(open) => {
+          if (!open && !deleting) setShowDeleteConfirm(false);
+        }}
+        project={project}
+        deleting={deleting}
+        onConfirm={handleDelete}
+      />
     </div>
   );
 }

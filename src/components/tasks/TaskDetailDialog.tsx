@@ -7,16 +7,29 @@ import { useProjectStore } from "@/stores/projectStore";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { buildTaskExecutionPrompt } from "@/lib/taskPrompt";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Trash2, Sparkles, Loader2, Play, Square, Eraser } from "lucide-react";
 import { aiSuggestAssignee, aiAnalyzeComplexity, aiGenerateComment, startCodex, stopCodex } from "@/lib/codex";
 import { SubtaskList } from "./SubtaskList";
 import { CommentList } from "./CommentList";
+import { DeleteTaskDialog } from "./DeleteTaskDialog";
+
+const UNASSIGNED_VALUE = "__unassigned__";
 
 interface TaskDetailDialogProps {
   task: Task;
@@ -29,8 +42,8 @@ export function TaskDetailDialog({
   open,
   onOpenChange,
 }: TaskDetailDialogProps) {
-  const { updateTask, deleteTask, addComment, updateTaskStatus } = useTaskStore();
-  const { employees, fetchEmployees, codexProcesses, updateEmployeeStatus, clearCodexOutput } = useEmployeeStore();
+  const { updateTask, deleteTask, addComment, updateTaskStatus, fetchSubtasks } = useTaskStore();
+  const { employees, fetchEmployees, codexProcesses, updateEmployeeStatus, setCodexRunning, clearCodexOutput } = useEmployeeStore();
   const projects = useProjectStore((s) => s.projects);
   const projectRepoPath = projects.find((p) => p.id === task.project_id)?.repo_path;
   const [title, setTitle] = useState(task.title);
@@ -41,10 +54,13 @@ export function TaskDetailDialog({
   const [aiLoading, setAiLoading] = useState<string | null>(null);
   const [aiResult, setAiResult] = useState<string | null>(null);
   const [codexLoading, setCodexLoading] = useState(false);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [deletingTask, setDeletingTask] = useState(false);
   const terminalRef = useRef<HTMLDivElement>(null);
+  const assignee = assigneeId ? employees.find((employee) => employee.id === assigneeId) : undefined;
 
   const codexProcess = assigneeId ? codexProcesses[assigneeId] : undefined;
-  const isRunning = codexProcess?.running ?? false;
+  const isRunning = (codexProcess?.running ?? false) && codexProcess?.activeTaskId === task.id;
   const output = codexProcess?.output ?? [];
 
   useEffect(() => {
@@ -58,6 +74,12 @@ export function TaskDetailDialog({
       setAiResult(null);
     }
   }, [open, task]);
+
+  useEffect(() => {
+    if (!open) {
+      setDeleteDialogOpen(false);
+    }
+  }, [open]);
 
   useEffect(() => {
     terminalRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -78,8 +100,16 @@ export function TaskDetailDialog({
   };
 
   const handleDelete = async () => {
-    await deleteTask(task.id);
-    onOpenChange(false);
+    setDeletingTask(true);
+    try {
+      await deleteTask(task.id);
+      setDeleteDialogOpen(false);
+      onOpenChange(false);
+    } catch (error) {
+      console.error("Failed to delete task:", error);
+    } finally {
+      setDeletingTask(false);
+    }
   };
 
   const handleRunCodex = async () => {
@@ -89,10 +119,23 @@ export function TaskDetailDialog({
       await updateEmployeeStatus(assigneeId, "busy");
       await updateTaskStatus(task.id, "in_progress");
       setStatus("in_progress");
-      const desc = title + (description ? `\n${description}` : "");
-      await startCodex(assigneeId, desc, projectRepoPath ?? undefined);
+      setCodexRunning(assigneeId, true, task.id);
+      await fetchSubtasks(task.id);
+      const desc = buildTaskExecutionPrompt({
+        title,
+        description,
+        subtasks: useTaskStore.getState().subtasks[task.id] ?? [],
+      });
+      await startCodex(assigneeId, desc, {
+        model: assignee?.model,
+        reasoningEffort: assignee?.reasoning_effort,
+        systemPrompt: assignee?.system_prompt,
+        workingDir: projectRepoPath ?? undefined,
+        taskId: task.id,
+      });
     } catch (err) {
       console.error("Failed to start codex:", err);
+      setCodexRunning(assigneeId, false, null);
       await updateEmployeeStatus(assigneeId, "error");
     } finally {
       setCodexLoading(false);
@@ -104,6 +147,7 @@ export function TaskDetailDialog({
     setCodexLoading(true);
     try {
       await stopCodex(assigneeId);
+      setCodexRunning(assigneeId, false, null);
       await updateEmployeeStatus(assigneeId, "offline");
     } catch (err) {
       console.error("Failed to stop codex:", err);
@@ -171,91 +215,132 @@ export function TaskDetailDialog({
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle className="sr-only">任务详情</DialogTitle>
-        </DialogHeader>
+    <>
+      <Dialog open={open} onOpenChange={onOpenChange}>
+        <DialogContent className="w-[min(96vw,80rem)] max-w-[min(96vw,80rem)] sm:max-w-[min(96vw,80rem)] max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="sr-only">任务详情</DialogTitle>
+            <DialogDescription className="sr-only">
+              查看和编辑任务详情
+            </DialogDescription>
+          </DialogHeader>
 
-        <div className="space-y-4">
-          {/* Title */}
-          <Input
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-            onBlur={() => handleSave("title", title)}
-            className="text-lg font-semibold border-none px-0 focus-visible:ring-0"
-            placeholder="任务标题"
-          />
+          <div className="space-y-4">
+            {/* Title */}
+            <Input
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              onBlur={() => handleSave("title", title)}
+              className="text-lg font-semibold border-none px-0 focus-visible:ring-0"
+              placeholder="任务标题"
+            />
 
-          {/* Meta row */}
-          <div className="flex flex-wrap items-center gap-3">
-            {/* Status */}
-            <div className="flex items-center gap-1.5">
-              <span className="text-xs text-muted-foreground">状态</span>
-              <select
-                value={status}
-                onChange={(e) => {
-                  setStatus(e.target.value);
-                  handleSave("status", e.target.value);
-                }}
-                className="text-xs border border-input rounded px-1.5 py-0.5 bg-background"
+            {/* Meta row */}
+            <div className="flex flex-wrap items-center gap-3">
+              {/* Status */}
+              <div className="flex shrink-0 items-center gap-2">
+                <span className="shrink-0 whitespace-nowrap text-xs text-muted-foreground">状态</span>
+                <Select
+                  value={status}
+                  onValueChange={(value) => {
+                    if (!value) return;
+                    setStatus(value);
+                    handleSave("status", value);
+                  }}
+                >
+                  <SelectTrigger className="h-7 w-[104px] shrink-0 rounded-md px-2 text-xs">
+                    <SelectValue>
+                      {(value) =>
+                        typeof value === "string"
+                          ? TASK_STATUSES.find((item) => item.value === value)?.label ?? value
+                          : "选择状态"
+                      }
+                    </SelectValue>
+                  </SelectTrigger>
+                  <SelectContent>
+                    {TASK_STATUSES.map((item) => (
+                      <SelectItem key={item.value} value={item.value}>
+                        {item.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* Priority */}
+              <div className="flex shrink-0 items-center gap-2">
+                <span className="shrink-0 whitespace-nowrap text-xs text-muted-foreground">优先级</span>
+                <Select
+                  value={priority}
+                  onValueChange={(value) => {
+                    if (!value) return;
+                    setPriority(value);
+                    handleSave("priority", value);
+                  }}
+                >
+                  <SelectTrigger className="h-7 w-[92px] shrink-0 rounded-md px-2 text-xs">
+                    <SelectValue>
+                      {(value) =>
+                        typeof value === "string"
+                          ? PRIORITIES.find((item) => item.value === value)?.label ?? value
+                          : "选择优先级"
+                      }
+                    </SelectValue>
+                  </SelectTrigger>
+                  <SelectContent>
+                    {PRIORITIES.map((item) => (
+                      <SelectItem key={item.value} value={item.value}>
+                        {item.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* Assignee */}
+              <div className="flex shrink-0 items-center gap-2">
+                <span className="shrink-0 whitespace-nowrap text-xs text-muted-foreground">指派</span>
+                <Select
+                  value={assigneeId || UNASSIGNED_VALUE}
+                  onValueChange={(value) => {
+                    const nextValue =
+                      !value || value === UNASSIGNED_VALUE ? "" : value;
+                    setAssigneeId(nextValue);
+                    handleSave("assignee_id", nextValue);
+                  }}
+                >
+                  <SelectTrigger className="h-7 w-[176px] shrink-0 rounded-md px-2 text-xs">
+                    <SelectValue>
+                      {(value) => {
+                        if (!value || value === UNASSIGNED_VALUE) {
+                          return "未指派";
+                        }
+
+                        return employees.find((emp) => emp.id === value)?.name ?? "未指派";
+                      }}
+                    </SelectValue>
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={UNASSIGNED_VALUE}>未指派</SelectItem>
+                    {employees.map((emp) => (
+                      <SelectItem key={emp.id} value={emp.id}>
+                        {emp.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* Delete */}
+              <button
+                onClick={() => setDeleteDialogOpen(true)}
+                disabled={isRunning || deletingTask}
+                className="ml-auto p-1 text-muted-foreground hover:text-destructive transition-colors disabled:opacity-50"
+                title={isRunning ? "运行中的任务不能删除，请先停止" : "删除任务"}
               >
-                {TASK_STATUSES.map((s) => (
-                  <option key={s.value} value={s.value}>
-                    {s.label}
-                  </option>
-                ))}
-              </select>
+                <Trash2 className="h-4 w-4" />
+              </button>
             </div>
-
-            {/* Priority */}
-            <div className="flex items-center gap-1.5">
-              <span className="text-xs text-muted-foreground">优先级</span>
-              <select
-                value={priority}
-                onChange={(e) => {
-                  setPriority(e.target.value);
-                  handleSave("priority", e.target.value);
-                }}
-                className="text-xs border border-input rounded px-1.5 py-0.5 bg-background"
-              >
-                {PRIORITIES.map((p) => (
-                  <option key={p.value} value={p.value}>
-                    {p.label}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            {/* Assignee */}
-            <div className="flex items-center gap-1.5">
-              <span className="text-xs text-muted-foreground">指派</span>
-              <select
-                value={assigneeId}
-                onChange={(e) => {
-                  setAssigneeId(e.target.value);
-                  handleSave("assignee_id", e.target.value);
-                }}
-                className="text-xs border border-input rounded px-1.5 py-0.5 bg-background max-w-[140px]"
-              >
-                <option value="">未指派</option>
-                {employees.map((emp) => (
-                  <option key={emp.id} value={emp.id}>
-                    {emp.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            {/* Delete */}
-            <button
-              onClick={handleDelete}
-              className="ml-auto p-1 text-muted-foreground hover:text-destructive transition-colors"
-              title="删除任务"
-            >
-              <Trash2 className="h-4 w-4" />
-            </button>
-          </div>
 
           {/* Codex Run Controls */}
           <div className="flex items-center gap-2">
@@ -383,11 +468,11 @@ export function TaskDetailDialog({
             <label className="text-xs font-medium text-muted-foreground">
               描述
             </label>
-            <textarea
+            <Textarea
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               onBlur={() => handleSave("description", description)}
-              className="w-full mt-1 text-sm border border-input rounded-md p-2 bg-background min-h-[80px] resize-y"
+              className="mt-1 min-h-[80px] resize-y"
               placeholder="添加任务描述..."
             />
           </div>
@@ -401,8 +486,16 @@ export function TaskDetailDialog({
 
           {/* Comments */}
           <CommentList taskId={task.id} />
-        </div>
-      </DialogContent>
-    </Dialog>
+          </div>
+        </DialogContent>
+      </Dialog>
+      <DeleteTaskDialog
+        open={deleteDialogOpen}
+        task={task}
+        deleting={deletingTask}
+        onOpenChange={setDeleteDialogOpen}
+        onConfirm={handleDelete}
+      />
+    </>
   );
 }

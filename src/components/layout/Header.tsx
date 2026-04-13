@@ -2,6 +2,15 @@ import { useLocation } from "react-router-dom";
 import { Moon, Sun } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useProjectStore } from "@/stores/projectStore";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+
+const ALL_PROJECTS_VALUE = "__all_projects__";
 
 const pageTitles: Record<string, string> = {
   "/": "仪表盘",
@@ -46,21 +55,38 @@ export function Header() {
 
       <div className="flex items-center gap-4">
         {projects.length > 0 && (
-          <select
-            value={currentProject?.id ?? ""}
-            onChange={(e) => {
-              const p = projects.find((proj) => proj.id === e.target.value);
-              setCurrentProject(p ?? null);
+          <Select
+            value={currentProject?.id ?? ALL_PROJECTS_VALUE}
+            onValueChange={(value) => {
+              if (!value || value === ALL_PROJECTS_VALUE) {
+                setCurrentProject(null);
+                return;
+              }
+
+              const project = projects.find((proj) => proj.id === value);
+              setCurrentProject(project ?? null);
             }}
-            className="text-sm border border-input rounded-md px-2 py-1 bg-background"
           >
-            <option value="">全部项目</option>
-            {projects.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.name}
-              </option>
-            ))}
-          </select>
+            <SelectTrigger className="w-[220px] bg-background">
+              <SelectValue>
+                {(value) => {
+                  if (!value || value === ALL_PROJECTS_VALUE) {
+                    return "全部项目";
+                  }
+
+                  return projects.find((project) => project.id === value)?.name ?? "全部项目";
+                }}
+              </SelectValue>
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={ALL_PROJECTS_VALUE}>全部项目</SelectItem>
+              {projects.map((project) => (
+                <SelectItem key={project.id} value={project.id}>
+                  {project.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         )}
 
         <button

@@ -3,11 +3,14 @@ import { useProjectStore } from "@/stores/projectStore";
 import type { Project } from "@/lib/types";
 import { ProjectCard } from "./ProjectCard";
 import { EditProjectDialog } from "./EditProjectDialog";
+import { DeleteProjectDialog } from "./DeleteProjectDialog";
 
 export function ProjectList() {
   const { projects, fetchProjects, deleteProject } = useProjectStore();
   const [filter, setFilter] = useState<string>("all");
   const [editingProject, setEditingProject] = useState<Project | null>(null);
+  const [deletingProject, setDeletingProject] = useState<Project | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
     fetchProjects();
@@ -16,6 +19,17 @@ export function ProjectList() {
   const filtered = filter === "all"
     ? projects
     : projects.filter((p) => p.status === filter);
+
+  const handleDelete = async () => {
+    if (!deletingProject) return;
+    setDeleting(true);
+    try {
+      await deleteProject(deletingProject.id);
+      setDeletingProject(null);
+    } finally {
+      setDeleting(false);
+    }
+  };
 
   return (
     <div className="space-y-3">
@@ -46,7 +60,7 @@ export function ProjectList() {
             key={project.id}
             project={project}
             onEdit={setEditingProject}
-            onDelete={deleteProject}
+            onDelete={setDeletingProject}
           />
         ))}
       </div>
@@ -61,6 +75,16 @@ export function ProjectList() {
         open={!!editingProject}
         onOpenChange={(open) => { if (!open) setEditingProject(null); }}
         project={editingProject}
+      />
+
+      <DeleteProjectDialog
+        open={!!deletingProject}
+        onOpenChange={(open) => {
+          if (!open && !deleting) setDeletingProject(null);
+        }}
+        project={deletingProject}
+        deleting={deleting}
+        onConfirm={handleDelete}
       />
     </div>
   );

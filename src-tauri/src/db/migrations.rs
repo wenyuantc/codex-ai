@@ -196,5 +196,31 @@ pub fn get_all_migrations() -> Vec<Migration> {
             "#,
             kind: tauri_plugin_sql::MigrationKind::Up,
         },
+        Migration {
+            version: 12,
+            description: "add reasoning effort and normalize employee model settings",
+            sql: r#"
+                ALTER TABLE employees ADD COLUMN reasoning_effort TEXT NOT NULL DEFAULT 'high';
+
+                UPDATE employees
+                SET reasoning_effort = 'high'
+                WHERE reasoning_effort IS NULL
+                   OR reasoning_effort NOT IN ('low', 'medium', 'high', 'xhigh');
+
+                UPDATE employees
+                SET model = 'gpt-5.4'
+                WHERE model IS NULL
+                   OR model NOT IN ('gpt-5.4', 'gpt-5.4-mini', 'gpt-5.3-codex', 'gpt-5.2');
+            "#,
+            kind: tauri_plugin_sql::MigrationKind::Up,
+        },
+        Migration {
+            version: 13,
+            description: "track last codex session id on tasks",
+            sql: r#"
+                ALTER TABLE tasks ADD COLUMN last_codex_session_id TEXT;
+            "#,
+            kind: tauri_plugin_sql::MigrationKind::Up,
+        },
     ]
 }

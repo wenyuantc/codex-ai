@@ -2,6 +2,7 @@ import { create } from "zustand";
 import { select, execute } from "@/lib/database";
 import type { Task, Subtask, Comment, TaskStatus } from "@/lib/types";
 import { logActivity } from "@/lib/utils";
+import { onCodexSession, type CodexSession } from "@/lib/codex";
 
 interface TaskStore {
   tasks: Task[];
@@ -13,13 +14,25 @@ interface TaskStore {
   fetchComments: (taskId: string) => Promise<void>;
   createTask: (data: { title: string; description?: string; priority?: string; project_id: string; assignee_id?: string }) => Promise<void>;
   updateTaskStatus: (id: string, status: TaskStatus) => Promise<void>;
-  updateTask: (id: string, updates: Partial<Pick<Task, "title" | "description" | "priority" | "status" | "assignee_id" | "complexity" | "ai_suggestion">>) => Promise<void>;
+  updateTask: (id: string, updates: Partial<Pick<Task, "title" | "description" | "priority" | "status" | "assignee_id" | "complexity" | "ai_suggestion" | "last_codex_session_id">>) => Promise<void>;
   deleteTask: (id: string) => Promise<void>;
   addSubtask: (taskId: string, title: string) => Promise<void>;
   toggleSubtask: (subtaskId: string, status: string) => Promise<void>;
   deleteSubtask: (subtaskId: string) => Promise<void>;
   addComment: (taskId: string, content: string, employeeId?: string, isAiGenerated?: boolean) => Promise<void>;
   moveTask: (taskId: string, newStatus: TaskStatus) => void;
+  setTaskLastSessionId: (taskId: string, sessionId: string) => Promise<void>;
+  initCodexSessionListeners: () => () => void;
+}
+
+let codexSessionListenerRefCount = 0;
+let codexSessionListenersInitPromise: Promise<void> | null = null;
+let codexSessionListenersCleanup: (() => void) | null = null;
+
+function releaseCodexSessionListeners() {
+  codexSessionListenersCleanup?.();
+  codexSessionListenersCleanup = null;
+  codexSessionListenersInitPromise = null;
 }
 
 export const useTaskStore = create<TaskStore>((set, get) => ({
@@ -84,10 +97,24 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
     await get().fetchTasks();
   },
 
+  setTaskLastSessionId: async (taskId, sessionId) => {
+    set((state) => ({
+      tasks: state.tasks.map((task) => (
+        task.id === taskId ? { ...task, last_codex_session_id: sessionId } : task
+      )),
+    }));
+    try {
+      await execute("UPDATE tasks SET last_codex_session_id = $1 WHERE id = $2", [sessionId, taskId]);
+    } catch (error) {
+      console.error("Failed to persist task session id:", error);
+    }
+  },
+
   deleteTask: async (id) => {
     const task = get().tasks.find((t) => t.id === id);
+    await execute("DELETE FROM activity_logs WHERE task_id = $1", [id]);
     await execute("DELETE FROM tasks WHERE id = $1", [id]);
-    await logActivity("task_deleted", task?.title ?? id, undefined, id, task?.project_id);
+    await logActivity("task_deleted", task?.title ?? id, undefined, undefined, task?.project_id);
     await get().fetchTasks();
   },
 
@@ -137,5 +164,46 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
     set((state) => ({
       tasks: state.tasks.map((t) => (t.id === taskId ? { ...t, status: newStatus } : t)),
     }));
+  },
+
+  initCodexSessionListeners: () => {
+    codexSessionListenerRefCount += 1;
+
+    if (!codexSessionListenersInitPromise && !codexSessionListenersCleanup) {
+      codexSessionListenersInitPromise = Promise.all([
+        onCodexSession((session: CodexSession) => {
+          if (session.task_id) {
+            void get().setTaskLastSessionId(session.task_id, session.session_id);
+          }
+        }),
+      ])
+        .then((unlisteners) => {
+          codexSessionListenersCleanup = () => {
+            unlisteners.forEach((unlisten) => unlisten());
+          };
+          codexSessionListenersInitPromise = null;
+
+          if (codexSessionListenerRefCount === 0) {
+            releaseCodexSessionListeners();
+          }
+        })
+        .catch((error) => {
+          console.error("Failed to initialize Codex session listeners:", error);
+          codexSessionListenersInitPromise = null;
+          codexSessionListenersCleanup = null;
+        });
+    }
+
+    let released = false;
+
+    return () => {
+      if (released) return;
+      released = true;
+      codexSessionListenerRefCount = Math.max(0, codexSessionListenerRefCount - 1);
+
+      if (codexSessionListenerRefCount === 0 && codexSessionListenersCleanup) {
+        releaseCodexSessionListeners();
+      }
+    };
   },
 }));
