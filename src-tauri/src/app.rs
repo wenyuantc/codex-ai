@@ -1,0 +1,1174 @@
+use std::path::{Path, PathBuf};
+use std::process::Stdio;
+use std::sync::{Arc, Mutex};
+
+use chrono::{Duration, NaiveDateTime, Utc};
+use sqlx::{QueryBuilder, Sqlite, SqlitePool};
+use tauri::{AppHandle, Manager, Runtime, State};
+use tauri_plugin_sql::{DbInstances, DbPool};
+use tokio::process::Command;
+use uuid::Uuid;
+
+use crate::codex::CodexManager;
+use crate::db::models::{
+    CodexHealthCheck, CodexRuntimeStatus, CodexSessionRecord, Comment, CreateComment,
+    CreateEmployee, CreateProject, CreateSubtask, CreateTask, Employee, EmployeeMetric, Project,
+    Subtask, Task, UpdateEmployee, UpdateProject, UpdateTask,
+};
+
+pub const DB_URL: &str = "sqlite:codex-ai.db";
+const SQLITE_DATETIME_FORMAT: &str = "%Y-%m-%d %H:%M:%S";
+
+pub(crate) fn now_sqlite() -> String {
+    Utc::now().format(SQLITE_DATETIME_FORMAT).to_string()
+}
+
+pub(crate) fn database_path<R: Runtime>(app: &AppHandle<R>) -> Option<PathBuf> {
+    app.path().app_config_dir().ok().map(|dir| dir.join("codex-ai.db"))
+}
+
+pub(crate) async fn sqlite_pool<R: Runtime>(app: &AppHandle<R>) -> Result<SqlitePool, String> {
+    let instances = app.state::<DbInstances>();
+    let instances = instances.0.read().await;
+    let db = instances
+        .get(DB_URL)
+        .ok_or_else(|| format!("Database {} is not loaded", DB_URL))?;
+
+    let DbPool::Sqlite(pool) = db;
+    Ok(pool.clone())
+}
+
+pub(crate) fn normalize_optional_text(value: Option<&str>) -> Option<String> {
+    value.map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
+}
+
+fn new_id() -> String {
+    Uuid::new_v4().to_string()
+}
+
+fn ensure_git_repository(path: &Path) -> Result<(), String> {
+    let git_dir = path.join(".git");
+    if git_dir.exists() {
+        return Ok(());
+    }
+
+    Err(format!(
+        "工作目录 {} 不是 Git 仓库，缺少 .git",
+        path.display()
+    ))
+}
+
+fn canonicalize_existing_dir(path: &str) -> Result<String, String> {
+    let trimmed = path.trim();
+    if trimmed.is_empty() {
+        return Err("路径不能为空".to_string());
+    }
+
+    let canonical = Path::new(trimmed)
+        .canonicalize()
+        .map_err(|error| format!("路径不存在或不可访问: {}", error))?;
+
+    if !canonical.is_dir() {
+        return Err(format!("路径 {} 不是目录", canonical.display()));
+    }
+
+    Ok(canonical.to_string_lossy().to_string())
+}
+
+pub(crate) fn validate_project_repo_path(repo_path: Option<&str>) -> Result<Option<String>, String> {
+    match normalize_optional_text(repo_path) {
+        Some(path) => canonicalize_existing_dir(&path).map(Some),
+        None => Ok(None),
+    }
+}
+
+pub(crate) fn validate_runtime_working_dir(working_dir: Option<&str>) -> Result<String, String> {
+    let resolved = match normalize_optional_text(working_dir) {
+        Some(path) => canonicalize_existing_dir(&path)?,
+        None => std::env::current_dir()
+            .map_err(|error| format!("无法解析当前工作目录: {}", error))?
+            .canonicalize()
+            .map_err(|error| format!("无法访问当前工作目录: {}", error))?
+            .to_string_lossy()
+            .to_string(),
+    };
+
+    ensure_git_repository(Path::new(&resolved))?;
+    Ok(resolved)
+}
+
+fn parse_sqlite_datetime(value: &str) -> Option<NaiveDateTime> {
+    NaiveDateTime::parse_from_str(value, SQLITE_DATETIME_FORMAT).ok()
+}
+
+pub(crate) async fn insert_activity_log(
+    pool: &SqlitePool,
+    action: &str,
+    details: &str,
+    employee_id: Option<&str>,
+    task_id: Option<&str>,
+    project_id: Option<&str>,
+) -> Result<(), String> {
+    sqlx::query(
+        "INSERT INTO activity_logs (id, employee_id, action, details, task_id, project_id) VALUES ($1, $2, $3, $4, $5, $6)",
+    )
+    .bind(new_id())
+    .bind(employee_id)
+    .bind(action)
+    .bind(details)
+    .bind(task_id)
+    .bind(project_id)
+    .execute(pool)
+    .await
+    .map_err(|error| format!("Failed to insert activity log: {}", error))?;
+
+    Ok(())
+}
+
+pub(crate) async fn insert_codex_session_event(
+    pool: &SqlitePool,
+    session_id: &str,
+    event_type: &str,
+    message: Option<&str>,
+) -> Result<(), String> {
+    sqlx::query(
+        "INSERT INTO codex_session_events (id, session_id, event_type, message) VALUES ($1, $2, $3, $4)",
+    )
+    .bind(new_id())
+    .bind(session_id)
+    .bind(event_type)
+    .bind(message)
+    .execute(pool)
+    .await
+    .map_err(|error| format!("Failed to insert session event: {}", error))?;
+
+    Ok(())
+}
+
+pub(crate) async fn insert_codex_session_record<R: Runtime>(
+    app: &AppHandle<R>,
+    employee_id: Option<&str>,
+    task_id: Option<&str>,
+    working_dir: Option<&str>,
+    resume_session_id: Option<&str>,
+    status: &str,
+) -> Result<CodexSessionRecord, String> {
+    let pool = sqlite_pool(app).await?;
+    let project_id = match task_id {
+        Some(task_id) => sqlx::query_scalar::<_, Option<String>>(
+            "SELECT project_id FROM tasks WHERE id = $1 LIMIT 1",
+        )
+        .bind(task_id)
+        .fetch_optional(&pool)
+        .await
+        .map_err(|error| format!("Failed to resolve session project: {}", error))?
+        .flatten(),
+        None => None,
+    };
+
+    let record = CodexSessionRecord {
+        id: new_id(),
+        employee_id: employee_id.map(ToOwned::to_owned),
+        task_id: task_id.map(ToOwned::to_owned),
+        project_id,
+        cli_session_id: None,
+        working_dir: working_dir.map(ToOwned::to_owned),
+        status: status.to_string(),
+        started_at: now_sqlite(),
+        ended_at: None,
+        exit_code: None,
+        resume_session_id: resume_session_id.map(ToOwned::to_owned),
+        created_at: now_sqlite(),
+    };
+
+    sqlx::query(
+        "INSERT INTO codex_sessions (id, employee_id, task_id, project_id, cli_session_id, working_dir, status, started_at, ended_at, exit_code, resume_session_id, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)",
+    )
+    .bind(&record.id)
+    .bind(&record.employee_id)
+    .bind(&record.task_id)
+    .bind(&record.project_id)
+    .bind(&record.cli_session_id)
+    .bind(&record.working_dir)
+    .bind(&record.status)
+    .bind(&record.started_at)
+    .bind(&record.ended_at)
+    .bind(record.exit_code)
+    .bind(&record.resume_session_id)
+    .bind(&record.created_at)
+    .execute(&pool)
+    .await
+    .map_err(|error| format!("Failed to insert session record: {}", error))?;
+
+    Ok(record)
+}
+
+pub(crate) async fn update_codex_session_record<R: Runtime>(
+    app: &AppHandle<R>,
+    session_id: &str,
+    status: Option<&str>,
+    cli_session_id: Option<Option<&str>>,
+    exit_code: Option<Option<i32>>,
+    ended_at: Option<Option<&str>>,
+) -> Result<(), String> {
+    let pool = sqlite_pool(app).await?;
+    let mut builder = QueryBuilder::<Sqlite>::new("UPDATE codex_sessions SET ");
+    let mut separated = builder.separated(", ");
+    let mut touched = false;
+
+    if let Some(status) = status {
+        separated.push("status = ").push_bind_unseparated(status);
+        touched = true;
+    }
+    if let Some(cli_session_id) = cli_session_id {
+        separated
+            .push("cli_session_id = ")
+            .push_bind_unseparated(cli_session_id.map(ToOwned::to_owned));
+        touched = true;
+    }
+    if let Some(exit_code) = exit_code {
+        separated
+            .push("exit_code = ")
+            .push_bind_unseparated(exit_code);
+        touched = true;
+    }
+    if let Some(ended_at) = ended_at {
+        separated
+            .push("ended_at = ")
+            .push_bind_unseparated(ended_at.map(ToOwned::to_owned));
+        touched = true;
+    }
+
+    if !touched {
+        return Ok(());
+    }
+
+    builder.push(" WHERE id = ").push_bind(session_id);
+    builder
+        .build()
+        .execute(&pool)
+        .await
+        .map_err(|error| format!("Failed to update session record: {}", error))?;
+
+    Ok(())
+}
+
+pub(crate) async fn fetch_codex_session_by_id<R: Runtime>(
+    app: &AppHandle<R>,
+    session_id: &str,
+) -> Result<CodexSessionRecord, String> {
+    let pool = sqlite_pool(app).await?;
+    sqlx::query_as::<_, CodexSessionRecord>("SELECT * FROM codex_sessions WHERE id = $1 LIMIT 1")
+        .bind(session_id)
+        .fetch_one(&pool)
+        .await
+        .map_err(|error| format!("Failed to fetch session record: {}", error))
+}
+
+async fn fetch_project_by_id(pool: &SqlitePool, id: &str) -> Result<Project, String> {
+    sqlx::query_as::<_, Project>("SELECT * FROM projects WHERE id = $1 LIMIT 1")
+        .bind(id)
+        .fetch_one(pool)
+        .await
+        .map_err(|error| format!("Project {} not found: {}", id, error))
+}
+
+async fn fetch_employee_by_id(pool: &SqlitePool, id: &str) -> Result<Employee, String> {
+    sqlx::query_as::<_, Employee>("SELECT * FROM employees WHERE id = $1 LIMIT 1")
+        .bind(id)
+        .fetch_one(pool)
+        .await
+        .map_err(|error| format!("Employee {} not found: {}", id, error))
+}
+
+async fn fetch_task_by_id(pool: &SqlitePool, id: &str) -> Result<Task, String> {
+    sqlx::query_as::<_, Task>("SELECT * FROM tasks WHERE id = $1 LIMIT 1")
+        .bind(id)
+        .fetch_one(pool)
+        .await
+        .map_err(|error| format!("Task {} not found: {}", id, error))
+}
+
+async fn ensure_project_exists(pool: &SqlitePool, project_id: &str) -> Result<(), String> {
+    sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM projects WHERE id = $1")
+        .bind(project_id)
+        .fetch_one(pool)
+        .await
+        .map_err(|error| format!("Failed to verify project: {}", error))
+        .and_then(|count| {
+            if count > 0 {
+                Ok(())
+            } else {
+                Err(format!("Project {} does not exist", project_id))
+            }
+        })
+}
+
+async fn validate_assignee_for_project(
+    pool: &SqlitePool,
+    assignee_id: Option<&str>,
+    project_id: &str,
+) -> Result<(), String> {
+    let Some(assignee_id) = assignee_id else {
+        return Ok(());
+    };
+
+    let employee = fetch_employee_by_id(pool, assignee_id).await?;
+    if let Some(employee_project_id) = employee.project_id {
+        if employee_project_id != project_id {
+            return Err(format!(
+                "员工 {} 归属项目 {}，不能分配到项目 {}",
+                employee.name, employee_project_id, project_id
+            ));
+        }
+    }
+
+    Ok(())
+}
+
+async fn record_completion_metric(pool: &SqlitePool, task: &Task) -> Result<(), String> {
+    let Some(employee_id) = task.assignee_id.as_deref() else {
+        return Ok(());
+    };
+
+    let task_created_at = parse_sqlite_datetime(&task.created_at)
+        .ok_or_else(|| format!("Invalid task created_at: {}", task.created_at))?;
+    let now = Utc::now().naive_utc();
+    let duration_secs = (now - task_created_at).num_seconds().max(0) as f64;
+
+    let day_start = now
+        .date()
+        .and_hms_opt(0, 0, 0)
+        .expect("valid day start")
+        .format(SQLITE_DATETIME_FORMAT)
+        .to_string();
+    let day_end = (now + Duration::days(1))
+        .date()
+        .and_hms_opt(0, 0, 0)
+        .expect("valid day end")
+        .format(SQLITE_DATETIME_FORMAT)
+        .to_string();
+
+    let existing = sqlx::query_as::<_, EmployeeMetric>(
+        "SELECT * FROM employee_metrics WHERE employee_id = $1 AND period_start = $2 AND period_end = $3 LIMIT 1",
+    )
+    .bind(employee_id)
+    .bind(&day_start)
+    .bind(&day_end)
+    .fetch_optional(pool)
+    .await
+    .map_err(|error| format!("Failed to fetch employee metrics: {}", error))?;
+
+    if let Some(existing) = existing {
+        let previous_count = existing.tasks_completed.max(0) as f64;
+        let new_count = existing.tasks_completed + 1;
+        let avg_completion_time = if previous_count == 0.0 {
+            duration_secs
+        } else {
+            ((existing.average_completion_time.unwrap_or(duration_secs) * previous_count)
+                + duration_secs)
+                / (previous_count + 1.0)
+        };
+        let success_rate = if previous_count == 0.0 {
+            100.0
+        } else {
+            ((existing.success_rate.unwrap_or(100.0) * previous_count) + 100.0)
+                / (previous_count + 1.0)
+        };
+
+        sqlx::query(
+            "UPDATE employee_metrics SET tasks_completed = $1, average_completion_time = $2, success_rate = $3 WHERE id = $4",
+        )
+        .bind(new_count)
+        .bind(avg_completion_time)
+        .bind(success_rate)
+        .bind(existing.id)
+        .execute(pool)
+        .await
+        .map_err(|error| format!("Failed to update employee metrics: {}", error))?;
+    } else {
+        sqlx::query(
+            "INSERT INTO employee_metrics (id, employee_id, tasks_completed, average_completion_time, success_rate, period_start, period_end) VALUES ($1, $2, $3, $4, $5, $6, $7)",
+        )
+        .bind(new_id())
+        .bind(employee_id)
+        .bind(1_i64)
+        .bind(duration_secs)
+        .bind(100.0_f64)
+        .bind(day_start)
+        .bind(day_end)
+        .execute(pool)
+        .await
+        .map_err(|error| format!("Failed to insert employee metrics: {}", error))?;
+    }
+
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn health_check<R: Runtime>(app: AppHandle<R>) -> Result<CodexHealthCheck, String> {
+    let database_loaded = sqlite_pool(&app).await.is_ok();
+    let last_session_error = if database_loaded {
+        let pool = sqlite_pool(&app).await?;
+        sqlx::query_scalar::<_, Option<String>>(
+            "SELECT message FROM codex_session_events WHERE event_type IN ('validation_failed', 'spawn_failed', 'session_failed') ORDER BY created_at DESC LIMIT 1",
+        )
+        .fetch_optional(&pool)
+        .await
+        .map_err(|error| format!("Failed to query last session error: {}", error))?
+        .flatten()
+    } else {
+        None
+    };
+
+    let codex_output = Command::new("codex")
+        .arg("--version")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .await;
+
+    let (codex_available, codex_version) = match codex_output {
+        Ok(output) if output.status.success() => (
+            true,
+            Some(String::from_utf8_lossy(&output.stdout).trim().to_string()),
+        ),
+        Ok(output) => {
+            let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+            (false, (!stderr.is_empty()).then_some(stderr))
+        }
+        Err(_) => (false, None),
+    };
+
+    Ok(CodexHealthCheck {
+        codex_available,
+        codex_version,
+        database_loaded,
+        database_path: database_path(&app).map(|path| path.to_string_lossy().to_string()),
+        shell_available: true,
+        last_session_error,
+        checked_at: now_sqlite(),
+    })
+}
+
+#[tauri::command]
+pub async fn get_codex_session_status<R: Runtime>(
+    app: AppHandle<R>,
+    state: State<'_, Arc<Mutex<CodexManager>>>,
+    employee_id: String,
+) -> Result<CodexRuntimeStatus, String> {
+    let running_process = {
+        let manager = state.lock().map_err(|error| error.to_string())?;
+        manager.get_process(&employee_id)
+    };
+
+    let session = if let Some(process) = running_process.as_ref() {
+        Some(fetch_codex_session_by_id(&app, &process.session_record_id).await?)
+    } else {
+        let pool = sqlite_pool(&app).await?;
+        sqlx::query_as::<_, CodexSessionRecord>(
+            "SELECT * FROM codex_sessions WHERE employee_id = $1 ORDER BY started_at DESC LIMIT 1",
+        )
+        .bind(&employee_id)
+        .fetch_optional(&pool)
+        .await
+        .map_err(|error| format!("Failed to fetch runtime status: {}", error))?
+    };
+
+    Ok(CodexRuntimeStatus {
+        running: running_process.is_some(),
+        session,
+    })
+}
+
+#[tauri::command]
+pub async fn create_project<R: Runtime>(
+    app: AppHandle<R>,
+    payload: CreateProject,
+) -> Result<Project, String> {
+    let pool = sqlite_pool(&app).await?;
+    let project = Project {
+        id: new_id(),
+        name: payload.name.trim().to_string(),
+        description: normalize_optional_text(payload.description.as_deref()),
+        status: "active".to_string(),
+        repo_path: validate_project_repo_path(payload.repo_path.as_deref())?,
+        created_at: now_sqlite(),
+        updated_at: now_sqlite(),
+    };
+
+    if project.name.is_empty() {
+        return Err("项目名称不能为空".to_string());
+    }
+
+    sqlx::query(
+        "INSERT INTO projects (id, name, description, status, repo_path, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7)",
+    )
+    .bind(&project.id)
+    .bind(&project.name)
+    .bind(&project.description)
+    .bind(&project.status)
+    .bind(&project.repo_path)
+    .bind(&project.created_at)
+    .bind(&project.updated_at)
+    .execute(&pool)
+    .await
+    .map_err(|error| format!("Failed to create project: {}", error))?;
+
+    fetch_project_by_id(&pool, &project.id).await
+}
+
+#[tauri::command]
+pub async fn update_project<R: Runtime>(
+    app: AppHandle<R>,
+    id: String,
+    updates: UpdateProject,
+) -> Result<Project, String> {
+    let pool = sqlite_pool(&app).await?;
+    let current = fetch_project_by_id(&pool, &id).await?;
+    let mut builder = QueryBuilder::<Sqlite>::new("UPDATE projects SET ");
+    let mut separated = builder.separated(", ");
+    let mut touched = false;
+
+    if let Some(name) = updates.name {
+        let trimmed = name.trim().to_string();
+        if trimmed.is_empty() {
+            return Err("项目名称不能为空".to_string());
+        }
+        separated.push("name = ").push_bind_unseparated(trimmed);
+        touched = true;
+    }
+    if let Some(description) = updates.description {
+        separated
+            .push("description = ")
+            .push_bind_unseparated(
+                description.and_then(|value| normalize_optional_text(Some(&value))),
+            );
+        touched = true;
+    }
+    if let Some(status) = updates.status {
+        separated.push("status = ").push_bind_unseparated(status);
+        touched = true;
+    }
+    if let Some(repo_path) = updates.repo_path {
+        separated
+            .push("repo_path = ")
+            .push_bind_unseparated(match repo_path {
+                Some(repo_path) => validate_project_repo_path(Some(&repo_path))?,
+                None => None,
+            });
+        touched = true;
+    }
+
+    if !touched {
+        return Ok(current);
+    }
+
+    builder.push(" WHERE id = ").push_bind(&id);
+    builder
+        .build()
+        .execute(&pool)
+        .await
+        .map_err(|error| format!("Failed to update project: {}", error))?;
+
+    fetch_project_by_id(&pool, &id).await
+}
+
+#[tauri::command]
+pub async fn delete_project<R: Runtime>(app: AppHandle<R>, id: String) -> Result<(), String> {
+    let pool = sqlite_pool(&app).await?;
+    let mut tx = pool
+        .begin()
+        .await
+        .map_err(|error| format!("Failed to start project transaction: {}", error))?;
+
+    sqlx::query(
+        "DELETE FROM activity_logs WHERE project_id = $1 OR task_id IN (SELECT id FROM tasks WHERE project_id = $1)",
+    )
+    .bind(&id)
+    .execute(&mut *tx)
+    .await
+    .map_err(|error| format!("Failed to delete project activity logs: {}", error))?;
+    sqlx::query("UPDATE employees SET project_id = NULL WHERE project_id = $1")
+        .bind(&id)
+        .execute(&mut *tx)
+        .await
+        .map_err(|error| format!("Failed to clear employee project ownership: {}", error))?;
+    sqlx::query("DELETE FROM tasks WHERE project_id = $1")
+        .bind(&id)
+        .execute(&mut *tx)
+        .await
+        .map_err(|error| format!("Failed to delete project tasks: {}", error))?;
+    sqlx::query("DELETE FROM projects WHERE id = $1")
+        .bind(&id)
+        .execute(&mut *tx)
+        .await
+        .map_err(|error| format!("Failed to delete project: {}", error))?;
+
+    tx.commit()
+        .await
+        .map_err(|error| format!("Failed to commit project delete: {}", error))?;
+
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn create_employee<R: Runtime>(
+    app: AppHandle<R>,
+    payload: CreateEmployee,
+) -> Result<Employee, String> {
+    let pool = sqlite_pool(&app).await?;
+    let project_id = normalize_optional_text(payload.project_id.as_deref());
+    if let Some(project_id) = project_id.as_deref() {
+        ensure_project_exists(&pool, project_id).await?;
+    }
+
+    let employee = Employee {
+        id: new_id(),
+        name: payload.name.trim().to_string(),
+        role: payload.role,
+        model: payload.model.unwrap_or_else(|| "gpt-5.4".to_string()),
+        reasoning_effort: payload
+            .reasoning_effort
+            .unwrap_or_else(|| "high".to_string()),
+        status: "offline".to_string(),
+        specialization: normalize_optional_text(payload.specialization.as_deref()),
+        system_prompt: normalize_optional_text(payload.system_prompt.as_deref()),
+        project_id,
+        created_at: now_sqlite(),
+        updated_at: now_sqlite(),
+    };
+
+    if employee.name.is_empty() {
+        return Err("员工名称不能为空".to_string());
+    }
+
+    sqlx::query(
+        "INSERT INTO employees (id, name, role, model, reasoning_effort, status, specialization, system_prompt, project_id, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)",
+    )
+    .bind(&employee.id)
+    .bind(&employee.name)
+    .bind(&employee.role)
+    .bind(&employee.model)
+    .bind(&employee.reasoning_effort)
+    .bind(&employee.status)
+    .bind(&employee.specialization)
+    .bind(&employee.system_prompt)
+    .bind(&employee.project_id)
+    .bind(&employee.created_at)
+    .bind(&employee.updated_at)
+    .execute(&pool)
+    .await
+    .map_err(|error| format!("Failed to create employee: {}", error))?;
+
+    fetch_employee_by_id(&pool, &employee.id).await
+}
+
+#[tauri::command]
+pub async fn update_employee<R: Runtime>(
+    app: AppHandle<R>,
+    id: String,
+    updates: UpdateEmployee,
+) -> Result<Employee, String> {
+    let pool = sqlite_pool(&app).await?;
+    let current = fetch_employee_by_id(&pool, &id).await?;
+    let mut builder = QueryBuilder::<Sqlite>::new("UPDATE employees SET ");
+    let mut separated = builder.separated(", ");
+    let mut touched = false;
+
+    if let Some(name) = updates.name {
+        let trimmed = name.trim().to_string();
+        if trimmed.is_empty() {
+            return Err("员工名称不能为空".to_string());
+        }
+        separated.push("name = ").push_bind_unseparated(trimmed);
+        touched = true;
+    }
+    if let Some(role) = updates.role {
+        separated.push("role = ").push_bind_unseparated(role);
+        touched = true;
+    }
+    if let Some(model) = updates.model {
+        separated.push("model = ").push_bind_unseparated(model);
+        touched = true;
+    }
+    if let Some(reasoning_effort) = updates.reasoning_effort {
+        separated
+            .push("reasoning_effort = ")
+            .push_bind_unseparated(reasoning_effort);
+        touched = true;
+    }
+    if let Some(status) = updates.status {
+        separated.push("status = ").push_bind_unseparated(status);
+        touched = true;
+    }
+    if let Some(specialization) = updates.specialization {
+        separated
+            .push("specialization = ")
+            .push_bind_unseparated(
+                specialization.and_then(|value| normalize_optional_text(Some(&value))),
+            );
+        touched = true;
+    }
+    if let Some(system_prompt) = updates.system_prompt {
+        separated
+            .push("system_prompt = ")
+            .push_bind_unseparated(
+                system_prompt.and_then(|value| normalize_optional_text(Some(&value))),
+            );
+        touched = true;
+    }
+    if let Some(project_id) = updates.project_id {
+        let project_id = match project_id {
+            Some(project_id) => {
+                let project_id = normalize_optional_text(Some(&project_id));
+                if let Some(project_id) = project_id.as_deref() {
+                    ensure_project_exists(&pool, project_id).await?;
+                }
+                project_id
+            }
+            None => None,
+        };
+        separated
+            .push("project_id = ")
+            .push_bind_unseparated(project_id);
+        touched = true;
+    }
+
+    if !touched {
+        return Ok(current);
+    }
+
+    builder.push(" WHERE id = ").push_bind(&id);
+    builder
+        .build()
+        .execute(&pool)
+        .await
+        .map_err(|error| format!("Failed to update employee: {}", error))?;
+
+    fetch_employee_by_id(&pool, &id).await
+}
+
+#[tauri::command]
+pub async fn delete_employee<R: Runtime>(
+    app: AppHandle<R>,
+    state: State<'_, Arc<Mutex<CodexManager>>>,
+    id: String,
+) -> Result<(), String> {
+    {
+        let manager = state.lock().map_err(|error| error.to_string())?;
+        if manager.is_running(&id) {
+            return Err("员工仍有运行中的 Codex 会话，不能删除".to_string());
+        }
+    }
+
+    let pool = sqlite_pool(&app).await?;
+    let mut tx = pool
+        .begin()
+        .await
+        .map_err(|error| format!("Failed to start employee transaction: {}", error))?;
+
+    sqlx::query("UPDATE tasks SET assignee_id = NULL WHERE assignee_id = $1")
+        .bind(&id)
+        .execute(&mut *tx)
+        .await
+        .map_err(|error| format!("Failed to clear employee assignments: {}", error))?;
+    sqlx::query("UPDATE activity_logs SET employee_id = NULL WHERE employee_id = $1")
+        .bind(&id)
+        .execute(&mut *tx)
+        .await
+        .map_err(|error| format!("Failed to preserve employee activity logs: {}", error))?;
+    sqlx::query("DELETE FROM employee_metrics WHERE employee_id = $1")
+        .bind(&id)
+        .execute(&mut *tx)
+        .await
+        .map_err(|error| format!("Failed to delete employee metrics: {}", error))?;
+    sqlx::query("DELETE FROM employees WHERE id = $1")
+        .bind(&id)
+        .execute(&mut *tx)
+        .await
+        .map_err(|error| format!("Failed to delete employee: {}", error))?;
+
+    tx.commit()
+        .await
+        .map_err(|error| format!("Failed to commit employee delete: {}", error))?;
+
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn update_employee_status<R: Runtime>(
+    app: AppHandle<R>,
+    id: String,
+    status: String,
+) -> Result<Employee, String> {
+    let pool = sqlite_pool(&app).await?;
+    sqlx::query("UPDATE employees SET status = $1 WHERE id = $2")
+        .bind(&status)
+        .bind(&id)
+        .execute(&pool)
+        .await
+        .map_err(|error| format!("Failed to update employee status: {}", error))?;
+
+    fetch_employee_by_id(&pool, &id).await
+}
+
+#[tauri::command]
+pub async fn create_task<R: Runtime>(
+    app: AppHandle<R>,
+    payload: CreateTask,
+) -> Result<Task, String> {
+    let pool = sqlite_pool(&app).await?;
+    ensure_project_exists(&pool, &payload.project_id).await?;
+    validate_assignee_for_project(&pool, payload.assignee_id.as_deref(), &payload.project_id).await?;
+
+    let task = Task {
+        id: new_id(),
+        title: payload.title.trim().to_string(),
+        description: normalize_optional_text(payload.description.as_deref()),
+        status: "todo".to_string(),
+        priority: payload.priority.unwrap_or_else(|| "medium".to_string()),
+        project_id: payload.project_id,
+        assignee_id: normalize_optional_text(payload.assignee_id.as_deref()),
+        complexity: None,
+        ai_suggestion: None,
+        last_codex_session_id: None,
+        created_at: now_sqlite(),
+        updated_at: now_sqlite(),
+    };
+
+    if task.title.is_empty() {
+        return Err("任务标题不能为空".to_string());
+    }
+
+    sqlx::query(
+        "INSERT INTO tasks (id, title, description, status, priority, project_id, assignee_id, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
+    )
+    .bind(&task.id)
+    .bind(&task.title)
+    .bind(&task.description)
+    .bind(&task.status)
+    .bind(&task.priority)
+    .bind(&task.project_id)
+    .bind(&task.assignee_id)
+    .bind(&task.created_at)
+    .bind(&task.updated_at)
+    .execute(&pool)
+    .await
+    .map_err(|error| format!("Failed to create task: {}", error))?;
+
+    insert_activity_log(
+        &pool,
+        "task_created",
+        &task.title,
+        None,
+        Some(&task.id),
+        Some(&task.project_id),
+    )
+    .await?;
+
+    fetch_task_by_id(&pool, &task.id).await
+}
+
+#[tauri::command]
+pub async fn update_task<R: Runtime>(
+    app: AppHandle<R>,
+    id: String,
+    updates: UpdateTask,
+) -> Result<Task, String> {
+    let pool = sqlite_pool(&app).await?;
+    let current = fetch_task_by_id(&pool, &id).await?;
+    let next_status = updates.status.clone().unwrap_or_else(|| current.status.clone());
+
+    if let Some(assignee_id) = updates.assignee_id.as_ref() {
+        validate_assignee_for_project(&pool, assignee_id.as_deref(), &current.project_id).await?;
+    }
+
+    let mut builder = QueryBuilder::<Sqlite>::new("UPDATE tasks SET ");
+    let mut separated = builder.separated(", ");
+    let mut touched = false;
+
+    if let Some(title) = updates.title {
+        let trimmed = title.trim().to_string();
+        if trimmed.is_empty() {
+            return Err("任务标题不能为空".to_string());
+        }
+        separated.push("title = ").push_bind_unseparated(trimmed);
+        touched = true;
+    }
+    if let Some(description) = updates.description {
+        separated
+            .push("description = ")
+            .push_bind_unseparated(
+                description.and_then(|value| normalize_optional_text(Some(&value))),
+            );
+        touched = true;
+    }
+    if let Some(status) = updates.status.clone() {
+        separated.push("status = ").push_bind_unseparated(status);
+        touched = true;
+    }
+    if let Some(priority) = updates.priority {
+        separated.push("priority = ").push_bind_unseparated(priority);
+        touched = true;
+    }
+    if let Some(assignee_id) = updates.assignee_id {
+        separated
+            .push("assignee_id = ")
+            .push_bind_unseparated(assignee_id);
+        touched = true;
+    }
+    if let Some(complexity) = updates.complexity {
+        separated
+            .push("complexity = ")
+            .push_bind_unseparated(complexity);
+        touched = true;
+    }
+    if let Some(ai_suggestion) = updates.ai_suggestion {
+        separated
+            .push("ai_suggestion = ")
+            .push_bind_unseparated(ai_suggestion);
+        touched = true;
+    }
+    if let Some(last_codex_session_id) = updates.last_codex_session_id {
+        separated
+            .push("last_codex_session_id = ")
+            .push_bind_unseparated(last_codex_session_id);
+        touched = true;
+    }
+
+    if !touched {
+        return Ok(current);
+    }
+
+    builder.push(" WHERE id = ").push_bind(&id);
+    builder
+        .build()
+        .execute(&pool)
+        .await
+        .map_err(|error| format!("Failed to update task: {}", error))?;
+
+    if next_status != current.status {
+        insert_activity_log(
+            &pool,
+            "task_status_changed",
+            &format!("{} -> {}", current.title, next_status),
+            None,
+            Some(&id),
+            Some(&current.project_id),
+        )
+        .await?;
+
+        if current.status != "completed" && next_status == "completed" {
+            let updated_task = fetch_task_by_id(&pool, &id).await?;
+            record_completion_metric(&pool, &updated_task).await?;
+        }
+    }
+
+    fetch_task_by_id(&pool, &id).await
+}
+
+#[tauri::command]
+pub async fn update_task_status<R: Runtime>(
+    app: AppHandle<R>,
+    id: String,
+    status: String,
+) -> Result<Task, String> {
+    update_task(
+        app,
+        id,
+        UpdateTask {
+            title: None,
+            description: None,
+            status: Some(status),
+            priority: None,
+            assignee_id: None,
+            complexity: None,
+            ai_suggestion: None,
+            last_codex_session_id: None,
+        },
+    )
+    .await
+}
+
+#[tauri::command]
+pub async fn delete_task<R: Runtime>(app: AppHandle<R>, id: String) -> Result<(), String> {
+    let pool = sqlite_pool(&app).await?;
+    let task = fetch_task_by_id(&pool, &id).await?;
+    let mut tx = pool
+        .begin()
+        .await
+        .map_err(|error| format!("Failed to start task transaction: {}", error))?;
+
+    sqlx::query("DELETE FROM activity_logs WHERE task_id = $1")
+        .bind(&id)
+        .execute(&mut *tx)
+        .await
+        .map_err(|error| format!("Failed to delete task activity logs: {}", error))?;
+    sqlx::query("DELETE FROM tasks WHERE id = $1")
+        .bind(&id)
+        .execute(&mut *tx)
+        .await
+        .map_err(|error| format!("Failed to delete task: {}", error))?;
+
+    tx.commit()
+        .await
+        .map_err(|error| format!("Failed to commit task delete: {}", error))?;
+
+    insert_activity_log(
+        &pool,
+        "task_deleted",
+        &task.title,
+        None,
+        None,
+        Some(&task.project_id),
+    )
+    .await?;
+
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn create_subtask<R: Runtime>(
+    app: AppHandle<R>,
+    payload: CreateSubtask,
+) -> Result<Subtask, String> {
+    let pool = sqlite_pool(&app).await?;
+    let title = payload.title.trim().to_string();
+    if title.is_empty() {
+        return Err("子任务标题不能为空".to_string());
+    }
+
+    let sort_order = sqlx::query_scalar::<_, Option<i64>>(
+        "SELECT COALESCE(MAX(sort_order), 0) + 1 FROM subtasks WHERE task_id = $1",
+    )
+    .bind(&payload.task_id)
+    .fetch_optional(&pool)
+    .await
+    .map_err(|error| format!("Failed to resolve subtask order: {}", error))?
+    .flatten()
+    .unwrap_or(1);
+
+    let id = new_id();
+    sqlx::query(
+        "INSERT INTO subtasks (id, task_id, title, sort_order) VALUES ($1, $2, $3, $4)",
+    )
+    .bind(&id)
+    .bind(&payload.task_id)
+    .bind(title)
+    .bind(sort_order)
+    .execute(&pool)
+    .await
+    .map_err(|error| format!("Failed to create subtask: {}", error))?;
+
+    sqlx::query_as::<_, Subtask>("SELECT * FROM subtasks WHERE id = $1 LIMIT 1")
+        .bind(&id)
+        .fetch_one(&pool)
+        .await
+        .map_err(|error| format!("Failed to fetch created subtask: {}", error))
+}
+
+#[tauri::command]
+pub async fn update_subtask_status<R: Runtime>(
+    app: AppHandle<R>,
+    id: String,
+    status: String,
+) -> Result<Subtask, String> {
+    let pool = sqlite_pool(&app).await?;
+    sqlx::query("UPDATE subtasks SET status = $1 WHERE id = $2")
+        .bind(&status)
+        .bind(&id)
+        .execute(&pool)
+        .await
+        .map_err(|error| format!("Failed to update subtask status: {}", error))?;
+
+    sqlx::query_as::<_, Subtask>("SELECT * FROM subtasks WHERE id = $1 LIMIT 1")
+        .bind(&id)
+        .fetch_one(&pool)
+        .await
+        .map_err(|error| format!("Failed to fetch subtask: {}", error))
+}
+
+#[tauri::command]
+pub async fn delete_subtask<R: Runtime>(app: AppHandle<R>, id: String) -> Result<(), String> {
+    let pool = sqlite_pool(&app).await?;
+    sqlx::query("DELETE FROM subtasks WHERE id = $1")
+        .bind(&id)
+        .execute(&pool)
+        .await
+        .map_err(|error| format!("Failed to delete subtask: {}", error))?;
+
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn create_comment<R: Runtime>(
+    app: AppHandle<R>,
+    payload: CreateComment,
+) -> Result<Comment, String> {
+    let pool = sqlite_pool(&app).await?;
+    let content = payload.content.trim().to_string();
+    if content.is_empty() {
+        return Err("评论内容不能为空".to_string());
+    }
+
+    let id = new_id();
+    sqlx::query(
+        "INSERT INTO comments (id, task_id, employee_id, content, is_ai_generated) VALUES ($1, $2, $3, $4, $5)",
+    )
+    .bind(&id)
+    .bind(&payload.task_id)
+    .bind(payload.employee_id)
+    .bind(content)
+    .bind(if payload.is_ai_generated.unwrap_or(false) {
+        1_i64
+    } else {
+        0_i64
+    })
+    .execute(&pool)
+    .await
+    .map_err(|error| format!("Failed to create comment: {}", error))?;
+
+    sqlx::query_as::<_, Comment>("SELECT * FROM comments WHERE id = $1 LIMIT 1")
+        .bind(&id)
+        .fetch_one(&pool)
+        .await
+        .map_err(|error| format!("Failed to fetch created comment: {}", error))
+}
+
+#[cfg(test)]
+mod tests {
+    use std::fs;
+
+    use super::{validate_project_repo_path, validate_runtime_working_dir};
+
+    #[test]
+    fn rejects_missing_project_repo_path() {
+        let path = format!(
+            "{}/codex-ai-test-missing-{}",
+            std::env::temp_dir().display(),
+            std::process::id()
+        );
+
+        assert!(validate_project_repo_path(Some(&path)).is_err());
+    }
+
+    #[test]
+    fn validates_git_runtime_directory() {
+        let root = std::env::temp_dir().join(format!(
+            "codex-ai-runtime-{}-{}",
+            std::process::id(),
+            chrono::Utc::now().timestamp_nanos_opt().unwrap_or_default()
+        ));
+        let git_dir = root.join(".git");
+        fs::create_dir_all(&git_dir).expect("create .git dir");
+
+        let validated = validate_runtime_working_dir(Some(root.to_string_lossy().as_ref()))
+            .expect("valid git working dir");
+        assert!(validated.contains("codex-ai-runtime"));
+
+        fs::remove_dir_all(root).expect("cleanup temp dir");
+    }
+}
