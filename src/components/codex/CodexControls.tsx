@@ -24,6 +24,8 @@ interface CodexControlsProps {
 export function CodexControls({ employeeId, employeeStatus, model, reasoningEffort, systemPrompt }: CodexControlsProps) {
   const updateEmployeeStatus = useEmployeeStore((s) => s.updateEmployeeStatus);
   const setCodexRunning = useEmployeeStore((s) => s.setCodexRunning);
+  const clearCodexOutput = useEmployeeStore((s) => s.clearCodexOutput);
+  const addCodexOutput = useEmployeeStore((s) => s.addCodexOutput);
   const tasks = useTaskStore((s) => s.tasks);
   const fetchTasks = useTaskStore((s) => s.fetchTasks);
   const fetchSubtasks = useTaskStore((s) => s.fetchSubtasks);
@@ -116,6 +118,7 @@ export function CodexControls({ employeeId, employeeStatus, model, reasoningEffo
       await updateEmployeeStatus(employeeId, "busy");
       await updateTaskStatus(selectedTask.id, "in_progress");
       setCodexRunning(employeeId, true, selectedTask.id);
+      clearCodexOutput(employeeId);
       await fetchSubtasks(selectedTask.id);
 
       const prompt = buildTaskExecutionPrompt({
@@ -135,6 +138,7 @@ export function CodexControls({ employeeId, employeeStatus, model, reasoningEffo
     } catch (e) {
       console.error("Failed to start codex:", e);
       setCodexRunning(employeeId, false, null);
+      addCodexOutput(employeeId, `[ERROR] ${String(e)}`);
       await updateEmployeeStatus(employeeId, "error");
     } finally {
       setActionLoading(null);
@@ -148,6 +152,7 @@ export function CodexControls({ employeeId, employeeStatus, model, reasoningEffo
       setCodexRunning(employeeId, false, null);
     } catch (e) {
       console.error("Failed to stop codex:", e);
+      addCodexOutput(employeeId, `[ERROR] ${String(e)}`);
     }
     await updateEmployeeStatus(employeeId, "offline");
     setActionLoading(null);
@@ -165,6 +170,7 @@ export function CodexControls({ employeeId, employeeStatus, model, reasoningEffo
     } catch (e) {
       console.error("Failed to restart codex:", e);
       setCodexRunning(employeeId, false, null);
+      addCodexOutput(employeeId, `[ERROR] ${String(e)}`);
     } finally {
       setActionLoading(null);
     }

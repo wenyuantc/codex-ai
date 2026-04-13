@@ -3,7 +3,6 @@ import { useParams, Link, useNavigate } from "react-router-dom";
 import { useProjectStore } from "@/stores/projectStore";
 import { useTaskStore } from "@/stores/taskStore";
 import { useEmployeeStore } from "@/stores/employeeStore";
-import { select } from "@/lib/database";
 import type { Employee } from "@/lib/types";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -18,7 +17,7 @@ export function ProjectDetailPage() {
   const navigate = useNavigate();
   const { projects, deleteProject } = useProjectStore();
   const { tasks, fetchTasks } = useTaskStore();
-  const { fetchEmployees } = useEmployeeStore();
+  const { employees, fetchEmployees } = useEmployeeStore();
   const [projectEmployees, setProjectEmployees] = useState<Employee[]>([]);
   const [showEdit, setShowEdit] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
@@ -30,23 +29,17 @@ export function ProjectDetailPage() {
     if (id) {
       fetchTasks(id);
       fetchEmployees();
-      loadProjectEmployees(id);
     }
   }, [id, fetchTasks, fetchEmployees]);
 
-  const loadProjectEmployees = async (projectId: string) => {
-    try {
-      const rows = await select<Employee>(
-        `SELECT e.* FROM employees e 
-         INNER JOIN project_employees pe ON e.id = pe.employee_id 
-         WHERE pe.project_id = $1`,
-        [projectId]
-      );
-      setProjectEmployees(rows);
-    } catch (e) {
-      console.error("Failed to load project employees:", e);
+  useEffect(() => {
+    if (!id) {
+      setProjectEmployees([]);
+      return;
     }
-  };
+
+    setProjectEmployees(employees.filter((employee) => employee.project_id === id));
+  }, [employees, id]);
 
   if (!project) {
     return (

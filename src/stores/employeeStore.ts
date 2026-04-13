@@ -1,5 +1,11 @@
 import { create } from "zustand";
-import { select, execute } from "@/lib/database";
+import { select } from "@/lib/database";
+import {
+  createEmployee as createEmployeeCommand,
+  deleteEmployee as deleteEmployeeCommand,
+  updateEmployee as updateEmployeeCommand,
+  updateEmployeeStatus as updateEmployeeStatusCommand,
+} from "@/lib/backend";
 import type { Employee, ReasoningEffort, CodexModelId } from "@/lib/types";
 import { onCodexOutput, onCodexExit, type CodexOutput } from "@/lib/codex";
 
@@ -51,30 +57,22 @@ export const useEmployeeStore = create<EmployeeStore>((set, get) => ({
   },
 
   createEmployee: async (data) => {
-    const id = crypto.randomUUID();
-    await execute(
-      "INSERT INTO employees (id, name, role, model, reasoning_effort, specialization, system_prompt, project_id) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
-      [id, data.name, data.role, data.model ?? "gpt-5.4", data.reasoning_effort ?? "high", data.specialization ?? null, data.system_prompt ?? null, data.project_id ?? null]
-    );
+    await createEmployeeCommand({
+      ...data,
+      specialization: data.specialization ?? null,
+      system_prompt: data.system_prompt ?? null,
+      project_id: data.project_id ?? null,
+    });
     await get().fetchEmployees();
   },
 
   updateEmployee: async (id, updates) => {
-    const fields: string[] = [];
-    const values: unknown[] = [];
-    let idx = 1;
-    for (const [key, value] of Object.entries(updates)) {
-      fields.push(`${key} = $${idx}`);
-      values.push(value);
-      idx++;
-    }
-    values.push(id);
-    await execute(`UPDATE employees SET ${fields.join(", ")} WHERE id = $${idx}`, values);
+    await updateEmployeeCommand(id, updates);
     await get().fetchEmployees();
   },
 
   deleteEmployee: async (id) => {
-    await execute("DELETE FROM employees WHERE id = $1", [id]);
+    await deleteEmployeeCommand(id);
     set((state) => {
       const { [id]: _, ...rest } = state.codexProcesses;
       return { codexProcesses: rest };
@@ -83,9 +81,9 @@ export const useEmployeeStore = create<EmployeeStore>((set, get) => ({
   },
 
   updateEmployeeStatus: async (id, status) => {
-    await execute("UPDATE employees SET status = $1 WHERE id = $2", [status, id]);
+    const employee = await updateEmployeeStatusCommand(id, status);
     set((state) => ({
-      employees: state.employees.map((e) => (e.id === id ? { ...e, status } : e)),
+      employees: state.employees.map((e) => (e.id === id ? employee : e)),
     }));
   },
 

@@ -222,5 +222,79 @@ pub fn get_all_migrations() -> Vec<Migration> {
             "#,
             kind: tauri_plugin_sql::MigrationKind::Up,
         },
+        Migration {
+            version: 14,
+            description: "create codex sessions tables",
+            sql: r#"
+                CREATE TABLE codex_sessions (
+                    id TEXT PRIMARY KEY,
+                    employee_id TEXT REFERENCES employees(id) ON DELETE SET NULL,
+                    task_id TEXT REFERENCES tasks(id) ON DELETE SET NULL,
+                    project_id TEXT REFERENCES projects(id) ON DELETE SET NULL,
+                    cli_session_id TEXT,
+                    working_dir TEXT,
+                    status TEXT NOT NULL DEFAULT 'pending',
+                    started_at TEXT NOT NULL DEFAULT (datetime('now')),
+                    ended_at TEXT,
+                    exit_code INTEGER,
+                    resume_session_id TEXT,
+                    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+                );
+
+                CREATE TABLE codex_session_events (
+                    id TEXT PRIMARY KEY,
+                    session_id TEXT NOT NULL REFERENCES codex_sessions(id) ON DELETE CASCADE,
+                    event_type TEXT NOT NULL,
+                    message TEXT,
+                    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+                );
+            "#,
+            kind: tauri_plugin_sql::MigrationKind::Up,
+        },
+        Migration {
+            version: 15,
+            description: "create codex session indexes",
+            sql: r#"
+                CREATE INDEX idx_codex_sessions_employee_started ON codex_sessions(employee_id, started_at DESC);
+                CREATE INDEX idx_codex_sessions_status ON codex_sessions(status);
+                CREATE INDEX idx_codex_events_session_created ON codex_session_events(session_id, created_at);
+                CREATE INDEX idx_employees_project_id ON employees(project_id);
+            "#,
+            kind: tauri_plugin_sql::MigrationKind::Up,
+        },
+        Migration {
+            version: 16,
+            description: "backfill employee project ownership from project employees",
+            sql: r#"
+                UPDATE employees
+                SET project_id = (
+                    SELECT pe.project_id
+                    FROM project_employees pe
+                    WHERE pe.employee_id = employees.id
+                    ORDER BY pe.joined_at DESC, pe.project_id ASC
+                    LIMIT 1
+                )
+                WHERE (project_id IS NULL OR project_id = '')
+                  AND EXISTS (
+                    SELECT 1
+                    FROM project_employees pe
+                    WHERE pe.employee_id = employees.id
+                  );
+
+                INSERT INTO activity_logs (id, employee_id, action, details, created_at)
+                SELECT
+                    lower(hex(randomblob(16))),
+                    employee_id,
+                    'employee_project_membership_conflict_migrated',
+                    '检测到多项目归属，迁移时保留 joined_at 最新且 project_id 最小的一条关联',
+                    datetime('now')
+                FROM project_employees
+                GROUP BY employee_id
+                HAVING COUNT(*) > 1;
+
+                DELETE FROM project_employees;
+            "#,
+            kind: tauri_plugin_sql::MigrationKind::Up,
+        },
     ]
 }

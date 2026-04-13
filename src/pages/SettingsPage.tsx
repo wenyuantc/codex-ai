@@ -1,5 +1,7 @@
 import { useState, useEffect } from "react";
 import { Moon, Sun, Monitor } from "lucide-react";
+import { healthCheck } from "@/lib/backend";
+import type { CodexHealthCheck } from "@/lib/types";
 
 type ThemeMode = "light" | "dark" | "system";
 
@@ -22,11 +24,40 @@ function applyTheme(mode: ThemeMode) {
 
 export function SettingsPage() {
   const [themeMode, setThemeMode] = useState<ThemeMode>(getThemePreference);
+  const [codexHealth, setCodexHealth] = useState<CodexHealthCheck | null>(null);
+  const [healthLoading, setHealthLoading] = useState(false);
 
   useEffect(() => {
     applyTheme(themeMode);
     localStorage.setItem("theme-mode", themeMode);
   }, [themeMode]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    setHealthLoading(true);
+    void healthCheck()
+      .then((result) => {
+        if (!cancelled) {
+          setCodexHealth(result);
+        }
+      })
+      .catch((error) => {
+        console.error("Failed to load health check:", error);
+        if (!cancelled) {
+          setCodexHealth(null);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setHealthLoading(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const themeOptions: { value: ThemeMode; label: string; icon: typeof Sun }[] = [
     { value: "light", label: "亮色", icon: Sun },
@@ -67,11 +98,29 @@ export function SettingsPage() {
               <p className="text-xs text-muted-foreground">
                 AI员工后端引擎，需要系统已安装 codex 命令
               </p>
+              {codexHealth?.codex_version && (
+                <p className="text-xs text-muted-foreground mt-1">
+                  版本：{codexHealth.codex_version}
+                </p>
+              )}
             </div>
-            <span className="text-xs text-muted-foreground bg-secondary px-2 py-1 rounded">
-              未连接
+            <span className={`text-xs px-2 py-1 rounded ${
+              codexHealth?.codex_available
+                ? "text-green-700 bg-green-100"
+                : "text-amber-700 bg-amber-100"
+            }`}>
+              {healthLoading
+                ? "检测中"
+                : codexHealth?.codex_available
+                ? "已连接"
+                : "不可用"}
             </span>
           </div>
+          {codexHealth?.last_session_error && (
+            <p className="text-xs text-amber-700 mt-2">
+              最近错误：{codexHealth.last_session_error}
+            </p>
+          )}
         </div>
 
         <div className="border-t border-border pt-4">
@@ -80,6 +129,11 @@ export function SettingsPage() {
             <p className="text-xs text-muted-foreground">
               所有数据存储在本地 SQLite 数据库中，无需网络连接
             </p>
+            {codexHealth?.database_path && (
+              <p className="text-xs text-muted-foreground mt-1 break-all">
+                数据库：{codexHealth.database_path}
+              </p>
+            )}
           </div>
         </div>
 

@@ -1,8 +1,17 @@
 import { create } from "zustand";
-import { select, execute } from "@/lib/database";
+import { select } from "@/lib/database";
 import type { Task, Subtask, Comment, TaskStatus } from "@/lib/types";
-import { logActivity } from "@/lib/utils";
 import { onCodexSession, type CodexSession } from "@/lib/codex";
+import {
+  createComment as createCommentCommand,
+  createSubtask as createSubtaskCommand,
+  createTask as createTaskCommand,
+  deleteSubtask as deleteSubtaskCommand,
+  deleteTask as deleteTaskCommand,
+  updateSubtaskStatus as updateSubtaskStatusCommand,
+  updateTask as updateTaskCommand,
+  updateTaskStatus as updateTaskStatusCommand,
+} from "@/lib/backend";
 
 function normalizeSubtaskTitle(title: string): string {
   return title.trim().replace(/\s+/g, " ").toLocaleLowerCase();
@@ -70,36 +79,26 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
   },
 
   createTask: async (data) => {
-    const id = crypto.randomUUID();
-    await execute(
-      "INSERT INTO tasks (id, title, description, priority, project_id, assignee_id) VALUES ($1, $2, $3, $4, $5, $6)",
-      [id, data.title, data.description ?? null, data.priority ?? "medium", data.project_id, data.assignee_id ?? null]
-    );
-    await logActivity("task_created", data.title, undefined, id, data.project_id);
+    await createTaskCommand({
+      ...data,
+      description: data.description ?? null,
+      assignee_id: data.assignee_id ?? null,
+    });
     await get().fetchTasks(data.project_id);
   },
 
   updateTaskStatus: async (id, status) => {
-    const task = get().tasks.find((t) => t.id === id);
-    await execute("UPDATE tasks SET status = $1 WHERE id = $2", [status, id]);
-    await logActivity("task_status_changed", `${task?.title} -> ${status}`, undefined, id, task?.project_id);
+    const task = await updateTaskStatusCommand(id, status);
     set((state) => ({
-      tasks: state.tasks.map((t) => (t.id === id ? { ...t, status } : t)),
+      tasks: state.tasks.map((current) => (current.id === id ? task : current)),
     }));
   },
 
   updateTask: async (id, updates) => {
-    const fields: string[] = [];
-    const values: unknown[] = [];
-    let idx = 1;
-    for (const [key, value] of Object.entries(updates)) {
-      fields.push(`${key} = $${idx}`);
-      values.push(value);
-      idx++;
-    }
-    values.push(id);
-    await execute(`UPDATE tasks SET ${fields.join(", ")} WHERE id = $${idx}`, values);
-    await get().fetchTasks();
+    const task = await updateTaskCommand(id, updates);
+    set((state) => ({
+      tasks: state.tasks.map((current) => (current.id === id ? task : current)),
+    }));
   },
 
   setTaskLastSessionId: async (taskId, sessionId) => {
@@ -109,26 +108,22 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
       )),
     }));
     try {
-      await execute("UPDATE tasks SET last_codex_session_id = $1 WHERE id = $2", [sessionId, taskId]);
+      const task = await updateTaskCommand(taskId, { last_codex_session_id: sessionId });
+      set((state) => ({
+        tasks: state.tasks.map((current) => (current.id === taskId ? task : current)),
+      }));
     } catch (error) {
       console.error("Failed to persist task session id:", error);
     }
   },
 
   deleteTask: async (id) => {
-    const task = get().tasks.find((t) => t.id === id);
-    await execute("DELETE FROM activity_logs WHERE task_id = $1", [id]);
-    await execute("DELETE FROM tasks WHERE id = $1", [id]);
-    await logActivity("task_deleted", task?.title ?? id, undefined, undefined, task?.project_id);
+    await deleteTaskCommand(id);
     await get().fetchTasks();
   },
 
   addSubtask: async (taskId, title) => {
-    const id = crypto.randomUUID();
-    await execute(
-      "INSERT INTO subtasks (id, task_id, title, sort_order) VALUES ($1, $2, $3, (SELECT COALESCE(MAX(sort_order), 0) + 1 FROM subtasks WHERE task_id = $4))",
-      [id, taskId, title, taskId]
-    );
+    await createSubtaskCommand(taskId, title);
     await get().fetchSubtasks(taskId);
   },
 
@@ -137,7 +132,6 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
 
     const currentSubtasks = get().subtasks[taskId] ?? [];
     const existingTitles = new Set(currentSubtasks.map((subtask) => normalizeSubtaskTitle(subtask.title)));
-    let nextSortOrder = currentSubtasks.reduce((max, subtask) => Math.max(max, subtask.sort_order), 0);
     let inserted = 0;
     let skipped = 0;
 
@@ -150,11 +144,7 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
         continue;
       }
 
-      nextSortOrder += 1;
-      await execute(
-        "INSERT INTO subtasks (id, task_id, title, sort_order) VALUES ($1, $2, $3, $4)",
-        [crypto.randomUUID(), taskId, title, nextSortOrder]
-      );
+      await createSubtaskCommand(taskId, title);
       existingTitles.add(normalizedTitle);
       inserted += 1;
     }
@@ -164,7 +154,7 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
   },
 
   toggleSubtask: async (subtaskId, status) => {
-    await execute("UPDATE subtasks SET status = $1 WHERE id = $2", [status, subtaskId]);
+    await updateSubtaskStatusCommand(subtaskId, status);
     const entries = Object.entries(get().subtasks);
     for (const [taskId, subs] of entries) {
       if (subs.some((s) => s.id === subtaskId)) {
@@ -183,16 +173,12 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
         break;
       }
     }
-    await execute("DELETE FROM subtasks WHERE id = $1", [subtaskId]);
+    await deleteSubtaskCommand(subtaskId);
     if (taskId) await get().fetchSubtasks(taskId);
   },
 
   addComment: async (taskId, content, employeeId, isAiGenerated = false) => {
-    const id = crypto.randomUUID();
-    await execute(
-      "INSERT INTO comments (id, task_id, employee_id, content, is_ai_generated) VALUES ($1, $2, $3, $4, $5)",
-      [id, taskId, employeeId ?? null, content, isAiGenerated ? 1 : 0]
-    );
+    await createCommentCommand(taskId, content, employeeId ?? null, isAiGenerated);
     await get().fetchComments(taskId);
   },
 

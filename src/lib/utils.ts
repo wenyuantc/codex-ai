@@ -5,20 +5,6 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
 }
 
-export async function logActivity(
-  action: string,
-  details: string,
-  employeeId?: string,
-  taskId?: string,
-  projectId?: string
-) {
-  const { execute } = await import("./database");
-  await execute(
-    "INSERT INTO activity_logs (id, employee_id, action, details, task_id, project_id) VALUES ($1, $2, $3, $4, $5, $6)",
-    [crypto.randomUUID(), employeeId ?? null, action, details, taskId ?? null, projectId ?? null]
-  );
-}
-
 export function formatDate(dateStr: string): string {
   // SQLite datetime('now') returns UTC without timezone suffix (e.g. "2025-04-12 06:30:00").
   // Append "Z" so JS Date parses it as UTC, then toLocaleString converts to local timezone.

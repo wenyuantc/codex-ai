@@ -84,6 +84,36 @@ export interface ProjectEmployee {
   joined_at: string;
 }
 
+export interface CodexSessionRecord {
+  id: string;
+  employee_id: string | null;
+  task_id: string | null;
+  project_id: string | null;
+  cli_session_id: string | null;
+  working_dir: string | null;
+  status: string;
+  started_at: string;
+  ended_at: string | null;
+  exit_code: number | null;
+  resume_session_id: string | null;
+  created_at: string;
+}
+
+export interface CodexHealthCheck {
+  codex_available: boolean;
+  codex_version: string | null;
+  database_loaded: boolean;
+  database_path: string | null;
+  shell_available: boolean;
+  last_session_error: string | null;
+  checked_at: string;
+}
+
+export interface CodexRuntimeStatus {
+  running: boolean;
+  session: CodexSessionRecord | null;
+}
+
 export type CodexModelId = "gpt-5.4" | "gpt-5.4-mini" | "gpt-5.3-codex" | "gpt-5.2";
 export type ReasoningEffort = "low" | "medium" | "high" | "xhigh";
 export type TaskStatus = "todo" | "in_progress" | "review" | "completed" | "blocked";

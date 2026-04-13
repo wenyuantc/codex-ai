@@ -11,6 +11,10 @@ use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::{Child, Command};
 use tokio::time::sleep;
 
+use crate::app::{
+    fetch_codex_session_by_id, insert_codex_session_event, insert_codex_session_record,
+    now_sqlite, sqlite_pool, update_codex_session_record, validate_runtime_working_dir,
+};
 use crate::codex::CodexManager;
 use crate::db::models::{CodexExit, CodexOutput, CodexSession};
 
@@ -79,25 +83,100 @@ fn compose_codex_prompt(task_description: &str, system_prompt: Option<&str>) -> 
     }
 }
 
+async fn record_failed_session(
+    app: &AppHandle,
+    employee_id: &str,
+    task_id: Option<&str>,
+    working_dir: Option<&str>,
+    resume_session_id: Option<&str>,
+    message: &str,
+) {
+    if let Ok(record) = insert_codex_session_record(
+        app,
+        Some(employee_id),
+        task_id,
+        working_dir,
+        resume_session_id,
+        "failed",
+    )
+    .await
+    {
+        if let Ok(pool) = sqlite_pool(app).await {
+            let _ = insert_codex_session_event(&pool, &record.id, "validation_failed", Some(message))
+                .await;
+        }
+    }
+}
+
+async fn bind_cli_session_id(
+    app: &AppHandle,
+    employee_id: &str,
+    task_id: Option<&String>,
+    session_record_id: &str,
+    cli_session_id: String,
+) {
+    let _ = update_codex_session_record(
+        app,
+        session_record_id,
+        None,
+        Some(Some(cli_session_id.as_str())),
+        None,
+        None,
+    )
+    .await;
+    if let Ok(pool) = sqlite_pool(app).await {
+        let _ = insert_codex_session_event(
+            &pool,
+            session_record_id,
+            "cli_session_bound",
+            Some(&format!("CLI 会话已绑定: {}", cli_session_id)),
+        )
+        .await;
+    }
+    let _ = app.emit(
+        "codex-session",
+        CodexSession {
+            employee_id: employee_id.to_string(),
+            task_id: task_id.cloned(),
+            session_id: cli_session_id,
+        },
+    );
+}
+
+async fn wait_until_process_stops(
+    state: &State<'_, Arc<Mutex<CodexManager>>>,
+    employee_id: &str,
+) -> Result<(), String> {
+    for _ in 0..100 {
+        let still_running = {
+            let manager = state.lock().map_err(|error| error.to_string())?;
+            manager.is_running(employee_id)
+        };
+        if !still_running {
+            return Ok(());
+        }
+        sleep(Duration::from_millis(50)).await;
+    }
+
+    Err(format!("Timed out waiting for employee {} process to stop", employee_id))
+}
+
 pub struct CodexChild {
     child: Child,
 }
 
 impl CodexChild {
-    pub async fn kill(&mut self) -> Result<(), String> {
+    pub fn start_kill(&mut self) -> Result<(), String> {
         self.child
-            .kill()
-            .await
+            .start_kill()
             .map_err(|e: std::io::Error| e.to_string())
     }
 
-    pub async fn wait(&mut self) -> Result<Option<i32>, String> {
-        let status = self
-            .child
-            .wait()
-            .await
-            .map_err(|e: std::io::Error| e.to_string())?;
-        Ok(status.code())
+    pub fn try_wait(&mut self) -> Result<Option<i32>, String> {
+        self.child
+            .try_wait()
+            .map(|status| status.and_then(|status| status.code()))
+            .map_err(|e: std::io::Error| e.to_string())
     }
 }
 
@@ -125,13 +204,39 @@ pub async fn start_codex(
         }
     }
 
-    let run_cwd = match working_dir.clone() {
-        Some(dir) => dir,
-        None => std::env::current_dir()
-            .map_err(|e| format!("Failed to determine current directory: {}", e))?
-            .to_string_lossy()
-            .to_string(),
+    let run_cwd = match validate_runtime_working_dir(working_dir.as_deref()) {
+        Ok(path) => path,
+        Err(error) => {
+            record_failed_session(
+                &app,
+                &employee_id,
+                task_id.as_deref(),
+                working_dir.as_deref(),
+                resume_session_id.as_deref(),
+                &error,
+            )
+            .await;
+            return Err(error);
+        }
     };
+
+    let session_record = insert_codex_session_record(
+        &app,
+        Some(&employee_id),
+        task_id.as_deref(),
+        Some(&run_cwd),
+        resume_session_id.as_deref(),
+        "pending",
+    )
+    .await?;
+    let pool = sqlite_pool(&app).await?;
+    insert_codex_session_event(
+        &pool,
+        &session_record.id,
+        "session_requested",
+        Some("Codex 会话创建成功，准备启动 CLI"),
+    )
+    .await?;
 
     let mut cmd = Command::new("codex");
     let model = normalize_model(model.as_deref());
@@ -141,9 +246,7 @@ pub async fn start_codex(
     cmd.arg("--model").arg(model);
     cmd.arg("-c")
         .arg(format!("model_reasoning_effort=\"{}\"", reasoning_effort));
-    if let Some(ref dir) = working_dir {
-        cmd.arg("-C").arg(dir);
-    }
+    cmd.arg("-C").arg(&run_cwd);
     if let Some(ref session_id) = resume_session_id {
         cmd.arg("resume").arg(session_id).arg(&prompt);
     } else {
@@ -155,50 +258,93 @@ pub async fn start_codex(
 
     let session_lookup_started_at = SystemTime::now();
 
-    let mut child = cmd
-        .spawn()
-        .map_err(|e| format!("Failed to spawn codex: {}", e))?;
+    let mut child = match cmd.spawn() {
+        Ok(child) => child,
+        Err(error) => {
+            let message = format!("Failed to spawn codex: {}", error);
+            let ended_at = now_sqlite();
+            update_codex_session_record(
+                &app,
+                &session_record.id,
+                Some("failed"),
+                None,
+                None,
+                Some(Some(ended_at.as_str())),
+            )
+            .await?;
+            insert_codex_session_event(
+                &pool,
+                &session_record.id,
+                "spawn_failed",
+                Some(&message),
+            )
+            .await?;
+            return Err(message);
+        }
+    };
 
     let stdout = child.stdout.take().ok_or("Failed to capture stdout")?;
     let stderr = child.stderr.take().ok_or("Failed to capture stderr")?;
 
-    // Store the child process
+    let child_handle = Arc::new(tokio::sync::Mutex::new(CodexChild { child }));
+
     {
         let mut manager = state.lock().map_err(|e| e.to_string())?;
-        manager.add_process(employee_id.clone(), CodexChild { child });
+        manager.add_process(
+            employee_id.clone(),
+            child_handle.clone(),
+            session_record.id.clone(),
+        );
     }
+    update_codex_session_record(
+        &app,
+        &session_record.id,
+        Some("running"),
+        None,
+        None,
+        None,
+    )
+    .await?;
+    insert_codex_session_event(
+        &pool,
+        &session_record.id,
+        "session_started",
+        Some(&format!("使用模型 {} / 推理强度 {}", model, reasoning_effort)),
+    )
+    .await?;
 
     let session_emitted = Arc::new(AtomicBool::new(false));
 
     if let Some(session_id) = resume_session_id.clone() {
         session_emitted.store(true, Ordering::Relaxed);
-        let _ = app.emit(
-            "codex-session",
-            CodexSession {
-                employee_id: employee_id.clone(),
-                task_id: task_id.clone(),
-                session_id,
-            },
-        );
+        bind_cli_session_id(
+            &app,
+            &employee_id,
+            task_id.as_ref(),
+            &session_record.id,
+            session_id,
+        )
+        .await;
     } else {
         let app_clone = app.clone();
         let eid = employee_id.clone();
         let task_id_clone = task_id.clone();
         let run_cwd_clone = run_cwd.clone();
         let session_emitted_clone = session_emitted.clone();
+        let session_record_id = session_record.id.clone();
         tauri::async_runtime::spawn(async move {
             if let Some(session_id) =
                 wait_for_exec_session_id(&run_cwd_clone, session_lookup_started_at).await
             {
                 if !session_emitted_clone.swap(true, Ordering::Relaxed) {
-                    let _ = app_clone.emit(
-                        "codex-session",
-                        CodexSession {
-                            employee_id: eid,
-                            task_id: task_id_clone,
-                            session_id,
-                        },
-                    );
+                    bind_cli_session_id(
+                        &app_clone,
+                        &eid,
+                        task_id_clone.as_ref(),
+                        &session_record_id,
+                        session_id,
+                    )
+                    .await;
                 }
             }
         });
@@ -214,6 +360,7 @@ pub async fn start_codex(
     let task_id_clone = task_id.clone();
     let seen_stdout = seen.clone();
     let session_emitted_clone = session_emitted.clone();
+    let session_record_id = session_record.id.clone();
     tauri::async_runtime::spawn(async move {
         let reader = BufReader::new(stdout);
         let mut lines = reader.lines();
@@ -221,14 +368,14 @@ pub async fn start_codex(
             if !session_emitted_clone.load(Ordering::Relaxed) {
                 if let Some(session_id) = extract_session_id_from_output(&line) {
                     if !session_emitted_clone.swap(true, Ordering::Relaxed) {
-                        let _ = app_clone.emit(
-                            "codex-session",
-                            CodexSession {
-                                employee_id: eid.clone(),
-                                task_id: task_id_clone.clone(),
-                                session_id,
-                            },
-                        );
+                        bind_cli_session_id(
+                            &app_clone,
+                            &eid,
+                            task_id_clone.as_ref(),
+                            &session_record_id,
+                            session_id,
+                        )
+                        .await;
                     }
                 }
             }
@@ -296,36 +443,101 @@ pub async fn start_codex(
     let run_cwd_clone = run_cwd.clone();
     let task_id_clone = task_id.clone();
     let session_emitted_clone = session_emitted.clone();
+    let session_record_id = session_record.id.clone();
+    let child_handle_clone = child_handle.clone();
     tauri::async_runtime::spawn(async move {
-        // Take child out of manager to avoid holding MutexGuard across .await
-        let mut codex_child = {
+        let exit_code = loop {
+            let maybe_status = {
+                let mut child = child_handle_clone.lock().await;
+                child.try_wait()
+            };
+
+            match maybe_status {
+                Ok(Some(code)) => break Some(code),
+                Ok(None) => sleep(Duration::from_millis(200)).await,
+                Err(error) => {
+                    let pool = sqlite_pool(&app_clone).await.ok();
+                    let ended_at = now_sqlite();
+                    let _ = update_codex_session_record(
+                        &app_clone,
+                        &session_record_id,
+                        Some("failed"),
+                        None,
+                        None,
+                        Some(Some(ended_at.as_str())),
+                    )
+                    .await;
+                    if let Some(pool) = pool {
+                        let _ = insert_codex_session_event(
+                            &pool,
+                            &session_record_id,
+                            "session_failed",
+                            Some(&error),
+                        )
+                        .await;
+                    }
+                    let manager = app_clone.state::<Arc<Mutex<CodexManager>>>();
+                    let mut manager = manager.lock().unwrap();
+                    manager.remove_process(&eid);
+                    let _ = app_clone.emit(
+                        "codex-exit",
+                        CodexExit {
+                            employee_id: eid.clone(),
+                            code: None,
+                        },
+                    );
+                    return;
+                }
+            }
+        };
+
+        {
             let manager = app_clone.state::<Arc<Mutex<CodexManager>>>();
             let mut manager = manager.lock().unwrap();
-            manager.remove_process(&eid)
-        };
-
-        let exit_code = if let Some(ref mut child) = codex_child {
-            child.wait().await.ok().flatten()
-        } else {
-            None
-        };
-
-        // Child is already removed from manager
-        drop(codex_child);
+            manager.remove_process(&eid);
+        }
 
         if !session_emitted_clone.load(Ordering::Relaxed) {
             if let Some(session_id) =
                 find_latest_exec_session_id(&run_cwd_clone, session_lookup_started_at)
             {
-                let _ = app_clone.emit(
-                    "codex-session",
-                    CodexSession {
-                        employee_id: eid.clone(),
-                        task_id: task_id_clone,
-                        session_id,
-                    },
-                );
+                bind_cli_session_id(
+                    &app_clone,
+                    &eid,
+                    task_id_clone.as_ref(),
+                    &session_record_id,
+                    session_id,
+                )
+                .await;
             }
+        }
+
+        let final_status = match fetch_codex_session_by_id(&app_clone, &session_record_id).await {
+            Ok(record) if record.status == "stopping" => "exited",
+            Ok(_) if exit_code == Some(0) => "exited",
+            Ok(_) => "failed",
+            Err(_) if exit_code == Some(0) => "exited",
+            Err(_) => "failed",
+        };
+        let ended_at = now_sqlite();
+        let _ = update_codex_session_record(
+            &app_clone,
+            &session_record_id,
+            Some(final_status),
+            None,
+            Some(exit_code),
+            Some(Some(ended_at.as_str())),
+        )
+        .await;
+        if let Ok(pool) = sqlite_pool(&app_clone).await {
+            let event_type = if final_status == "exited" {
+                "session_exited"
+            } else {
+                "session_failed"
+            };
+            let message = format!("进程退出，exit_code={}", exit_code.unwrap_or_default());
+            let _ = insert_codex_session_event(&pool, &session_record_id, event_type, Some(&message))
+                .await;
         }
 
         let _ = app_clone.emit(
@@ -422,16 +634,36 @@ fn collect_session_files(root: &Path) -> Vec<PathBuf> {
 
 #[tauri::command]
 pub async fn stop_codex(
+    app: AppHandle,
     state: State<'_, Arc<Mutex<CodexManager>>>,
     employee_id: String,
 ) -> Result<(), String> {
-    let codex_child = {
-        let mut manager = state.lock().map_err(|e| e.to_string())?;
-        manager.remove_process(&employee_id)
+    let running_process = {
+        let manager = state.lock().map_err(|e| e.to_string())?;
+        manager.get_process(&employee_id)
     };
 
-    if let Some(mut child) = codex_child {
-        child.kill().await
+    if let Some(process) = running_process {
+        let pool = sqlite_pool(&app).await?;
+        update_codex_session_record(
+            &app,
+            &process.session_record_id,
+            Some("stopping"),
+            None,
+            None,
+            None,
+        )
+        .await?;
+        insert_codex_session_event(
+            &pool,
+            &process.session_record_id,
+            "stopping_requested",
+            Some("收到停止请求"),
+        )
+        .await?;
+
+        let mut child = process.child.lock().await;
+        child.start_kill()
     } else {
         Err(format!(
             "No running codex instance for employee {}",
@@ -451,15 +683,43 @@ pub async fn restart_codex(
     system_prompt: Option<String>,
     working_dir: Option<String>,
 ) -> Result<(), String> {
-    // Stop existing instance if running
-    let codex_child = {
-        let mut manager = state.lock().map_err(|e| e.to_string())?;
-        manager.remove_process(&employee_id)
+    let is_running = {
+        let manager = state.lock().map_err(|e| e.to_string())?;
+        manager.is_running(&employee_id)
     };
-    if let Some(mut child) = codex_child {
-        let _ = child.kill().await;
+
+    if is_running {
+        let running_process = {
+            let manager = state.lock().map_err(|e| e.to_string())?;
+            manager.get_process(&employee_id)
+        };
+
+        if let Some(process) = running_process {
+            let pool = sqlite_pool(&app).await?;
+            update_codex_session_record(
+                &app,
+                &process.session_record_id,
+                Some("stopping"),
+                None,
+                None,
+                None,
+            )
+            .await?;
+            insert_codex_session_event(
+                &pool,
+                &process.session_record_id,
+                "restart_requested",
+                Some("收到重启请求"),
+            )
+            .await?;
+
+            let mut child = process.child.lock().await;
+            child.start_kill()?;
+        }
+
+        wait_until_process_stops(&state, &employee_id).await?;
     }
-    // Start a new instance
+
     start_codex(
         app,
         state,

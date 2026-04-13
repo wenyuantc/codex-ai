@@ -14,8 +14,3 @@ export async function select<T>(query: string, params?: unknown[]): Promise<T[]>
   const db = await getDb();
   return db.select(query, params) as Promise<T[]>;
 }
-
-export async function execute(query: string, params?: unknown[]): Promise<void> {
-  const db = await getDb();
-  await db.execute(query, params);
-}

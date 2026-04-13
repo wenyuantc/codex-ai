@@ -43,7 +43,15 @@ export function TaskDetailDialog({
   onOpenChange,
 }: TaskDetailDialogProps) {
   const { updateTask, deleteTask, addComment, updateTaskStatus, fetchSubtasks, addSubtasks } = useTaskStore();
-  const { employees, fetchEmployees, codexProcesses, updateEmployeeStatus, setCodexRunning, clearCodexOutput } = useEmployeeStore();
+  const {
+    employees,
+    fetchEmployees,
+    codexProcesses,
+    updateEmployeeStatus,
+    setCodexRunning,
+    clearCodexOutput,
+    addCodexOutput,
+  } = useEmployeeStore();
   const projects = useProjectStore((s) => s.projects);
   const projectRepoPath = projects.find((p) => p.id === task.project_id)?.repo_path;
   const [title, setTitle] = useState(task.title);
@@ -56,6 +64,7 @@ export function TaskDetailDialog({
   const [codexLoading, setCodexLoading] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [deletingTask, setDeletingTask] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const terminalRef = useRef<HTMLDivElement>(null);
   const assignee = assigneeId ? employees.find((employee) => employee.id === assigneeId) : undefined;
 
@@ -72,6 +81,7 @@ export function TaskDetailDialog({
       setStatus(task.status);
       setAssigneeId(task.assignee_id ?? "");
       setAiResult(null);
+      setSaveError(null);
     }
   }, [open, task]);
 
@@ -86,16 +96,22 @@ export function TaskDetailDialog({
   }, [output.length]);
 
   const handleSave = async (field: string, value: string) => {
-    if (field === "title" && value.trim()) {
-      await updateTask(task.id, { title: value.trim() });
-    } else if (field === "description") {
-      await updateTask(task.id, { description: value || null });
-    } else if (field === "priority") {
-      await updateTask(task.id, { priority: value });
-    } else if (field === "status") {
-      await useTaskStore.getState().updateTaskStatus(task.id, value as TaskStatus);
-    } else if (field === "assignee_id") {
-      await updateTask(task.id, { assignee_id: value || null });
+    setSaveError(null);
+    try {
+      if (field === "title" && value.trim()) {
+        await updateTask(task.id, { title: value.trim() });
+      } else if (field === "description") {
+        await updateTask(task.id, { description: value || null });
+      } else if (field === "priority") {
+        await updateTask(task.id, { priority: value });
+      } else if (field === "status") {
+        await useTaskStore.getState().updateTaskStatus(task.id, value as TaskStatus);
+      } else if (field === "assignee_id") {
+        await updateTask(task.id, { assignee_id: value || null });
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setSaveError(message);
     }
   };
 
@@ -120,6 +136,7 @@ export function TaskDetailDialog({
       await updateTaskStatus(task.id, "in_progress");
       setStatus("in_progress");
       setCodexRunning(assigneeId, true, task.id);
+      clearCodexOutput(assigneeId);
       await fetchSubtasks(task.id);
       const desc = buildTaskExecutionPrompt({
         title,
@@ -136,6 +153,7 @@ export function TaskDetailDialog({
     } catch (err) {
       console.error("Failed to start codex:", err);
       setCodexRunning(assigneeId, false, null);
+      addCodexOutput(assigneeId, `[ERROR] ${String(err)}`);
       await updateEmployeeStatus(assigneeId, "error");
     } finally {
       setCodexLoading(false);
@@ -151,6 +169,7 @@ export function TaskDetailDialog({
       await updateEmployeeStatus(assigneeId, "offline");
     } catch (err) {
       console.error("Failed to stop codex:", err);
+      addCodexOutput(assigneeId, `[ERROR] ${String(err)}`);
     } finally {
       setCodexLoading(false);
     }
@@ -262,6 +281,12 @@ export function TaskDetailDialog({
               className="text-lg font-semibold border-none px-0 focus-visible:ring-0"
               placeholder="任务标题"
             />
+
+            {saveError && (
+              <div className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+                {saveError}
+              </div>
+            )}
 
             {/* Meta row */}
             <div className="flex flex-wrap items-center gap-3">

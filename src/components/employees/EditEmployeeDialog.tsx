@@ -51,6 +51,7 @@ export function EditEmployeeDialog({ open, onOpenChange, employee }: EditEmploye
   const [systemPrompt, setSystemPrompt] = useState("");
   const [projectId, setProjectId] = useState("");
   const [saving, setSaving] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   useEffect(() => {
     if (!open || !employee) return;
@@ -63,12 +64,14 @@ export function EditEmployeeDialog({ open, onOpenChange, employee }: EditEmploye
     setSpecialization(employee.specialization ?? "");
     setSystemPrompt(employee.system_prompt ?? "");
     setProjectId(employee.project_id ?? "");
+    setErrorMessage(null);
   }, [employee, fetchProjects, open]);
 
   const handleSave = async () => {
     if (!employee || !name.trim()) return;
 
     setSaving(true);
+    setErrorMessage(null);
     try {
       await updateEmployee(employee.id, {
         name: name.trim(),
@@ -80,6 +83,8 @@ export function EditEmployeeDialog({ open, onOpenChange, employee }: EditEmploye
         project_id: projectId || null,
       });
       onOpenChange(false);
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : String(error));
     } finally {
       setSaving(false);
     }
@@ -241,6 +246,12 @@ export function EditEmployeeDialog({ open, onOpenChange, employee }: EditEmploye
               </SelectContent>
             </Select>
           </div>
+
+          {errorMessage && (
+            <div className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+              {errorMessage}
+            </div>
+          )}
 
           <div className="flex justify-end gap-2 pt-2">
             <button

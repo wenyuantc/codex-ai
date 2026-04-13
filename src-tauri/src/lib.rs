@@ -1,3 +1,4 @@
+mod app;
 mod codex;
 mod db;
 mod tray;
@@ -28,6 +29,23 @@ pub fn run() {
         })
         .on_window_event(window_event::handle_window_event)
         .invoke_handler(tauri::generate_handler![
+            app::health_check,
+            app::get_codex_session_status,
+            app::create_project,
+            app::update_project,
+            app::delete_project,
+            app::create_employee,
+            app::update_employee,
+            app::delete_employee,
+            app::update_employee_status,
+            app::create_task,
+            app::update_task,
+            app::update_task_status,
+            app::delete_task,
+            app::create_subtask,
+            app::update_subtask_status,
+            app::delete_subtask,
+            app::create_comment,
             codex::start_codex,
             codex::stop_codex,
             codex::restart_codex,

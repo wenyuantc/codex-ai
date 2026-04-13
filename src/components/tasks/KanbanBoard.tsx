@@ -18,7 +18,7 @@ interface KanbanBoardProps {
 }
 
 export function KanbanBoard({ projectId: _projectId }: KanbanBoardProps) {
-  const { tasks, moveTask, updateTaskStatus } = useTaskStore();
+  const { tasks, moveTask, updateTaskStatus, fetchTasks } = useTaskStore();
   const [activeTask, setActiveTask] = useState<Task | null>(null);
 
   const sensors = useSensors(
@@ -46,8 +46,13 @@ export function KanbanBoard({ projectId: _projectId }: KanbanBoardProps) {
     if (targetStatus) {
       const task = tasks.find((t) => t.id === taskId);
       if (task && task.status !== targetStatus) {
+        const previousStatus = task.status;
         moveTask(taskId, targetStatus as TaskStatus);
-        updateTaskStatus(taskId, targetStatus as TaskStatus);
+        void updateTaskStatus(taskId, targetStatus as TaskStatus).catch((error) => {
+          console.error("Failed to update task status:", error);
+          moveTask(taskId, previousStatus as TaskStatus);
+          void fetchTasks(_projectId);
+        });
       }
       return;
     }
@@ -57,8 +62,13 @@ export function KanbanBoard({ projectId: _projectId }: KanbanBoardProps) {
     if (targetTask) {
       const task = tasks.find((t) => t.id === taskId);
       if (task && task.status !== targetTask.status) {
+        const previousStatus = task.status;
         moveTask(taskId, targetTask.status as TaskStatus);
-        updateTaskStatus(taskId, targetTask.status as TaskStatus);
+        void updateTaskStatus(taskId, targetTask.status as TaskStatus).catch((error) => {
+          console.error("Failed to update task status:", error);
+          moveTask(taskId, previousStatus as TaskStatus);
+          void fetchTasks(_projectId);
+        });
       }
     }
   };

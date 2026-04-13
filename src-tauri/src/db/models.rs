@@ -1,10 +1,21 @@
 #![allow(dead_code)]
 
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
+use sqlx::FromRow;
+
+fn deserialize_explicit_nullable<'de, D, T>(
+    deserializer: D,
+) -> Result<Option<Option<T>>, D::Error>
+where
+    D: Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    Deserialize::deserialize(deserializer).map(Some)
+}
 
 // ========== Table Models ==========
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct Project {
     pub id: String,
     pub name: String,
@@ -15,7 +26,7 @@ pub struct Project {
     pub updated_at: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct Employee {
     pub id: String,
     pub name: String,
@@ -30,7 +41,7 @@ pub struct Employee {
     pub updated_at: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct Task {
     pub id: String,
     pub title: String,
@@ -46,7 +57,7 @@ pub struct Task {
     pub updated_at: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct Subtask {
     pub id: String,
     pub task_id: String,
@@ -57,7 +68,7 @@ pub struct Subtask {
     pub updated_at: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct Comment {
     pub id: String,
     pub task_id: String,
@@ -67,7 +78,7 @@ pub struct Comment {
     pub created_at: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct ActivityLog {
     pub id: String,
     pub employee_id: Option<String>,
@@ -78,7 +89,7 @@ pub struct ActivityLog {
     pub created_at: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct EmployeeMetric {
     pub id: String,
     pub employee_id: String,
@@ -90,12 +101,54 @@ pub struct EmployeeMetric {
     pub created_at: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct ProjectEmployee {
     pub project_id: String,
     pub employee_id: String,
     pub role: String,
     pub joined_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+pub struct CodexSessionRecord {
+    pub id: String,
+    pub employee_id: Option<String>,
+    pub task_id: Option<String>,
+    pub project_id: Option<String>,
+    pub cli_session_id: Option<String>,
+    pub working_dir: Option<String>,
+    pub status: String,
+    pub started_at: String,
+    pub ended_at: Option<String>,
+    pub exit_code: Option<i32>,
+    pub resume_session_id: Option<String>,
+    pub created_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+pub struct CodexSessionEvent {
+    pub id: String,
+    pub session_id: String,
+    pub event_type: String,
+    pub message: Option<String>,
+    pub created_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CodexHealthCheck {
+    pub codex_available: bool,
+    pub codex_version: Option<String>,
+    pub database_loaded: bool,
+    pub database_path: Option<String>,
+    pub shell_available: bool,
+    pub last_session_error: Option<String>,
+    pub checked_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CodexRuntimeStatus {
+    pub running: bool,
+    pub session: Option<CodexSessionRecord>,
 }
 
 // ========== DTOs ==========
@@ -110,9 +163,11 @@ pub struct CreateProject {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UpdateProject {
     pub name: Option<String>,
-    pub description: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_explicit_nullable")]
+    pub description: Option<Option<String>>,
     pub status: Option<String>,
-    pub repo_path: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_explicit_nullable")]
+    pub repo_path: Option<Option<String>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -133,9 +188,12 @@ pub struct UpdateEmployee {
     pub model: Option<String>,
     pub reasoning_effort: Option<String>,
     pub status: Option<String>,
-    pub specialization: Option<String>,
-    pub system_prompt: Option<String>,
-    pub project_id: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_explicit_nullable")]
+    pub specialization: Option<Option<String>>,
+    #[serde(default, deserialize_with = "deserialize_explicit_nullable")]
+    pub system_prompt: Option<Option<String>>,
+    #[serde(default, deserialize_with = "deserialize_explicit_nullable")]
+    pub project_id: Option<Option<String>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -150,13 +208,18 @@ pub struct CreateTask {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UpdateTask {
     pub title: Option<String>,
-    pub description: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_explicit_nullable")]
+    pub description: Option<Option<String>>,
     pub status: Option<String>,
     pub priority: Option<String>,
-    pub assignee_id: Option<String>,
-    pub complexity: Option<i32>,
-    pub ai_suggestion: Option<String>,
-    pub last_codex_session_id: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_explicit_nullable")]
+    pub assignee_id: Option<Option<String>>,
+    #[serde(default, deserialize_with = "deserialize_explicit_nullable")]
+    pub complexity: Option<Option<i32>>,
+    #[serde(default, deserialize_with = "deserialize_explicit_nullable")]
+    pub ai_suggestion: Option<Option<String>>,
+    #[serde(default, deserialize_with = "deserialize_explicit_nullable")]
+    pub last_codex_session_id: Option<Option<String>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -192,4 +255,44 @@ pub struct CodexSession {
     pub employee_id: String,
     pub task_id: Option<String>,
     pub session_id: String,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{UpdateEmployee, UpdateProject, UpdateTask};
+
+    #[test]
+    fn project_update_keeps_explicit_nulls() {
+        let payload: UpdateProject = serde_json::from_str(
+            r#"{"name":"项目A","description":null,"repo_path":"/tmp/repo","status":"active"}"#,
+        )
+        .expect("deserialize project update");
+
+        assert_eq!(payload.name.as_deref(), Some("项目A"));
+        assert_eq!(payload.description, Some(None));
+        assert_eq!(payload.repo_path, Some(Some("/tmp/repo".to_string())));
+    }
+
+    #[test]
+    fn employee_update_keeps_nullable_fields() {
+        let payload: UpdateEmployee = serde_json::from_str(
+            r#"{"name":"Alice","specialization":null,"project_id":"proj-1"}"#,
+        )
+        .expect("deserialize employee update");
+
+        assert_eq!(payload.specialization, Some(None));
+        assert_eq!(payload.project_id, Some(Some("proj-1".to_string())));
+    }
+
+    #[test]
+    fn task_update_keeps_nullable_fields() {
+        let payload: UpdateTask = serde_json::from_str(
+            r#"{"description":null,"assignee_id":null,"complexity":3}"#,
+        )
+        .expect("deserialize task update");
+
+        assert_eq!(payload.description, Some(None));
+        assert_eq!(payload.assignee_id, Some(None));
+        assert_eq!(payload.complexity, Some(Some(3)));
+    }
 }

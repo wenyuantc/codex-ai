@@ -32,6 +32,7 @@ export function EditProjectDialog({ open, onOpenChange, project }: EditProjectDi
   const [repoPath, setRepoPath] = useState("");
   const [status, setStatus] = useState("active");
   const [saving, setSaving] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   useEffect(() => {
     if (open && project) {
@@ -39,12 +40,14 @@ export function EditProjectDialog({ open, onOpenChange, project }: EditProjectDi
       setDescription(project.description ?? "");
       setRepoPath(project.repo_path ?? "");
       setStatus(project.status);
+      setErrorMessage(null);
     }
   }, [open, project]);
 
   const handleSave = async () => {
     if (!name.trim() || !project) return;
     setSaving(true);
+    setErrorMessage(null);
     try {
       await updateProject(project.id, {
         name: name.trim(),
@@ -53,6 +56,8 @@ export function EditProjectDialog({ open, onOpenChange, project }: EditProjectDi
         status,
       });
       onOpenChange(false);
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : String(error));
     } finally {
       setSaving(false);
     }
@@ -105,6 +110,12 @@ export function EditProjectDialog({ open, onOpenChange, project }: EditProjectDi
               </SelectContent>
             </Select>
           </div>
+
+          {errorMessage && (
+            <div className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+              {errorMessage}
+            </div>
+          )}
 
           <div className="flex justify-end gap-2 pt-2">
             <button
