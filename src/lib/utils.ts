@@ -51,6 +51,8 @@ export function getActivityActionLabel(action: string): string {
     task_created: "创建任务",
     task_status_changed: "任务状态变更",
     task_deleted: "删除任务",
+    task_execution_started: "开始任务会话",
+    task_execution_resumed: "继续任务会话",
   };
   return labels[action] || action;
 }

@@ -13,8 +13,9 @@ use tokio::process::Child;
 use tokio::time::sleep;
 
 use crate::app::{
-    fetch_codex_session_by_id, insert_codex_session_event, insert_codex_session_record, now_sqlite,
-    sqlite_pool, update_codex_session_record, validate_runtime_working_dir,
+    fetch_codex_session_by_id, insert_activity_log, insert_codex_session_event,
+    insert_codex_session_record, now_sqlite, sqlite_pool, update_codex_session_record,
+    validate_runtime_working_dir,
 };
 use crate::codex::{
     ensure_sdk_runtime_layout, inspect_sdk_runtime, load_codex_settings, new_codex_command,
@@ -251,6 +252,75 @@ async fn bind_cli_session_id(
             session_id: cli_session_id,
         },
     );
+}
+
+async fn fetch_task_activity_context(
+    pool: &sqlx::SqlitePool,
+    task_id: &str,
+) -> Result<(String, String), String> {
+    sqlx::query_as::<_, (String, String)>(
+        "SELECT title, project_id FROM tasks WHERE id = $1 LIMIT 1",
+    )
+    .bind(task_id)
+    .fetch_one(pool)
+    .await
+    .map_err(|error| {
+        format!(
+            "Failed to resolve task {} for activity log: {}",
+            task_id, error
+        )
+    })
+}
+
+async fn write_task_execution_activity(
+    app: &AppHandle,
+    pool: &sqlx::SqlitePool,
+    session_record_id: &str,
+    employee_id: &str,
+    task_id: Option<&str>,
+    resume_session_id: Option<&str>,
+) {
+    let Some(task_id) = task_id else {
+        return;
+    };
+
+    let result = async {
+        let (task_title, project_id) = fetch_task_activity_context(pool, task_id).await?;
+        let action = if resume_session_id.is_some() {
+            "task_execution_resumed"
+        } else {
+            "task_execution_started"
+        };
+
+        insert_activity_log(
+            pool,
+            action,
+            &task_title,
+            Some(employee_id),
+            Some(task_id),
+            Some(project_id.as_str()),
+        )
+        .await
+    }
+    .await;
+
+    if let Err(error) = result {
+        let _ = insert_codex_session_event(
+            pool,
+            session_record_id,
+            "activity_log_failed",
+            Some(&error),
+        )
+        .await;
+        let _ = app.emit(
+            "codex-stdout",
+            CodexOutput {
+                employee_id: employee_id.to_string(),
+                task_id: Some(task_id.to_string()),
+                line: format!("[WARN] 活动日志写入失败: {}", error),
+            },
+        );
+    }
 }
 
 async fn wait_until_process_stops(
@@ -546,6 +616,15 @@ pub async fn start_codex(
         )),
     )
     .await?;
+    write_task_execution_activity(
+        &app,
+        &pool,
+        &session_record.id,
+        &employee_id,
+        task_id.as_deref(),
+        resume_session_id.as_deref(),
+    )
+    .await;
 
     let session_emitted = Arc::new(AtomicBool::new(false));
 
@@ -1035,7 +1114,11 @@ async fn run_ai_command_via_exec(
     let mut child = cmd
         // 打包后的桌面应用工作目录通常不在受信任仓库内，
         // one-shot AI 功能也不依赖仓库上下文，因此这里显式跳过检查。
-        .args(build_one_shot_exec_args(model, reasoning_effort, image_paths))
+        .args(build_one_shot_exec_args(
+            model,
+            reasoning_effort,
+            image_paths,
+        ))
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
@@ -1125,7 +1208,7 @@ async fn run_ai_command_via_sdk(
             "model": model,
             "modelReasoningEffort": reasoning_effort,
         }))
-            .map_err(|error| format!("Failed to serialize SDK request: {}", error))?;
+        .map_err(|error| format!("Failed to serialize SDK request: {}", error))?;
         stdin
             .write_all(&payload)
             .await
