@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import { Loader2, Monitor, Moon, RefreshCw, Sun } from "lucide-react";
+import { confirm, message, open, save } from "@tauri-apps/plugin-dialog";
+import { Download, Loader2, Monitor, Moon, RefreshCw, Sun, Upload } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -11,9 +12,11 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import {
+  backupDatabase,
   getCodexSettings,
   healthCheck,
   installCodexSdk,
+  restoreDatabase,
   updateCodexSettings,
 } from "@/lib/backend";
 import {
@@ -28,6 +31,14 @@ import {
 } from "@/lib/types";
 
 type ThemeMode = "light" | "dark" | "system";
+
+const DATABASE_FILE_FILTERS = [
+  { name: "SQL 备份", extensions: ["sql"] },
+];
+
+const isTauriRuntime =
+  typeof window !== "undefined" &&
+  typeof (window as typeof window & { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__ !== "undefined";
 
 function getThemePreference(): ThemeMode {
   const stored = localStorage.getItem("theme-mode");
@@ -46,6 +57,31 @@ function applyTheme(mode: ThemeMode) {
   localStorage.setItem("theme", isDark ? "dark" : "light");
 }
 
+function formatBackupTimestamp(date = new Date()) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  const hours = String(date.getHours()).padStart(2, "0");
+  const minutes = String(date.getMinutes()).padStart(2, "0");
+  const seconds = String(date.getSeconds()).padStart(2, "0");
+  return `${year}${month}${day}-${hours}${minutes}${seconds}`;
+}
+
+function buildBackupDefaultPath(health: CodexHealthCheck | null) {
+  const version = health?.database_current_version ?? health?.database_latest_version ?? 0;
+  const fileName = `codex-ai-backup-v${version}-${formatBackupTimestamp()}.sql`;
+  const databasePath = health?.database_path;
+
+  if (!databasePath) return fileName;
+
+  const lastSeparatorIndex = Math.max(databasePath.lastIndexOf("/"), databasePath.lastIndexOf("\\"));
+  if (lastSeparatorIndex < 0) return fileName;
+
+  const directory = databasePath.slice(0, lastSeparatorIndex);
+  const separator = directory.includes("\\") ? "\\" : "/";
+  return `${directory}${separator}${fileName}`;
+}
+
 export function SettingsPage() {
   const [themeMode, setThemeMode] = useState<ThemeMode>(getThemePreference);
   const [codexHealth, setCodexHealth] = useState<CodexHealthCheck | null>(null);
@@ -59,6 +95,11 @@ export function SettingsPage() {
   const [sdkActionLoading, setSdkActionLoading] = useState<"save" | "install" | null>(null);
   const [sdkActionMessage, setSdkActionMessage] = useState<string | null>(null);
   const [sdkActionError, setSdkActionError] = useState<string | null>(null);
+  const [databaseActionLoading, setDatabaseActionLoading] = useState<"backup" | "restore" | null>(
+    null,
+  );
+  const [databaseActionMessage, setDatabaseActionMessage] = useState<string | null>(null);
+  const [databaseActionError, setDatabaseActionError] = useState<string | null>(null);
 
   async function loadSettingsState() {
     setHealthLoading(true);
@@ -146,6 +187,79 @@ export function SettingsPage() {
       setSdkActionError(error instanceof Error ? error.message : "安装 Codex SDK 失败");
     } finally {
       setSdkActionLoading(null);
+    }
+  }
+
+  async function handleBackupDatabase() {
+    setDatabaseActionLoading("backup");
+    setDatabaseActionError(null);
+    setDatabaseActionMessage(null);
+
+    try {
+      const destination = await save({
+        title: "导出 SQL 备份",
+        defaultPath: buildBackupDefaultPath(codexHealth),
+        filters: DATABASE_FILE_FILTERS,
+      });
+
+      if (!destination) {
+        return;
+      }
+
+      const result = await backupDatabase(destination);
+      setDatabaseActionMessage(result.message);
+    } catch (error) {
+      console.error("Failed to backup database:", error);
+      setDatabaseActionError(error instanceof Error ? error.message : "导出 SQL 备份失败");
+    } finally {
+      setDatabaseActionLoading(null);
+    }
+  }
+
+  async function handleRestoreDatabase() {
+    setDatabaseActionLoading("restore");
+    setDatabaseActionError(null);
+    setDatabaseActionMessage(null);
+
+    try {
+      const confirmed = await confirm(
+        "导入 SQL 会先自动备份当前数据库，再清空现有数据库并执行导入 SQL。",
+        {
+          title: "导入 SQL 备份",
+          kind: "warning",
+        },
+      );
+
+      if (!confirmed) {
+        return;
+      }
+
+      const selected = await open({
+        title: "选择 SQL 备份文件",
+        directory: false,
+        multiple: false,
+        filters: DATABASE_FILE_FILTERS,
+      });
+
+      if (typeof selected !== "string") {
+        return;
+      }
+
+      const result = await restoreDatabase(selected);
+      setDatabaseActionMessage(result.message);
+      await loadSettingsState();
+      await message(
+        `${result.message}\n\n导入前自动备份：${result.backup_path}`,
+        {
+          title: "SQL 导入完成",
+          kind: "info",
+        },
+      );
+    } catch (error) {
+      console.error("Failed to restore database:", error);
+      setDatabaseActionError(error instanceof Error ? error.message : "导入 SQL 备份失败");
+    } finally {
+      setDatabaseActionLoading(null);
     }
   }
 
@@ -393,10 +507,60 @@ export function SettingsPage() {
             <p className="text-xs text-muted-foreground">
               所有数据存储在本地 SQLite 数据库中，无需网络连接
             </p>
-            {codexHealth?.database_path && (
-              <p className="mt-1 break-all text-xs text-muted-foreground">
-                数据库：{codexHealth.database_path}
+            <div className="mt-3 grid gap-2 rounded-md border border-border px-3 py-3 text-xs text-muted-foreground">
+              <p>
+                当前数据版本：
+                {codexHealth?.database_current_version != null
+                  ? `v${codexHealth.database_current_version}`
+                  : "检测中"}
               </p>
+              <p>
+                当前应用支持的最新版本：
+                {codexHealth ? `v${codexHealth.database_latest_version}` : "检测中"}
+              </p>
+              <p>
+                最近一次迁移：
+                {codexHealth?.database_current_description ?? "暂无"}
+              </p>
+              {codexHealth?.database_path && (
+                <p className="break-all">数据库：{codexHealth.database_path}</p>
+              )}
+            </div>
+
+            <div className="mt-3 flex flex-wrap gap-2">
+              <Button
+                variant="outline"
+                onClick={() => void handleBackupDatabase()}
+                disabled={!isTauriRuntime || healthLoading || databaseActionLoading !== null}
+                title={isTauriRuntime ? "导出 SQL 备份" : "仅桌面端支持导出 SQL 备份"}
+              >
+                {databaseActionLoading === "backup" ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Download className="h-4 w-4" />
+                )}
+                导出 SQL
+              </Button>
+              <Button
+                variant="outline"
+                onClick={() => void handleRestoreDatabase()}
+                disabled={!isTauriRuntime || healthLoading || databaseActionLoading !== null}
+                title={isTauriRuntime ? "导入 SQL 备份" : "仅桌面端支持导入 SQL 备份"}
+              >
+                {databaseActionLoading === "restore" ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Upload className="h-4 w-4" />
+                )}
+                导入 SQL
+              </Button>
+            </div>
+
+            {databaseActionMessage && (
+              <p className="mt-2 text-xs text-green-700">{databaseActionMessage}</p>
+            )}
+            {databaseActionError && (
+              <p className="mt-2 text-xs text-destructive">{databaseActionError}</p>
             )}
           </div>
         </div>

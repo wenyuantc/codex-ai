@@ -126,6 +126,9 @@ export interface CodexHealthCheck {
   sdk_status_message: string;
   database_loaded: boolean;
   database_path: string | null;
+  database_current_version: number | null;
+  database_current_description: string | null;
+  database_latest_version: number;
   shell_available: boolean;
   last_session_error: string | null;
   checked_at: string;
@@ -151,6 +154,22 @@ export interface CodexSdkInstallResult {
   sdk_version: string | null;
   install_dir: string;
   node_version: string | null;
+  message: string;
+}
+
+export interface DatabaseBackupResult {
+  source_path: string;
+  destination_path: string;
+  database_version: number | null;
+  created_at: string;
+  message: string;
+}
+
+export interface DatabaseRestoreResult {
+  source_path: string;
+  backup_path: string;
+  database_version: number | null;
+  restored_at: string;
   message: string;
 }
 

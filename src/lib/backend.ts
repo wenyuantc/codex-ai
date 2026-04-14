@@ -4,6 +4,8 @@ import type {
   CodexSdkInstallResult,
   CodexSettings,
   CodexRuntimeStatus,
+  DatabaseBackupResult,
+  DatabaseRestoreResult,
   Comment,
   Employee,
   Project,
@@ -76,6 +78,14 @@ export interface UpdateTaskInput {
 
 export async function healthCheck(): Promise<CodexHealthCheck> {
   return invoke("health_check");
+}
+
+export async function backupDatabase(destinationPath: string): Promise<DatabaseBackupResult> {
+  return invoke("backup_database", { destinationPath });
+}
+
+export async function restoreDatabase(sourcePath: string): Promise<DatabaseRestoreResult> {
+  return invoke("restore_database", { sourcePath });
 }
 
 export async function readImageFile(path: string): Promise<number[]> {

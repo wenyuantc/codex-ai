@@ -160,6 +160,9 @@ pub struct CodexHealthCheck {
     pub sdk_status_message: String,
     pub database_loaded: bool,
     pub database_path: Option<String>,
+    pub database_current_version: Option<i64>,
+    pub database_current_description: Option<String>,
+    pub database_latest_version: i64,
     pub shell_available: bool,
     pub last_session_error: Option<String>,
     pub checked_at: String,
@@ -188,6 +191,24 @@ pub struct CodexSdkInstallResult {
     pub sdk_version: Option<String>,
     pub install_dir: String,
     pub node_version: Option<String>,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DatabaseBackupResult {
+    pub source_path: String,
+    pub destination_path: String,
+    pub database_version: Option<i64>,
+    pub created_at: String,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DatabaseRestoreResult {
+    pub source_path: String,
+    pub backup_path: String,
+    pub database_version: Option<i64>,
+    pub restored_at: String,
     pub message: String,
 }
 

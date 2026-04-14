@@ -38,6 +38,8 @@ pub fn run() {
         .on_window_event(window_event::handle_window_event)
         .invoke_handler(tauri::generate_handler![
             app::health_check,
+            app::backup_database,
+            app::restore_database,
             app::get_codex_session_status,
             app::read_image_file,
             app::open_task_attachment,
