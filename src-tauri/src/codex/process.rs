@@ -201,10 +201,7 @@ pub async fn start_codex(
     {
         let manager = state.lock().map_err(|e| e.to_string())?;
         if manager.is_running(&employee_id) {
-            return Err(format!(
-                "员工{}的Codex实例已在运行",
-                employee_id
-            ));
+            return Err(format!("员工{}的Codex实例已在运行", employee_id));
         }
     }
 
@@ -772,12 +769,22 @@ pub async fn send_codex_input(
 }
 
 /// Run a one-shot AI command using `codex exec`.
+fn build_one_shot_exec_args(prompt: &str) -> Vec<String> {
+    vec![
+        "exec".to_string(),
+        "--skip-git-repo-check".to_string(),
+        prompt.to_string(),
+    ]
+}
+
 async fn run_ai_command(prompt: String) -> Result<String, String> {
     let mut cmd = new_codex_command()
         .await
         .map_err(|error| format!("Failed to spawn codex exec: {}", error))?;
     let output = cmd
-        .args(["exec", &prompt])
+        // 打包后的桌面应用工作目录通常不在受信任仓库内，
+        // one-shot AI 功能也不依赖仓库上下文，因此这里显式跳过检查。
+        .args(build_one_shot_exec_args(&prompt))
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
@@ -883,7 +890,10 @@ fn parse_ai_subtasks_response(raw: &str) -> Result<Vec<String>, String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{compose_codex_prompt, extract_session_id_from_output, parse_ai_subtasks_response};
+    use super::{
+        build_one_shot_exec_args, compose_codex_prompt, extract_session_id_from_output,
+        parse_ai_subtasks_response,
+    };
 
     #[test]
     fn extracts_session_id_from_stdout_line() {
@@ -946,6 +956,20 @@ mod tests {
             parse_ai_subtasks_response("[\"任务一\", \"任务二\"]").expect("should parse array");
 
         assert_eq!(subtasks, vec!["任务一", "任务二"]);
+    }
+
+    #[test]
+    fn one_shot_exec_args_skip_git_repo_check() {
+        let args = build_one_shot_exec_args("分析任务");
+
+        assert_eq!(
+            args,
+            vec![
+                "exec".to_string(),
+                "--skip-git-repo-check".to_string(),
+                "分析任务".to_string()
+            ]
+        );
     }
 }
 
