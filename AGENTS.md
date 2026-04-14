@@ -3,6 +3,9 @@
 ## 项目结构与模块组织
 该应用由 Vite/React 前端和 Tauri/Rust 桌面壳组成。前端源码位于 `src/`：页面级路由在 `src/pages`，可复用 UI 在 `src/components`，共享辅助函数在 `src/lib`，Zustand 状态在 `src/stores`。静态资源应放在 `public/` 或 `src/assets/`。原生桌面端代码位于 `src-tauri/src`，其中数据库代码在 `src-tauri/src/db`，Codex 进程管理位于 `src-tauri/src/codex`。将 `.omx/` 和 `src-tauri/target/` 视为生成物或运行时状态，不要手工修改。
 
+## 开发指南
+- 每次修改代码，如果涉及数据库必须确保数据库升级脚本。
+
 ## 构建、测试与开发命令
 - `npm run dev`：启动仅用于浏览器开发的 Vite 前端。
 - `npm run build`：执行 TypeScript 编译并生成前端产物。
