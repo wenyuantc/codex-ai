@@ -79,20 +79,52 @@ export function onCodexSession(callback: (session: CodexSession) => void) {
 }
 
 // AI-powered features
-export async function aiSuggestAssignee(taskDescription: string, employeeList: string): Promise<string> {
-  return invoke<string>("ai_suggest_assignee", { taskDescription, employeeList });
+export async function aiSuggestAssignee(
+  taskDescription: string,
+  employeeList: string,
+  imagePaths?: string[],
+): Promise<string> {
+  return invoke<string>("ai_suggest_assignee", {
+    taskDescription,
+    employeeList,
+    imagePaths: imagePaths ?? null,
+  });
 }
 
-export async function aiAnalyzeComplexity(taskDescription: string): Promise<string> {
-  return invoke<string>("ai_analyze_complexity", { taskDescription });
+export async function aiAnalyzeComplexity(
+  taskDescription: string,
+  imagePaths?: string[],
+): Promise<string> {
+  return invoke<string>("ai_analyze_complexity", {
+    taskDescription,
+    imagePaths: imagePaths ?? null,
+  });
 }
 
-export async function aiGenerateComment(taskTitle: string, taskDescription: string, context: string): Promise<string> {
-  return invoke<string>("ai_generate_comment", { taskTitle, taskDescription, context });
+export async function aiGenerateComment(
+  taskTitle: string,
+  taskDescription: string,
+  context: string,
+  imagePaths?: string[],
+): Promise<string> {
+  return invoke<string>("ai_generate_comment", {
+    taskTitle,
+    taskDescription,
+    context,
+    imagePaths: imagePaths ?? null,
+  });
 }
 
-export async function aiSplitSubtasks(taskTitle: string, taskDescription: string): Promise<string[]> {
-  return invoke<string[]>("ai_split_subtasks", { taskTitle, taskDescription });
+export async function aiSplitSubtasks(
+  taskTitle: string,
+  taskDescription: string,
+  imagePaths?: string[],
+): Promise<string[]> {
+  return invoke<string[]>("ai_split_subtasks", {
+    taskTitle,
+    taskDescription,
+    imagePaths: imagePaths ?? null,
+  });
 }
 
 export async function aiGeneratePlan(
@@ -101,6 +133,7 @@ export async function aiGeneratePlan(
   taskStatus: string,
   taskPriority: string,
   subtasks: string[],
+  imagePaths?: string[],
 ): Promise<string> {
   return invoke<string>("ai_generate_plan", {
     taskTitle,
@@ -108,5 +141,6 @@ export async function aiGeneratePlan(
     taskStatus,
     taskPriority,
     subtasks,
+    imagePaths: imagePaths ?? null,
   });
 }

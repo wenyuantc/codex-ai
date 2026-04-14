@@ -3,7 +3,7 @@ import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
 
 import type { Task, TaskStatus } from "@/lib/types";
 import { TASK_STATUSES, PRIORITIES } from "@/lib/types";
-import { openTaskAttachment } from "@/lib/backend";
+import { getCodexSettings, healthCheck, openTaskAttachment } from "@/lib/backend";
 import { useTaskStore } from "@/stores/taskStore";
 import { useEmployeeStore } from "@/stores/employeeStore";
 import { useProjectStore } from "@/stores/projectStore";
@@ -112,6 +112,8 @@ export function TaskDetailDialog({
   const [deletingAttachmentId, setDeletingAttachmentId] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
   const terminalRef = useRef<HTMLDivElement>(null);
+  const aiLogRef = useRef<HTMLDivElement>(null);
+  const [aiLogs, setAiLogs] = useState<string[]>([]);
   const assignee = assigneeId ? employees.find((employee) => employee.id === assigneeId) : undefined;
 
   const codexProcess = assigneeId ? codexProcesses[assigneeId] : undefined;
@@ -150,12 +152,33 @@ export function TaskDetailDialog({
       setInsertSubmitting(false);
       setAttachmentLoading(false);
       setDeletingAttachmentId(null);
+      setAiLogs([]);
     }
   }, [open, task.id]);
 
   useEffect(() => {
     terminalRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [output.length]);
+
+  useEffect(() => {
+    aiLogRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [aiLogs.length]);
+
+  const formatLogTime = () =>
+    new Date().toLocaleTimeString("zh-CN", {
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      hour12: false,
+    });
+
+  const appendAiLog = (message: string) => {
+    setAiLogs((current) => [...current.slice(-199), `${formatLogTime()} ${message}`]);
+  };
+
+  const resetAiLogs = (operation: string) => {
+    setAiLogs([`${formatLogTime()} [${operation}] 开始执行`]);
+  };
 
   const handleSave = async (field: string, value: string) => {
     setSaveError(null);
@@ -234,6 +257,38 @@ export function TaskDetailDialog({
     }
   };
 
+  const loadCurrentImagePaths = async () => {
+    await fetchAttachments(task.id);
+    return (useTaskStore.getState().attachments[task.id] ?? [])
+      .map((attachment) => attachment.stored_path.trim())
+      .filter((path) => path.length > 0);
+  };
+
+  const logOneShotAiContext = async (operation: string, imagePaths: string[]) => {
+    appendAiLog(`[${operation}] 已载入任务图片 ${imagePaths.length} 张`);
+
+    const [settingsResult, healthResult] = await Promise.allSettled([
+      getCodexSettings(),
+      healthCheck(),
+    ]);
+
+    if (settingsResult.status === "fulfilled") {
+      appendAiLog(
+        `[${operation}] 一次性 AI 配置：模型 ${settingsResult.value.one_shot_model} / 推理 ${settingsResult.value.one_shot_reasoning_effort}`,
+      );
+    } else {
+      appendAiLog(`[WARN] [${operation}] 读取一次性 AI 配置失败：${String(settingsResult.reason)}`);
+    }
+
+    if (healthResult.status === "fulfilled") {
+      const provider =
+        healthResult.value.one_shot_effective_provider === "sdk" ? "SDK" : "exec（自动回退）";
+      appendAiLog(`[${operation}] 当前执行通道：${provider}`);
+    } else {
+      appendAiLog(`[WARN] [${operation}] 读取运行时状态失败：${String(healthResult.reason)}`);
+    }
+  };
+
   const handleRunCodex = async () => {
     if (!assigneeId) return;
     setCodexLoading(true);
@@ -286,17 +341,24 @@ export function TaskDetailDialog({
   };
 
   const handleAiSuggest = async () => {
+    resetAiLogs("AI建议指派");
     setAiLoading("assignee");
     setAiResult(null);
     try {
+      appendAiLog("[AI建议指派] 正在准备任务图片与执行配置...");
+      const imagePaths = await loadCurrentImagePaths();
+      await logOneShotAiContext("AI建议指派", imagePaths);
       const employeeList = employees
         .map((e) => `${e.id}: ${e.name} (${e.role}, ${e.specialization ?? "general"})`)
         .join("; ");
       const desc = task.description ?? task.title;
-      const result = await aiSuggestAssignee(desc, employeeList);
+      appendAiLog("[AI建议指派] 已提交给 AI，等待响应...");
+      const result = await aiSuggestAssignee(desc, employeeList, imagePaths);
       setAiResult(result);
       await updateTask(task.id, { ai_suggestion: result });
+      appendAiLog("[AI建议指派] 执行完成");
     } catch (e) {
+      appendAiLog(`[ERROR] [AI建议指派] ${String(e)}`);
       setAiResult(`AI建议失败: ${e}`);
     } finally {
       setAiLoading(null);
@@ -304,17 +366,24 @@ export function TaskDetailDialog({
   };
 
   const handleAiComplexity = async () => {
+    resetAiLogs("复杂度分析");
     setAiLoading("complexity");
     setAiResult(null);
     try {
+      appendAiLog("[复杂度分析] 正在准备任务图片与执行配置...");
+      const imagePaths = await loadCurrentImagePaths();
+      await logOneShotAiContext("复杂度分析", imagePaths);
       const desc = task.description ?? task.title;
-      const result = await aiAnalyzeComplexity(desc);
+      appendAiLog("[复杂度分析] 已提交给 AI，等待响应...");
+      const result = await aiAnalyzeComplexity(desc, imagePaths);
       setAiResult(result);
       const match = result.match(/(\d+)/);
       if (match) {
         await updateTask(task.id, { complexity: parseInt(match[1], 10) });
       }
+      appendAiLog("[复杂度分析] 执行完成");
     } catch (e) {
+      appendAiLog(`[ERROR] [复杂度分析] ${String(e)}`);
       setAiResult(`复杂度分析失败: ${e}`);
     } finally {
       setAiLoading(null);
@@ -322,15 +391,23 @@ export function TaskDetailDialog({
   };
 
   const handleAiComment = async () => {
+    resetAiLogs("AI生成评论");
     setAiLoading("comment");
     try {
+      appendAiLog("[AI生成评论] 正在准备任务图片与执行配置...");
+      const imagePaths = await loadCurrentImagePaths();
+      await logOneShotAiContext("AI生成评论", imagePaths);
+      appendAiLog("[AI生成评论] 已提交给 AI，等待响应...");
       const result = await aiGenerateComment(
         task.title,
         task.description ?? "",
-        `Status: ${task.status}, Priority: ${task.priority}`
+        `Status: ${task.status}, Priority: ${task.priority}`,
+        imagePaths,
       );
       await addComment(task.id, result, undefined, true);
+      appendAiLog("[AI生成评论] 执行完成");
     } catch (e) {
+      appendAiLog(`[ERROR] [AI生成评论] ${String(e)}`);
       console.error("AI comment failed:", e);
     } finally {
       setAiLoading(null);
@@ -346,19 +423,27 @@ export function TaskDetailDialog({
       return;
     }
 
+    resetAiLogs("AI拆分子任务");
     setAiLoading("subtasks");
     setAiResult(null);
     try {
-      const generatedSubtasks = await aiSplitSubtasks(taskTitle, taskDescription);
+      appendAiLog("[AI拆分子任务] 正在准备任务图片与执行配置...");
+      const imagePaths = await loadCurrentImagePaths();
+      await logOneShotAiContext("AI拆分子任务", imagePaths);
+      appendAiLog("[AI拆分子任务] 已提交给 AI，等待响应...");
+      const generatedSubtasks = await aiSplitSubtasks(taskTitle, taskDescription, imagePaths);
       const { inserted, skipped } = await addSubtasks(task.id, generatedSubtasks);
 
       if (inserted === 0) {
+        appendAiLog("[AI拆分子任务] 响应完成，但没有可新增的子任务");
         setAiResult(skipped > 0 ? "AI 已完成拆分，但结果与现有子任务重复，未新增内容。" : "AI 未生成可写入的子任务。");
         return;
       }
 
       setAiResult(`AI 已写入 ${inserted} 个子任务${skipped > 0 ? `，跳过 ${skipped} 个重复项` : ""}。`);
+      appendAiLog(`[AI拆分子任务] 执行完成，新增 ${inserted} 个子任务`);
     } catch (e) {
+      appendAiLog(`[ERROR] [AI拆分子任务] ${String(e)}`);
       setAiResult(`AI拆分子任务失败: ${e}`);
     } finally {
       setAiLoading(null);
@@ -375,30 +460,39 @@ export function TaskDetailDialog({
       return;
     }
 
+    resetAiLogs("AI生成计划");
     setPlanLoading(true);
     setGeneratedPlan(null);
     setPlanError(null);
     setPlanNotice(null);
 
     try {
-      await fetchSubtasks(task.id);
+      appendAiLog("[AI生成计划] 正在准备任务图片、子任务与执行配置...");
+      const [_, imagePaths] = await Promise.all([fetchSubtasks(task.id), loadCurrentImagePaths()]);
+      await logOneShotAiContext("AI生成计划", imagePaths);
       const latestSubtasks = (useTaskStore.getState().subtasks[task.id] ?? []).map((subtask) => subtask.title);
+      appendAiLog(`[AI生成计划] 已载入子任务 ${latestSubtasks.length} 个`);
+      appendAiLog("[AI生成计划] 已提交给 AI，等待响应...");
       const plan = await aiGeneratePlan(
         taskTitle,
         taskDescription,
         status,
         priority,
         latestSubtasks,
+        imagePaths,
       );
       const trimmedPlan = plan.trim();
 
       if (!trimmedPlan) {
+        appendAiLog("[AI生成计划] AI 未返回可展示的计划内容");
         setPlanError("AI 未返回可展示的计划内容。");
         return;
       }
 
       setGeneratedPlan(trimmedPlan);
+      appendAiLog("[AI生成计划] 执行完成");
     } catch (error) {
+      appendAiLog(`[ERROR] [AI生成计划] ${String(error)}`);
       setPlanError(error instanceof Error ? error.message : String(error));
     } finally {
       setPlanLoading(false);
@@ -457,6 +551,12 @@ export function TaskDetailDialog({
     if (line.startsWith("[ERROR]")) return "text-red-400";
     if (line.startsWith("[EXIT]")) return "text-yellow-400";
     return "text-green-400";
+  }
+
+  function getAiLogColor(line: string): string {
+    if (line.includes("[ERROR]")) return "text-red-400";
+    if (line.includes("[WARN]")) return "text-yellow-400";
+    return "text-zinc-300";
   }
 
   const aiActionDisabled = aiLoading !== null || planLoading || insertSubmitting;
@@ -721,6 +821,35 @@ export function TaskDetailDialog({
               AI生成评论
             </button>
           </div>
+
+          {(aiLoading !== null || planLoading || aiLogs.length > 0) && (
+            <div>
+              <div className="flex items-center justify-between px-2 py-1 bg-black/80 rounded-t border-b border-zinc-800">
+                <span className="text-xs text-zinc-500 font-mono">AI 执行日志</span>
+                <button
+                  onClick={() => setAiLogs([])}
+                  className="p-0.5 text-zinc-500 hover:text-zinc-300 transition-colors"
+                  title="清空日志"
+                >
+                  <Eraser className="h-3 w-3" />
+                </button>
+              </div>
+              <ScrollArea className="h-28 overflow-hidden bg-black rounded-b">
+                <div className="p-2 font-mono text-xs space-y-0.5">
+                  {aiLogs.length === 0 ? (
+                    <div className="text-zinc-600">等待执行...</div>
+                  ) : (
+                    aiLogs.map((line, index) => (
+                      <div key={`${line}-${index}`} className={`whitespace-pre-wrap ${getAiLogColor(line)}`}>
+                        {line}
+                      </div>
+                    ))
+                  )}
+                  <div ref={aiLogRef} />
+                </div>
+              </ScrollArea>
+            </div>
+          )}
 
           {/* AI Result */}
           {aiResult && (

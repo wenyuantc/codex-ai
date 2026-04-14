@@ -16,6 +16,10 @@ const SDK_PACKAGE_NAME: &str = "@openai/codex-sdk";
 const ONE_SHOT_PROVIDER_SDK: &str = "sdk";
 const ONE_SHOT_PROVIDER_EXEC: &str = "exec";
 const MINIMUM_NODE_MAJOR: u32 = 18;
+const DEFAULT_ONE_SHOT_MODEL: &str = "gpt-5.4";
+const DEFAULT_ONE_SHOT_REASONING_EFFORT: &str = "high";
+const SUPPORTED_MODELS: &[&str] = &["gpt-5.4", "gpt-5.4-mini", "gpt-5.3-codex", "gpt-5.2"];
+const SUPPORTED_REASONING_EFFORTS: &[&str] = &["low", "medium", "high", "xhigh"];
 
 #[derive(Debug, Clone)]
 pub struct SdkRuntimeHealth {
@@ -42,11 +46,29 @@ struct RawCodexSettings {
     #[serde(default)]
     one_shot_sdk_enabled: Option<bool>,
     #[serde(default)]
+    one_shot_model: Option<String>,
+    #[serde(default)]
+    one_shot_reasoning_effort: Option<String>,
+    #[serde(default)]
     node_path_override: Option<String>,
     #[serde(default)]
     sdk_install_dir: Option<String>,
     #[serde(default)]
     one_shot_preferred_provider: Option<String>,
+}
+
+fn normalize_one_shot_model(value: Option<&str>) -> String {
+    match value.map(str::trim) {
+        Some(value) if SUPPORTED_MODELS.contains(&value) => value.to_string(),
+        _ => DEFAULT_ONE_SHOT_MODEL.to_string(),
+    }
+}
+
+fn normalize_one_shot_reasoning_effort(value: Option<&str>) -> String {
+    match value.map(str::trim) {
+        Some(value) if SUPPORTED_REASONING_EFFORTS.contains(&value) => value.to_string(),
+        _ => DEFAULT_ONE_SHOT_REASONING_EFFORT.to_string(),
+    }
 }
 
 fn app_config_dir<R: Runtime>(app: &AppHandle<R>) -> Result<PathBuf, String> {
@@ -67,6 +89,10 @@ fn normalize_settings(settings: CodexSettings, default_install_dir: &Path) -> Co
     CodexSettings {
         task_sdk_enabled: settings.task_sdk_enabled,
         one_shot_sdk_enabled: settings.one_shot_sdk_enabled,
+        one_shot_model: normalize_one_shot_model(Some(&settings.one_shot_model)),
+        one_shot_reasoning_effort: normalize_one_shot_reasoning_effort(Some(
+            &settings.one_shot_reasoning_effort,
+        )),
         node_path_override: normalize_optional_text(settings.node_path_override.as_deref()),
         sdk_install_dir: normalize_optional_text(Some(&settings.sdk_install_dir))
             .unwrap_or_else(|| default_install_dir.to_string_lossy().to_string()),
@@ -80,6 +106,10 @@ fn normalize_raw_settings(raw: RawCodexSettings, default_install_dir: &Path) -> 
     CodexSettings {
         task_sdk_enabled: raw.task_sdk_enabled.unwrap_or(legacy_sdk_enabled),
         one_shot_sdk_enabled: raw.one_shot_sdk_enabled.unwrap_or(legacy_sdk_enabled),
+        one_shot_model: normalize_one_shot_model(raw.one_shot_model.as_deref()),
+        one_shot_reasoning_effort: normalize_one_shot_reasoning_effort(
+            raw.one_shot_reasoning_effort.as_deref(),
+        ),
         node_path_override: normalize_optional_text(raw.node_path_override.as_deref()),
         sdk_install_dir: normalize_optional_text(raw.sdk_install_dir.as_deref())
             .unwrap_or_else(|| default_install_dir.to_string_lossy().to_string()),
@@ -95,6 +125,8 @@ pub fn load_codex_settings<R: Runtime>(app: &AppHandle<R>) -> Result<CodexSettin
     let defaults = CodexSettings {
         task_sdk_enabled: false,
         one_shot_sdk_enabled: false,
+        one_shot_model: DEFAULT_ONE_SHOT_MODEL.to_string(),
+        one_shot_reasoning_effort: DEFAULT_ONE_SHOT_REASONING_EFFORT.to_string(),
         node_path_override: None,
         sdk_install_dir: default_install_dir.to_string_lossy().to_string(),
         one_shot_preferred_provider: ONE_SHOT_PROVIDER_SDK.to_string(),
@@ -138,6 +170,15 @@ pub fn merge_codex_settings<R: Runtime>(
 
     if let Some(one_shot_sdk_enabled) = updates.one_shot_sdk_enabled {
         settings.one_shot_sdk_enabled = one_shot_sdk_enabled;
+    }
+
+    if let Some(one_shot_model) = updates.one_shot_model {
+        settings.one_shot_model = normalize_one_shot_model(Some(&one_shot_model));
+    }
+
+    if let Some(one_shot_reasoning_effort) = updates.one_shot_reasoning_effort {
+        settings.one_shot_reasoning_effort =
+            normalize_one_shot_reasoning_effort(Some(&one_shot_reasoning_effort));
     }
 
     if let Some(node_path_override) = updates.node_path_override {
@@ -460,6 +501,26 @@ mod tests {
 
         assert!(normalized.task_sdk_enabled);
         assert!(normalized.one_shot_sdk_enabled);
+        assert_eq!(normalized.one_shot_model, "gpt-5.4");
+        assert_eq!(normalized.one_shot_reasoning_effort, "high");
+
+        fs::remove_dir_all(base).expect("remove temp dir");
+    }
+
+    #[test]
+    fn invalid_one_shot_model_and_reasoning_fall_back_to_defaults() {
+        let base = create_temp_dir();
+        let normalized = normalize_raw_settings(
+            RawCodexSettings {
+                one_shot_model: Some("unknown-model".to_string()),
+                one_shot_reasoning_effort: Some("extreme".to_string()),
+                ..RawCodexSettings::default()
+            },
+            &base,
+        );
+
+        assert_eq!(normalized.one_shot_model, "gpt-5.4");
+        assert_eq!(normalized.one_shot_reasoning_effort, "high");
 
         fs::remove_dir_all(base).expect("remove temp dir");
     }

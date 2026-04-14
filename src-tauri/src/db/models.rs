@@ -175,6 +175,8 @@ pub struct CodexRuntimeStatus {
 pub struct CodexSettings {
     pub task_sdk_enabled: bool,
     pub one_shot_sdk_enabled: bool,
+    pub one_shot_model: String,
+    pub one_shot_reasoning_effort: String,
     pub node_path_override: Option<String>,
     pub sdk_install_dir: String,
     pub one_shot_preferred_provider: String,
@@ -265,6 +267,8 @@ pub struct UpdateTask {
 pub struct UpdateCodexSettings {
     pub task_sdk_enabled: Option<bool>,
     pub one_shot_sdk_enabled: Option<bool>,
+    pub one_shot_model: Option<String>,
+    pub one_shot_reasoning_effort: Option<String>,
     #[serde(default, deserialize_with = "deserialize_explicit_nullable")]
     pub node_path_override: Option<Option<String>>,
 }

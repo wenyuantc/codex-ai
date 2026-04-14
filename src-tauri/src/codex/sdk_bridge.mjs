@@ -248,16 +248,20 @@ async function main() {
     const input = normalizeInput(payload);
 
     const codex = new Codex();
-    const threadOptions = {};
+    const threadOptions = {
+      sandboxMode: "danger-full-access",
+      skipGitRepoCheck: true,
+    };
     if (typeof payload.model === "string" && payload.model.trim()) {
       threadOptions.model = payload.model.trim();
+    }
+    if (typeof payload.modelReasoningEffort === "string" && payload.modelReasoningEffort.trim()) {
+      threadOptions.modelReasoningEffort = payload.modelReasoningEffort.trim();
     }
     if (typeof payload.workingDirectory === "string" && payload.workingDirectory.trim()) {
       const workingDirectory = payload.workingDirectory.trim();
       chdir(workingDirectory);
       threadOptions.workingDirectory = workingDirectory;
-      threadOptions.sandboxMode = "danger-full-access";
-      threadOptions.skipGitRepoCheck = true;
     }
 
     const thread =

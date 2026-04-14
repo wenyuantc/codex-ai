@@ -15,6 +15,8 @@ import type {
 export interface UpdateCodexSettingsInput {
   task_sdk_enabled?: boolean;
   one_shot_sdk_enabled?: boolean;
+  one_shot_model?: string;
+  one_shot_reasoning_effort?: string;
   node_path_override?: string | null;
 }
 

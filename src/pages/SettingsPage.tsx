@@ -4,12 +4,28 @@ import { Loader2, Monitor, Moon, RefreshCw, Sun } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   getCodexSettings,
   healthCheck,
   installCodexSdk,
   updateCodexSettings,
 } from "@/lib/backend";
-import type { CodexHealthCheck, CodexSettings } from "@/lib/types";
+import {
+  CODEX_MODEL_OPTIONS,
+  REASONING_EFFORT_OPTIONS,
+  normalizeCodexModel,
+  normalizeReasoningEffort,
+  type CodexHealthCheck,
+  type CodexModelId,
+  type CodexSettings,
+  type ReasoningEffort,
+} from "@/lib/types";
 
 type ThemeMode = "light" | "dark" | "system";
 
@@ -36,6 +52,8 @@ export function SettingsPage() {
   const [codexSettings, setCodexSettings] = useState<CodexSettings | null>(null);
   const [taskSdkEnabled, setTaskSdkEnabled] = useState(false);
   const [oneShotSdkEnabled, setOneShotSdkEnabled] = useState(false);
+  const [oneShotModel, setOneShotModel] = useState<CodexModelId>("gpt-5.4");
+  const [oneShotReasoningEffort, setOneShotReasoningEffort] = useState<ReasoningEffort>("high");
   const [nodePathOverride, setNodePathOverride] = useState("");
   const [healthLoading, setHealthLoading] = useState(false);
   const [sdkActionLoading, setSdkActionLoading] = useState<"save" | "install" | null>(null);
@@ -52,6 +70,8 @@ export function SettingsPage() {
       setCodexSettings(settings);
       setTaskSdkEnabled(settings.task_sdk_enabled);
       setOneShotSdkEnabled(settings.one_shot_sdk_enabled);
+      setOneShotModel(normalizeCodexModel(settings.one_shot_model));
+      setOneShotReasoningEffort(normalizeReasoningEffort(settings.one_shot_reasoning_effort));
       setNodePathOverride(settings.node_path_override ?? "");
     } catch (error) {
       console.error("Failed to load codex settings state:", error);
@@ -93,6 +113,8 @@ export function SettingsPage() {
       const nextSettings = await updateCodexSettings({
         task_sdk_enabled: taskSdkEnabled,
         one_shot_sdk_enabled: oneShotSdkEnabled,
+        one_shot_model: oneShotModel,
+        one_shot_reasoning_effort: oneShotReasoningEffort,
         node_path_override: nodePathOverride.trim() || null,
       });
       setCodexSettings(nextSettings);
@@ -233,10 +255,60 @@ export function SettingsPage() {
               <div className="space-y-1">
                 <p className="text-sm font-medium">一次性 AI 使用 SDK</p>
                 <p className="text-xs text-muted-foreground">
-                  影响任务详情中的 AI 分析、评论生成和子任务拆分。
+                  影响任务详情中的 AI 分析、评论生成、计划生成和子任务拆分。
                 </p>
               </div>
             </label>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-2">
+                <label className="text-sm font-medium">一次性 AI 模型</label>
+                <Select<CodexModelId>
+                  value={oneShotModel}
+                  onValueChange={(value) => {
+                    if (value) {
+                      setOneShotModel(normalizeCodexModel(value));
+                    }
+                  }}
+                  disabled={healthLoading || sdkActionLoading !== null}
+                >
+                  <SelectTrigger className="bg-background">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {CODEX_MODEL_OPTIONS.map((option) => (
+                      <SelectItem key={option.value} value={option.value}>
+                        {option.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-sm font-medium">一次性 AI 推理强度</label>
+                <Select<ReasoningEffort>
+                  value={oneShotReasoningEffort}
+                  onValueChange={(value) => {
+                    if (value) {
+                      setOneShotReasoningEffort(normalizeReasoningEffort(value));
+                    }
+                  }}
+                  disabled={healthLoading || sdkActionLoading !== null}
+                >
+                  <SelectTrigger className="bg-background">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {REASONING_EFFORT_OPTIONS.map((option) => (
+                      <SelectItem key={option.value} value={option.value}>
+                        {option.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
 
             <div className="space-y-2">
               <label htmlFor="node-path-override" className="text-sm font-medium">
@@ -266,6 +338,11 @@ export function SettingsPage() {
               </p>
               <p>任务运行引擎：{taskProviderLabel}</p>
               <p>一次性 AI 引擎：{oneShotProviderLabel}</p>
+              <p>
+                一次性 AI 默认模型：{CODEX_MODEL_OPTIONS.find((option) => option.value === oneShotModel)?.label ?? oneShotModel}
+                {" / "}
+                推理：{REASONING_EFFORT_OPTIONS.find((option) => option.value === oneShotReasoningEffort)?.label ?? oneShotReasoningEffort}
+              </p>
               {codexHealth?.sdk_status_message && (
                 <p className="text-[11px] leading-5">{codexHealth.sdk_status_message}</p>
               )}

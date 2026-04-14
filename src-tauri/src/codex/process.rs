@@ -1003,28 +1003,56 @@ pub async fn send_codex_input(
 }
 
 /// Run a one-shot AI command using `codex exec`.
-fn build_one_shot_exec_args(prompt: &str) -> Vec<String> {
-    vec![
+fn build_one_shot_exec_args(
+    model: &str,
+    reasoning_effort: &str,
+    image_paths: &[String],
+) -> Vec<String> {
+    let mut args = vec![
         "exec".to_string(),
         "--skip-git-repo-check".to_string(),
-        prompt.to_string(),
-    ]
+        "--model".to_string(),
+        model.to_string(),
+        "-c".to_string(),
+        format!("model_reasoning_effort=\"{}\"", reasoning_effort),
+    ];
+    for image_path in image_paths {
+        args.push("--image".to_string());
+        args.push(image_path.clone());
+    }
+    args
 }
 
-async fn run_ai_command_via_exec(prompt: String) -> Result<String, String> {
+async fn run_ai_command_via_exec(
+    prompt: String,
+    model: &str,
+    reasoning_effort: &str,
+    image_paths: &[String],
+) -> Result<String, String> {
     let mut cmd = new_codex_command()
         .await
         .map_err(|error| format!("Failed to spawn codex exec: {}", error))?;
-    let output = cmd
+    let mut child = cmd
         // 打包后的桌面应用工作目录通常不在受信任仓库内，
         // one-shot AI 功能也不依赖仓库上下文，因此这里显式跳过检查。
-        .args(build_one_shot_exec_args(&prompt))
-        .stdin(std::process::Stdio::null())
+        .args(build_one_shot_exec_args(model, reasoning_effort, image_paths))
+        .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
-        .output()
-        .await
+        .spawn()
         .map_err(|e: std::io::Error| format!("Failed to spawn codex exec: {}", e))?;
+
+    if let Some(mut stdin) = child.stdin.take() {
+        stdin
+            .write_all(prompt.as_bytes())
+            .await
+            .map_err(|error| format!("Failed to write codex exec prompt: {}", error))?;
+    }
+
+    let output = child
+        .wait_with_output()
+        .await
+        .map_err(|error| format!("Failed to wait for codex exec: {}", error))?;
 
     if output.status.success() {
         Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
@@ -1064,7 +1092,13 @@ fn parse_sdk_bridge_output(stdout: &[u8], stderr: &[u8]) -> Result<String, Strin
     Err("Codex SDK 返回空响应".to_string())
 }
 
-async fn run_ai_command_via_sdk(app: &AppHandle, prompt: &str) -> Result<String, String> {
+async fn run_ai_command_via_sdk(
+    app: &AppHandle,
+    prompt: &str,
+    model: &str,
+    reasoning_effort: &str,
+    image_paths: &[String],
+) -> Result<String, String> {
     let settings = load_codex_settings(app)?;
     let install_dir = PathBuf::from(&settings.sdk_install_dir);
     ensure_sdk_runtime_layout(&install_dir)?;
@@ -1085,7 +1119,12 @@ async fn run_ai_command_via_sdk(app: &AppHandle, prompt: &str) -> Result<String,
         .spawn()
         .map_err(|error| format!("Failed to spawn Codex SDK bridge: {}", error))?;
     if let Some(mut stdin) = child.stdin.take() {
-        let payload = serde_json::to_vec(&serde_json::json!({ "prompt": prompt }))
+        let payload = serde_json::to_vec(&serde_json::json!({
+            "prompt": prompt,
+            "input": build_sdk_input_items(prompt, image_paths),
+            "model": model,
+            "modelReasoningEffort": reasoning_effort,
+        }))
             .map_err(|error| format!("Failed to serialize SDK request: {}", error))?;
         stdin
             .write_all(&payload)
@@ -1100,14 +1139,36 @@ async fn run_ai_command_via_sdk(app: &AppHandle, prompt: &str) -> Result<String,
     parse_sdk_bridge_output(&output.stdout, &output.stderr)
 }
 
-async fn run_ai_command(app: &AppHandle, prompt: String) -> Result<String, String> {
+async fn run_ai_command(
+    app: &AppHandle,
+    prompt: String,
+    image_paths: Option<Vec<String>>,
+) -> Result<String, String> {
+    let (image_paths, missing_image_paths) = collect_available_image_paths(image_paths);
+    let mut one_shot_model = normalize_model(None).to_string();
+    let mut one_shot_reasoning_effort = normalize_reasoning_effort(None).to_string();
     let mut sdk_error = None;
 
+    for missing_path in &missing_image_paths {
+        eprintln!("[codex-sdk] one-shot 附件图片不存在，已跳过: {missing_path}");
+    }
+
     if let Ok(settings) = load_codex_settings(app) {
+        one_shot_model = normalize_model(Some(&settings.one_shot_model)).to_string();
+        one_shot_reasoning_effort =
+            normalize_reasoning_effort(Some(&settings.one_shot_reasoning_effort)).to_string();
         if settings.one_shot_sdk_enabled {
             let runtime = inspect_sdk_runtime(app, &settings).await;
             if runtime.one_shot_effective_provider == "sdk" {
-                match run_ai_command_via_sdk(app, &prompt).await {
+                match run_ai_command_via_sdk(
+                    app,
+                    &prompt,
+                    &one_shot_model,
+                    &one_shot_reasoning_effort,
+                    &image_paths,
+                )
+                .await
+                {
                     Ok(result) => return Ok(result),
                     Err(error) => {
                         eprintln!("[codex-sdk] 调用失败，回退到 codex exec: {error}");
@@ -1120,7 +1181,14 @@ async fn run_ai_command(app: &AppHandle, prompt: String) -> Result<String, Strin
         }
     }
 
-    match run_ai_command_via_exec(prompt).await {
+    match run_ai_command_via_exec(
+        prompt,
+        &one_shot_model,
+        &one_shot_reasoning_effort,
+        &image_paths,
+    )
+    .await
+    {
         Ok(result) => Ok(result),
         Err(exec_error) => match sdk_error {
             Some(sdk_error) => Err(format!(
@@ -1259,6 +1327,7 @@ fn build_ai_generate_plan_prompt(
 要求：\n\
 - 只返回 Markdown 正文，不要代码块，不要 JSON，不要额外客套\n\
 - 不要假装你已经读取仓库、查看文件、运行命令或完成验证；缺失信息请写入“风险与依赖”或“假设”\n\
+- 如果本次输入附带任务图片，也要把图片内容作为计划依据之一\n\
 - 必须包含以下标题：# 标题、## 目标与范围、## 实施步骤、## 验收与验证、## 风险与依赖、## 假设\n\
 - “实施步骤”使用 1. 2. 3. 编号，步骤需要可执行、可验证，并吸收已有子任务中的有效信息\n\
 - 结合当前状态、优先级、任务描述和子任务安排顺序，避免空泛表述\n\
@@ -1353,14 +1422,42 @@ mod tests {
 
     #[test]
     fn one_shot_exec_args_skip_git_repo_check() {
-        let args = build_one_shot_exec_args("分析任务");
+        let args = build_one_shot_exec_args("gpt-5.4", "high", &[]);
 
         assert_eq!(
             args,
             vec![
                 "exec".to_string(),
                 "--skip-git-repo-check".to_string(),
-                "分析任务".to_string()
+                "--model".to_string(),
+                "gpt-5.4".to_string(),
+                "-c".to_string(),
+                "model_reasoning_effort=\"high\"".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn one_shot_exec_args_include_images_before_prompt() {
+        let args = build_one_shot_exec_args(
+            "gpt-5.4-mini",
+            "medium",
+            &["/tmp/demo/a.png".to_string(), "/tmp/demo/b.jpg".to_string()],
+        );
+
+        assert_eq!(
+            args,
+            vec![
+                "exec".to_string(),
+                "--skip-git-repo-check".to_string(),
+                "--model".to_string(),
+                "gpt-5.4-mini".to_string(),
+                "-c".to_string(),
+                "model_reasoning_effort=\"medium\"".to_string(),
+                "--image".to_string(),
+                "/tmp/demo/a.png".to_string(),
+                "--image".to_string(),
+                "/tmp/demo/b.jpg".to_string(),
             ]
         );
     }
@@ -1423,6 +1520,7 @@ mod tests {
         assert!(prompt.contains("1. 补后端命令"));
         assert!(prompt.contains("2. 补前端预览"));
         assert!(prompt.contains("不要假装你已经读取仓库"));
+        assert!(prompt.contains("如果本次输入附带任务图片"));
     }
 }
 
@@ -1431,24 +1529,26 @@ pub async fn ai_suggest_assignee(
     app: AppHandle,
     task_description: String,
     employee_list: String,
+    image_paths: Option<Vec<String>>,
 ) -> Result<String, String> {
     let prompt = format!(
-        "Based on the following task description, suggest the best assignee from the employee list.\n\nTask: {}\n\nEmployees: {}\n\nRespond with just the employee ID and a brief reason.",
+        "Based on the following task description, suggest the best assignee from the employee list. If task images are attached, consider them as additional context.\n\nTask: {}\n\nEmployees: {}\n\nRespond with just the employee ID and a brief reason.",
         task_description, employee_list
     );
-    run_ai_command(&app, prompt).await
+    run_ai_command(&app, prompt, image_paths).await
 }
 
 #[tauri::command]
 pub async fn ai_analyze_complexity(
     app: AppHandle,
     task_description: String,
+    image_paths: Option<Vec<String>>,
 ) -> Result<String, String> {
     let prompt = format!(
-        "Analyze the complexity of this task on a scale of 1-10, and provide a brief breakdown.\n\nTask: {}",
+        "Analyze the complexity of this task on a scale of 1-10, and provide a brief breakdown. If task images are attached, include them in the analysis.\n\nTask: {}",
         task_description
     );
-    run_ai_command(&app, prompt).await
+    run_ai_command(&app, prompt, image_paths).await
 }
 
 #[tauri::command]
@@ -1457,12 +1557,13 @@ pub async fn ai_generate_comment(
     task_title: String,
     task_description: String,
     context: String,
+    image_paths: Option<Vec<String>>,
 ) -> Result<String, String> {
     let prompt = format!(
-        "Generate a progress assessment comment for this task.\n\nTitle: {}\nDescription: {}\nContext: {}",
+        "Generate a progress assessment comment for this task. If task images are attached, use them as supporting context.\n\nTitle: {}\nDescription: {}\nContext: {}",
         task_title, task_description, context
     );
-    run_ai_command(&app, prompt).await
+    run_ai_command(&app, prompt, image_paths).await
 }
 
 #[tauri::command]
@@ -1473,6 +1574,7 @@ pub async fn ai_generate_plan(
     task_status: String,
     task_priority: String,
     subtasks: Vec<String>,
+    image_paths: Option<Vec<String>>,
 ) -> Result<String, String> {
     let prompt = build_ai_generate_plan_prompt(
         &task_title,
@@ -1481,7 +1583,7 @@ pub async fn ai_generate_plan(
         &task_priority,
         &subtasks,
     );
-    run_ai_command(&app, prompt).await
+    run_ai_command(&app, prompt, image_paths).await
 }
 
 #[tauri::command]
@@ -1489,6 +1591,7 @@ pub async fn ai_split_subtasks(
     app: AppHandle,
     task_title: String,
     task_description: String,
+    image_paths: Option<Vec<String>>,
 ) -> Result<Vec<String>, String> {
     let prompt = format!(
         "你是任务拆分助手。请根据任务标题和描述拆分 3 到 8 个可执行、可验证、粒度适中的子任务。\n\
@@ -1496,12 +1599,13 @@ pub async fn ai_split_subtasks(
 - 只返回 JSON，不要 Markdown，不要额外解释\n\
 - 返回格式必须是 {{\"subtasks\":[\"子任务1\",\"子任务2\"]}}\n\
 - 每个子任务一句话，使用中文，避免重复和空泛表述\n\
+- 如果本次输入附带图片，也要结合图片内容拆分任务\n\
 - 如果描述信息有限，也基于现有信息给出合理拆分\n\n\
 任务标题：{}\n\
 任务描述：{}",
         task_title.trim(),
         task_description.trim()
     );
-    let raw = run_ai_command(&app, prompt).await?;
+    let raw = run_ai_command(&app, prompt, image_paths).await?;
     parse_ai_subtasks_response(&raw)
 }
