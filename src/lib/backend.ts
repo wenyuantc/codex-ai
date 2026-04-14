@@ -12,6 +12,7 @@ import type {
   Subtask,
   Task,
   TaskAttachment,
+  TaskExecutionChangeHistoryItem,
   TaskLatestReview,
 } from "./types";
 
@@ -109,6 +110,12 @@ export async function getCodexSessionStatus(employeeId: string): Promise<CodexRu
 
 export async function getTaskLatestReview(taskId: string): Promise<TaskLatestReview | null> {
   return invoke("get_task_latest_review", { taskId });
+}
+
+export async function getTaskExecutionChangeHistory(
+  taskId: string,
+): Promise<TaskExecutionChangeHistoryItem[]> {
+  return invoke("get_task_execution_change_history", { taskId });
 }
 
 export async function startTaskCodeReview(taskId: string): Promise<void> {

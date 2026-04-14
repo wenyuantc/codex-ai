@@ -114,10 +114,24 @@ export interface CodexSessionRecord {
   created_at: string;
 }
 
+export interface CodexSessionFileChange {
+  id: string;
+  session_id: string;
+  path: string;
+  change_type: "added" | "modified" | "deleted" | "renamed";
+  previous_path: string | null;
+  created_at: string;
+}
+
 export interface TaskLatestReview {
   session: CodexSessionRecord;
   report: string | null;
   reviewer_name: string | null;
+}
+
+export interface TaskExecutionChangeHistoryItem {
+  session: CodexSessionRecord;
+  changes: CodexSessionFileChange[];
 }
 
 export interface CodexHealthCheck {

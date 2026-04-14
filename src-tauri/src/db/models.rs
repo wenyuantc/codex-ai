@@ -147,6 +147,16 @@ pub struct CodexSessionEvent {
     pub created_at: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+pub struct CodexSessionFileChange {
+    pub id: String,
+    pub session_id: String,
+    pub path: String,
+    pub change_type: String,
+    pub previous_path: Option<String>,
+    pub created_at: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CodexHealthCheck {
     pub codex_available: bool,
@@ -220,6 +230,19 @@ pub struct TaskLatestReview {
     pub session: CodexSessionRecord,
     pub report: Option<String>,
     pub reviewer_name: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TaskExecutionChangeHistoryItem {
+    pub session: CodexSessionRecord,
+    pub changes: Vec<CodexSessionFileChange>,
+}
+
+#[derive(Debug, Clone)]
+pub struct CodexSessionFileChangeInput {
+    pub path: String,
+    pub change_type: String,
+    pub previous_path: Option<String>,
 }
 
 // ========== DTOs ==========

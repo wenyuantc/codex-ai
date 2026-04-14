@@ -43,6 +43,7 @@ pub fn run() {
             app::open_database_folder,
             app::get_codex_session_status,
             app::get_task_latest_review,
+            app::get_task_execution_change_history,
             app::start_task_code_review,
             app::read_image_file,
             app::open_task_attachment,

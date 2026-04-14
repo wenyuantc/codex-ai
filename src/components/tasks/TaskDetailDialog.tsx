@@ -1,10 +1,11 @@
 import { useState, useEffect, useRef } from "react";
 import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
 
-import type { Task, TaskLatestReview, TaskStatus } from "@/lib/types";
+import type { Task, TaskExecutionChangeHistoryItem, TaskLatestReview, TaskStatus } from "@/lib/types";
 import { TASK_STATUSES, PRIORITIES } from "@/lib/types";
 import {
   getCodexSettings,
+  getTaskExecutionChangeHistory,
   getTaskLatestReview,
   healthCheck,
   openTaskAttachment,
@@ -129,6 +130,9 @@ export function TaskDetailDialog({
   const [reviewFixSubmitting, setReviewFixSubmitting] = useState(false);
   const [latestReview, setLatestReview] = useState<TaskLatestReview | null>(null);
   const [latestReviewLoading, setLatestReviewLoading] = useState(false);
+  const [executionChangeHistory, setExecutionChangeHistory] = useState<TaskExecutionChangeHistoryItem[]>([]);
+  const [executionChangeHistoryLoading, setExecutionChangeHistoryLoading] = useState(false);
+  const [executionChangeHistoryError, setExecutionChangeHistoryError] = useState<string | null>(null);
   const terminalRef = useRef<HTMLDivElement>(null);
   const aiLogRef = useRef<HTMLDivElement>(null);
   const [aiLogs, setAiLogs] = useState<string[]>([]);
@@ -159,6 +163,7 @@ export function TaskDetailDialog({
       setSaveError(null);
       setReviewError(null);
       setReviewNotice(null);
+      void loadExecutionChangeHistory();
       void loadLatestReview();
     }
   }, [fetchAttachments, fetchEmployees, open, task]);
@@ -184,6 +189,9 @@ export function TaskDetailDialog({
       setReviewLoading(false);
       setLatestReview(null);
       setLatestReviewLoading(false);
+      setExecutionChangeHistory([]);
+      setExecutionChangeHistoryLoading(false);
+      setExecutionChangeHistoryError(null);
       setReviewError(null);
       setReviewNotice(null);
       setReviewFixDialogOpen(false);
@@ -216,6 +224,16 @@ export function TaskDetailDialog({
       void loadLatestReview();
     }
   }, [open, reviewOutput]);
+
+  useEffect(() => {
+    if (!open || output.length === 0) {
+      return;
+    }
+
+    if (output[output.length - 1]?.startsWith("[EXIT]")) {
+      void loadExecutionChangeHistory();
+    }
+  }, [open, output]);
 
   const formatLogTime = () =>
     new Date().toLocaleTimeString("zh-CN", {
@@ -329,6 +347,20 @@ export function TaskDetailDialog({
       setReviewError(error instanceof Error ? error.message : String(error));
     } finally {
       setLatestReviewLoading(false);
+    }
+  };
+
+  const loadExecutionChangeHistory = async () => {
+    setExecutionChangeHistoryLoading(true);
+    setExecutionChangeHistoryError(null);
+    try {
+      const history = await getTaskExecutionChangeHistory(task.id);
+      setExecutionChangeHistory(history);
+    } catch (error) {
+      console.error("Failed to load task execution file changes:", error);
+      setExecutionChangeHistoryError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setExecutionChangeHistoryLoading(false);
     }
   };
 
@@ -754,7 +786,7 @@ export function TaskDetailDialog({
     return "text-zinc-300";
   }
 
-  function getReviewSessionStatusLabel(statusValue: string | null | undefined) {
+  function getSessionStatusLabel(statusValue: string | null | undefined) {
     switch (statusValue) {
       case "pending":
         return "准备中";
@@ -768,6 +800,36 @@ export function TaskDetailDialog({
         return "失败";
       default:
         return "未开始";
+    }
+  }
+
+  function getExecutionChangeTypeLabel(changeType: string) {
+    switch (changeType) {
+      case "added":
+        return "新增";
+      case "modified":
+        return "修改";
+      case "deleted":
+        return "删除";
+      case "renamed":
+        return "重命名";
+      default:
+        return changeType;
+    }
+  }
+
+  function getExecutionChangeTypeClassName(changeType: string) {
+    switch (changeType) {
+      case "added":
+        return "border-emerald-500/25 bg-emerald-500/10 text-emerald-700";
+      case "modified":
+        return "border-blue-500/25 bg-blue-500/10 text-blue-700";
+      case "deleted":
+        return "border-red-500/25 bg-red-500/10 text-red-700";
+      case "renamed":
+        return "border-amber-500/25 bg-amber-500/10 text-amber-700";
+      default:
+        return "border-border bg-muted/40 text-muted-foreground";
     }
   }
 
@@ -1006,6 +1068,87 @@ export function TaskDetailDialog({
           <div className="space-y-3 rounded-md border border-border/70 bg-muted/20 p-3">
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div className="space-y-1">
+                <p className="text-sm font-medium">修改文件</p>
+                <p className="text-[11px] text-muted-foreground">
+                  按 execution 会话记录本次新增影响到的文件，包含新增、修改、删除和重命名。
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => void loadExecutionChangeHistory()}
+                className="text-[11px] text-primary hover:underline disabled:opacity-50"
+                disabled={executionChangeHistoryLoading}
+              >
+                {executionChangeHistoryLoading ? "刷新中..." : "刷新"}
+              </button>
+            </div>
+
+            {executionChangeHistoryError && (
+              <div className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+                {executionChangeHistoryError}
+              </div>
+            )}
+
+            {executionChangeHistory.length > 0 ? (
+              <div className="space-y-3">
+                {executionChangeHistory.map((item) => (
+                  <div key={item.session.id} className="rounded-md border border-border bg-background/70 p-3">
+                    <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-muted-foreground">
+                      <span>
+                        {new Date(item.session.started_at).toLocaleString("zh-CN")}
+                        {" · "}
+                        {getSessionStatusLabel(item.session.status)}
+                      </span>
+                      <span className="font-mono">
+                        {item.session.cli_session_id ?? item.session.id}
+                      </span>
+                    </div>
+
+                    {item.changes.length > 0 ? (
+                      <div className="mt-3 space-y-2">
+                        {item.changes.map((change) => (
+                          <div
+                            key={change.id}
+                            className="flex flex-col gap-1 rounded-md border border-border/60 bg-background px-3 py-2 text-xs"
+                          >
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span
+                                className={`rounded-md border px-1.5 py-0.5 text-[11px] font-medium ${getExecutionChangeTypeClassName(change.change_type)}`}
+                              >
+                                {getExecutionChangeTypeLabel(change.change_type)}
+                              </span>
+                              <span className="font-mono text-foreground break-all">{change.path}</span>
+                            </div>
+                            {change.previous_path && (
+                              <div className="text-[11px] text-muted-foreground">
+                                原路径：<span className="font-mono break-all">{change.previous_path}</span>
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="mt-3 rounded-md border border-dashed border-border px-3 py-4 text-center text-xs text-muted-foreground">
+                        本次运行未产生新增文件变更。
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            ) : executionChangeHistoryLoading ? (
+              <div className="rounded-md border border-dashed border-border px-3 py-6 text-center text-xs text-muted-foreground">
+                正在加载修改文件历史...
+              </div>
+            ) : (
+              <div className="rounded-md border border-dashed border-border px-3 py-6 text-center text-xs text-muted-foreground">
+                还没有 execution 会话的文件记录。
+              </div>
+            )}
+          </div>
+
+          <div className="space-y-3 rounded-md border border-border/70 bg-muted/20 p-3">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div className="space-y-1">
                 <p className="text-sm font-medium">代码审核</p>
                 <p className="text-[11px] text-muted-foreground">
                   审核当前项目仓库的工作区改动，默认由任务审查员发起只读 reviewer 会话。
@@ -1048,7 +1191,7 @@ export function TaskDetailDialog({
               </div>
               <div className="rounded-md border border-border bg-background/70 px-3 py-2">
                 <span className="font-medium text-foreground">最近状态：</span>
-                {getReviewSessionStatusLabel(
+                {getSessionStatusLabel(
                   isReviewRunning ? "running" : latestReview?.session.status,
                 )}
               </div>

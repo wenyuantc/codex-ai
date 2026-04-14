@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::io::{BufRead, BufReader as StdBufReader};
 use std::path::{Path, PathBuf};
@@ -14,14 +14,14 @@ use tokio::time::sleep;
 
 use crate::app::{
     fetch_codex_session_by_id, insert_activity_log, insert_codex_session_event,
-    insert_codex_session_record, now_sqlite, sqlite_pool, update_codex_session_record,
-    validate_runtime_working_dir,
+    insert_codex_session_record, now_sqlite, replace_codex_session_file_changes, sqlite_pool,
+    update_codex_session_record, validate_runtime_working_dir,
 };
 use crate::codex::{
     ensure_sdk_runtime_layout, inspect_sdk_runtime, load_codex_settings, new_codex_command,
     new_node_command, sdk_bridge_script_path, CodexManager,
 };
-use crate::db::models::{CodexExit, CodexOutput, CodexSession};
+use crate::db::models::{CodexExit, CodexOutput, CodexSession, CodexSessionFileChangeInput};
 
 const SUPPORTED_MODELS: &[&str] = &["gpt-5.4", "gpt-5.4-mini", "gpt-5.3-codex", "gpt-5.2"];
 const SUPPORTED_REASONING_EFFORTS: &[&str] = &["low", "medium", "high", "xhigh"];
@@ -117,6 +117,287 @@ fn normalize_reasoning_effort(reasoning_effort: Option<&str>) -> &'static str {
         },
         _ => "high",
     }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ExecutionChangeBaseline {
+    repo_path: String,
+    entries: HashMap<String, WorkingTreeSnapshotEntry>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct WorkingTreeSnapshotEntry {
+    path: String,
+    previous_path: Option<String>,
+    status_x: char,
+    status_y: char,
+    content_hash: Option<String>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum SessionFileChangeKind {
+    Added,
+    Modified,
+    Deleted,
+    Renamed,
+}
+
+impl SessionFileChangeKind {
+    fn as_str(self) -> &'static str {
+        match self {
+            SessionFileChangeKind::Added => "added",
+            SessionFileChangeKind::Modified => "modified",
+            SessionFileChangeKind::Deleted => "deleted",
+            SessionFileChangeKind::Renamed => "renamed",
+        }
+    }
+}
+
+fn run_git_bytes(repo_path: &str, args: &[&str]) -> Result<Vec<u8>, String> {
+    let output = std::process::Command::new("git")
+        .arg("-C")
+        .arg(repo_path)
+        .args(args)
+        .output()
+        .map_err(|error| format!("执行 git {:?} 失败: {}", args, error))?;
+
+    if output.status.success() {
+        Ok(output.stdout)
+    } else {
+        Err(String::from_utf8_lossy(&output.stderr).trim().to_string())
+    }
+}
+
+fn hash_worktree_path(repo_path: &str, relative_path: &str) -> Result<Option<String>, String> {
+    let target = Path::new(repo_path).join(relative_path);
+    if !target.exists() {
+        return Ok(None);
+    }
+
+    let output = std::process::Command::new("git")
+        .arg("-C")
+        .arg(repo_path)
+        .arg("hash-object")
+        .arg("--no-filters")
+        .arg("--")
+        .arg(relative_path)
+        .output()
+        .map_err(|error| format!("计算文件哈希失败: path={}, error={}", relative_path, error))?;
+
+    if output.status.success() {
+        Ok(Some(
+            String::from_utf8_lossy(&output.stdout).trim().to_string(),
+        ))
+    } else {
+        Err(format!(
+            "计算文件哈希失败: path={}, error={}",
+            relative_path,
+            String::from_utf8_lossy(&output.stderr).trim()
+        ))
+    }
+}
+
+fn should_read_previous_path(status_x: char, status_y: char) -> bool {
+    matches!(status_x, 'R' | 'C') || matches!(status_y, 'R' | 'C')
+}
+
+fn entry_is_renamed(entry: &WorkingTreeSnapshotEntry) -> bool {
+    matches!(entry.status_x, 'R') || matches!(entry.status_y, 'R')
+}
+
+fn entry_is_deleted(entry: &WorkingTreeSnapshotEntry) -> bool {
+    matches!(entry.status_x, 'D') || matches!(entry.status_y, 'D')
+}
+
+fn entry_is_added(entry: &WorkingTreeSnapshotEntry) -> bool {
+    matches!(entry.status_x, 'A' | '?') || matches!(entry.status_y, 'A' | '?')
+}
+
+fn capture_execution_change_baseline(repo_path: &str) -> Result<ExecutionChangeBaseline, String> {
+    Ok(ExecutionChangeBaseline {
+        repo_path: repo_path.to_string(),
+        entries: collect_working_tree_snapshot_entries(repo_path)?,
+    })
+}
+
+fn collect_working_tree_snapshot_entries(
+    repo_path: &str,
+) -> Result<HashMap<String, WorkingTreeSnapshotEntry>, String> {
+    let output = run_git_bytes(
+        repo_path,
+        &["status", "--porcelain=v1", "-z", "--untracked-files=all"],
+    )?;
+    let parts = output.split(|byte| *byte == 0).collect::<Vec<_>>();
+    let mut entries = HashMap::new();
+    let mut index = 0usize;
+
+    while index < parts.len() {
+        let segment = parts[index];
+        index += 1;
+
+        if segment.is_empty() {
+            continue;
+        }
+
+        if segment.len() < 4 {
+            return Err(format!(
+                "无法解析 git status 输出片段: {:?}",
+                String::from_utf8_lossy(segment)
+            ));
+        }
+
+        let status_x = segment[0] as char;
+        let status_y = segment[1] as char;
+        let path = String::from_utf8_lossy(&segment[3..]).to_string();
+        let previous_path = if should_read_previous_path(status_x, status_y) {
+            let original_segment = parts
+                .get(index)
+                .ok_or_else(|| format!("git status 缺少重命名原路径: {}", path))?;
+            index += 1;
+            Some(String::from_utf8_lossy(original_segment).to_string())
+        } else {
+            None
+        };
+        let content_hash = hash_worktree_path(repo_path, &path)?;
+
+        entries.insert(
+            path.clone(),
+            WorkingTreeSnapshotEntry {
+                path,
+                previous_path,
+                status_x,
+                status_y,
+                content_hash,
+            },
+        );
+    }
+
+    Ok(entries)
+}
+
+fn classify_new_entry_change_kind(entry: &WorkingTreeSnapshotEntry) -> SessionFileChangeKind {
+    if entry_is_renamed(entry) {
+        SessionFileChangeKind::Renamed
+    } else if entry_is_deleted(entry) {
+        SessionFileChangeKind::Deleted
+    } else if entry_is_added(entry) {
+        SessionFileChangeKind::Added
+    } else {
+        SessionFileChangeKind::Modified
+    }
+}
+
+fn build_session_file_change(
+    path: String,
+    change_kind: SessionFileChangeKind,
+    previous_path: Option<String>,
+) -> CodexSessionFileChangeInput {
+    CodexSessionFileChangeInput {
+        path,
+        change_type: change_kind.as_str().to_string(),
+        previous_path,
+    }
+}
+
+fn compute_execution_session_file_changes(
+    baseline: &ExecutionChangeBaseline,
+) -> Result<Vec<CodexSessionFileChangeInput>, String> {
+    let end_entries = collect_working_tree_snapshot_entries(&baseline.repo_path)?;
+    compute_execution_session_file_changes_from_entries(
+        &baseline.repo_path,
+        &baseline.entries,
+        &end_entries,
+    )
+}
+
+fn compute_execution_session_file_changes_from_entries(
+    repo_path: &str,
+    baseline_entries: &HashMap<String, WorkingTreeSnapshotEntry>,
+    end_entries: &HashMap<String, WorkingTreeSnapshotEntry>,
+) -> Result<Vec<CodexSessionFileChangeInput>, String> {
+    let rename_sources = end_entries
+        .values()
+        .filter(|entry| entry_is_renamed(entry))
+        .filter_map(|entry| entry.previous_path.clone())
+        .collect::<HashSet<_>>();
+    let mut consumed_baseline = HashSet::new();
+    let mut changes = Vec::new();
+
+    let mut end_paths = end_entries.keys().cloned().collect::<Vec<_>>();
+    end_paths.sort();
+
+    for path in end_paths {
+        let entry = end_entries
+            .get(&path)
+            .expect("end entry should exist for collected key");
+
+        match baseline_entries.get(&path) {
+            None => {
+                if let Some(previous_path) = entry.previous_path.as_ref() {
+                    consumed_baseline.insert(previous_path.clone());
+                }
+                changes.push(build_session_file_change(
+                    path,
+                    classify_new_entry_change_kind(entry),
+                    entry
+                        .previous_path
+                        .clone()
+                        .filter(|_| entry_is_renamed(entry)),
+                ));
+            }
+            Some(baseline_entry) => {
+                consumed_baseline.insert(path.clone());
+                if baseline_entry == entry {
+                    continue;
+                }
+
+                let change_kind = if entry_is_renamed(entry)
+                    && baseline_entry.previous_path != entry.previous_path
+                {
+                    SessionFileChangeKind::Renamed
+                } else if entry_is_deleted(entry) {
+                    SessionFileChangeKind::Deleted
+                } else {
+                    SessionFileChangeKind::Modified
+                };
+
+                changes.push(build_session_file_change(
+                    path,
+                    change_kind,
+                    entry
+                        .previous_path
+                        .clone()
+                        .filter(|_| change_kind == SessionFileChangeKind::Renamed),
+                ));
+            }
+        }
+    }
+
+    let mut baseline_paths = baseline_entries.keys().cloned().collect::<Vec<_>>();
+    baseline_paths.sort();
+
+    for path in baseline_paths {
+        if consumed_baseline.contains(&path) || rename_sources.contains(&path) {
+            continue;
+        }
+
+        let baseline_entry = baseline_entries
+            .get(&path)
+            .expect("baseline entry should exist for collected key");
+        let current_hash = hash_worktree_path(repo_path, &path)?;
+        if current_hash == baseline_entry.content_hash {
+            continue;
+        }
+
+        let change_kind = if current_hash.is_none() {
+            SessionFileChangeKind::Deleted
+        } else {
+            SessionFileChangeKind::Modified
+        };
+        changes.push(build_session_file_change(path, change_kind, None));
+    }
+
+    Ok(changes)
 }
 
 fn extract_session_id_from_output(line: &str) -> Option<String> {
@@ -397,11 +678,45 @@ async fn write_task_session_activity(
     }
 }
 
+async fn persist_execution_change_history(
+    app: &AppHandle,
+    session_record_id: &str,
+    session_kind: CodexSessionKind,
+    execution_change_baseline: Option<&ExecutionChangeBaseline>,
+) {
+    if session_kind != CodexSessionKind::Execution {
+        return;
+    }
+
+    let Some(execution_change_baseline) = execution_change_baseline else {
+        return;
+    };
+
+    let result = async {
+        let changes = compute_execution_session_file_changes(execution_change_baseline)?;
+        replace_codex_session_file_changes(app, session_record_id, &changes).await
+    }
+    .await;
+
+    if let Err(error) = result {
+        if let Ok(pool) = sqlite_pool(app).await {
+            let _ = insert_codex_session_event(
+                &pool,
+                session_record_id,
+                "session_file_changes_failed",
+                Some(&error),
+            )
+            .await;
+        }
+    }
+}
+
 async fn finalize_stale_process_slot(
     app: &AppHandle,
     session_record_id: &str,
     exit_code: Option<i32>,
     error_message: Option<&str>,
+    execution_change_baseline: Option<&ExecutionChangeBaseline>,
 ) {
     let current = fetch_codex_session_by_id(app, session_record_id).await.ok();
     let Some(current) = current else {
@@ -447,6 +762,14 @@ async fn finalize_stale_process_slot(
         let _ =
             insert_codex_session_event(&pool, session_record_id, event_type, Some(&message)).await;
     }
+
+    persist_execution_change_history(
+        app,
+        session_record_id,
+        normalize_session_kind(Some(current.session_kind.as_str())),
+        execution_change_baseline,
+    )
+    .await;
 }
 
 async fn get_live_managed_process(
@@ -471,8 +794,14 @@ async fn get_live_managed_process(
     match status {
         Ok(None) => Ok(Some(process)),
         Ok(Some(exit_code)) => {
-            finalize_stale_process_slot(app, &process.session_record_id, Some(exit_code), None)
-                .await;
+            finalize_stale_process_slot(
+                app,
+                &process.session_record_id,
+                Some(exit_code),
+                None,
+                process.execution_change_baseline.as_ref(),
+            )
+            .await;
             let mut manager = state.lock().map_err(|error| error.to_string())?;
             manager.remove_process(employee_id);
             Ok(None)
@@ -483,6 +812,7 @@ async fn get_live_managed_process(
                 &process.session_record_id,
                 None,
                 Some(error.as_str()),
+                process.execution_change_baseline.as_ref(),
             )
             .await;
             let mut manager = state.lock().map_err(|error| error.to_string())?;
@@ -518,6 +848,7 @@ async fn wait_until_process_stops(
             &process.session_record_id,
             None,
             Some("停止等待超时，已强制回收运行槽位"),
+            process.execution_change_baseline.as_ref(),
         )
         .await;
     }
@@ -631,6 +962,35 @@ pub async fn start_codex(
         Some("Codex 会话创建成功，准备启动运行时"),
     )
     .await?;
+    let execution_change_baseline = if session_kind == CodexSessionKind::Execution {
+        match capture_execution_change_baseline(&run_cwd) {
+            Ok(baseline) => Some(baseline),
+            Err(error) => {
+                insert_codex_session_event(
+                    &pool,
+                    &session_record.id,
+                    "session_file_changes_baseline_failed",
+                    Some(&error),
+                )
+                .await?;
+                let _ = app.emit(
+                    "codex-stdout",
+                    CodexOutput {
+                        employee_id: employee_id.clone(),
+                        task_id: task_id.clone(),
+                        session_kind: session_kind.as_str().to_string(),
+                        session_record_id: session_record.id.clone(),
+                        line: format!(
+                            "[WARN] 修改文件基线采集失败，将跳过本次文件变更记录: {error}"
+                        ),
+                    },
+                );
+                None
+            }
+        }
+    } else {
+        None
+    };
 
     let model = normalize_model(model.as_deref());
     let reasoning_effort = normalize_reasoning_effort(reasoning_effort.as_deref());
@@ -818,6 +1178,7 @@ pub async fn start_codex(
             employee_id.clone(),
             child_handle.clone(),
             session_record.id.clone(),
+            execution_change_baseline.clone(),
         );
     }
     update_codex_session_record(&app, &session_record.id, Some("running"), None, None, None)
@@ -1018,6 +1379,7 @@ pub async fn start_codex(
     let provider_for_exit = provider;
     let session_lookup_started_at = session_lookup_started_at;
     let captured_output_for_exit = captured_output.clone();
+    let execution_change_baseline_for_exit = execution_change_baseline.clone();
     tauri::async_runtime::spawn(async move {
         let exit_code = loop {
             let maybe_status = {
@@ -1049,6 +1411,13 @@ pub async fn start_codex(
                         )
                         .await;
                     }
+                    persist_execution_change_history(
+                        &app_clone,
+                        &session_record_id,
+                        session_kind,
+                        execution_change_baseline_for_exit.as_ref(),
+                    )
+                    .await;
                     let manager = app_clone.state::<Arc<Mutex<CodexManager>>>();
                     let mut manager = manager.lock().unwrap();
                     manager.remove_process(&eid);
@@ -1107,6 +1476,13 @@ pub async fn start_codex(
             None,
             Some(exit_code),
             Some(Some(ended_at.as_str())),
+        )
+        .await;
+        persist_execution_change_history(
+            &app_clone,
+            &session_record_id,
+            session_kind,
+            execution_change_baseline_for_exit.as_ref(),
         )
         .await;
         if let Ok(pool) = sqlite_pool(&app_clone).await {
@@ -1750,11 +2126,32 @@ fn build_ai_generate_plan_prompt(
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
+    use std::fs;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
     use super::{
         build_ai_generate_plan_prompt, build_one_shot_exec_args, compose_codex_prompt,
-        extract_session_id_from_output, format_session_prompt_log, parse_ai_subtasks_response,
-        parse_sdk_bridge_output, CodexExecutionProvider,
+        compute_execution_session_file_changes_from_entries, extract_session_id_from_output,
+        format_session_prompt_log, hash_worktree_path, parse_ai_subtasks_response,
+        parse_sdk_bridge_output, CodexExecutionProvider, WorkingTreeSnapshotEntry,
     };
+
+    fn snapshot_entry(
+        path: &str,
+        status_x: char,
+        status_y: char,
+        previous_path: Option<&str>,
+        content_hash: Option<&str>,
+    ) -> WorkingTreeSnapshotEntry {
+        WorkingTreeSnapshotEntry {
+            path: path.to_string(),
+            previous_path: previous_path.map(ToOwned::to_owned),
+            status_x,
+            status_y,
+            content_hash: content_hash.map(ToOwned::to_owned),
+        }
+    }
 
     #[test]
     fn extracts_session_id_from_stdout_line() {
@@ -1920,6 +2317,124 @@ mod tests {
         assert!(prompt.contains("2. 补前端预览"));
         assert!(prompt.contains("不要假装你已经读取仓库"));
         assert!(prompt.contains("如果本次输入附带任务图片"));
+    }
+
+    #[test]
+    fn computes_added_modified_deleted_and_renamed_changes() {
+        let baseline = HashMap::from([
+            (
+                "src/existing.ts".to_string(),
+                snapshot_entry("src/existing.ts", ' ', 'M', None, Some("hash-old")),
+            ),
+            (
+                "src/rename-old.ts".to_string(),
+                snapshot_entry("src/rename-old.ts", ' ', 'M', None, Some("rename-hash")),
+            ),
+        ]);
+        let end = HashMap::from([
+            (
+                "src/existing.ts".to_string(),
+                snapshot_entry("src/existing.ts", ' ', 'M', None, Some("hash-new")),
+            ),
+            (
+                "src/new-file.ts".to_string(),
+                snapshot_entry("src/new-file.ts", '?', '?', None, Some("new-hash")),
+            ),
+            (
+                "src/removed.ts".to_string(),
+                snapshot_entry("src/removed.ts", ' ', 'D', None, None),
+            ),
+            (
+                "src/rename-new.ts".to_string(),
+                snapshot_entry(
+                    "src/rename-new.ts",
+                    'R',
+                    ' ',
+                    Some("src/rename-old.ts"),
+                    Some("rename-hash"),
+                ),
+            ),
+        ]);
+
+        let changes = compute_execution_session_file_changes_from_entries("/tmp", &baseline, &end)
+            .expect("compute session file changes");
+
+        assert_eq!(changes.len(), 4);
+        assert_eq!(changes[0].path, "src/existing.ts");
+        assert_eq!(changes[0].change_type, "modified");
+        assert_eq!(changes[1].path, "src/new-file.ts");
+        assert_eq!(changes[1].change_type, "added");
+        assert_eq!(changes[2].path, "src/removed.ts");
+        assert_eq!(changes[2].change_type, "deleted");
+        assert_eq!(changes[3].path, "src/rename-new.ts");
+        assert_eq!(changes[3].change_type, "renamed");
+        assert_eq!(
+            changes[3].previous_path.as_deref(),
+            Some("src/rename-old.ts")
+        );
+    }
+
+    #[test]
+    fn skips_unchanged_renames_and_baseline_files() {
+        let baseline = HashMap::from([(
+            "src/renamed.ts".to_string(),
+            snapshot_entry(
+                "src/renamed.ts",
+                'R',
+                ' ',
+                Some("src/original.ts"),
+                Some("same-hash"),
+            ),
+        )]);
+        let end = HashMap::from([(
+            "src/renamed.ts".to_string(),
+            snapshot_entry(
+                "src/renamed.ts",
+                'R',
+                ' ',
+                Some("src/original.ts"),
+                Some("same-hash"),
+            ),
+        )]);
+
+        let changes = compute_execution_session_file_changes_from_entries("/tmp", &baseline, &end)
+            .expect("compute session file changes");
+
+        assert!(changes.is_empty());
+    }
+
+    #[test]
+    fn ignores_baseline_only_files_when_hash_does_not_change() {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system time")
+            .as_nanos();
+        let repo_root = std::env::temp_dir().join(format!(
+            "codex-session-change-test-{}-{}",
+            std::process::id(),
+            unique
+        ));
+        fs::create_dir_all(repo_root.join("src")).expect("create temp repo dir");
+        fs::write(repo_root.join("src/stable.ts"), "const value = 1;\n").expect("write temp file");
+        let baseline_hash =
+            hash_worktree_path(repo_root.to_string_lossy().as_ref(), "src/stable.ts")
+                .expect("hash temp file");
+
+        let baseline = HashMap::from([(
+            "src/stable.ts".to_string(),
+            snapshot_entry("src/stable.ts", ' ', 'M', None, baseline_hash.as_deref()),
+        )]);
+        let end = HashMap::new();
+
+        let changes = compute_execution_session_file_changes_from_entries(
+            repo_root.to_string_lossy().as_ref(),
+            &baseline,
+            &end,
+        )
+        .expect("compute session file changes");
+
+        assert!(changes.is_empty());
+        let _ = fs::remove_dir_all(&repo_root);
     }
 }
 

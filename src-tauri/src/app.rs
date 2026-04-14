@@ -17,10 +17,11 @@ use uuid::Uuid;
 
 use crate::codex::{inspect_sdk_runtime, load_codex_settings, new_codex_command, CodexManager};
 use crate::db::models::{
-    CodexHealthCheck, CodexRuntimeStatus, CodexSessionRecord, Comment, CreateComment,
-    CreateEmployee, CreateProject, CreateSubtask, CreateTask, DatabaseBackupResult,
-    DatabaseRestoreResult, Employee, EmployeeMetric, Project, Subtask, Task, TaskAttachment,
-    TaskLatestReview, UpdateEmployee, UpdateProject, UpdateTask,
+    CodexHealthCheck, CodexRuntimeStatus, CodexSessionFileChange, CodexSessionFileChangeInput,
+    CodexSessionRecord, Comment, CreateComment, CreateEmployee, CreateProject, CreateSubtask,
+    CreateTask, DatabaseBackupResult, DatabaseRestoreResult, Employee, EmployeeMetric, Project,
+    Subtask, Task, TaskAttachment, TaskExecutionChangeHistoryItem, TaskLatestReview,
+    UpdateEmployee, UpdateProject, UpdateTask,
 };
 
 pub const DB_URL: &str = "sqlite:codex-ai.db";
@@ -1087,6 +1088,36 @@ pub(crate) async fn insert_codex_session_event(
     Ok(())
 }
 
+pub(crate) async fn replace_codex_session_file_changes<R: Runtime>(
+    app: &AppHandle<R>,
+    session_id: &str,
+    changes: &[CodexSessionFileChangeInput],
+) -> Result<(), String> {
+    let pool = sqlite_pool(app).await?;
+
+    sqlx::query("DELETE FROM codex_session_file_changes WHERE session_id = $1")
+        .bind(session_id)
+        .execute(&pool)
+        .await
+        .map_err(|error| format!("Failed to clear session file changes: {}", error))?;
+
+    for change in changes {
+        sqlx::query(
+            "INSERT INTO codex_session_file_changes (id, session_id, path, change_type, previous_path) VALUES ($1, $2, $3, $4, $5)",
+        )
+        .bind(new_id())
+        .bind(session_id)
+        .bind(&change.path)
+        .bind(&change.change_type)
+        .bind(&change.previous_path)
+        .execute(&pool)
+        .await
+        .map_err(|error| format!("Failed to insert session file change: {}", error))?;
+    }
+
+    Ok(())
+}
+
 pub(crate) async fn insert_codex_session_record<R: Runtime>(
     app: &AppHandle<R>,
     employee_id: Option<&str>,
@@ -1786,6 +1817,36 @@ pub async fn get_task_latest_review<R: Runtime>(
         report,
         reviewer_name,
     }))
+}
+
+#[tauri::command]
+pub async fn get_task_execution_change_history<R: Runtime>(
+    app: AppHandle<R>,
+    task_id: String,
+) -> Result<Vec<TaskExecutionChangeHistoryItem>, String> {
+    let pool = sqlite_pool(&app).await?;
+    let sessions = sqlx::query_as::<_, CodexSessionRecord>(
+        "SELECT * FROM codex_sessions WHERE task_id = $1 AND session_kind = 'execution' ORDER BY started_at DESC",
+    )
+    .bind(&task_id)
+    .fetch_all(&pool)
+    .await
+    .map_err(|error| format!("Failed to fetch task execution sessions: {}", error))?;
+
+    let mut items = Vec::with_capacity(sessions.len());
+    for session in sessions {
+        let changes = sqlx::query_as::<_, CodexSessionFileChange>(
+            "SELECT * FROM codex_session_file_changes WHERE session_id = $1 ORDER BY path ASC, created_at ASC",
+        )
+        .bind(&session.id)
+        .fetch_all(&pool)
+        .await
+        .map_err(|error| format!("Failed to fetch task execution file changes: {}", error))?;
+
+        items.push(TaskExecutionChangeHistoryItem { session, changes });
+    }
+
+    Ok(items)
 }
 
 #[tauri::command]

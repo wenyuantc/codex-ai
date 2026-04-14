@@ -335,6 +335,24 @@ pub fn get_all_migrations() -> Vec<Migration> {
             "#,
             kind: tauri_plugin_sql::MigrationKind::Up,
         },
+        Migration {
+            version: 19,
+            description: "create codex session file changes table",
+            sql: r#"
+                CREATE TABLE codex_session_file_changes (
+                    id TEXT PRIMARY KEY,
+                    session_id TEXT NOT NULL REFERENCES codex_sessions(id) ON DELETE CASCADE,
+                    path TEXT NOT NULL,
+                    change_type TEXT NOT NULL,
+                    previous_path TEXT,
+                    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+                );
+
+                CREATE INDEX idx_codex_session_file_changes_session_created
+                    ON codex_session_file_changes(session_id, created_at);
+            "#,
+            kind: tauri_plugin_sql::MigrationKind::Up,
+        },
     ]
 }
 
