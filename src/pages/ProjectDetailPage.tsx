@@ -9,6 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { EditProjectDialog } from "@/components/projects/EditProjectDialog";
 import { DeleteProjectDialog } from "@/components/projects/DeleteProjectDialog";
+import { RepoPathDisplay } from "@/components/projects/RepoPathDisplay";
 import { ArrowLeft, Edit2, Trash2 } from "lucide-react";
 import { getStatusLabel, getStatusColor, getPriorityLabel, formatDate } from "@/lib/utils";
 
@@ -107,15 +108,8 @@ export function ProjectDetailPage() {
       )}
 
       <Card className="p-4">
-        <h3 className="text-sm font-semibold mb-3">项目信息</h3>
-        <div className="space-y-1">
-          <p className="text-xs font-medium text-muted-foreground">仓库路径</p>
-          {project.repo_path ? (
-            <p className="text-sm font-mono break-all">{project.repo_path}</p>
-          ) : (
-            <p className="text-sm text-muted-foreground">未配置仓库路径</p>
-          )}
-        </div>
+        <h3 className="mb-3 text-sm font-semibold">仓库信息</h3>
+        <RepoPathDisplay repoPath={project.repo_path} showCopyAction />
       </Card>
 
       {/* Task Stats */}

@@ -1,6 +1,7 @@
 import type { Project } from "@/lib/types";
 import { getStatusLabel, getStatusColor, formatDate } from "@/lib/utils";
 import { Trash2, Edit2, FolderKanban } from "lucide-react";
+import { RepoPathDisplay } from "@/components/projects/RepoPathDisplay";
 
 interface ProjectCardProps {
   project: Project;
@@ -17,24 +18,12 @@ export function ProjectCard({ project, taskCount, onEdit, onDelete }: ProjectCar
           <div className="h-9 w-9 rounded-md bg-primary/10 flex items-center justify-center shrink-0">
             <FolderKanban className="h-4 w-4 text-primary" />
           </div>
-          <div className="min-w-0">
-            <h3 className="font-medium text-sm truncate">{project.name}</h3>
+          <div className="min-w-0 flex-1">
+            <h3 className="truncate font-medium text-sm">{project.name}</h3>
             {project.description && (
               <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">{project.description}</p>
             )}
-            <div className="mt-2 rounded-md bg-secondary/40 px-2.5 py-2">
-              <p className="text-[11px] font-medium text-muted-foreground">仓库路径</p>
-              {project.repo_path ? (
-                <p
-                  className="mt-1 text-[11px] font-mono text-foreground break-all line-clamp-2"
-                  title={project.repo_path}
-                >
-                  {project.repo_path}
-                </p>
-              ) : (
-                <p className="mt-1 text-[11px] text-muted-foreground">未配置仓库路径</p>
-              )}
-            </div>
+            <RepoPathDisplay repoPath={project.repo_path} compact className="mt-2" />
           </div>
         </div>
         <div className="flex items-center gap-1 shrink-0">
