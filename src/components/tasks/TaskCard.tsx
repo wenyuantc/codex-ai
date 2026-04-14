@@ -9,7 +9,6 @@ import { Clock, FolderKanban, GripVertical, MessageSquarePlus, Play, ScrollText,
 import { ContinueConversationDialog } from "./ContinueConversationDialog";
 import { TaskDetailDialog } from "./TaskDetailDialog";
 import { DeleteTaskDialog } from "./DeleteTaskDialog";
-import { TaskLogDialog } from "./TaskLogDialog";
 import { useProjectStore } from "@/stores/projectStore";
 import { useEmployeeStore } from "@/stores/employeeStore";
 import { useTaskStore } from "@/stores/taskStore";
@@ -18,13 +17,13 @@ import { startCodex, stopCodex } from "@/lib/codex";
 interface TaskCardProps {
   task: Task;
   isOverlay?: boolean;
+  onOpenLog?: (taskId: string) => void;
 }
 
-export function TaskCard({ task, isOverlay }: TaskCardProps) {
+export function TaskCard({ task, isOverlay, onOpenLog }: TaskCardProps) {
   const [showDetail, setShowDetail] = useState(false);
   const [showContinueDialog, setShowContinueDialog] = useState(false);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
-  const [showLogDialog, setShowLogDialog] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [actionLoading, setActionLoading] = useState<"run" | "stop" | "continue" | null>(null);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
@@ -35,6 +34,9 @@ export function TaskCard({ task, isOverlay }: TaskCardProps) {
   const codexProcesses = useEmployeeStore((s) => s.codexProcesses);
   const updateEmployeeStatus = useEmployeeStore((s) => s.updateEmployeeStatus);
   const setCodexRunning = useEmployeeStore((s) => s.setCodexRunning);
+  const addCodexOutput = useEmployeeStore((s) => s.addCodexOutput);
+  const clearTaskCodexOutput = useEmployeeStore((s) => s.clearTaskCodexOutput);
+  const refreshCodexRuntimeStatus = useEmployeeStore((s) => s.refreshCodexRuntimeStatus);
   const updateTaskStatus = useTaskStore((s) => s.updateTaskStatus);
   const fetchSubtasks = useTaskStore((s) => s.fetchSubtasks);
   const deleteTask = useTaskStore((s) => s.deleteTask);
@@ -110,8 +112,9 @@ export function TaskCard({ task, isOverlay }: TaskCardProps) {
       setShowContinueDialog(false);
     } catch (err) {
       console.error(`Failed to ${mode === "continue" ? "resume" : "start"} codex:`, err);
+      addCodexOutput(task.assignee_id, `[ERROR] ${String(err)}`, task.id);
       setCodexRunning(task.assignee_id, false, null);
-      await updateEmployeeStatus(task.assignee_id, "error");
+      await refreshCodexRuntimeStatus(task.assignee_id);
     } finally {
       setActionLoading(null);
       setContextMenu(null);
@@ -121,7 +124,8 @@ export function TaskCard({ task, isOverlay }: TaskCardProps) {
   const handleRun = async (e?: React.MouseEvent) => {
     e?.stopPropagation();
     setContextMenu(null);
-    setShowLogDialog(true);
+    onOpenLog?.(task.id);
+    clearTaskCodexOutput(task.id);
     await fetchSubtasks(task.id);
     const desc = buildTaskExecutionPrompt({
       title: task.title,
@@ -182,7 +186,7 @@ export function TaskCard({ task, isOverlay }: TaskCardProps) {
 
   const openLogDialog = () => {
     setContextMenu(null);
-    setShowLogDialog(true);
+    onOpenLog?.(task.id);
   };
 
   const openContinueDialog = () => {
@@ -395,14 +399,6 @@ export function TaskCard({ task, isOverlay }: TaskCardProps) {
           deleting={deleting}
           onOpenChange={setShowDeleteDialog}
           onConfirm={handleDelete}
-        />
-      )}
-      {!isOverlay && (
-        <TaskLogDialog
-          open={showLogDialog}
-          task={task}
-          assigneeName={assignee?.name}
-          onOpenChange={setShowLogDialog}
         />
       )}
     </>

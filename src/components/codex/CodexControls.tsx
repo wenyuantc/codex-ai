@@ -25,7 +25,9 @@ export function CodexControls({ employeeId, employeeStatus, model, reasoningEffo
   const updateEmployeeStatus = useEmployeeStore((s) => s.updateEmployeeStatus);
   const setCodexRunning = useEmployeeStore((s) => s.setCodexRunning);
   const clearCodexOutput = useEmployeeStore((s) => s.clearCodexOutput);
+  const clearTaskCodexOutput = useEmployeeStore((s) => s.clearTaskCodexOutput);
   const addCodexOutput = useEmployeeStore((s) => s.addCodexOutput);
+  const refreshCodexRuntimeStatus = useEmployeeStore((s) => s.refreshCodexRuntimeStatus);
   const tasks = useTaskStore((s) => s.tasks);
   const fetchTasks = useTaskStore((s) => s.fetchTasks);
   const fetchSubtasks = useTaskStore((s) => s.fetchSubtasks);
@@ -119,6 +121,7 @@ export function CodexControls({ employeeId, employeeStatus, model, reasoningEffo
       await updateTaskStatus(selectedTask.id, "in_progress");
       setCodexRunning(employeeId, true, selectedTask.id);
       clearCodexOutput(employeeId);
+      clearTaskCodexOutput(selectedTask.id);
       await fetchSubtasks(selectedTask.id);
 
       const prompt = buildTaskExecutionPrompt({
@@ -138,8 +141,8 @@ export function CodexControls({ employeeId, employeeStatus, model, reasoningEffo
     } catch (e) {
       console.error("Failed to start codex:", e);
       setCodexRunning(employeeId, false, null);
-      addCodexOutput(employeeId, `[ERROR] ${String(e)}`);
-      await updateEmployeeStatus(employeeId, "error");
+      addCodexOutput(employeeId, `[ERROR] ${String(e)}`, selectedTask.id);
+      await refreshCodexRuntimeStatus(employeeId);
     } finally {
       setActionLoading(null);
     }

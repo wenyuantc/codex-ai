@@ -10,8 +10,10 @@ import {
 } from "@dnd-kit/core";
 import { TASK_STATUSES, type Task, type TaskStatus } from "@/lib/types";
 import { useTaskStore } from "@/stores/taskStore";
+import { useEmployeeStore } from "@/stores/employeeStore";
 import { KanbanColumn } from "./KanbanColumn";
 import { TaskCard } from "./TaskCard";
+import { TaskLogDialog } from "./TaskLogDialog";
 
 interface KanbanBoardProps {
   projectId?: string;
@@ -19,7 +21,9 @@ interface KanbanBoardProps {
 
 export function KanbanBoard({ projectId: _projectId }: KanbanBoardProps) {
   const { tasks, moveTask, updateTaskStatus, fetchTasks } = useTaskStore();
+  const employees = useEmployeeStore((s) => s.employees);
   const [activeTask, setActiveTask] = useState<Task | null>(null);
+  const [logTaskId, setLogTaskId] = useState<string | null>(null);
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -80,32 +84,51 @@ export function KanbanBoard({ projectId: _projectId }: KanbanBoardProps) {
   const getTasksByStatus = (status: TaskStatus) =>
     tasks.filter((t) => t.status === status);
 
+  const logTask = logTaskId ? tasks.find((task) => task.id === logTaskId) ?? null : null;
+  const logAssigneeName = logTask?.assignee_id
+    ? employees.find((employee) => employee.id === logTask.assignee_id)?.name
+    : undefined;
+
   return (
-    <DndContext
-      sensors={sensors}
-      collisionDetection={closestCorners}
-      onDragStart={handleDragStart}
-      onDragEnd={handleDragEnd}
-      onDragCancel={handleDragCancel}
-    >
-      <div className="flex gap-4 h-full overflow-x-auto pb-4">
-        {TASK_STATUSES.map((status) => (
-          <KanbanColumn
-            key={status.value}
-            status={status.value}
-            label={status.label}
-            color={status.color}
-            tasks={getTasksByStatus(status.value)}
-          />
-        ))}
-      </div>
-      <DragOverlay>
-        {activeTask ? (
-          <div className="w-72 rotate-2 opacity-90">
-            <TaskCard task={activeTask} isOverlay />
-          </div>
-        ) : null}
-      </DragOverlay>
-    </DndContext>
+    <>
+      <DndContext
+        sensors={sensors}
+        collisionDetection={closestCorners}
+        onDragStart={handleDragStart}
+        onDragEnd={handleDragEnd}
+        onDragCancel={handleDragCancel}
+      >
+        <div className="flex gap-4 h-full overflow-x-auto pb-4">
+          {TASK_STATUSES.map((status) => (
+            <KanbanColumn
+              key={status.value}
+              status={status.value}
+              label={status.label}
+              color={status.color}
+              tasks={getTasksByStatus(status.value)}
+              onOpenLog={setLogTaskId}
+            />
+          ))}
+        </div>
+        <DragOverlay>
+          {activeTask ? (
+            <div className="w-72 rotate-2 opacity-90">
+              <TaskCard task={activeTask} isOverlay />
+            </div>
+          ) : null}
+        </DragOverlay>
+      </DndContext>
+
+      <TaskLogDialog
+        open={logTaskId !== null}
+        task={logTask}
+        assigneeName={logAssigneeName}
+        onOpenChange={(open) => {
+          if (!open) {
+            setLogTaskId(null);
+          }
+        }}
+      />
+    </>
   );
 }

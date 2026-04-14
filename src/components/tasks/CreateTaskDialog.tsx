@@ -42,6 +42,7 @@ export function CreateTaskDialog({
     projectId ?? ""
   );
   const [assigneeId, setAssigneeId] = useState("");
+  const [createError, setCreateError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
   const handleOpen = (isOpen: boolean) => {
@@ -52,12 +53,14 @@ export function CreateTaskDialog({
       setPriority("medium");
       setSelectedProjectId(projectId ?? "");
       setAssigneeId("");
+      setCreateError(null);
     }
     onOpenChange(isOpen);
   };
 
   const handleCreate = async () => {
     if (!title.trim() || !selectedProjectId) return;
+    setCreateError(null);
     setSaving(true);
     try {
       await createTask({
@@ -66,8 +69,12 @@ export function CreateTaskDialog({
         priority,
         project_id: selectedProjectId,
         assignee_id: assigneeId || undefined,
+      }, {
+        refreshProjectId: projectId,
       });
       handleOpen(false);
+    } catch (error) {
+      setCreateError(error instanceof Error ? error.message : String(error));
     } finally {
       setSaving(false);
     }
@@ -112,7 +119,11 @@ export function CreateTaskDialog({
               </label>
               <Select
                 value={selectedProjectId || null}
-                onValueChange={(value) => setSelectedProjectId(value ?? "")}
+                onValueChange={(value) => {
+                  const nextProjectId = value ?? "";
+                  setSelectedProjectId(nextProjectId);
+                  setCreateError(null);
+                }}
               >
                 <SelectTrigger className="mt-1 bg-background">
                   <SelectValue placeholder="选择项目">
@@ -166,8 +177,10 @@ export function CreateTaskDialog({
               指派给
             </label>
             <Select
+              disabled={saving}
               value={assigneeId || UNASSIGNED_VALUE}
               onValueChange={(value) => {
+                setCreateError(null);
                 setAssigneeId(!value || value === UNASSIGNED_VALUE ? "" : value);
               }}
             >
@@ -193,6 +206,12 @@ export function CreateTaskDialog({
               </SelectContent>
             </Select>
           </div>
+
+          {createError && (
+            <div className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+              {createError}
+            </div>
+          )}
 
           <div className="flex justify-end gap-2 pt-2">
             <button

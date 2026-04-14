@@ -15,8 +15,6 @@ export function TaskLogDialog({
   assigneeName,
   onOpenChange,
 }: TaskLogDialogProps) {
-  const employeeId = task?.assignee_id ?? null;
-
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
@@ -32,13 +30,13 @@ export function TaskLogDialog({
           </DialogDescription>
         </DialogHeader>
 
-        {employeeId ? (
+        {task ? (
           <div className="[&_div[data-slot='scroll-area']]:h-[28rem]">
-            <CodexTerminal employeeId={employeeId} />
+            <CodexTerminal taskId={task.id} />
           </div>
         ) : (
           <div className="rounded-lg border border-dashed border-border p-6 text-sm text-muted-foreground">
-            当前任务未指派员工，暂无可查看的终端日志。
+            当前没有可查看的任务日志。
           </div>
         )}
       </DialogContent>

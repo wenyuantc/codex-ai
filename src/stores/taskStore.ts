@@ -25,7 +25,10 @@ interface TaskStore {
   fetchTasks: (projectId?: string) => Promise<void>;
   fetchSubtasks: (taskId: string) => Promise<void>;
   fetchComments: (taskId: string) => Promise<void>;
-  createTask: (data: { title: string; description?: string; priority?: string; project_id: string; assignee_id?: string }) => Promise<void>;
+  createTask: (
+    data: { title: string; description?: string; priority?: string; project_id: string; assignee_id?: string },
+    options?: { refreshProjectId?: string },
+  ) => Promise<void>;
   updateTaskStatus: (id: string, status: TaskStatus) => Promise<void>;
   updateTask: (id: string, updates: Partial<Pick<Task, "title" | "description" | "priority" | "status" | "assignee_id" | "complexity" | "ai_suggestion" | "last_codex_session_id">>) => Promise<void>;
   deleteTask: (id: string) => Promise<void>;
@@ -78,13 +81,13 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
     set((state) => ({ comments: { ...state.comments, [taskId]: comments } }));
   },
 
-  createTask: async (data) => {
+  createTask: async (data, options) => {
     await createTaskCommand({
       ...data,
       description: data.description ?? null,
       assignee_id: data.assignee_id ?? null,
     });
-    await get().fetchTasks(data.project_id);
+    await get().fetchTasks(options?.refreshProjectId);
   },
 
   updateTaskStatus: async (id, status) => {

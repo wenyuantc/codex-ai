@@ -12,8 +12,8 @@ use tokio::process::{Child, Command};
 use tokio::time::sleep;
 
 use crate::app::{
-    fetch_codex_session_by_id, insert_codex_session_event, insert_codex_session_record,
-    now_sqlite, sqlite_pool, update_codex_session_record, validate_runtime_working_dir,
+    fetch_codex_session_by_id, insert_codex_session_event, insert_codex_session_record, now_sqlite,
+    sqlite_pool, update_codex_session_record, validate_runtime_working_dir,
 };
 use crate::codex::CodexManager;
 use crate::db::models::{CodexExit, CodexOutput, CodexSession};
@@ -102,8 +102,9 @@ async fn record_failed_session(
     .await
     {
         if let Ok(pool) = sqlite_pool(app).await {
-            let _ = insert_codex_session_event(&pool, &record.id, "validation_failed", Some(message))
-                .await;
+            let _ =
+                insert_codex_session_event(&pool, &record.id, "validation_failed", Some(message))
+                    .await;
         }
     }
 }
@@ -158,7 +159,10 @@ async fn wait_until_process_stops(
         sleep(Duration::from_millis(50)).await;
     }
 
-    Err(format!("Timed out waiting for employee {} process to stop", employee_id))
+    Err(format!(
+        "Timed out waiting for employee {} process to stop",
+        employee_id
+    ))
 }
 
 pub struct CodexChild {
@@ -198,7 +202,7 @@ pub async fn start_codex(
         let manager = state.lock().map_err(|e| e.to_string())?;
         if manager.is_running(&employee_id) {
             return Err(format!(
-                "Codex instance for employee {} is already running",
+                "员工{}的Codex实例已在运行",
                 employee_id
             ));
         }
@@ -272,13 +276,8 @@ pub async fn start_codex(
                 Some(Some(ended_at.as_str())),
             )
             .await?;
-            insert_codex_session_event(
-                &pool,
-                &session_record.id,
-                "spawn_failed",
-                Some(&message),
-            )
-            .await?;
+            insert_codex_session_event(&pool, &session_record.id, "spawn_failed", Some(&message))
+                .await?;
             return Err(message);
         }
     };
@@ -296,20 +295,16 @@ pub async fn start_codex(
             session_record.id.clone(),
         );
     }
-    update_codex_session_record(
-        &app,
-        &session_record.id,
-        Some("running"),
-        None,
-        None,
-        None,
-    )
-    .await?;
+    update_codex_session_record(&app, &session_record.id, Some("running"), None, None, None)
+        .await?;
     insert_codex_session_event(
         &pool,
         &session_record.id,
         "session_started",
-        Some(&format!("使用模型 {} / 推理强度 {}", model, reasoning_effort)),
+        Some(&format!(
+            "使用模型 {} / 推理强度 {}",
+            model, reasoning_effort
+        )),
     )
     .await?;
 
@@ -357,7 +352,7 @@ pub async fn start_codex(
     // Read stdout — emit only unseen lines
     let app_clone = app.clone();
     let eid = employee_id.clone();
-    let task_id_clone = task_id.clone();
+    let task_id_for_stdout = task_id.clone();
     let seen_stdout = seen.clone();
     let session_emitted_clone = session_emitted.clone();
     let session_record_id = session_record.id.clone();
@@ -371,7 +366,7 @@ pub async fn start_codex(
                         bind_cli_session_id(
                             &app_clone,
                             &eid,
-                            task_id_clone.as_ref(),
+                            task_id_for_stdout.as_ref(),
                             &session_record_id,
                             session_id,
                         )
@@ -398,6 +393,7 @@ pub async fn start_codex(
                     "codex-stdout",
                     CodexOutput {
                         employee_id: eid.clone(),
+                        task_id: task_id_for_stdout.clone(),
                         line,
                     },
                 );
@@ -408,6 +404,7 @@ pub async fn start_codex(
     // Read stderr — emit only unseen lines
     let app_clone = app.clone();
     let eid = employee_id.clone();
+    let task_id_for_stderr = task_id.clone();
     let seen_stderr = seen.clone();
     tauri::async_runtime::spawn(async move {
         let reader = BufReader::new(stderr);
@@ -430,6 +427,7 @@ pub async fn start_codex(
                     "codex-stdout",
                     CodexOutput {
                         employee_id: eid.clone(),
+                        task_id: task_id_for_stderr.clone(),
                         line,
                     },
                 );
@@ -483,6 +481,7 @@ pub async fn start_codex(
                         "codex-exit",
                         CodexExit {
                             employee_id: eid.clone(),
+                            task_id: task_id_clone.clone(),
                             code: None,
                         },
                     );
@@ -536,14 +535,16 @@ pub async fn start_codex(
                 "session_failed"
             };
             let message = format!("进程退出，exit_code={}", exit_code.unwrap_or_default());
-            let _ = insert_codex_session_event(&pool, &session_record_id, event_type, Some(&message))
-                .await;
+            let _ =
+                insert_codex_session_event(&pool, &session_record_id, event_type, Some(&message))
+                    .await;
         }
 
         let _ = app_clone.emit(
             "codex-exit",
             CodexExit {
                 employee_id: eid,
+                task_id: task_id_clone,
                 code: exit_code,
             },
         );
@@ -818,7 +819,8 @@ fn extract_balanced_json_segment(raw: &str, open: char, close: char) -> Option<S
 }
 
 fn normalize_subtask_titles(items: Vec<String>) -> Vec<String> {
-    items.into_iter()
+    items
+        .into_iter()
         .map(|title| title.trim().to_string())
         .filter(|title| !title.is_empty())
         .collect()
@@ -919,8 +921,8 @@ mod tests {
 
     #[test]
     fn parses_subtasks_from_json_array() {
-        let subtasks = parse_ai_subtasks_response("[\"任务一\", \"任务二\"]")
-            .expect("should parse array");
+        let subtasks =
+            parse_ai_subtasks_response("[\"任务一\", \"任务二\"]").expect("should parse array");
 
         assert_eq!(subtasks, vec!["任务一", "任务二"]);
     }

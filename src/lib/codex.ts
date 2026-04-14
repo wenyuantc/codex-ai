@@ -3,11 +3,13 @@ import { listen } from "@tauri-apps/api/event";
 
 export interface CodexOutput {
   employee_id: string;
+  task_id: string | null;
   line: string;
 }
 
 export interface CodexExit {
   employee_id: string;
+  task_id: string | null;
   code: number | null;
 }
 

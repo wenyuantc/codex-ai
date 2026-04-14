@@ -239,12 +239,14 @@ pub struct CreateComment {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CodexOutput {
     pub employee_id: String,
+    pub task_id: Option<String>,
     pub line: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CodexExit {
     pub employee_id: String,
+    pub task_id: Option<String>,
     pub code: Option<i32>,
 }
 

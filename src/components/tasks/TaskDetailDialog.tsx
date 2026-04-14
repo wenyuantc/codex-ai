@@ -50,7 +50,10 @@ export function TaskDetailDialog({
     updateEmployeeStatus,
     setCodexRunning,
     clearCodexOutput,
+    clearTaskCodexOutput,
     addCodexOutput,
+    refreshCodexRuntimeStatus,
+    taskLogs,
   } = useEmployeeStore();
   const projects = useProjectStore((s) => s.projects);
   const projectRepoPath = projects.find((p) => p.id === task.project_id)?.repo_path;
@@ -70,7 +73,7 @@ export function TaskDetailDialog({
 
   const codexProcess = assigneeId ? codexProcesses[assigneeId] : undefined;
   const isRunning = (codexProcess?.running ?? false) && codexProcess?.activeTaskId === task.id;
-  const output = codexProcess?.output ?? [];
+  const output = taskLogs[task.id] ?? [];
 
   useEffect(() => {
     if (open) {
@@ -137,6 +140,7 @@ export function TaskDetailDialog({
       setStatus("in_progress");
       setCodexRunning(assigneeId, true, task.id);
       clearCodexOutput(assigneeId);
+      clearTaskCodexOutput(task.id);
       await fetchSubtasks(task.id);
       const desc = buildTaskExecutionPrompt({
         title,
@@ -153,8 +157,8 @@ export function TaskDetailDialog({
     } catch (err) {
       console.error("Failed to start codex:", err);
       setCodexRunning(assigneeId, false, null);
-      addCodexOutput(assigneeId, `[ERROR] ${String(err)}`);
-      await updateEmployeeStatus(assigneeId, "error");
+      addCodexOutput(assigneeId, `[ERROR] ${String(err)}`, task.id);
+      await refreshCodexRuntimeStatus(assigneeId);
     } finally {
       setCodexLoading(false);
     }
@@ -169,7 +173,7 @@ export function TaskDetailDialog({
       await updateEmployeeStatus(assigneeId, "offline");
     } catch (err) {
       console.error("Failed to stop codex:", err);
-      addCodexOutput(assigneeId, `[ERROR] ${String(err)}`);
+      addCodexOutput(assigneeId, `[ERROR] ${String(err)}`, task.id);
     } finally {
       setCodexLoading(false);
     }
@@ -434,7 +438,7 @@ export function TaskDetailDialog({
               <div className="flex items-center justify-between px-2 py-1 bg-black/80 rounded-t border-b border-zinc-800">
                 <span className="text-xs text-zinc-500 font-mono">Codex 终端</span>
                 <button
-                  onClick={() => clearCodexOutput(assigneeId)}
+                  onClick={() => clearTaskCodexOutput(task.id)}
                   className="p-0.5 text-zinc-500 hover:text-zinc-300 transition-colors"
                   title="清空日志"
                 >
