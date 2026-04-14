@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { confirm, message, open, save } from "@tauri-apps/plugin-dialog";
-import { Download, Loader2, Monitor, Moon, RefreshCw, Sun, Upload } from "lucide-react";
+import { Download, FolderOpen, Loader2, Monitor, Moon, RefreshCw, Sun, Upload } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -16,6 +16,7 @@ import {
   getCodexSettings,
   healthCheck,
   installCodexSdk,
+  openDatabaseFolder,
   restoreDatabase,
   updateCodexSettings,
 } from "@/lib/backend";
@@ -95,9 +96,9 @@ export function SettingsPage() {
   const [sdkActionLoading, setSdkActionLoading] = useState<"save" | "install" | null>(null);
   const [sdkActionMessage, setSdkActionMessage] = useState<string | null>(null);
   const [sdkActionError, setSdkActionError] = useState<string | null>(null);
-  const [databaseActionLoading, setDatabaseActionLoading] = useState<"backup" | "restore" | null>(
-    null,
-  );
+  const [databaseActionLoading, setDatabaseActionLoading] = useState<
+    "backup" | "restore" | "open-folder" | null
+  >(null);
   const [databaseActionMessage, setDatabaseActionMessage] = useState<string | null>(null);
   const [databaseActionError, setDatabaseActionError] = useState<string | null>(null);
 
@@ -144,6 +145,11 @@ export function SettingsPage() {
   const oneShotProviderLabel =
     codexHealth?.one_shot_effective_provider === "sdk" ? "SDK" : "exec（自动回退）";
   const installButtonLabel = codexHealth?.sdk_installed ? "重装 SDK" : "安装 SDK";
+  const openDatabaseFolderTitle = !isTauriRuntime
+    ? "仅桌面端支持打开数据库文件夹"
+    : codexHealth?.database_path
+      ? "打开数据库所在的文件夹"
+      : "数据库路径不可用";
 
   async function handleSaveSdkSettings() {
     setSdkActionLoading("save");
@@ -211,6 +217,21 @@ export function SettingsPage() {
     } catch (error) {
       console.error("Failed to backup database:", error);
       setDatabaseActionError(error instanceof Error ? error.message : "导出 SQL 备份失败");
+    } finally {
+      setDatabaseActionLoading(null);
+    }
+  }
+
+  async function handleOpenDatabaseFolder() {
+    setDatabaseActionLoading("open-folder");
+    setDatabaseActionError(null);
+    setDatabaseActionMessage(null);
+
+    try {
+      await openDatabaseFolder();
+    } catch (error) {
+      console.error("Failed to open database folder:", error);
+      setDatabaseActionError(error instanceof Error ? error.message : "打开数据库文件夹失败");
     } finally {
       setDatabaseActionLoading(null);
     }
@@ -528,6 +549,24 @@ export function SettingsPage() {
             </div>
 
             <div className="mt-3 flex flex-wrap gap-2">
+              <Button
+                variant="outline"
+                onClick={() => void handleOpenDatabaseFolder()}
+                disabled={
+                  !isTauriRuntime ||
+                  !codexHealth?.database_path ||
+                  healthLoading ||
+                  databaseActionLoading !== null
+                }
+                title={openDatabaseFolderTitle}
+              >
+                {databaseActionLoading === "open-folder" ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <FolderOpen className="h-4 w-4" />
+                )}
+                打开文件夹
+              </Button>
               <Button
                 variant="outline"
                 onClick={() => void handleBackupDatabase()}

@@ -1620,6 +1620,26 @@ pub fn restore_database<R: Runtime>(
 }
 
 #[tauri::command]
+pub fn open_database_folder<R: Runtime>(app: AppHandle<R>) -> Result<(), String> {
+    let database_file = database_path(&app).ok_or_else(|| "无法解析当前数据库路径".to_string())?;
+    let directory = database_file
+        .parent()
+        .ok_or_else(|| format!("无法解析数据库所在目录: {}", database_file.display()))?;
+
+    if !directory.exists() {
+        return Err(format!("数据库目录不存在: {}", directory.display()));
+    }
+
+    if !directory.is_dir() {
+        return Err(format!("数据库目录不是文件夹: {}", directory.display()));
+    }
+
+    app.opener()
+        .open_path(directory.to_string_lossy().to_string(), None::<&str>)
+        .map_err(|error| format!("打开数据库文件夹失败: {}", error))
+}
+
+#[tauri::command]
 pub async fn get_codex_session_status<R: Runtime>(
     app: AppHandle<R>,
     state: State<'_, Arc<Mutex<CodexManager>>>,

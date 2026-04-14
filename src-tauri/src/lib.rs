@@ -40,6 +40,7 @@ pub fn run() {
             app::health_check,
             app::backup_database,
             app::restore_database,
+            app::open_database_folder,
             app::get_codex_session_status,
             app::get_task_latest_review,
             app::start_task_code_review,

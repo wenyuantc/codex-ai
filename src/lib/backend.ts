@@ -91,6 +91,10 @@ export async function restoreDatabase(sourcePath: string): Promise<DatabaseResto
   return invoke("restore_database", { sourcePath });
 }
 
+export async function openDatabaseFolder(): Promise<void> {
+  return invoke("open_database_folder");
+}
+
 export async function readImageFile(path: string): Promise<number[]> {
   return invoke("read_image_file", { path });
 }
