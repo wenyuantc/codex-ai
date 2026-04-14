@@ -104,10 +104,12 @@ export interface CodexHealthCheck {
   codex_version: string | null;
   node_available: boolean;
   node_version: string | null;
-  sdk_enabled: boolean;
+  task_sdk_enabled: boolean;
+  one_shot_sdk_enabled: boolean;
   sdk_installed: boolean;
   sdk_version: string | null;
   sdk_install_dir: string;
+  task_execution_effective_provider: string;
   one_shot_effective_provider: string;
   sdk_status_message: string;
   database_loaded: boolean;
@@ -123,7 +125,8 @@ export interface CodexRuntimeStatus {
 }
 
 export interface CodexSettings {
-  sdk_enabled: boolean;
+  task_sdk_enabled: boolean;
+  one_shot_sdk_enabled: boolean;
   node_path_override: string | null;
   sdk_install_dir: string;
   one_shot_preferred_provider: string;

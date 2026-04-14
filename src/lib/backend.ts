@@ -12,7 +12,8 @@ import type {
 } from "./types";
 
 export interface UpdateCodexSettingsInput {
-  sdk_enabled?: boolean;
+  task_sdk_enabled?: boolean;
+  one_shot_sdk_enabled?: boolean;
   node_path_override?: string | null;
 }
 

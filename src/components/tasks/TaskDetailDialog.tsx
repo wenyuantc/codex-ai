@@ -171,6 +171,7 @@ export function TaskDetailDialog({
       await stopCodex(assigneeId);
       setCodexRunning(assigneeId, false, null);
       await updateEmployeeStatus(assigneeId, "offline");
+      await refreshCodexRuntimeStatus(assigneeId);
     } catch (err) {
       console.error("Failed to stop codex:", err);
       addCodexOutput(assigneeId, `[ERROR] ${String(err)}`, task.id);

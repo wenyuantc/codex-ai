@@ -146,6 +146,7 @@ export function TaskCard({ task, isOverlay, onOpenLog }: TaskCardProps) {
       await stopCodex(task.assignee_id);
       setCodexRunning(task.assignee_id, false, null);
       await updateEmployeeStatus(task.assignee_id, "offline");
+      await refreshCodexRuntimeStatus(task.assignee_id);
     } catch (err) {
       console.error("Failed to stop codex:", err);
     } finally {

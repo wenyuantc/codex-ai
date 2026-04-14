@@ -16,8 +16,8 @@ use crate::app::{
     sqlite_pool, update_codex_session_record, validate_runtime_working_dir,
 };
 use crate::codex::{
-    inspect_sdk_runtime, load_codex_settings, new_codex_command, new_node_command,
-    sdk_bridge_script_path, CodexManager,
+    ensure_sdk_runtime_layout, inspect_sdk_runtime, load_codex_settings, new_codex_command,
+    new_node_command, sdk_bridge_script_path, CodexManager,
 };
 use crate::db::models::{CodexExit, CodexOutput, CodexSession};
 
@@ -35,6 +35,21 @@ struct SdkBridgeResponse {
     ok: bool,
     text: Option<String>,
     error: Option<String>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum CodexExecutionProvider {
+    Cli,
+    Sdk,
+}
+
+impl CodexExecutionProvider {
+    fn label(self) -> &'static str {
+        match self {
+            CodexExecutionProvider::Cli => "CLI",
+            CodexExecutionProvider::Sdk => "SDK",
+        }
+    }
 }
 
 fn normalize_model(model: Option<&str>) -> &'static str {
@@ -91,6 +106,27 @@ fn compose_codex_prompt(task_description: &str, system_prompt: Option<&str>) -> 
         ),
         None => task_description.to_string(),
     }
+}
+
+fn format_session_prompt_log(
+    provider: CodexExecutionProvider,
+    model: &str,
+    reasoning_effort: &str,
+    working_dir: &str,
+    prompt: &str,
+) -> String {
+    format!(
+        "[PROMPT] 即将发送给 Codex 的完整提示词\n\
+运行通道: {}\n\
+模型: {}\n\
+推理强度: {}\n\
+工作目录: {}\n\n{}",
+        provider.label(),
+        model,
+        reasoning_effort,
+        working_dir,
+        prompt
+    )
 }
 
 async fn record_failed_session(
@@ -245,14 +281,73 @@ pub async fn start_codex(
         &pool,
         &session_record.id,
         "session_requested",
-        Some("Codex 会话创建成功，准备启动 CLI"),
+        Some("Codex 会话创建成功，准备启动运行时"),
     )
     .await?;
 
-    let mut cmd = match new_codex_command().await {
+    let model = normalize_model(model.as_deref());
+    let reasoning_effort = normalize_reasoning_effort(reasoning_effort.as_deref());
+    let prompt = compose_codex_prompt(&task_description, system_prompt.as_deref());
+    let mut provider = CodexExecutionProvider::Cli;
+    let mut session_lookup_started_at = None;
+
+    let command_result: Result<tokio::process::Command, String> =
+        if should_use_sdk_for_session(&app).await {
+            match load_codex_settings(&app) {
+                Ok(settings) => {
+                    let install_dir = PathBuf::from(&settings.sdk_install_dir);
+                    if let Err(error) = ensure_sdk_runtime_layout(&install_dir) {
+                        eprintln!("[codex-sdk] 刷新 SDK bridge 失败，回退 CLI: {error}");
+                        let command = new_codex_command()
+                            .await
+                            .map_err(|cli_error| format!("Failed to spawn codex: {cli_error}"))?;
+                        session_lookup_started_at = Some(SystemTime::now());
+                        Ok(command)
+                    } else {
+                        let bridge_path =
+                            sdk_bridge_script_path(Path::new(&settings.sdk_install_dir));
+                        match new_node_command(settings.node_path_override.as_deref()).await {
+                            Ok(mut command) => {
+                                provider = CodexExecutionProvider::Sdk;
+                                command
+                                    .arg(&bridge_path)
+                                    .current_dir(&run_cwd)
+                                    .stdin(std::process::Stdio::piped())
+                                    .stdout(std::process::Stdio::piped())
+                                    .stderr(std::process::Stdio::piped());
+                                Ok(command)
+                            }
+                            Err(error) => {
+                                eprintln!("[codex-sdk] SDK 任务启动失败，回退 CLI: {error}");
+                                let command = new_codex_command().await.map_err(|cli_error| {
+                                    format!("Failed to spawn codex: {cli_error}")
+                                })?;
+                                session_lookup_started_at = Some(SystemTime::now());
+                                Ok(command)
+                            }
+                        }
+                    }
+                }
+                Err(error) => {
+                    eprintln!("[codex-sdk] 读取配置失败，回退 CLI: {error}");
+                    let command = new_codex_command()
+                        .await
+                        .map_err(|cli_error| format!("Failed to spawn codex: {cli_error}"))?;
+                    session_lookup_started_at = Some(SystemTime::now());
+                    Ok(command)
+                }
+            }
+        } else {
+            let command = new_codex_command()
+                .await
+                .map_err(|error| format!("Failed to spawn codex: {error}"))?;
+            session_lookup_started_at = Some(SystemTime::now());
+            Ok(command)
+        };
+
+    let mut cmd = match command_result {
         Ok(command) => command,
         Err(error) => {
-            let message = format!("Failed to spawn codex: {}", error);
             let ended_at = now_sqlite();
             update_codex_session_record(
                 &app,
@@ -263,34 +358,41 @@ pub async fn start_codex(
                 Some(Some(ended_at.as_str())),
             )
             .await?;
-            insert_codex_session_event(&pool, &session_record.id, "spawn_failed", Some(&message))
+            insert_codex_session_event(&pool, &session_record.id, "spawn_failed", Some(&error))
                 .await?;
-            return Err(message);
+            return Err(error);
         }
     };
-    let model = normalize_model(model.as_deref());
-    let reasoning_effort = normalize_reasoning_effort(reasoning_effort.as_deref());
-    let prompt = compose_codex_prompt(&task_description, system_prompt.as_deref());
-    cmd.arg("exec");
-    cmd.arg("--model").arg(model);
-    cmd.arg("-c")
-        .arg(format!("model_reasoning_effort=\"{}\"", reasoning_effort));
-    cmd.arg("-C").arg(&run_cwd);
-    if let Some(ref session_id) = resume_session_id {
-        cmd.arg("resume").arg(session_id).arg(&prompt);
-    } else {
-        cmd.arg(&prompt);
-    }
-    cmd.stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped());
 
-    let session_lookup_started_at = SystemTime::now();
+    if provider == CodexExecutionProvider::Cli {
+        cmd.arg("exec");
+        cmd.arg("--model").arg(model);
+        cmd.arg("-c")
+            .arg(format!("model_reasoning_effort=\"{}\"", reasoning_effort));
+        cmd.arg("-C").arg(&run_cwd);
+        if let Some(ref session_id) = resume_session_id {
+            cmd.arg("resume").arg(session_id).arg(&prompt);
+        } else {
+            cmd.arg(&prompt);
+        }
+        cmd.stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped());
+    }
+
+    let _ = app.emit(
+        "codex-stdout",
+        CodexOutput {
+            employee_id: employee_id.clone(),
+            task_id: task_id.clone(),
+            line: format_session_prompt_log(provider, model, reasoning_effort, &run_cwd, &prompt),
+        },
+    );
 
     let mut child = match cmd.spawn() {
         Ok(child) => child,
         Err(error) => {
-            let message = format!("Failed to spawn codex: {}", error);
+            let message = format!("Failed to spawn codex {}: {}", provider.label(), error);
             let ended_at = now_sqlite();
             update_codex_session_record(
                 &app,
@@ -306,6 +408,24 @@ pub async fn start_codex(
             return Err(message);
         }
     };
+
+    if provider == CodexExecutionProvider::Sdk {
+        let payload = serde_json::to_vec(&serde_json::json!({
+            "mode": "session",
+            "prompt": prompt.clone(),
+            "model": model,
+            "workingDirectory": run_cwd.clone(),
+            "resumeSessionId": resume_session_id.clone(),
+        }))
+        .map_err(|error| format!("Failed to serialize Codex SDK session payload: {}", error))?;
+
+        if let Some(mut stdin) = child.stdin.take() {
+            stdin
+                .write_all(&payload)
+                .await
+                .map_err(|error| format!("Failed to write Codex SDK session payload: {}", error))?;
+        }
+    }
 
     let stdout = child.stdout.take().ok_or("Failed to capture stdout")?;
     let stderr = child.stderr.take().ok_or("Failed to capture stderr")?;
@@ -327,8 +447,10 @@ pub async fn start_codex(
         &session_record.id,
         "session_started",
         Some(&format!(
-            "使用模型 {} / 推理强度 {}",
-            model, reasoning_effort
+            "通过 {} 启动，使用模型 {} / 推理强度 {}",
+            provider.label(),
+            model,
+            reasoning_effort
         )),
     )
     .await?;
@@ -345,13 +467,15 @@ pub async fn start_codex(
             session_id,
         )
         .await;
-    } else {
+    } else if provider == CodexExecutionProvider::Cli {
         let app_clone = app.clone();
         let eid = employee_id.clone();
         let task_id_clone = task_id.clone();
         let run_cwd_clone = run_cwd.clone();
         let session_emitted_clone = session_emitted.clone();
         let session_record_id = session_record.id.clone();
+        let session_lookup_started_at =
+            session_lookup_started_at.expect("cli session lookup start time");
         tauri::async_runtime::spawn(async move {
             if let Some(session_id) =
                 wait_for_exec_session_id(&run_cwd_clone, session_lookup_started_at).await
@@ -468,6 +592,8 @@ pub async fn start_codex(
     let session_emitted_clone = session_emitted.clone();
     let session_record_id = session_record.id.clone();
     let child_handle_clone = child_handle.clone();
+    let provider_for_exit = provider;
+    let session_lookup_started_at = session_lookup_started_at;
     tauri::async_runtime::spawn(async move {
         let exit_code = loop {
             let maybe_status = {
@@ -521,10 +647,13 @@ pub async fn start_codex(
             manager.remove_process(&eid);
         }
 
-        if !session_emitted_clone.load(Ordering::Relaxed) {
-            if let Some(session_id) =
-                find_latest_exec_session_id(&run_cwd_clone, session_lookup_started_at)
-            {
+        if provider_for_exit == CodexExecutionProvider::Cli
+            && !session_emitted_clone.load(Ordering::Relaxed)
+        {
+            if let Some(session_id) = find_latest_exec_session_id(
+                &run_cwd_clone,
+                session_lookup_started_at.expect("cli session lookup start time"),
+            ) {
                 bind_cli_session_id(
                     &app_clone,
                     &eid,
@@ -689,7 +818,9 @@ pub async fn stop_codex(
         .await?;
 
         let mut child = process.child.lock().await;
-        child.start_kill()
+        child.start_kill()?;
+        drop(child);
+        wait_until_process_stops(&state, &employee_id).await
     } else {
         Err(format!(
             "No running codex instance for employee {}",
@@ -843,6 +974,7 @@ fn parse_sdk_bridge_output(stdout: &[u8], stderr: &[u8]) -> Result<String, Strin
 async fn run_ai_command_via_sdk(app: &AppHandle, prompt: &str) -> Result<String, String> {
     let settings = load_codex_settings(app)?;
     let install_dir = PathBuf::from(&settings.sdk_install_dir);
+    ensure_sdk_runtime_layout(&install_dir)?;
     let bridge_path = sdk_bridge_script_path(&install_dir);
     if !bridge_path.exists() {
         return Err("Codex SDK bridge 脚本不存在，请在设置中重新安装 SDK".to_string());
@@ -879,9 +1011,9 @@ async fn run_ai_command(app: &AppHandle, prompt: String) -> Result<String, Strin
     let mut sdk_error = None;
 
     if let Ok(settings) = load_codex_settings(app) {
-        if settings.sdk_enabled {
+        if settings.one_shot_sdk_enabled {
             let runtime = inspect_sdk_runtime(app, &settings).await;
-            if runtime.effective_provider == "sdk" {
+            if runtime.one_shot_effective_provider == "sdk" {
                 match run_ai_command_via_sdk(app, &prompt).await {
                     Ok(result) => return Ok(result),
                     Err(error) => {
@@ -903,6 +1035,16 @@ async fn run_ai_command(app: &AppHandle, prompt: String) -> Result<String, Strin
             )),
             None => Err(exec_error),
         },
+    }
+}
+
+async fn should_use_sdk_for_session(app: &AppHandle) -> bool {
+    match load_codex_settings(app) {
+        Ok(settings) if settings.task_sdk_enabled => {
+            let runtime = inspect_sdk_runtime(app, &settings).await;
+            runtime.task_execution_effective_provider == "sdk"
+        }
+        _ => false,
     }
 }
 
@@ -998,7 +1140,8 @@ fn parse_ai_subtasks_response(raw: &str) -> Result<Vec<String>, String> {
 mod tests {
     use super::{
         build_one_shot_exec_args, compose_codex_prompt, extract_session_id_from_output,
-        parse_ai_subtasks_response, parse_sdk_bridge_output,
+        format_session_prompt_log, parse_ai_subtasks_response, parse_sdk_bridge_output,
+        CodexExecutionProvider,
     };
 
     #[test]
@@ -1084,6 +1227,24 @@ mod tests {
             .expect("parse sdk bridge success");
 
         assert_eq!(output, "sdk output");
+    }
+
+    #[test]
+    fn formats_prompt_log_with_runtime_context() {
+        let log = format_session_prompt_log(
+            CodexExecutionProvider::Sdk,
+            "gpt-5.4",
+            "high",
+            "/tmp/demo",
+            "任务标题:\n修复问题",
+        );
+
+        assert!(log.contains("[PROMPT]"));
+        assert!(log.contains("运行通道: SDK"));
+        assert!(log.contains("模型: gpt-5.4"));
+        assert!(log.contains("推理强度: high"));
+        assert!(log.contains("工作目录: /tmp/demo"));
+        assert!(log.contains("任务标题:\n修复问题"));
     }
 }
 

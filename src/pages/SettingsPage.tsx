@@ -34,7 +34,8 @@ export function SettingsPage() {
   const [themeMode, setThemeMode] = useState<ThemeMode>(getThemePreference);
   const [codexHealth, setCodexHealth] = useState<CodexHealthCheck | null>(null);
   const [codexSettings, setCodexSettings] = useState<CodexSettings | null>(null);
-  const [sdkEnabled, setSdkEnabled] = useState(false);
+  const [taskSdkEnabled, setTaskSdkEnabled] = useState(false);
+  const [oneShotSdkEnabled, setOneShotSdkEnabled] = useState(false);
   const [nodePathOverride, setNodePathOverride] = useState("");
   const [healthLoading, setHealthLoading] = useState(false);
   const [sdkActionLoading, setSdkActionLoading] = useState<"save" | "install" | null>(null);
@@ -49,7 +50,8 @@ export function SettingsPage() {
       const [health, settings] = await Promise.all([healthCheck(), getCodexSettings()]);
       setCodexHealth(health);
       setCodexSettings(settings);
-      setSdkEnabled(settings.sdk_enabled);
+      setTaskSdkEnabled(settings.task_sdk_enabled);
+      setOneShotSdkEnabled(settings.one_shot_sdk_enabled);
       setNodePathOverride(settings.node_path_override ?? "");
     } catch (error) {
       console.error("Failed to load codex settings state:", error);
@@ -76,7 +78,9 @@ export function SettingsPage() {
     { value: "system", label: "跟随系统", icon: Monitor },
   ];
 
-  const effectiveProviderLabel =
+  const taskProviderLabel =
+    codexHealth?.task_execution_effective_provider === "sdk" ? "SDK" : "exec（自动回退）";
+  const oneShotProviderLabel =
     codexHealth?.one_shot_effective_provider === "sdk" ? "SDK" : "exec（自动回退）";
   const installButtonLabel = codexHealth?.sdk_installed ? "重装 SDK" : "安装 SDK";
 
@@ -87,7 +91,8 @@ export function SettingsPage() {
 
     try {
       const nextSettings = await updateCodexSettings({
-        sdk_enabled: sdkEnabled,
+        task_sdk_enabled: taskSdkEnabled,
+        one_shot_sdk_enabled: oneShotSdkEnabled,
         node_path_override: nodePathOverride.trim() || null,
       });
       setCodexSettings(nextSettings);
@@ -153,7 +158,7 @@ export function SettingsPage() {
             <div>
               <h3 className="text-sm font-medium">Codex CLI</h3>
               <p className="text-xs text-muted-foreground">
-                持续会话与终端交互继续使用 `codex exec`
+                作为回退通道保留，用于 SDK 不可用时继续执行任务
               </p>
               {codexHealth?.codex_version && (
                 <p className="mt-1 text-xs text-muted-foreground">
@@ -183,17 +188,20 @@ export function SettingsPage() {
             <div className="space-y-1">
               <h3 className="text-sm font-medium">Codex SDK</h3>
               <p className="text-xs text-muted-foreground">
-                一次性 AI 功能优先走 SDK，失败时自动回退到 `codex exec`
+                任务运行与一次性 AI 优先走 SDK，失败时自动回退到 `codex exec`
               </p>
             </div>
             <span
               className={`rounded px-2 py-1 text-xs ${
+                codexHealth?.task_execution_effective_provider === "sdk" ||
                 codexHealth?.one_shot_effective_provider === "sdk"
                   ? "bg-green-100 text-green-700"
                   : "bg-slate-100 text-slate-700"
               }`}
             >
-              {healthLoading ? "检测中" : effectiveProviderLabel}
+              {healthLoading
+                ? "检测中"
+                : `任务 ${taskProviderLabel} / AI ${oneShotProviderLabel}`}
             </span>
           </div>
 
@@ -202,14 +210,30 @@ export function SettingsPage() {
               <input
                 type="checkbox"
                 className="mt-0.5 h-4 w-4 rounded border-input"
-                checked={sdkEnabled}
-                onChange={(event) => setSdkEnabled(event.target.checked)}
+                checked={taskSdkEnabled}
+                onChange={(event) => setTaskSdkEnabled(event.target.checked)}
                 disabled={healthLoading || sdkActionLoading !== null}
               />
               <div className="space-y-1">
-                <p className="text-sm font-medium">启用 SDK 处理一次性 AI</p>
+                <p className="text-sm font-medium">运行任务时使用 SDK</p>
                 <p className="text-xs text-muted-foreground">
-                  影响任务详情中的 AI 分析、评论和子任务拆分，不影响持续会话。
+                  影响看板任务运行、员工启动任务，以及相关重启/恢复链路。
+                </p>
+              </div>
+            </label>
+
+            <label className="flex items-start gap-3 rounded-md border border-border px-3 py-2">
+              <input
+                type="checkbox"
+                className="mt-0.5 h-4 w-4 rounded border-input"
+                checked={oneShotSdkEnabled}
+                onChange={(event) => setOneShotSdkEnabled(event.target.checked)}
+                disabled={healthLoading || sdkActionLoading !== null}
+              />
+              <div className="space-y-1">
+                <p className="text-sm font-medium">一次性 AI 使用 SDK</p>
+                <p className="text-xs text-muted-foreground">
+                  影响任务详情中的 AI 分析、评论生成和子任务拆分。
                 </p>
               </div>
             </label>
@@ -240,7 +264,8 @@ export function SettingsPage() {
                 SDK：{codexHealth?.sdk_installed ? "已安装" : "未安装"}
                 {codexHealth?.sdk_version ? `（${codexHealth.sdk_version}）` : ""}
               </p>
-              <p>One-shot 引擎：{effectiveProviderLabel}</p>
+              <p>任务运行引擎：{taskProviderLabel}</p>
+              <p>一次性 AI 引擎：{oneShotProviderLabel}</p>
               {codexHealth?.sdk_status_message && (
                 <p className="text-[11px] leading-5">{codexHealth.sdk_status_message}</p>
               )}
