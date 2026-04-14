@@ -21,7 +21,14 @@
       }
     ],
     "security": {
-      "csp": null
+      "csp": null,
+      "assetProtocol": {
+        "enable": true,
+        "scope": [
+          "$APPDATA/task-attachments/**",
+          "$APPCONFIG/task-attachments/**"
+        ]
+      }
     },
     "trayIcon": {
       "iconPath": "icons/icon.png",

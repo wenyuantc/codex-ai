@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::fs;
 use std::io::{BufRead, BufReader as StdBufReader};
 use std::path::{Path, PathBuf};
@@ -114,19 +115,81 @@ fn format_session_prompt_log(
     reasoning_effort: &str,
     working_dir: &str,
     prompt: &str,
+    image_paths: &[String],
 ) -> String {
+    let image_block = if image_paths.is_empty() {
+        "附带图片: 0 张".to_string()
+    } else {
+        let lines = image_paths
+            .iter()
+            .enumerate()
+            .map(|(index, path)| {
+                let label = Path::new(path)
+                    .file_name()
+                    .map(|value| value.to_string_lossy().to_string())
+                    .unwrap_or_else(|| path.clone());
+                format!("{}. {}", index + 1, label)
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        format!("附带图片: {} 张\n{}", image_paths.len(), lines)
+    };
+
     format!(
         "[PROMPT] 即将发送给 Codex 的完整提示词\n\
 运行通道: {}\n\
 模型: {}\n\
 推理强度: {}\n\
-工作目录: {}\n\n{}",
+工作目录: {}\n\
+{}\n\n{}",
         provider.label(),
         model,
         reasoning_effort,
         working_dir,
+        image_block,
         prompt
     )
+}
+
+fn collect_available_image_paths(image_paths: Option<Vec<String>>) -> (Vec<String>, Vec<String>) {
+    let mut seen = HashSet::new();
+    let mut available = Vec::new();
+    let mut missing = Vec::new();
+
+    for raw in image_paths.unwrap_or_default() {
+        let trimmed = raw.trim();
+        if trimmed.is_empty() || !seen.insert(trimmed.to_string()) {
+            continue;
+        }
+
+        let path = Path::new(trimmed);
+        if path.is_file() {
+            match path.canonicalize() {
+                Ok(canonical) => available.push(canonical.to_string_lossy().to_string()),
+                Err(_) => available.push(trimmed.to_string()),
+            }
+        } else {
+            missing.push(trimmed.to_string());
+        }
+    }
+
+    (available, missing)
+}
+
+fn build_sdk_input_items(prompt: &str, image_paths: &[String]) -> Vec<serde_json::Value> {
+    let mut items = vec![serde_json::json!({
+        "type": "text",
+        "text": prompt,
+    })];
+
+    for path in image_paths {
+        items.push(serde_json::json!({
+            "type": "local_image",
+            "path": path,
+        }));
+    }
+
+    items
 }
 
 async fn record_failed_session(
@@ -242,6 +305,7 @@ pub async fn start_codex(
     working_dir: Option<String>,
     task_id: Option<String>,
     resume_session_id: Option<String>,
+    image_paths: Option<Vec<String>>,
 ) -> Result<(), String> {
     // Check if already running
     {
@@ -288,6 +352,7 @@ pub async fn start_codex(
     let model = normalize_model(model.as_deref());
     let reasoning_effort = normalize_reasoning_effort(reasoning_effort.as_deref());
     let prompt = compose_codex_prompt(&task_description, system_prompt.as_deref());
+    let (image_paths, missing_image_paths) = collect_available_image_paths(image_paths);
     let mut provider = CodexExecutionProvider::Cli;
     let mut session_lookup_started_at = None;
 
@@ -371,8 +436,15 @@ pub async fn start_codex(
             .arg(format!("model_reasoning_effort=\"{}\"", reasoning_effort));
         cmd.arg("-C").arg(&run_cwd);
         if let Some(ref session_id) = resume_session_id {
-            cmd.arg("resume").arg(session_id).arg(&prompt);
+            cmd.arg("resume").arg(session_id);
+            for image_path in &image_paths {
+                cmd.arg("--image").arg(image_path);
+            }
+            cmd.arg(&prompt);
         } else {
+            for image_path in &image_paths {
+                cmd.arg("--image").arg(image_path);
+            }
             cmd.arg(&prompt);
         }
         cmd.stdin(std::process::Stdio::null())
@@ -380,12 +452,30 @@ pub async fn start_codex(
             .stderr(std::process::Stdio::piped());
     }
 
+    for missing_path in &missing_image_paths {
+        let _ = app.emit(
+            "codex-stdout",
+            CodexOutput {
+                employee_id: employee_id.clone(),
+                task_id: task_id.clone(),
+                line: format!("[WARN] 附件图片不存在，已跳过: {}", missing_path),
+            },
+        );
+    }
+
     let _ = app.emit(
         "codex-stdout",
         CodexOutput {
             employee_id: employee_id.clone(),
             task_id: task_id.clone(),
-            line: format_session_prompt_log(provider, model, reasoning_effort, &run_cwd, &prompt),
+            line: format_session_prompt_log(
+                provider,
+                model,
+                reasoning_effort,
+                &run_cwd,
+                &prompt,
+                &image_paths,
+            ),
         },
     );
 
@@ -413,6 +503,7 @@ pub async fn start_codex(
         let payload = serde_json::to_vec(&serde_json::json!({
             "mode": "session",
             "prompt": prompt.clone(),
+            "input": build_sdk_input_items(&prompt, &image_paths),
             "model": model,
             "workingDirectory": run_cwd.clone(),
             "resumeSessionId": resume_session_id.clone(),
@@ -447,10 +538,11 @@ pub async fn start_codex(
         &session_record.id,
         "session_started",
         Some(&format!(
-            "通过 {} 启动，使用模型 {} / 推理强度 {}",
+            "通过 {} 启动，使用模型 {} / 推理强度 {} / 图片 {} 张",
             provider.label(),
             model,
-            reasoning_effort
+            reasoning_effort,
+            image_paths.len()
         )),
     )
     .await?;
@@ -888,6 +980,7 @@ pub async fn restart_codex(
         working_dir,
         None,
         None,
+        None,
     )
     .await
 }
@@ -1288,6 +1381,10 @@ mod tests {
             "high",
             "/tmp/demo",
             "任务标题:\n修复问题",
+            &[
+                "/tmp/demo/ui.png".to_string(),
+                "/tmp/demo/flow.jpg".to_string(),
+            ],
         );
 
         assert!(log.contains("[PROMPT]"));
@@ -1295,6 +1392,8 @@ mod tests {
         assert!(log.contains("模型: gpt-5.4"));
         assert!(log.contains("推理强度: high"));
         assert!(log.contains("工作目录: /tmp/demo"));
+        assert!(log.contains("附带图片: 2 张"));
+        assert!(log.contains("1. ui.png"));
         assert!(log.contains("任务标题:\n修复问题"));
     }
 

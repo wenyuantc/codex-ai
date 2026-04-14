@@ -56,6 +56,18 @@ pub struct Task {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+pub struct TaskAttachment {
+    pub id: String,
+    pub task_id: String,
+    pub original_name: String,
+    pub stored_path: String,
+    pub mime_type: String,
+    pub file_size: i64,
+    pub sort_order: i32,
+    pub created_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct Subtask {
     pub id: String,
     pub task_id: String,
@@ -229,6 +241,7 @@ pub struct CreateTask {
     pub priority: Option<String>,
     pub project_id: String,
     pub assignee_id: Option<String>,
+    pub attachment_source_paths: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -295,7 +308,7 @@ pub struct CodexSession {
 
 #[cfg(test)]
 mod tests {
-    use super::{UpdateEmployee, UpdateProject, UpdateTask};
+    use super::{CreateTask, UpdateEmployee, UpdateProject, UpdateTask};
 
     #[test]
     fn project_update_keeps_explicit_nulls() {
@@ -328,5 +341,22 @@ mod tests {
         assert_eq!(payload.description, Some(None));
         assert_eq!(payload.assignee_id, Some(None));
         assert_eq!(payload.complexity, Some(Some(3)));
+    }
+
+    #[test]
+    fn create_task_accepts_attachment_source_paths() {
+        let payload: CreateTask = serde_json::from_str(
+            r#"{
+                "title":"带图任务",
+                "project_id":"proj-1",
+                "attachment_source_paths":["/tmp/a.png","/tmp/b.jpg"]
+            }"#,
+        )
+        .expect("deserialize create task");
+
+        assert_eq!(
+            payload.attachment_source_paths,
+            Some(vec!["/tmp/a.png".to_string(), "/tmp/b.jpg".to_string()])
+        );
     }
 }

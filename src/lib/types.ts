@@ -37,6 +37,17 @@ export interface Task {
   updated_at: string;
 }
 
+export interface TaskAttachment {
+  id: string;
+  task_id: string;
+  original_name: string;
+  stored_path: string;
+  mime_type: string;
+  file_size: number;
+  sort_order: number;
+  created_at: string;
+}
+
 export interface Subtask {
   id: string;
   task_id: string;

@@ -1,3 +1,4 @@
+use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::{Arc, Mutex};
@@ -5,6 +6,7 @@ use std::sync::{Arc, Mutex};
 use chrono::{Duration, NaiveDateTime, Utc};
 use sqlx::{QueryBuilder, Sqlite, SqlitePool};
 use tauri::{AppHandle, Manager, Runtime, State};
+use tauri_plugin_opener::OpenerExt;
 use tauri_plugin_sql::{DbInstances, DbPool};
 use uuid::Uuid;
 
@@ -12,7 +14,7 @@ use crate::codex::{inspect_sdk_runtime, load_codex_settings, new_codex_command, 
 use crate::db::models::{
     CodexHealthCheck, CodexRuntimeStatus, CodexSessionRecord, Comment, CreateComment,
     CreateEmployee, CreateProject, CreateSubtask, CreateTask, Employee, EmployeeMetric, Project,
-    Subtask, Task, UpdateEmployee, UpdateProject, UpdateTask,
+    Subtask, Task, TaskAttachment, UpdateEmployee, UpdateProject, UpdateTask,
 };
 
 pub const DB_URL: &str = "sqlite:codex-ai.db";
@@ -152,6 +154,205 @@ pub(crate) fn validate_runtime_working_dir(working_dir: Option<&str>) -> Result<
 
     ensure_git_repository(Path::new(&resolved))?;
     Ok(resolved)
+}
+
+fn task_attachments_root_dir<R: Runtime>(app: &AppHandle<R>) -> Result<PathBuf, String> {
+    app.path()
+        .app_data_dir()
+        .or_else(|_| app.path().app_config_dir())
+        .map(|dir| dir.join("task-attachments"))
+        .map_err(|error| format!("无法解析附件存储目录: {}", error))
+}
+
+fn task_attachment_dir<R: Runtime>(app: &AppHandle<R>, task_id: &str) -> Result<PathBuf, String> {
+    Ok(task_attachments_root_dir(app)?.join(task_id))
+}
+
+fn task_attachment_mime_type(path: &Path) -> Option<&'static str> {
+    let extension = path.extension()?.to_string_lossy().to_ascii_lowercase();
+    match extension.as_str() {
+        "png" => Some("image/png"),
+        "jpg" | "jpeg" => Some("image/jpeg"),
+        "gif" => Some("image/gif"),
+        "webp" => Some("image/webp"),
+        "bmp" => Some("image/bmp"),
+        "svg" => Some("image/svg+xml"),
+        _ => None,
+    }
+}
+
+fn validate_task_attachment_source_path(path: &str) -> Result<PathBuf, String> {
+    let trimmed = path.trim();
+    if trimmed.is_empty() {
+        return Err("附件路径不能为空".to_string());
+    }
+
+    let canonical = Path::new(trimmed)
+        .canonicalize()
+        .map_err(|error| format!("附件路径不存在或不可访问: {}", error))?;
+
+    if !canonical.is_file() {
+        return Err(format!("附件路径 {} 不是文件", canonical.display()));
+    }
+
+    if task_attachment_mime_type(&canonical).is_none() {
+        return Err(format!(
+            "附件 {} 不是支持的图片格式，仅支持 png/jpg/jpeg/gif/webp/bmp/svg",
+            canonical.display()
+        ));
+    }
+
+    Ok(canonical)
+}
+
+fn validate_managed_task_attachment_path<R: Runtime>(
+    app: &AppHandle<R>,
+    path: &str,
+) -> Result<PathBuf, String> {
+    let canonical = validate_task_attachment_source_path(path)?;
+    let root = task_attachments_root_dir(app)?;
+    let root = root
+        .canonicalize()
+        .unwrap_or(root);
+
+    if !canonical.starts_with(&root) {
+        return Err(format!(
+            "附件路径不在应用托管目录内: {}",
+            canonical.display()
+        ));
+    }
+
+    Ok(canonical)
+}
+
+fn cleanup_task_attachment_files(paths: &[String]) {
+    for path in paths {
+        let target = Path::new(path);
+        if target.exists() {
+            if let Err(error) = fs::remove_file(target) {
+                eprintln!(
+                    "[task-attachments] 清理附件文件失败: path={}, error={}",
+                    target.display(),
+                    error
+                );
+            }
+        }
+    }
+}
+
+fn cleanup_empty_attachment_dir<R: Runtime>(app: &AppHandle<R>, task_id: &str) {
+    let Ok(dir) = task_attachment_dir(app, task_id) else {
+        return;
+    };
+
+    let is_empty = fs::read_dir(&dir)
+        .ok()
+        .and_then(|mut entries| entries.next().transpose().ok())
+        .flatten()
+        .is_none();
+
+    if is_empty {
+        let _ = fs::remove_dir(&dir);
+    }
+}
+
+fn build_task_attachment_from_source<R: Runtime>(
+    app: &AppHandle<R>,
+    task_id: &str,
+    source_path: &str,
+    sort_order: i32,
+) -> Result<TaskAttachment, String> {
+    let source = validate_task_attachment_source_path(source_path)?;
+    let attachment_id = new_id();
+    let original_name = source
+        .file_name()
+        .map(|value| value.to_string_lossy().to_string())
+        .filter(|value| !value.trim().is_empty())
+        .ok_or_else(|| format!("无法解析附件文件名: {}", source.display()))?;
+    let mime_type = task_attachment_mime_type(&source)
+        .ok_or_else(|| format!("无法识别图片类型: {}", source.display()))?
+        .to_string();
+    let extension = source
+        .extension()
+        .map(|value| value.to_string_lossy().to_ascii_lowercase());
+    let target_dir = task_attachment_dir(app, task_id)?;
+    fs::create_dir_all(&target_dir).map_err(|error| format!("创建任务附件目录失败: {}", error))?;
+    let target_path = match extension {
+        Some(extension) if !extension.is_empty() => {
+            target_dir.join(format!("{attachment_id}.{extension}"))
+        }
+        _ => target_dir.join(&attachment_id),
+    };
+    fs::copy(&source, &target_path).map_err(|error| {
+        format!(
+            "复制附件失败: {} -> {}: {}",
+            source.display(),
+            target_path.display(),
+            error
+        )
+    })?;
+    let file_size = fs::metadata(&target_path)
+        .map_err(|error| format!("读取附件信息失败: {}", error))?
+        .len() as i64;
+
+    Ok(TaskAttachment {
+        id: attachment_id,
+        task_id: task_id.to_string(),
+        original_name,
+        stored_path: target_path.to_string_lossy().to_string(),
+        mime_type,
+        file_size,
+        sort_order,
+        created_at: now_sqlite(),
+    })
+}
+
+fn build_task_attachments_from_sources<R: Runtime>(
+    app: &AppHandle<R>,
+    task_id: &str,
+    source_paths: &[String],
+    start_sort_order: i32,
+) -> Result<Vec<TaskAttachment>, String> {
+    let mut attachments = Vec::new();
+
+    for (index, source_path) in source_paths.iter().enumerate() {
+        match build_task_attachment_from_source(
+            app,
+            task_id,
+            source_path,
+            start_sort_order + index as i32,
+        ) {
+            Ok(attachment) => attachments.push(attachment),
+            Err(error) => {
+                let copied_paths = attachments
+                    .iter()
+                    .map(|attachment| attachment.stored_path.clone())
+                    .collect::<Vec<_>>();
+                cleanup_task_attachment_files(&copied_paths);
+                cleanup_empty_attachment_dir(app, task_id);
+                return Err(error);
+            }
+        }
+    }
+
+    Ok(attachments)
+}
+
+#[tauri::command]
+pub async fn read_image_file(path: String) -> Result<Vec<u8>, String> {
+    let source = validate_task_attachment_source_path(&path)?;
+    fs::read(&source).map_err(|error| format!("读取图片文件失败: {}", error))
+}
+
+#[tauri::command]
+pub async fn open_task_attachment<R: Runtime>(
+    app: AppHandle<R>,
+    path: String,
+) -> Result<(), String> {
+    let source = validate_managed_task_attachment_path(&app, &path)?;
+    app.opener()
+        .open_path(source.to_string_lossy().to_string(), None::<&str>)
+        .map_err(|error| format!("打开附件失败: {}", error))
 }
 
 fn parse_sqlite_datetime(value: &str) -> Option<NaiveDateTime> {
@@ -346,6 +547,30 @@ async fn fetch_task_by_id(pool: &SqlitePool, id: &str) -> Result<Task, String> {
         .map_err(|error| format!("Task {} not found: {}", id, error))
 }
 
+async fn fetch_task_attachment_by_id(
+    pool: &SqlitePool,
+    id: &str,
+) -> Result<TaskAttachment, String> {
+    sqlx::query_as::<_, TaskAttachment>("SELECT * FROM task_attachments WHERE id = $1 LIMIT 1")
+        .bind(id)
+        .fetch_one(pool)
+        .await
+        .map_err(|error| format!("Task attachment {} not found: {}", id, error))
+}
+
+async fn fetch_task_attachments(
+    pool: &SqlitePool,
+    task_id: &str,
+) -> Result<Vec<TaskAttachment>, String> {
+    sqlx::query_as::<_, TaskAttachment>(
+        "SELECT * FROM task_attachments WHERE task_id = $1 ORDER BY sort_order, created_at",
+    )
+    .bind(task_id)
+    .fetch_all(pool)
+    .await
+    .map_err(|error| format!("Failed to fetch task attachments: {}", error))
+}
+
 async fn ensure_project_exists(pool: &SqlitePool, project_id: &str) -> Result<(), String> {
     sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM projects WHERE id = $1")
         .bind(project_id)
@@ -371,6 +596,47 @@ async fn validate_assignee_for_project(
     };
 
     fetch_employee_by_id(pool, assignee_id).await?;
+    Ok(())
+}
+
+async fn resolve_next_task_attachment_sort_order(
+    pool: &SqlitePool,
+    task_id: &str,
+) -> Result<i32, String> {
+    let next = sqlx::query_scalar::<_, Option<i64>>(
+        "SELECT COALESCE(MAX(sort_order), 0) + 1 FROM task_attachments WHERE task_id = $1",
+    )
+    .bind(task_id)
+    .fetch_optional(pool)
+    .await
+    .map_err(|error| format!("Failed to resolve attachment order: {}", error))?
+    .flatten()
+    .unwrap_or(1);
+
+    Ok(next as i32)
+}
+
+async fn insert_task_attachments(
+    tx: &mut sqlx::Transaction<'_, Sqlite>,
+    attachments: &[TaskAttachment],
+) -> Result<(), String> {
+    for attachment in attachments {
+        sqlx::query(
+            "INSERT INTO task_attachments (id, task_id, original_name, stored_path, mime_type, file_size, sort_order, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
+        )
+        .bind(&attachment.id)
+        .bind(&attachment.task_id)
+        .bind(&attachment.original_name)
+        .bind(&attachment.stored_path)
+        .bind(&attachment.mime_type)
+        .bind(attachment.file_size)
+        .bind(attachment.sort_order)
+        .bind(&attachment.created_at)
+        .execute(&mut **tx)
+        .await
+        .map_err(|error| format!("Failed to insert task attachment: {}", error))?;
+    }
+
     Ok(())
 }
 
@@ -901,6 +1167,11 @@ pub async fn create_task<R: Runtime>(
         return Err("任务标题不能为空".to_string());
     }
 
+    let mut tx = pool
+        .begin()
+        .await
+        .map_err(|error| format!("Failed to start task transaction: {}", error))?;
+
     sqlx::query(
         "INSERT INTO tasks (id, title, description, status, priority, project_id, assignee_id, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
     )
@@ -913,14 +1184,51 @@ pub async fn create_task<R: Runtime>(
     .bind(&task.assignee_id)
     .bind(&task.created_at)
     .bind(&task.updated_at)
-    .execute(&pool)
+    .execute(&mut *tx)
     .await
     .map_err(|error| format!("Failed to create task: {}", error))?;
+
+    let attachments = if let Some(source_paths) = payload.attachment_source_paths.as_ref() {
+        let attachments = build_task_attachments_from_sources(&app, &task.id, source_paths, 1)?;
+        if let Err(error) = insert_task_attachments(&mut tx, &attachments).await {
+            cleanup_task_attachment_files(
+                &attachments
+                    .iter()
+                    .map(|attachment| attachment.stored_path.clone())
+                    .collect::<Vec<_>>(),
+            );
+            cleanup_empty_attachment_dir(&app, &task.id);
+            tx.rollback().await.ok();
+            return Err(error);
+        }
+        attachments
+    } else {
+        Vec::new()
+    };
+
+    if let Err(error) = tx.commit().await {
+        cleanup_task_attachment_files(
+            &attachments
+                .iter()
+                .map(|attachment| attachment.stored_path.clone())
+                .collect::<Vec<_>>(),
+        );
+        cleanup_empty_attachment_dir(&app, &task.id);
+        return Err(format!("Failed to commit task create: {}", error));
+    }
 
     insert_activity_log(
         &pool,
         "task_created",
-        &task.title,
+        &format!(
+            "{}{}",
+            task.title,
+            if attachments.is_empty() {
+                "".to_string()
+            } else {
+                format!("（含 {} 张图片附件）", attachments.len())
+            }
+        ),
         None,
         Some(&task.id),
         Some(&task.project_id),
@@ -928,6 +1236,71 @@ pub async fn create_task<R: Runtime>(
     .await?;
 
     fetch_task_by_id(&pool, &task.id).await
+}
+
+#[tauri::command]
+pub async fn add_task_attachments<R: Runtime>(
+    app: AppHandle<R>,
+    task_id: String,
+    source_paths: Vec<String>,
+) -> Result<Vec<TaskAttachment>, String> {
+    let pool = sqlite_pool(&app).await?;
+    fetch_task_by_id(&pool, &task_id).await?;
+
+    if source_paths.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let start_sort_order = resolve_next_task_attachment_sort_order(&pool, &task_id).await?;
+    let attachments =
+        build_task_attachments_from_sources(&app, &task_id, &source_paths, start_sort_order)?;
+
+    let mut tx = pool
+        .begin()
+        .await
+        .map_err(|error| format!("Failed to start attachment transaction: {}", error))?;
+
+    if let Err(error) = insert_task_attachments(&mut tx, &attachments).await {
+        cleanup_task_attachment_files(
+            &attachments
+                .iter()
+                .map(|attachment| attachment.stored_path.clone())
+                .collect::<Vec<_>>(),
+        );
+        cleanup_empty_attachment_dir(&app, &task_id);
+        tx.rollback().await.ok();
+        return Err(error);
+    }
+
+    tx.commit()
+        .await
+        .map_err(|error| format!("Failed to commit attachment create: {}", error))?;
+
+    fetch_task_attachments(&pool, &task_id).await
+}
+
+#[tauri::command]
+pub async fn delete_task_attachment<R: Runtime>(
+    app: AppHandle<R>,
+    id: String,
+) -> Result<(), String> {
+    let pool = sqlite_pool(&app).await?;
+    let attachment = fetch_task_attachment_by_id(&pool, &id).await?;
+    let stored_path = Path::new(&attachment.stored_path);
+
+    if stored_path.exists() {
+        fs::remove_file(stored_path)
+            .map_err(|error| format!("删除附件文件失败: {}: {}", stored_path.display(), error))?;
+    }
+
+    sqlx::query("DELETE FROM task_attachments WHERE id = $1")
+        .bind(&id)
+        .execute(&pool)
+        .await
+        .map_err(|error| format!("Failed to delete task attachment: {}", error))?;
+
+    cleanup_empty_attachment_dir(&app, &attachment.task_id);
+    Ok(())
 }
 
 #[tauri::command]
@@ -1058,6 +1431,7 @@ pub async fn update_task_status<R: Runtime>(
 pub async fn delete_task<R: Runtime>(app: AppHandle<R>, id: String) -> Result<(), String> {
     let pool = sqlite_pool(&app).await?;
     let task = fetch_task_by_id(&pool, &id).await?;
+    let attachment_dir = task_attachment_dir(&app, &id).ok();
     let mut tx = pool
         .begin()
         .await
@@ -1077,6 +1451,16 @@ pub async fn delete_task<R: Runtime>(app: AppHandle<R>, id: String) -> Result<()
     tx.commit()
         .await
         .map_err(|error| format!("Failed to commit task delete: {}", error))?;
+
+    if let Some(attachment_dir) = attachment_dir.filter(|path| path.exists()) {
+        if let Err(error) = fs::remove_dir_all(&attachment_dir) {
+            eprintln!(
+                "[task-attachments] 删除任务附件目录失败: path={}, error={}",
+                attachment_dir.display(),
+                error
+            );
+        }
+    }
 
     insert_activity_log(
         &pool,

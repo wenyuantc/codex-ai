@@ -1,7 +1,11 @@
 import { useState } from "react";
+import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
+import { ImagePlus } from "lucide-react";
+
 import { useTaskStore } from "@/stores/taskStore";
 import { useProjectStore } from "@/stores/projectStore";
 import { useEmployeeStore } from "@/stores/employeeStore";
+import { IMAGE_FILE_FILTERS, dedupePaths, isTauriRuntime, normalizeDialogSelection } from "@/lib/taskAttachments";
 import { PRIORITIES } from "@/lib/types";
 import {
   Dialog,
@@ -18,6 +22,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { TaskAttachmentGrid } from "./TaskAttachmentGrid";
 
 const UNASSIGNED_VALUE = "__unassigned__";
 
@@ -42,6 +47,7 @@ export function CreateTaskDialog({
     projectId ?? ""
   );
   const [assigneeId, setAssigneeId] = useState("");
+  const [attachmentPaths, setAttachmentPaths] = useState<string[]>([]);
   const [createError, setCreateError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
@@ -53,9 +59,25 @@ export function CreateTaskDialog({
       setPriority("medium");
       setSelectedProjectId(projectId ?? "");
       setAssigneeId("");
+      setAttachmentPaths([]);
       setCreateError(null);
     }
     onOpenChange(isOpen);
+  };
+
+  const handleSelectAttachments = async () => {
+    const selected = await openFileDialog({
+      directory: false,
+      multiple: true,
+      filters: IMAGE_FILE_FILTERS,
+      title: "选择任务图片",
+    });
+
+    const nextPaths = dedupePaths([
+      ...attachmentPaths,
+      ...normalizeDialogSelection(selected),
+    ]);
+    setAttachmentPaths(nextPaths);
   };
 
   const handleCreate = async () => {
@@ -69,6 +91,7 @@ export function CreateTaskDialog({
         priority,
         project_id: selectedProjectId,
         assignee_id: assigneeId || undefined,
+        attachment_source_paths: attachmentPaths,
       }, {
         refreshProjectId: projectId,
       });
@@ -82,7 +105,7 @@ export function CreateTaskDialog({
 
   return (
     <Dialog open={open} onOpenChange={handleOpen}>
-      <DialogContent className="max-w-md">
+      <DialogContent className="max-w-2xl">
         <DialogHeader>
           <DialogTitle>新建任务</DialogTitle>
         </DialogHeader>
@@ -205,6 +228,46 @@ export function CreateTaskDialog({
                 ))}
               </SelectContent>
             </Select>
+          </div>
+
+          <div className="space-y-2">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <label className="text-xs font-medium text-muted-foreground">
+                  图片附件
+                </label>
+                <p className="text-[11px] text-muted-foreground">
+                  创建任务时会复制到应用托管目录，后续运行 Codex 会自动附带。
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => void handleSelectAttachments()}
+                disabled={!isTauriRuntime() || saving}
+                className="flex items-center gap-1 rounded-md border border-input px-2.5 py-1.5 text-xs hover:bg-accent disabled:opacity-50"
+                title={isTauriRuntime() ? "选择图片" : "仅桌面端支持上传图片"}
+              >
+                <ImagePlus className="h-3.5 w-3.5" />
+                添加图片
+              </button>
+            </div>
+
+            {!isTauriRuntime() && (
+              <div className="rounded-md border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+                当前环境不支持任务图片上传，请在桌面端使用该功能。
+              </div>
+            )}
+
+            <TaskAttachmentGrid
+              items={attachmentPaths.map((path) => ({
+                id: path,
+                name: path.split(/[\\/]/).pop() ?? path,
+                path,
+                removable: true,
+                onRemove: () => setAttachmentPaths((current) => current.filter((item) => item !== path)),
+              }))}
+              emptyText="还没有添加图片"
+            />
           </div>
 
           {createError && (

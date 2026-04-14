@@ -181,8 +181,21 @@ function emitItemUpdate(item, state) {
   }
 }
 
-async function runSession(thread, prompt) {
-  const stream = await thread.runStreamed(prompt);
+function normalizeInput(payload) {
+  if (Array.isArray(payload.input) && payload.input.length > 0) {
+    return payload.input;
+  }
+
+  const prompt = String(payload.prompt ?? "").trim();
+  if (!prompt) {
+    throw new Error("prompt or input is required");
+  }
+
+  return prompt;
+}
+
+async function runSession(thread, input) {
+  const stream = await thread.runStreamed(input);
   const state = {
     commandOutputs: new Map(),
     agentMessages: new Map(),
@@ -232,10 +245,7 @@ async function main() {
   try {
     const payload = await readInput();
     mode = payload.mode === "session" ? "session" : "one_shot";
-    const prompt = String(payload.prompt ?? "").trim();
-    if (!prompt) {
-      throw new Error("prompt is required");
-    }
+    const input = normalizeInput(payload);
 
     const codex = new Codex();
     const threadOptions = {};
@@ -256,11 +266,11 @@ async function main() {
         : codex.startThread(threadOptions);
 
     if (mode === "session") {
-      await runSession(thread, prompt);
+      await runSession(thread, input);
       return;
     }
 
-    const result = await thread.run(prompt);
+    const result = await thread.run(input);
     const text = extractText(result).trim();
     stdout.write(
       JSON.stringify({

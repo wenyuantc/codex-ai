@@ -1,4 +1,4 @@
-import type { Subtask } from "@/lib/types";
+import type { Subtask, TaskAttachment } from "@/lib/types";
 
 const SUBTASK_STATUS_LABELS: Record<string, string> = {
   todo: "待办",
@@ -12,18 +12,26 @@ interface BuildTaskExecutionPromptOptions {
   title: string;
   description?: string | null;
   subtasks?: Subtask[];
+  attachments?: TaskAttachment[];
   followUpPrompt?: string;
 }
 
-export function buildTaskExecutionPrompt({
+export interface TaskExecutionInput {
+  prompt: string;
+  imagePaths: string[];
+}
+
+export function buildTaskExecutionInput({
   title,
   description,
   subtasks = [],
+  attachments = [],
   followUpPrompt,
-}: BuildTaskExecutionPromptOptions): string {
+}: BuildTaskExecutionPromptOptions): TaskExecutionInput {
   const sections = [`任务标题:\n${title.trim()}`];
   const trimmedDescription = description?.trim();
   const trimmedFollowUpPrompt = followUpPrompt?.trim();
+  const validAttachments = attachments.filter((attachment) => attachment.stored_path.trim().length > 0);
 
   if (trimmedDescription) {
     sections.push(`任务描述:\n${trimmedDescription}`);
@@ -37,9 +45,23 @@ export function buildTaskExecutionPrompt({
     sections.push(`子任务:\n${subtaskLines.join("\n")}`);
   }
 
+  if (validAttachments.length > 0) {
+    const attachmentLines = validAttachments.map((attachment, index) => (
+      `${index + 1}. ${attachment.original_name}`
+    ));
+    sections.push(`任务图片:\n${attachmentLines.join("\n")}\n\n说明：以上图片文件已随本次任务一并附带。`);
+  }
+
   if (trimmedFollowUpPrompt) {
     sections.push(`本次补充指令:\n${trimmedFollowUpPrompt}`);
   }
 
-  return sections.join("\n\n");
+  return {
+    prompt: sections.join("\n\n"),
+    imagePaths: validAttachments.map((attachment) => attachment.stored_path),
+  };
+}
+
+export function buildTaskExecutionPrompt(options: BuildTaskExecutionPromptOptions): string {
+  return buildTaskExecutionInput(options).prompt;
 }

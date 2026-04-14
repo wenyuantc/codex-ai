@@ -9,6 +9,7 @@ import type {
   Project,
   Subtask,
   Task,
+  TaskAttachment,
 } from "./types";
 
 export interface UpdateCodexSettingsInput {
@@ -57,6 +58,7 @@ export interface CreateTaskInput {
   priority?: string;
   project_id: string;
   assignee_id?: string | null;
+  attachment_source_paths?: string[];
 }
 
 export interface UpdateTaskInput {
@@ -72,6 +74,14 @@ export interface UpdateTaskInput {
 
 export async function healthCheck(): Promise<CodexHealthCheck> {
   return invoke("health_check");
+}
+
+export async function readImageFile(path: string): Promise<number[]> {
+  return invoke("read_image_file", { path });
+}
+
+export async function openTaskAttachment(path: string): Promise<void> {
+  return invoke("open_task_attachment", { path });
 }
 
 export async function getCodexSessionStatus(employeeId: string): Promise<CodexRuntimeStatus> {
@@ -122,6 +132,14 @@ export async function updateEmployeeStatus(id: string, status: string): Promise<
 
 export async function createTask(input: CreateTaskInput): Promise<Task> {
   return invoke("create_task", { payload: input });
+}
+
+export async function addTaskAttachments(taskId: string, sourcePaths: string[]): Promise<TaskAttachment[]> {
+  return invoke("add_task_attachments", { taskId, sourcePaths });
+}
+
+export async function deleteTaskAttachment(id: string): Promise<void> {
+  return invoke("delete_task_attachment", { id });
 }
 
 export async function updateTask(id: string, updates: UpdateTaskInput): Promise<Task> {

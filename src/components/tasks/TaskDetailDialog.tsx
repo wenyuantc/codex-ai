@@ -1,6 +1,9 @@
 import { useState, useEffect, useRef } from "react";
+import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
+
 import type { Task, TaskStatus } from "@/lib/types";
 import { TASK_STATUSES, PRIORITIES } from "@/lib/types";
+import { openTaskAttachment } from "@/lib/backend";
 import { useTaskStore } from "@/stores/taskStore";
 import { useEmployeeStore } from "@/stores/employeeStore";
 import { useProjectStore } from "@/stores/projectStore";
@@ -13,7 +16,13 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { buildTaskExecutionPrompt } from "@/lib/taskPrompt";
+import { buildTaskExecutionInput } from "@/lib/taskPrompt";
+import {
+  IMAGE_FILE_FILTERS,
+  dedupePaths,
+  isTauriRuntime,
+  normalizeDialogSelection,
+} from "@/lib/taskAttachments";
 import {
   Select,
   SelectContent,
@@ -23,7 +32,7 @@ import {
 } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Trash2, Sparkles, Loader2, Play, Square, Eraser } from "lucide-react";
+import { Trash2, Sparkles, Loader2, Play, Square, Eraser, ImagePlus } from "lucide-react";
 import {
   aiSuggestAssignee,
   aiAnalyzeComplexity,
@@ -37,8 +46,11 @@ import { SubtaskList } from "./SubtaskList";
 import { CommentList } from "./CommentList";
 import { DeleteTaskDialog } from "./DeleteTaskDialog";
 import { InsertPlanConfirmDialog } from "./InsertPlanConfirmDialog";
+import { TaskAttachmentGrid } from "./TaskAttachmentGrid";
+import { ErrorBoundary } from "@/components/ErrorBoundary";
 
 const UNASSIGNED_VALUE = "__unassigned__";
+const EMPTY_ATTACHMENTS: never[] = [];
 type PlanInsertMode = "append" | "replace";
 
 interface TaskDetailDialogProps {
@@ -52,7 +64,17 @@ export function TaskDetailDialog({
   open,
   onOpenChange,
 }: TaskDetailDialogProps) {
-  const { updateTask, deleteTask, addComment, updateTaskStatus, fetchSubtasks, addSubtasks } = useTaskStore();
+  const {
+    updateTask,
+    deleteTask,
+    addComment,
+    updateTaskStatus,
+    fetchAttachments,
+    fetchSubtasks,
+    addTaskAttachments,
+    deleteTaskAttachment,
+    addSubtasks,
+  } = useTaskStore();
   const {
     employees,
     fetchEmployees,
@@ -66,6 +88,8 @@ export function TaskDetailDialog({
     taskLogs,
   } = useEmployeeStore();
   const projects = useProjectStore((s) => s.projects);
+  const attachmentMap = useTaskStore((state) => state.attachments);
+  const attachments = attachmentMap[task.id] ?? EMPTY_ATTACHMENTS;
   const projectRepoPath = projects.find((p) => p.id === task.project_id)?.repo_path;
   const [title, setTitle] = useState(task.title);
   const [description, setDescription] = useState(task.description ?? "");
@@ -83,6 +107,9 @@ export function TaskDetailDialog({
   const [codexLoading, setCodexLoading] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [deletingTask, setDeletingTask] = useState(false);
+  const [attachmentLoading, setAttachmentLoading] = useState(false);
+  const [attachmentError, setAttachmentError] = useState<string | null>(null);
+  const [deletingAttachmentId, setDeletingAttachmentId] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
   const terminalRef = useRef<HTMLDivElement>(null);
   const assignee = assigneeId ? employees.find((employee) => employee.id === assigneeId) : undefined;
@@ -94,15 +121,17 @@ export function TaskDetailDialog({
   useEffect(() => {
     if (open) {
       fetchEmployees();
+      void fetchAttachments(task.id);
       setTitle(task.title);
       setDescription(task.description ?? "");
       setPriority(task.priority);
       setStatus(task.status);
       setAssigneeId(task.assignee_id ?? "");
       setAiResult(null);
+      setAttachmentError(null);
       setSaveError(null);
     }
-  }, [open, task]);
+  }, [fetchAttachments, fetchEmployees, open, task]);
 
   useEffect(() => {
     if (!open) {
@@ -119,6 +148,8 @@ export function TaskDetailDialog({
       setPlanNotice(null);
       setInsertDialogOpen(false);
       setInsertSubmitting(false);
+      setAttachmentLoading(false);
+      setDeletingAttachmentId(null);
     }
   }, [open, task.id]);
 
@@ -159,6 +190,50 @@ export function TaskDetailDialog({
     }
   };
 
+  const handleSelectAttachments = async () => {
+    const selected = await openFileDialog({
+      directory: false,
+      multiple: true,
+      filters: IMAGE_FILE_FILTERS,
+      title: "选择任务图片",
+    });
+    const sourcePaths = dedupePaths(normalizeDialogSelection(selected));
+
+    if (sourcePaths.length === 0) {
+      return;
+    }
+
+    setAttachmentLoading(true);
+    setAttachmentError(null);
+    try {
+      await addTaskAttachments(task.id, sourcePaths);
+    } catch (error) {
+      setAttachmentError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setAttachmentLoading(false);
+    }
+  };
+
+  const handleOpenAttachment = async (path: string) => {
+    try {
+      await openTaskAttachment(path);
+    } catch (error) {
+      setAttachmentError(error instanceof Error ? error.message : String(error));
+    }
+  };
+
+  const handleDeleteAttachment = async (attachmentId: string) => {
+    setDeletingAttachmentId(attachmentId);
+    setAttachmentError(null);
+    try {
+      await deleteTaskAttachment(task.id, attachmentId);
+    } catch (error) {
+      setAttachmentError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setDeletingAttachmentId(null);
+    }
+  };
+
   const handleRunCodex = async () => {
     if (!assigneeId) return;
     setCodexLoading(true);
@@ -169,18 +244,20 @@ export function TaskDetailDialog({
       setCodexRunning(assigneeId, true, task.id);
       clearCodexOutput(assigneeId);
       clearTaskCodexOutput(task.id);
-      await fetchSubtasks(task.id);
-      const desc = buildTaskExecutionPrompt({
+      await Promise.all([fetchSubtasks(task.id), fetchAttachments(task.id)]);
+      const executionInput = buildTaskExecutionInput({
         title,
         description,
         subtasks: useTaskStore.getState().subtasks[task.id] ?? [],
+        attachments: useTaskStore.getState().attachments[task.id] ?? [],
       });
-      await startCodex(assigneeId, desc, {
+      await startCodex(assigneeId, executionInput.prompt, {
         model: assignee?.model,
         reasoningEffort: assignee?.reasoning_effort,
         systemPrompt: assignee?.system_prompt,
         workingDir: projectRepoPath ?? undefined,
         taskId: task.id,
+        imagePaths: executionInput.imagePaths,
       });
     } catch (err) {
       console.error("Failed to start codex:", err);
@@ -715,6 +792,68 @@ export function TaskDetailDialog({
 
           <Separator />
 
+          <div className="space-y-3">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <label className="text-xs font-medium text-muted-foreground">
+                  图片附件
+                </label>
+                <p className="text-[11px] text-muted-foreground">
+                  当前任务的图片会在每次启动和续聊时自动附带给 Codex。
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => void handleSelectAttachments()}
+                disabled={!isTauriRuntime() || attachmentLoading}
+                className="flex items-center gap-1 rounded-md border border-input px-2.5 py-1.5 text-xs hover:bg-accent disabled:opacity-50"
+                title={isTauriRuntime() ? "上传图片" : "仅桌面端支持上传图片"}
+              >
+                {attachmentLoading ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <ImagePlus className="h-3.5 w-3.5" />
+                )}
+                添加图片
+              </button>
+            </div>
+
+            {!isTauriRuntime() && (
+              <div className="rounded-md border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+                当前环境不支持任务图片上传，请在桌面端使用该功能。
+              </div>
+            )}
+
+            {attachmentError && (
+              <div className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+                {attachmentError}
+              </div>
+            )}
+
+            <ErrorBoundary
+              fallbackTitle="图片附件区渲染失败"
+              fallbackDescription="附件数据已保留，但缩略图区域发生了运行时异常。"
+            >
+              <TaskAttachmentGrid
+                items={attachments.map((attachment) => ({
+                  id: attachment.id,
+                  name: attachment.original_name,
+                  path: attachment.stored_path,
+                  fileSize: attachment.file_size,
+                  mimeType: attachment.mime_type,
+                  removable: deletingAttachmentId !== attachment.id,
+                  onOpen: isTauriRuntime()
+                    ? () => void handleOpenAttachment(attachment.stored_path)
+                    : undefined,
+                  onRemove: () => void handleDeleteAttachment(attachment.id),
+                }))}
+                emptyText="当前任务还没有图片"
+              />
+            </ErrorBoundary>
+          </div>
+
+          <Separator />
+
           {/* Subtasks */}
           <SubtaskList taskId={task.id} />
 
@@ -725,21 +864,25 @@ export function TaskDetailDialog({
           </div>
         </DialogContent>
       </Dialog>
-      <DeleteTaskDialog
-        open={deleteDialogOpen}
-        task={task}
-        deleting={deletingTask}
-        onOpenChange={setDeleteDialogOpen}
-        onConfirm={handleDelete}
-      />
-      <InsertPlanConfirmDialog
-        open={insertDialogOpen}
-        taskTitle={title.trim() || task.title}
-        inserting={insertSubmitting}
-        onOpenChange={setInsertDialogOpen}
-        onAppend={() => applyGeneratedPlan("append")}
-        onReplace={() => applyGeneratedPlan("replace")}
-      />
+      {deleteDialogOpen && (
+        <DeleteTaskDialog
+          open={deleteDialogOpen}
+          task={task}
+          deleting={deletingTask}
+          onOpenChange={setDeleteDialogOpen}
+          onConfirm={handleDelete}
+        />
+      )}
+      {insertDialogOpen && (
+        <InsertPlanConfirmDialog
+          open={insertDialogOpen}
+          taskTitle={title.trim() || task.title}
+          inserting={insertSubmitting}
+          onOpenChange={setInsertDialogOpen}
+          onAppend={() => applyGeneratedPlan("append")}
+          onReplace={() => applyGeneratedPlan("replace")}
+        />
+      )}
     </>
   );
 }

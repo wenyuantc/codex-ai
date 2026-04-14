@@ -4,11 +4,12 @@ import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import type { Task } from "@/lib/types";
 import { getPriorityLabel, getPriorityColor, formatDate } from "@/lib/utils";
-import { buildTaskExecutionPrompt } from "@/lib/taskPrompt";
+import { buildTaskExecutionInput } from "@/lib/taskPrompt";
 import { Clock, FolderKanban, GripVertical, MessageSquarePlus, Play, ScrollText, Square, Trash2 } from "lucide-react";
 import { ContinueConversationDialog } from "./ContinueConversationDialog";
 import { TaskDetailDialog } from "./TaskDetailDialog";
 import { DeleteTaskDialog } from "./DeleteTaskDialog";
+import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { useProjectStore } from "@/stores/projectStore";
 import { useEmployeeStore } from "@/stores/employeeStore";
 import { useTaskStore } from "@/stores/taskStore";
@@ -38,6 +39,7 @@ export function TaskCard({ task, isOverlay, onOpenLog }: TaskCardProps) {
   const clearTaskCodexOutput = useEmployeeStore((s) => s.clearTaskCodexOutput);
   const refreshCodexRuntimeStatus = useEmployeeStore((s) => s.refreshCodexRuntimeStatus);
   const updateTaskStatus = useTaskStore((s) => s.updateTaskStatus);
+  const fetchAttachments = useTaskStore((s) => s.fetchAttachments);
   const fetchSubtasks = useTaskStore((s) => s.fetchSubtasks);
   const deleteTask = useTaskStore((s) => s.deleteTask);
   const assignee = task.assignee_id ? employees.find((employee) => employee.id === task.assignee_id) : undefined;
@@ -87,10 +89,12 @@ export function TaskCard({ task, isOverlay, onOpenLog }: TaskCardProps) {
 
   const startTaskSession = async ({
     prompt,
+    imagePaths,
     mode,
     resumeSessionId,
   }: {
     prompt: string;
+    imagePaths: string[];
     mode: "run" | "continue";
     resumeSessionId?: string;
   }) => {
@@ -108,6 +112,7 @@ export function TaskCard({ task, isOverlay, onOpenLog }: TaskCardProps) {
         workingDir: projectRepoPath ?? undefined,
         taskId: task.id,
         resumeSessionId,
+        imagePaths,
       });
       setShowContinueDialog(false);
     } catch (err) {
@@ -126,15 +131,17 @@ export function TaskCard({ task, isOverlay, onOpenLog }: TaskCardProps) {
     setContextMenu(null);
     onOpenLog?.(task.id);
     clearTaskCodexOutput(task.id);
-    await fetchSubtasks(task.id);
-    const desc = buildTaskExecutionPrompt({
+    await Promise.all([fetchSubtasks(task.id), fetchAttachments(task.id)]);
+    const executionInput = buildTaskExecutionInput({
       title: task.title,
       description: task.description,
       subtasks: useTaskStore.getState().subtasks[task.id] ?? [],
+      attachments: useTaskStore.getState().attachments[task.id] ?? [],
     });
     await startTaskSession({
-      prompt: desc,
+      prompt: executionInput.prompt,
       mode: "run",
+      imagePaths: executionInput.imagePaths,
     });
   };
 
@@ -198,16 +205,19 @@ export function TaskCard({ task, isOverlay, onOpenLog }: TaskCardProps) {
 
   const handleContinueConversation = async (prompt: string) => {
     if (!task.last_codex_session_id) return;
-    await fetchSubtasks(task.id);
+    await Promise.all([fetchSubtasks(task.id), fetchAttachments(task.id)]);
+    const executionInput = buildTaskExecutionInput({
+      title: task.title,
+      description: task.description,
+      subtasks: useTaskStore.getState().subtasks[task.id] ?? [],
+      attachments: useTaskStore.getState().attachments[task.id] ?? [],
+      followUpPrompt: prompt,
+    });
     await startTaskSession({
-      prompt: buildTaskExecutionPrompt({
-        title: task.title,
-        description: task.description,
-        subtasks: useTaskStore.getState().subtasks[task.id] ?? [],
-        followUpPrompt: prompt,
-      }),
+      prompt: executionInput.prompt,
       mode: "continue",
       resumeSessionId: task.last_codex_session_id,
+      imagePaths: executionInput.imagePaths,
     });
   };
 
@@ -311,12 +321,17 @@ export function TaskCard({ task, isOverlay, onOpenLog }: TaskCardProps) {
           </div>
         )}
       </div>
-      {!isOverlay && (
-        <TaskDetailDialog
-          task={task}
-          open={showDetail}
-          onOpenChange={setShowDetail}
-        />
+      {!isOverlay && showDetail && (
+        <ErrorBoundary
+          fallbackTitle="任务详情渲染失败"
+          fallbackDescription="详情弹窗出现了运行时异常，下面是具体错误。"
+        >
+          <TaskDetailDialog
+            task={task}
+            open={showDetail}
+            onOpenChange={setShowDetail}
+          />
+        </ErrorBoundary>
       )}
       {!isOverlay && contextMenu && createPortal(
         <>
@@ -384,7 +399,7 @@ export function TaskCard({ task, isOverlay, onOpenLog }: TaskCardProps) {
         </>,
         document.body
       )}
-      {!isOverlay && (
+      {!isOverlay && showContinueDialog && (
         <ContinueConversationDialog
           open={showContinueDialog}
           task={task}
@@ -393,7 +408,7 @@ export function TaskCard({ task, isOverlay, onOpenLog }: TaskCardProps) {
           onConfirm={handleContinueConversation}
         />
       )}
-      {!isOverlay && (
+      {!isOverlay && showDeleteDialog && (
         <DeleteTaskDialog
           open={showDeleteDialog}
           task={task}

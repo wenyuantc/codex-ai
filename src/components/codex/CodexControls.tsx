@@ -3,7 +3,7 @@ import { startCodex, stopCodex, restartCodex } from "@/lib/codex";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { buildTaskExecutionPrompt } from "@/lib/taskPrompt";
+import { buildTaskExecutionInput } from "@/lib/taskPrompt";
 import { cn, getPriorityLabel, getStatusLabel } from "@/lib/utils";
 import { useEmployeeStore } from "@/stores/employeeStore";
 import { useProjectStore } from "@/stores/projectStore";
@@ -30,6 +30,7 @@ export function CodexControls({ employeeId, employeeStatus, model, reasoningEffo
   const refreshCodexRuntimeStatus = useEmployeeStore((s) => s.refreshCodexRuntimeStatus);
   const tasks = useTaskStore((s) => s.tasks);
   const fetchTasks = useTaskStore((s) => s.fetchTasks);
+  const fetchAttachments = useTaskStore((s) => s.fetchAttachments);
   const fetchSubtasks = useTaskStore((s) => s.fetchSubtasks);
   const updateTask = useTaskStore((s) => s.updateTask);
   const updateTaskStatus = useTaskStore((s) => s.updateTaskStatus);
@@ -127,20 +128,22 @@ export function CodexControls({ employeeId, employeeStatus, model, reasoningEffo
       setCodexRunning(employeeId, true, selectedTask.id);
       clearCodexOutput(employeeId);
       clearTaskCodexOutput(selectedTask.id);
-      await fetchSubtasks(selectedTask.id);
+      await Promise.all([fetchSubtasks(selectedTask.id), fetchAttachments(selectedTask.id)]);
 
-      const prompt = buildTaskExecutionPrompt({
+      const executionInput = buildTaskExecutionInput({
         title: selectedTask.title,
         description: selectedTask.description,
         subtasks: useTaskStore.getState().subtasks[selectedTask.id] ?? [],
+        attachments: useTaskStore.getState().attachments[selectedTask.id] ?? [],
       });
 
-      await startCodex(employeeId, prompt, {
+      await startCodex(employeeId, executionInput.prompt, {
         model,
         reasoningEffort,
         systemPrompt,
         workingDir: getProjectRepoPath(selectedTask),
         taskId: selectedTask.id,
+        imagePaths: executionInput.imagePaths,
       });
       setShowTaskDialog(false);
     } catch (e) {

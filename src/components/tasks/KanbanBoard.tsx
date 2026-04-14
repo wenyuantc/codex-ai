@@ -119,16 +119,18 @@ export function KanbanBoard({ projectId: _projectId }: KanbanBoardProps) {
         </DragOverlay>
       </DndContext>
 
-      <TaskLogDialog
-        open={logTaskId !== null}
-        task={logTask}
-        assigneeName={logAssigneeName}
-        onOpenChange={(open) => {
-          if (!open) {
-            setLogTaskId(null);
-          }
-        }}
-      />
+      {logTaskId !== null && (
+        <TaskLogDialog
+          open={logTaskId !== null}
+          task={logTask}
+          assigneeName={logAssigneeName}
+          onOpenChange={(open) => {
+            if (!open) {
+              setLogTaskId(null);
+            }
+          }}
+        />
+      )}
     </>
   );
 }

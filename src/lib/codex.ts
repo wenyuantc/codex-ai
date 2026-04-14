@@ -26,6 +26,7 @@ interface StartCodexOptions {
   workingDir?: string;
   taskId?: string;
   resumeSessionId?: string;
+  imagePaths?: string[];
 }
 
 export async function startCodex(employeeId: string, taskDescription: string, options: StartCodexOptions = {}): Promise<void> {
@@ -38,6 +39,7 @@ export async function startCodex(employeeId: string, taskDescription: string, op
     workingDir: options.workingDir ?? null,
     taskId: options.taskId ?? null,
     resumeSessionId: options.resumeSessionId ?? null,
+    imagePaths: options.imagePaths ?? null,
   });
 }
 

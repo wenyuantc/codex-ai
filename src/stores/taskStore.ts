@@ -1,12 +1,14 @@
 import { create } from "zustand";
 import { select } from "@/lib/database";
-import type { Task, Subtask, Comment, TaskStatus } from "@/lib/types";
+import type { Task, TaskAttachment, Subtask, Comment, TaskStatus } from "@/lib/types";
 import { onCodexSession, type CodexSession } from "@/lib/codex";
 import {
+  addTaskAttachments as addTaskAttachmentsCommand,
   createComment as createCommentCommand,
   createSubtask as createSubtaskCommand,
   createTask as createTaskCommand,
   deleteSubtask as deleteSubtaskCommand,
+  deleteTaskAttachment as deleteTaskAttachmentCommand,
   deleteTask as deleteTaskCommand,
   updateSubtaskStatus as updateSubtaskStatusCommand,
   updateTask as updateTaskCommand,
@@ -19,20 +21,31 @@ function normalizeSubtaskTitle(title: string): string {
 
 interface TaskStore {
   tasks: Task[];
+  attachments: Record<string, TaskAttachment[]>;
   subtasks: Record<string, Subtask[]>;
   comments: Record<string, Comment[]>;
   activeProjectId?: string;
   loading: boolean;
   fetchTasks: (projectId?: string) => Promise<void>;
+  fetchAttachments: (taskId: string) => Promise<void>;
   fetchSubtasks: (taskId: string) => Promise<void>;
   fetchComments: (taskId: string) => Promise<void>;
   createTask: (
-    data: { title: string; description?: string; priority?: string; project_id: string; assignee_id?: string },
+    data: {
+      title: string;
+      description?: string;
+      priority?: string;
+      project_id: string;
+      assignee_id?: string;
+      attachment_source_paths?: string[];
+    },
     options?: { refreshProjectId?: string },
   ) => Promise<void>;
   updateTaskStatus: (id: string, status: TaskStatus) => Promise<void>;
   updateTask: (id: string, updates: Partial<Pick<Task, "title" | "description" | "priority" | "status" | "assignee_id" | "complexity" | "ai_suggestion" | "last_codex_session_id">>) => Promise<void>;
   deleteTask: (id: string) => Promise<void>;
+  addTaskAttachments: (taskId: string, sourcePaths: string[]) => Promise<void>;
+  deleteTaskAttachment: (taskId: string, attachmentId: string) => Promise<void>;
   addSubtask: (taskId: string, title: string) => Promise<void>;
   addSubtasks: (taskId: string, titles: string[]) => Promise<{ inserted: number; skipped: number }>;
   toggleSubtask: (subtaskId: string, status: string) => Promise<void>;
@@ -55,6 +68,7 @@ function releaseCodexSessionListeners() {
 
 export const useTaskStore = create<TaskStore>((set, get) => ({
   tasks: [],
+  attachments: {},
   subtasks: {},
   comments: {},
   activeProjectId: undefined,
@@ -73,6 +87,14 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
     }
   },
 
+  fetchAttachments: async (taskId) => {
+    const attachments = await select<TaskAttachment>(
+      "SELECT * FROM task_attachments WHERE task_id = $1 ORDER BY sort_order, created_at",
+      [taskId],
+    );
+    set((state) => ({ attachments: { ...state.attachments, [taskId]: attachments } }));
+  },
+
   fetchSubtasks: async (taskId) => {
     const subtasks = await select<Subtask>("SELECT * FROM subtasks WHERE task_id = $1 ORDER BY sort_order", [taskId]);
     set((state) => ({ subtasks: { ...state.subtasks, [taskId]: subtasks } }));
@@ -88,6 +110,7 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
       ...data,
       description: data.description ?? null,
       assignee_id: data.assignee_id ?? null,
+      attachment_source_paths: data.attachment_source_paths ?? [],
     });
     await get().fetchTasks(options?.refreshProjectId ?? get().activeProjectId);
   },
@@ -124,7 +147,29 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
 
   deleteTask: async (id) => {
     await deleteTaskCommand(id);
+    set((state) => {
+      const { [id]: _attachments, ...attachments } = state.attachments;
+      const { [id]: _subtasks, ...subtasks } = state.subtasks;
+      const { [id]: _comments, ...comments } = state.comments;
+      return { attachments, subtasks, comments };
+    });
     await get().fetchTasks(get().activeProjectId);
+  },
+
+  addTaskAttachments: async (taskId, sourcePaths) => {
+    if (sourcePaths.length === 0) return;
+    const attachments = await addTaskAttachmentsCommand(taskId, sourcePaths);
+    set((state) => ({
+      attachments: {
+        ...state.attachments,
+        [taskId]: attachments,
+      },
+    }));
+  },
+
+  deleteTaskAttachment: async (taskId, attachmentId) => {
+    await deleteTaskAttachmentCommand(attachmentId);
+    await get().fetchAttachments(taskId);
   },
 
   addSubtask: async (taskId, title) => {

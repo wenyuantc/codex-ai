@@ -35,11 +35,13 @@ export function KanbanPage() {
       <div className="flex-1 overflow-hidden">
         <KanbanBoard projectId={currentProjectId} />
       </div>
-      <CreateTaskDialog
-        open={showCreateDialog}
-        onOpenChange={setShowCreateDialog}
-        projectId={currentProjectId}
-      />
+      {showCreateDialog && (
+        <CreateTaskDialog
+          open={showCreateDialog}
+          onOpenChange={setShowCreateDialog}
+          projectId={currentProjectId}
+        />
+      )}
     </div>
   );
 }
