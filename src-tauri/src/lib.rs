@@ -64,6 +64,7 @@ pub fn run() {
             codex::ai_suggest_assignee,
             codex::ai_analyze_complexity,
             codex::ai_generate_comment,
+            codex::ai_generate_plan,
             codex::ai_split_subtasks,
         ])
         .run(tauri::generate_context!())

@@ -1136,12 +1136,63 @@ fn parse_ai_subtasks_response(raw: &str) -> Result<Vec<String>, String> {
     Err("AI response did not contain valid subtasks JSON".to_string())
 }
 
+fn build_ai_generate_plan_prompt(
+    task_title: &str,
+    task_description: &str,
+    task_status: &str,
+    task_priority: &str,
+    subtasks: &[String],
+) -> String {
+    let normalized_subtasks = subtasks
+        .iter()
+        .map(|value| value.trim())
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+        .collect::<Vec<_>>();
+
+    let subtasks_block = if normalized_subtasks.is_empty() {
+        "（暂无）".to_string()
+    } else {
+        normalized_subtasks
+            .iter()
+            .enumerate()
+            .map(|(index, title)| format!("{}. {}", index + 1, title))
+            .collect::<Vec<_>>()
+            .join("\n")
+    };
+
+    format!(
+        "你是任务规划助手。请基于给定任务信息输出一份接近 Codex /plan 风格的中文 Markdown 执行计划。\n\
+要求：\n\
+- 只返回 Markdown 正文，不要代码块，不要 JSON，不要额外客套\n\
+- 不要假装你已经读取仓库、查看文件、运行命令或完成验证；缺失信息请写入“风险与依赖”或“假设”\n\
+- 必须包含以下标题：# 标题、## 目标与范围、## 实施步骤、## 验收与验证、## 风险与依赖、## 假设\n\
+- “实施步骤”使用 1. 2. 3. 编号，步骤需要可执行、可验证，并吸收已有子任务中的有效信息\n\
+- 结合当前状态、优先级、任务描述和子任务安排顺序，避免空泛表述\n\
+- 如果信息不足，也要输出完整计划，并明确说明前提、依赖和缺口\n\n\
+任务标题：{}\n\
+当前状态：{}\n\
+当前优先级：{}\n\
+任务描述：{}\n\
+现有子任务：\n{}",
+        task_title.trim(),
+        task_status.trim(),
+        task_priority.trim(),
+        if task_description.trim().is_empty() {
+            "（未填写）"
+        } else {
+            task_description.trim()
+        },
+        subtasks_block
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
-        build_one_shot_exec_args, compose_codex_prompt, extract_session_id_from_output,
-        format_session_prompt_log, parse_ai_subtasks_response, parse_sdk_bridge_output,
-        CodexExecutionProvider,
+        build_ai_generate_plan_prompt, build_one_shot_exec_args, compose_codex_prompt,
+        extract_session_id_from_output, format_session_prompt_log, parse_ai_subtasks_response,
+        parse_sdk_bridge_output, CodexExecutionProvider,
     };
 
     #[test]
@@ -1246,6 +1297,34 @@ mod tests {
         assert!(log.contains("工作目录: /tmp/demo"));
         assert!(log.contains("任务标题:\n修复问题"));
     }
+
+    #[test]
+    fn builds_plan_prompt_with_required_sections_and_context() {
+        let prompt = build_ai_generate_plan_prompt(
+            "看板任务详情增加 AI 生成计划",
+            "在任务详情里新增 AI 生成计划，并支持插入详情。",
+            "todo",
+            "high",
+            &[
+                "补后端命令".to_string(),
+                "补前端预览".to_string(),
+                "补插入确认弹框".to_string(),
+            ],
+        );
+
+        assert!(prompt.contains("# 标题"));
+        assert!(prompt.contains("## 目标与范围"));
+        assert!(prompt.contains("## 实施步骤"));
+        assert!(prompt.contains("## 验收与验证"));
+        assert!(prompt.contains("## 风险与依赖"));
+        assert!(prompt.contains("## 假设"));
+        assert!(prompt.contains("任务标题：看板任务详情增加 AI 生成计划"));
+        assert!(prompt.contains("当前状态：todo"));
+        assert!(prompt.contains("当前优先级：high"));
+        assert!(prompt.contains("1. 补后端命令"));
+        assert!(prompt.contains("2. 补前端预览"));
+        assert!(prompt.contains("不要假装你已经读取仓库"));
+    }
 }
 
 #[tauri::command]
@@ -1283,6 +1362,25 @@ pub async fn ai_generate_comment(
     let prompt = format!(
         "Generate a progress assessment comment for this task.\n\nTitle: {}\nDescription: {}\nContext: {}",
         task_title, task_description, context
+    );
+    run_ai_command(&app, prompt).await
+}
+
+#[tauri::command]
+pub async fn ai_generate_plan(
+    app: AppHandle,
+    task_title: String,
+    task_description: String,
+    task_status: String,
+    task_priority: String,
+    subtasks: Vec<String>,
+) -> Result<String, String> {
+    let prompt = build_ai_generate_plan_prompt(
+        &task_title,
+        &task_description,
+        &task_status,
+        &task_priority,
+        &subtasks,
     );
     run_ai_command(&app, prompt).await
 }

@@ -92,3 +92,19 @@ export async function aiGenerateComment(taskTitle: string, taskDescription: stri
 export async function aiSplitSubtasks(taskTitle: string, taskDescription: string): Promise<string[]> {
   return invoke<string[]>("ai_split_subtasks", { taskTitle, taskDescription });
 }
+
+export async function aiGeneratePlan(
+  taskTitle: string,
+  taskDescription: string,
+  taskStatus: string,
+  taskPriority: string,
+  subtasks: string[],
+): Promise<string> {
+  return invoke<string>("ai_generate_plan", {
+    taskTitle,
+    taskDescription,
+    taskStatus,
+    taskPriority,
+    subtasks,
+  });
+}

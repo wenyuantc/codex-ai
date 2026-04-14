@@ -24,12 +24,22 @@ import {
 import { Separator } from "@/components/ui/separator";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Trash2, Sparkles, Loader2, Play, Square, Eraser } from "lucide-react";
-import { aiSuggestAssignee, aiAnalyzeComplexity, aiGenerateComment, aiSplitSubtasks, startCodex, stopCodex } from "@/lib/codex";
+import {
+  aiSuggestAssignee,
+  aiAnalyzeComplexity,
+  aiGenerateComment,
+  aiGeneratePlan,
+  aiSplitSubtasks,
+  startCodex,
+  stopCodex,
+} from "@/lib/codex";
 import { SubtaskList } from "./SubtaskList";
 import { CommentList } from "./CommentList";
 import { DeleteTaskDialog } from "./DeleteTaskDialog";
+import { InsertPlanConfirmDialog } from "./InsertPlanConfirmDialog";
 
 const UNASSIGNED_VALUE = "__unassigned__";
+type PlanInsertMode = "append" | "replace";
 
 interface TaskDetailDialogProps {
   task: Task;
@@ -64,6 +74,12 @@ export function TaskDetailDialog({
   const [assigneeId, setAssigneeId] = useState(task.assignee_id ?? "");
   const [aiLoading, setAiLoading] = useState<string | null>(null);
   const [aiResult, setAiResult] = useState<string | null>(null);
+  const [planLoading, setPlanLoading] = useState(false);
+  const [generatedPlan, setGeneratedPlan] = useState<string | null>(null);
+  const [planError, setPlanError] = useState<string | null>(null);
+  const [planNotice, setPlanNotice] = useState<string | null>(null);
+  const [insertDialogOpen, setInsertDialogOpen] = useState(false);
+  const [insertSubmitting, setInsertSubmitting] = useState(false);
   const [codexLoading, setCodexLoading] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [deletingTask, setDeletingTask] = useState(false);
@@ -91,8 +107,20 @@ export function TaskDetailDialog({
   useEffect(() => {
     if (!open) {
       setDeleteDialogOpen(false);
+      setInsertDialogOpen(false);
     }
   }, [open]);
+
+  useEffect(() => {
+    if (open) {
+      setPlanLoading(false);
+      setGeneratedPlan(null);
+      setPlanError(null);
+      setPlanNotice(null);
+      setInsertDialogOpen(false);
+      setInsertSubmitting(false);
+    }
+  }, [open, task.id]);
 
   useEffect(() => {
     terminalRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -260,11 +288,101 @@ export function TaskDetailDialog({
     }
   };
 
+  const handleAiGeneratePlan = async () => {
+    const taskTitle = title.trim();
+    const taskDescription = description.trim();
+
+    if (!taskTitle && !taskDescription) {
+      setPlanError("请先填写任务标题或描述，再执行 AI 生成计划。");
+      setPlanNotice(null);
+      return;
+    }
+
+    setPlanLoading(true);
+    setGeneratedPlan(null);
+    setPlanError(null);
+    setPlanNotice(null);
+
+    try {
+      await fetchSubtasks(task.id);
+      const latestSubtasks = (useTaskStore.getState().subtasks[task.id] ?? []).map((subtask) => subtask.title);
+      const plan = await aiGeneratePlan(
+        taskTitle,
+        taskDescription,
+        status,
+        priority,
+        latestSubtasks,
+      );
+      const trimmedPlan = plan.trim();
+
+      if (!trimmedPlan) {
+        setPlanError("AI 未返回可展示的计划内容。");
+        return;
+      }
+
+      setGeneratedPlan(trimmedPlan);
+    } catch (error) {
+      setPlanError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setPlanLoading(false);
+    }
+  };
+
+  const applyGeneratedPlan = async (mode: PlanInsertMode) => {
+    const plan = generatedPlan?.trim();
+    if (!plan) {
+      setPlanError("请先生成计划，再执行插入。");
+      return;
+    }
+
+    const previousDescription = description;
+    const hasExistingDescription = description.trim().length > 0;
+    const nextDescription =
+      mode === "append" && hasExistingDescription
+        ? `${description.trimEnd()}\n\n---\n\n${plan}`
+        : plan;
+
+    setInsertSubmitting(true);
+    setSaveError(null);
+    setPlanError(null);
+    setPlanNotice(null);
+    setDescription(nextDescription);
+
+    try {
+      await updateTask(task.id, { description: nextDescription });
+      setGeneratedPlan(null);
+      setInsertDialogOpen(false);
+      setPlanNotice("AI 计划已插入详情。");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setDescription(previousDescription);
+      setPlanError(message);
+    } finally {
+      setInsertSubmitting(false);
+    }
+  };
+
+  const handleInsertPlan = async () => {
+    if (!generatedPlan?.trim()) {
+      setPlanError("请先生成计划，再执行插入。");
+      return;
+    }
+
+    if (description.trim().length === 0) {
+      await applyGeneratedPlan("replace");
+      return;
+    }
+
+    setInsertDialogOpen(true);
+  };
+
   function getLineColor(line: string): string {
     if (line.startsWith("[ERROR]")) return "text-red-400";
     if (line.startsWith("[EXIT]")) return "text-yellow-400";
     return "text-green-400";
   }
+
+  const aiActionDisabled = aiLoading !== null || planLoading || insertSubmitting;
 
   return (
     <>
@@ -467,7 +585,7 @@ export function TaskDetailDialog({
           <div className="flex flex-wrap items-center gap-2">
             <button
               onClick={handleAiSuggest}
-              disabled={aiLoading !== null}
+              disabled={aiActionDisabled}
               className="flex items-center gap-1 px-2 py-1 text-xs bg-primary/10 text-primary rounded hover:bg-primary/20 transition-colors disabled:opacity-50"
             >
               {aiLoading === "assignee" ? (
@@ -479,7 +597,7 @@ export function TaskDetailDialog({
             </button>
             <button
               onClick={handleAiComplexity}
-              disabled={aiLoading !== null}
+              disabled={aiActionDisabled}
               className="flex items-center gap-1 px-2 py-1 text-xs bg-primary/10 text-primary rounded hover:bg-primary/20 transition-colors disabled:opacity-50"
             >
               {aiLoading === "complexity" ? (
@@ -491,7 +609,7 @@ export function TaskDetailDialog({
             </button>
             <button
               onClick={handleAiSplitSubtasks}
-              disabled={aiLoading !== null}
+              disabled={aiActionDisabled}
               className="flex items-center gap-1 px-2 py-1 text-xs bg-primary/10 text-primary rounded hover:bg-primary/20 transition-colors disabled:opacity-50"
             >
               {aiLoading === "subtasks" ? (
@@ -502,8 +620,20 @@ export function TaskDetailDialog({
               AI拆分子任务
             </button>
             <button
+              onClick={handleAiGeneratePlan}
+              disabled={aiActionDisabled}
+              className="flex items-center gap-1 px-2 py-1 text-xs bg-primary/10 text-primary rounded hover:bg-primary/20 transition-colors disabled:opacity-50"
+            >
+              {planLoading ? (
+                <Loader2 className="h-3 w-3 animate-spin" />
+              ) : (
+                <Sparkles className="h-3 w-3" />
+              )}
+              AI生成计划
+            </button>
+            <button
               onClick={handleAiComment}
-              disabled={aiLoading !== null}
+              disabled={aiActionDisabled}
               className="flex items-center gap-1 px-2 py-1 text-xs bg-primary/10 text-primary rounded hover:bg-primary/20 transition-colors disabled:opacity-50"
             >
               {aiLoading === "comment" ? (
@@ -528,6 +658,42 @@ export function TaskDetailDialog({
             <div className="bg-primary/5 rounded-md p-3 text-xs text-muted-foreground">
               <span className="font-medium text-primary">AI 建议: </span>
               {task.ai_suggestion}
+            </div>
+          )}
+
+          {planError && (
+            <div className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+              {planError}
+            </div>
+          )}
+
+          {planNotice && (
+            <div className="rounded-md border border-green-500/30 bg-green-500/10 px-3 py-2 text-xs text-green-700">
+              {planNotice}
+            </div>
+          )}
+
+          {generatedPlan && (
+            <div className="space-y-3 rounded-md border border-primary/20 bg-primary/5 p-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <p className="text-xs font-medium text-primary">AI 计划预览</p>
+                  <p className="text-[11px] text-muted-foreground">确认后可插入到任务详情描述中</p>
+                </div>
+                <button
+                  onClick={() => void handleInsertPlan()}
+                  disabled={insertSubmitting}
+                  className="flex items-center gap-1 rounded px-2 py-1 text-xs bg-primary text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-50"
+                >
+                  {insertSubmitting ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
+                  插入详情
+                </button>
+              </div>
+              <ScrollArea className="h-72 overflow-hidden rounded-md border bg-background/80">
+                <div className="p-3 text-xs text-foreground whitespace-pre-wrap">
+                  {generatedPlan}
+                </div>
+              </ScrollArea>
             </div>
           )}
 
@@ -565,6 +731,14 @@ export function TaskDetailDialog({
         deleting={deletingTask}
         onOpenChange={setDeleteDialogOpen}
         onConfirm={handleDelete}
+      />
+      <InsertPlanConfirmDialog
+        open={insertDialogOpen}
+        taskTitle={title.trim() || task.title}
+        inserting={insertSubmitting}
+        onOpenChange={setInsertDialogOpen}
+        onAppend={() => applyGeneratedPlan("append")}
+        onReplace={() => applyGeneratedPlan("replace")}
       />
     </>
   );
