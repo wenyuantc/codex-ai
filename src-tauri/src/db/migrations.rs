@@ -353,6 +353,19 @@ pub fn get_all_migrations() -> Vec<Migration> {
             "#,
             kind: tauri_plugin_sql::MigrationKind::Up,
         },
+        Migration {
+            version: 20,
+            description: "add capture mode to codex session file changes",
+            sql: r#"
+                ALTER TABLE codex_session_file_changes
+                    ADD COLUMN capture_mode TEXT NOT NULL DEFAULT 'git_fallback';
+
+                UPDATE codex_session_file_changes
+                SET capture_mode = 'git_fallback'
+                WHERE capture_mode IS NULL OR trim(capture_mode) = '';
+            "#,
+            kind: tauri_plugin_sql::MigrationKind::Up,
+        },
     ]
 }
 

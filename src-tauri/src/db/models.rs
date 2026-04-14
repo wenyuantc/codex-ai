@@ -153,6 +153,7 @@ pub struct CodexSessionFileChange {
     pub session_id: String,
     pub path: String,
     pub change_type: String,
+    pub capture_mode: String,
     pub previous_path: Option<String>,
     pub created_at: String,
 }
@@ -235,6 +236,7 @@ pub struct TaskLatestReview {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TaskExecutionChangeHistoryItem {
     pub session: CodexSessionRecord,
+    pub capture_mode: String,
     pub changes: Vec<CodexSessionFileChange>,
 }
 
@@ -242,6 +244,7 @@ pub struct TaskExecutionChangeHistoryItem {
 pub struct CodexSessionFileChangeInput {
     pub path: String,
     pub change_type: String,
+    pub capture_mode: String,
     pub previous_path: Option<String>,
 }
 

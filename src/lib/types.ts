@@ -119,6 +119,7 @@ export interface CodexSessionFileChange {
   session_id: string;
   path: string;
   change_type: "added" | "modified" | "deleted" | "renamed";
+  capture_mode: "sdk_event" | "git_fallback";
   previous_path: string | null;
   created_at: string;
 }
@@ -131,6 +132,7 @@ export interface TaskLatestReview {
 
 export interface TaskExecutionChangeHistoryItem {
   session: CodexSessionRecord;
+  capture_mode: "sdk_event" | "git_fallback";
   changes: CodexSessionFileChange[];
 }
 

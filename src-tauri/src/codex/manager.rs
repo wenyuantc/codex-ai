@@ -3,13 +3,17 @@ use std::sync::Arc;
 
 use tokio::sync::Mutex;
 
-use super::process::{CodexChild, ExecutionChangeBaseline};
+use super::process::{
+    CodexChild, CodexExecutionProvider, ExecutionChangeBaseline, SdkFileChangeStore,
+};
 
 #[derive(Clone)]
 pub struct ManagedCodexProcess {
     pub child: Arc<Mutex<CodexChild>>,
     pub session_record_id: String,
+    pub provider: CodexExecutionProvider,
     pub execution_change_baseline: Option<ExecutionChangeBaseline>,
+    pub sdk_file_change_store: Option<SdkFileChangeStore>,
 }
 
 /// Manages running Codex CLI subprocess instances, keyed by employee_id.
@@ -29,14 +33,18 @@ impl CodexManager {
         employee_id: String,
         child: Arc<Mutex<CodexChild>>,
         session_record_id: String,
+        provider: CodexExecutionProvider,
         execution_change_baseline: Option<ExecutionChangeBaseline>,
+        sdk_file_change_store: Option<SdkFileChangeStore>,
     ) {
         self.processes.insert(
             employee_id,
             ManagedCodexProcess {
                 child,
                 session_record_id,
+                provider,
                 execution_change_baseline,
+                sdk_file_change_store,
             },
         );
     }

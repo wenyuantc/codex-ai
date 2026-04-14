@@ -1103,12 +1103,13 @@ pub(crate) async fn replace_codex_session_file_changes<R: Runtime>(
 
     for change in changes {
         sqlx::query(
-            "INSERT INTO codex_session_file_changes (id, session_id, path, change_type, previous_path) VALUES ($1, $2, $3, $4, $5)",
+            "INSERT INTO codex_session_file_changes (id, session_id, path, change_type, capture_mode, previous_path) VALUES ($1, $2, $3, $4, $5, $6)",
         )
         .bind(new_id())
         .bind(session_id)
         .bind(&change.path)
         .bind(&change.change_type)
+        .bind(&change.capture_mode)
         .bind(&change.previous_path)
         .execute(&pool)
         .await
@@ -1843,7 +1844,31 @@ pub async fn get_task_execution_change_history<R: Runtime>(
         .await
         .map_err(|error| format!("Failed to fetch task execution file changes: {}", error))?;
 
-        items.push(TaskExecutionChangeHistoryItem { session, changes });
+        let capture_mode = if let Some(change) = changes.first() {
+            change.capture_mode.clone()
+        } else {
+            let session_started_message = sqlx::query_scalar::<_, Option<String>>(
+                "SELECT message FROM codex_session_events WHERE session_id = $1 AND event_type = 'session_started' ORDER BY created_at DESC LIMIT 1",
+            )
+            .bind(&session.id)
+            .fetch_optional(&pool)
+            .await
+            .map_err(|error| format!("Failed to fetch session provider info: {}", error))?
+            .flatten()
+            .unwrap_or_default();
+
+            if session_started_message.contains("通过 SDK 启动") {
+                "sdk_event".to_string()
+            } else {
+                "git_fallback".to_string()
+            }
+        };
+
+        items.push(TaskExecutionChangeHistoryItem {
+            session,
+            capture_mode,
+            changes,
+        });
     }
 
     Ok(items)

@@ -100,6 +100,74 @@ function summarizeFileChange(item) {
   return `[文件变更] ${files}${changes.length > 5 ? " ..." : ""}`;
 }
 
+function normalizeFileChangeKind(kind) {
+  const value = String(kind ?? "").trim().toLowerCase();
+  if (["add", "added", "create", "created"].includes(value)) {
+    return "added";
+  }
+  if (["modify", "modified", "update", "updated", "change", "changed", "edit", "edited"].includes(value)) {
+    return "modified";
+  }
+  if (["delete", "deleted", "remove", "removed"].includes(value)) {
+    return "deleted";
+  }
+  if (["rename", "renamed", "move", "moved"].includes(value)) {
+    return "renamed";
+  }
+  return null;
+}
+
+function normalizeFileChange(change) {
+  if (!change || typeof change !== "object") {
+    return null;
+  }
+
+  const path = [
+    change.path,
+    change.file_path,
+    change.filePath,
+    change.new_path,
+    change.newPath,
+  ].find((value) => typeof value === "string" && value.trim());
+  const kind = normalizeFileChangeKind(change.kind ?? change.type ?? change.action);
+
+  if (!path || !kind) {
+    return null;
+  }
+
+  const previousPath = [
+    change.previous_path,
+    change.previousPath,
+    change.old_path,
+    change.oldPath,
+    change.from,
+  ].find((value) => typeof value === "string" && value.trim());
+
+  return {
+    kind,
+    path: path.trim(),
+    previous_path: typeof previousPath === "string" ? previousPath.trim() : null,
+  };
+}
+
+function emitStructuredFileChange(item, state) {
+  const normalizedChanges = (Array.isArray(item?.changes) ? item.changes : [])
+    .map((change) => normalizeFileChange(change))
+    .filter(Boolean);
+
+  if (normalizedChanges.length === 0) {
+    return;
+  }
+
+  const serialized = JSON.stringify(normalizedChanges);
+  const previous = state.fileChanges.get(item.id);
+  if (previous === serialized) {
+    return;
+  }
+  state.fileChanges.set(item.id, serialized);
+  emit(`[CODEX_FILE_CHANGE] ${JSON.stringify({ changes: normalizedChanges })}`);
+}
+
 function emitItemStarted(item) {
   switch (item?.type) {
     case "command_execution":
@@ -156,6 +224,7 @@ function emitItemUpdate(item, state) {
       }
       break;
     case "file_change": {
+      emitStructuredFileChange(item, state);
       const summary = summarizeFileChange(item);
       if (summary) {
         emit(summary);
@@ -200,6 +269,7 @@ async function runSession(thread, input) {
     commandOutputs: new Map(),
     agentMessages: new Map(),
     reasoningMessages: new Map(),
+    fileChanges: new Map(),
     lastTodoSummary: "",
     sessionId: null,
   };

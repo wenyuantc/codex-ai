@@ -26,6 +26,7 @@ use crate::db::models::{CodexExit, CodexOutput, CodexSession, CodexSessionFileCh
 const SUPPORTED_MODELS: &[&str] = &["gpt-5.4", "gpt-5.4-mini", "gpt-5.3-codex", "gpt-5.2"];
 const SUPPORTED_REASONING_EFFORTS: &[&str] = &["low", "medium", "high", "xhigh"];
 const SESSION_ID_PREFIX: &str = "session id:";
+const SDK_FILE_CHANGE_EVENT_PREFIX: &str = "[CODEX_FILE_CHANGE]";
 const REVIEW_REPORT_START_TAG: &str = "<review_report>";
 const REVIEW_REPORT_END_TAG: &str = "</review_report>";
 const STOP_WAIT_POLL_MS: u64 = 50;
@@ -43,8 +44,27 @@ struct SdkBridgeResponse {
     error: Option<String>,
 }
 
+#[derive(Debug, Deserialize)]
+struct SdkFileChangeEvent {
+    changes: Vec<SdkFileChangePayload>,
+}
+
+#[derive(Debug, Deserialize)]
+struct SdkFileChangePayload {
+    kind: Option<String>,
+    path: Option<String>,
+    #[serde(
+        default,
+        alias = "previousPath",
+        alias = "oldPath",
+        alias = "old_path",
+        alias = "from"
+    )]
+    previous_path: Option<String>,
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum CodexExecutionProvider {
+pub(crate) enum CodexExecutionProvider {
     Cli,
     Sdk,
 }
@@ -54,6 +74,13 @@ impl CodexExecutionProvider {
         match self {
             CodexExecutionProvider::Cli => "CLI",
             CodexExecutionProvider::Sdk => "SDK",
+        }
+    }
+
+    fn capture_mode(self) -> &'static str {
+        match self {
+            CodexExecutionProvider::Cli => "git_fallback",
+            CodexExecutionProvider::Sdk => "sdk_event",
         }
     }
 }
@@ -125,6 +152,8 @@ pub struct ExecutionChangeBaseline {
     entries: HashMap<String, WorkingTreeSnapshotEntry>,
 }
 
+pub(crate) type SdkFileChangeStore = Arc<Mutex<HashMap<String, CodexSessionFileChangeInput>>>;
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 struct WorkingTreeSnapshotEntry {
     path: String,
@@ -150,6 +179,67 @@ impl SessionFileChangeKind {
             SessionFileChangeKind::Deleted => "deleted",
             SessionFileChangeKind::Renamed => "renamed",
         }
+    }
+}
+
+fn normalize_session_file_change_kind(value: Option<&str>) -> Option<SessionFileChangeKind> {
+    match value.map(|item| item.trim().to_ascii_lowercase()) {
+        Some(value) if matches!(value.as_str(), "add" | "added" | "create" | "created") => {
+            Some(SessionFileChangeKind::Added)
+        }
+        Some(value)
+            if matches!(
+                value.as_str(),
+                "modify"
+                    | "modified"
+                    | "update"
+                    | "updated"
+                    | "change"
+                    | "changed"
+                    | "edit"
+                    | "edited"
+            ) =>
+        {
+            Some(SessionFileChangeKind::Modified)
+        }
+        Some(value) if matches!(value.as_str(), "delete" | "deleted" | "remove" | "removed") => {
+            Some(SessionFileChangeKind::Deleted)
+        }
+        Some(value) if matches!(value.as_str(), "rename" | "renamed" | "move" | "moved") => {
+            Some(SessionFileChangeKind::Renamed)
+        }
+        _ => None,
+    }
+}
+
+fn parse_sdk_file_change_event(line: &str) -> Option<SdkFileChangeEvent> {
+    let payload = line.strip_prefix(SDK_FILE_CHANGE_EVENT_PREFIX)?;
+    serde_json::from_str::<SdkFileChangeEvent>(payload.trim()).ok()
+}
+
+fn upsert_sdk_file_change_event(store: &SdkFileChangeStore, event: SdkFileChangeEvent) {
+    let mut guard = store.lock().unwrap();
+    for change in event.changes {
+        let path = change.path.unwrap_or_default().trim().to_string();
+        if path.is_empty() {
+            continue;
+        }
+
+        let Some(change_kind) = normalize_session_file_change_kind(change.kind.as_deref()) else {
+            continue;
+        };
+        guard.insert(
+            path.clone(),
+            CodexSessionFileChangeInput {
+                path,
+                change_type: change_kind.as_str().to_string(),
+                capture_mode: CodexExecutionProvider::Sdk.capture_mode().to_string(),
+                previous_path: change
+                    .previous_path
+                    .map(|value| value.trim().to_string())
+                    .filter(|value| !value.is_empty()),
+            },
+        );
     }
 }
 
@@ -290,11 +380,13 @@ fn classify_new_entry_change_kind(entry: &WorkingTreeSnapshotEntry) -> SessionFi
 fn build_session_file_change(
     path: String,
     change_kind: SessionFileChangeKind,
+    capture_mode: &str,
     previous_path: Option<String>,
 ) -> CodexSessionFileChangeInput {
     CodexSessionFileChangeInput {
         path,
         change_type: change_kind.as_str().to_string(),
+        capture_mode: capture_mode.to_string(),
         previous_path,
     }
 }
@@ -339,6 +431,7 @@ fn compute_execution_session_file_changes_from_entries(
                 changes.push(build_session_file_change(
                     path,
                     classify_new_entry_change_kind(entry),
+                    CodexExecutionProvider::Cli.capture_mode(),
                     entry
                         .previous_path
                         .clone()
@@ -364,6 +457,7 @@ fn compute_execution_session_file_changes_from_entries(
                 changes.push(build_session_file_change(
                     path,
                     change_kind,
+                    CodexExecutionProvider::Cli.capture_mode(),
                     entry
                         .previous_path
                         .clone()
@@ -394,7 +488,12 @@ fn compute_execution_session_file_changes_from_entries(
         } else {
             SessionFileChangeKind::Modified
         };
-        changes.push(build_session_file_change(path, change_kind, None));
+        changes.push(build_session_file_change(
+            path,
+            change_kind,
+            CodexExecutionProvider::Cli.capture_mode(),
+            None,
+        ));
     }
 
     Ok(changes)
@@ -682,18 +781,31 @@ async fn persist_execution_change_history(
     app: &AppHandle,
     session_record_id: &str,
     session_kind: CodexSessionKind,
+    provider: CodexExecutionProvider,
     execution_change_baseline: Option<&ExecutionChangeBaseline>,
+    sdk_file_change_store: Option<&SdkFileChangeStore>,
 ) {
     if session_kind != CodexSessionKind::Execution {
         return;
     }
 
-    let Some(execution_change_baseline) = execution_change_baseline else {
-        return;
-    };
-
     let result = async {
-        let changes = compute_execution_session_file_changes(execution_change_baseline)?;
+        let changes = match provider {
+            CodexExecutionProvider::Sdk => sdk_file_change_store
+                .map(|store| {
+                    let guard = store.lock().unwrap();
+                    let mut values = guard.values().cloned().collect::<Vec<_>>();
+                    values.sort_by(|left, right| left.path.cmp(&right.path));
+                    values
+                })
+                .unwrap_or_default(),
+            CodexExecutionProvider::Cli => {
+                let Some(execution_change_baseline) = execution_change_baseline else {
+                    return Ok(());
+                };
+                compute_execution_session_file_changes(execution_change_baseline)?
+            }
+        };
         replace_codex_session_file_changes(app, session_record_id, &changes).await
     }
     .await;
@@ -716,7 +828,9 @@ async fn finalize_stale_process_slot(
     session_record_id: &str,
     exit_code: Option<i32>,
     error_message: Option<&str>,
+    provider: CodexExecutionProvider,
     execution_change_baseline: Option<&ExecutionChangeBaseline>,
+    sdk_file_change_store: Option<&SdkFileChangeStore>,
 ) {
     let current = fetch_codex_session_by_id(app, session_record_id).await.ok();
     let Some(current) = current else {
@@ -767,7 +881,9 @@ async fn finalize_stale_process_slot(
         app,
         session_record_id,
         normalize_session_kind(Some(current.session_kind.as_str())),
+        provider,
         execution_change_baseline,
+        sdk_file_change_store,
     )
     .await;
 }
@@ -799,7 +915,9 @@ async fn get_live_managed_process(
                 &process.session_record_id,
                 Some(exit_code),
                 None,
+                process.provider,
                 process.execution_change_baseline.as_ref(),
+                process.sdk_file_change_store.as_ref(),
             )
             .await;
             let mut manager = state.lock().map_err(|error| error.to_string())?;
@@ -812,7 +930,9 @@ async fn get_live_managed_process(
                 &process.session_record_id,
                 None,
                 Some(error.as_str()),
+                process.provider,
                 process.execution_change_baseline.as_ref(),
+                process.sdk_file_change_store.as_ref(),
             )
             .await;
             let mut manager = state.lock().map_err(|error| error.to_string())?;
@@ -848,7 +968,9 @@ async fn wait_until_process_stops(
             &process.session_record_id,
             None,
             Some("停止等待超时，已强制回收运行槽位"),
+            process.provider,
             process.execution_change_baseline.as_ref(),
+            process.sdk_file_change_store.as_ref(),
         )
         .await;
     }
@@ -962,35 +1084,6 @@ pub async fn start_codex(
         Some("Codex 会话创建成功，准备启动运行时"),
     )
     .await?;
-    let execution_change_baseline = if session_kind == CodexSessionKind::Execution {
-        match capture_execution_change_baseline(&run_cwd) {
-            Ok(baseline) => Some(baseline),
-            Err(error) => {
-                insert_codex_session_event(
-                    &pool,
-                    &session_record.id,
-                    "session_file_changes_baseline_failed",
-                    Some(&error),
-                )
-                .await?;
-                let _ = app.emit(
-                    "codex-stdout",
-                    CodexOutput {
-                        employee_id: employee_id.clone(),
-                        task_id: task_id.clone(),
-                        session_kind: session_kind.as_str().to_string(),
-                        session_record_id: session_record.id.clone(),
-                        line: format!(
-                            "[WARN] 修改文件基线采集失败，将跳过本次文件变更记录: {error}"
-                        ),
-                    },
-                );
-                None
-            }
-        }
-    } else {
-        None
-    };
 
     let model = normalize_model(model.as_deref());
     let reasoning_effort = normalize_reasoning_effort(reasoning_effort.as_deref());
@@ -1071,6 +1164,36 @@ pub async fn start_codex(
             return Err(error);
         }
     };
+    let execution_change_baseline =
+        if session_kind == CodexSessionKind::Execution && provider == CodexExecutionProvider::Cli {
+            match capture_execution_change_baseline(&run_cwd) {
+                Ok(baseline) => Some(baseline),
+                Err(error) => {
+                    insert_codex_session_event(
+                        &pool,
+                        &session_record.id,
+                        "session_file_changes_baseline_failed",
+                        Some(&error),
+                    )
+                    .await?;
+                    let _ = app.emit(
+                        "codex-stdout",
+                        CodexOutput {
+                            employee_id: employee_id.clone(),
+                            task_id: task_id.clone(),
+                            session_kind: session_kind.as_str().to_string(),
+                            session_record_id: session_record.id.clone(),
+                            line: format!(
+                                "[WARN] CLI 修改文件基线采集失败，将跳过本次 Git 回退记录: {error}"
+                            ),
+                        },
+                    );
+                    None
+                }
+            }
+        } else {
+            None
+        };
 
     configure_process_group(&mut cmd);
 
@@ -1169,6 +1292,13 @@ pub async fn start_codex(
 
     let stdout = child.stdout.take().ok_or("Failed to capture stdout")?;
     let stderr = child.stderr.take().ok_or("Failed to capture stderr")?;
+    let sdk_file_change_store = (provider == CodexExecutionProvider::Sdk
+        && session_kind == CodexSessionKind::Execution)
+        .then(|| {
+            Arc::new(Mutex::new(
+                HashMap::<String, CodexSessionFileChangeInput>::new(),
+            ))
+        });
 
     let child_handle = Arc::new(tokio::sync::Mutex::new(CodexChild { child }));
 
@@ -1178,7 +1308,9 @@ pub async fn start_codex(
             employee_id.clone(),
             child_handle.clone(),
             session_record.id.clone(),
+            provider,
             execution_change_baseline.clone(),
+            sdk_file_change_store.clone(),
         );
     }
     update_codex_session_record(&app, &session_record.id, Some("running"), None, None, None)
@@ -1262,10 +1394,18 @@ pub async fn start_codex(
     let session_emitted_clone = session_emitted.clone();
     let session_record_id = session_record.id.clone();
     let captured_stdout = captured_output.clone();
+    let sdk_file_change_store_for_stdout = sdk_file_change_store.clone();
     tauri::async_runtime::spawn(async move {
         let reader = BufReader::new(stdout);
         let mut lines = reader.lines();
         while let Ok(Some(line)) = lines.next_line().await {
+            if let Some(event) = parse_sdk_file_change_event(&line) {
+                if let Some(store) = sdk_file_change_store_for_stdout.as_ref() {
+                    upsert_sdk_file_change_event(store, event);
+                }
+                continue;
+            }
+
             if !session_emitted_clone.load(Ordering::Relaxed) {
                 if let Some(session_id) = extract_session_id_from_output(&line) {
                     if !session_emitted_clone.swap(true, Ordering::Relaxed) {
@@ -1327,10 +1467,18 @@ pub async fn start_codex(
     let seen_stderr = seen.clone();
     let session_record_id_for_stderr = session_record.id.clone();
     let captured_stderr = captured_output.clone();
+    let sdk_file_change_store_for_stderr = sdk_file_change_store.clone();
     tauri::async_runtime::spawn(async move {
         let reader = BufReader::new(stderr);
         let mut lines = reader.lines();
         while let Ok(Some(line)) = lines.next_line().await {
+            if let Some(event) = parse_sdk_file_change_event(&line) {
+                if let Some(store) = sdk_file_change_store_for_stderr.as_ref() {
+                    upsert_sdk_file_change_event(store, event);
+                }
+                continue;
+            }
+
             let is_dup = {
                 let mut s = seen_stderr.lock().unwrap();
                 if s.contains(&line) {
@@ -1380,6 +1528,7 @@ pub async fn start_codex(
     let session_lookup_started_at = session_lookup_started_at;
     let captured_output_for_exit = captured_output.clone();
     let execution_change_baseline_for_exit = execution_change_baseline.clone();
+    let sdk_file_change_store_for_exit = sdk_file_change_store.clone();
     tauri::async_runtime::spawn(async move {
         let exit_code = loop {
             let maybe_status = {
@@ -1415,7 +1564,9 @@ pub async fn start_codex(
                         &app_clone,
                         &session_record_id,
                         session_kind,
+                        provider_for_exit,
                         execution_change_baseline_for_exit.as_ref(),
+                        sdk_file_change_store_for_exit.as_ref(),
                     )
                     .await;
                     let manager = app_clone.state::<Arc<Mutex<CodexManager>>>();
@@ -1482,7 +1633,9 @@ pub async fn start_codex(
             &app_clone,
             &session_record_id,
             session_kind,
+            provider_for_exit,
             execution_change_baseline_for_exit.as_ref(),
+            sdk_file_change_store_for_exit.as_ref(),
         )
         .await;
         if let Ok(pool) = sqlite_pool(&app_clone).await {
@@ -2134,7 +2287,8 @@ mod tests {
         build_ai_generate_plan_prompt, build_one_shot_exec_args, compose_codex_prompt,
         compute_execution_session_file_changes_from_entries, extract_session_id_from_output,
         format_session_prompt_log, hash_worktree_path, parse_ai_subtasks_response,
-        parse_sdk_bridge_output, CodexExecutionProvider, WorkingTreeSnapshotEntry,
+        parse_sdk_bridge_output, parse_sdk_file_change_event, CodexExecutionProvider,
+        WorkingTreeSnapshotEntry,
     };
 
     fn snapshot_entry(
@@ -2362,15 +2516,35 @@ mod tests {
         assert_eq!(changes.len(), 4);
         assert_eq!(changes[0].path, "src/existing.ts");
         assert_eq!(changes[0].change_type, "modified");
+        assert_eq!(changes[0].capture_mode, "git_fallback");
         assert_eq!(changes[1].path, "src/new-file.ts");
         assert_eq!(changes[1].change_type, "added");
+        assert_eq!(changes[1].capture_mode, "git_fallback");
         assert_eq!(changes[2].path, "src/removed.ts");
         assert_eq!(changes[2].change_type, "deleted");
+        assert_eq!(changes[2].capture_mode, "git_fallback");
         assert_eq!(changes[3].path, "src/rename-new.ts");
         assert_eq!(changes[3].change_type, "renamed");
+        assert_eq!(changes[3].capture_mode, "git_fallback");
         assert_eq!(
             changes[3].previous_path.as_deref(),
             Some("src/rename-old.ts")
+        );
+    }
+
+    #[test]
+    fn parses_sdk_file_change_event_lines() {
+        let event = parse_sdk_file_change_event(
+            "[CODEX_FILE_CHANGE] {\"changes\":[{\"kind\":\"modified\",\"path\":\"src/app.tsx\",\"previous_path\":\"src/old.tsx\"}]}",
+        )
+        .expect("parse sdk file change line");
+
+        assert_eq!(event.changes.len(), 1);
+        assert_eq!(event.changes[0].kind.as_deref(), Some("modified"));
+        assert_eq!(event.changes[0].path.as_deref(), Some("src/app.tsx"));
+        assert_eq!(
+            event.changes[0].previous_path.as_deref(),
+            Some("src/old.tsx")
         );
     }
 

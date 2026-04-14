@@ -833,6 +833,16 @@ export function TaskDetailDialog({
     }
   }
 
+  function getExecutionChangeCaptureModeLabel(captureMode: TaskExecutionChangeHistoryItem["capture_mode"]) {
+    return captureMode === "sdk_event" ? "按 Codex 事件记录" : "按 Git 快照估算";
+  }
+
+  function getExecutionChangeCaptureModeDescription(captureMode: TaskExecutionChangeHistoryItem["capture_mode"]) {
+    return captureMode === "sdk_event"
+      ? "当前列表仅表示本次 Codex 会话工具实际改动到的文件。"
+      : "当前列表基于 Git 工作区前后快照估算，可能混入其他并行任务改动。";
+  }
+
   const aiActionDisabled = aiLoading !== null || planLoading || insertSubmitting;
 
   return (
@@ -1068,9 +1078,9 @@ export function TaskDetailDialog({
           <div className="space-y-3 rounded-md border border-border/70 bg-muted/20 p-3">
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div className="space-y-1">
-                <p className="text-sm font-medium">修改文件</p>
+                <p className="text-sm font-medium">Codex 改动文件</p>
                 <p className="text-[11px] text-muted-foreground">
-                  按 execution 会话记录本次新增影响到的文件，包含新增、修改、删除和重命名。
+                  SDK 会话按 Codex 事件精确记录；CLI 会话仅在无法获取结构化事件时回退为 Git 快照估算。
                 </p>
               </div>
               <button
@@ -1103,6 +1113,11 @@ export function TaskDetailDialog({
                         {item.session.cli_session_id ?? item.session.id}
                       </span>
                     </div>
+                    <div className="mt-2 rounded-md border border-border/60 bg-muted/30 px-3 py-2 text-[11px] text-muted-foreground">
+                      <span className="font-medium text-foreground">{getExecutionChangeCaptureModeLabel(item.capture_mode)}</span>
+                      {" · "}
+                      {getExecutionChangeCaptureModeDescription(item.capture_mode)}
+                    </div>
 
                     {item.changes.length > 0 ? (
                       <div className="mt-3 space-y-2">
@@ -1129,7 +1144,9 @@ export function TaskDetailDialog({
                       </div>
                     ) : (
                       <div className="mt-3 rounded-md border border-dashed border-border px-3 py-4 text-center text-xs text-muted-foreground">
-                        本次运行未产生新增文件变更。
+                        {item.capture_mode === "sdk_event"
+                          ? "本次运行没有结构化文件变更记录。"
+                          : "本次 Git 快照估算未发现新增文件变更。"}
                       </div>
                     )}
                   </div>
