@@ -25,6 +25,14 @@ pub fn run() {
         .setup(|app| {
             tray::create_tray(app)?;
             app.manage(Arc::new(Mutex::new(CodexManager::new())));
+
+            if cfg!(debug_assertions) {
+                let app_handle = app.handle().clone();
+                tauri::async_runtime::block_on(async move {
+                    app::log_database_startup_status(&app_handle).await;
+                });
+            }
+
             Ok(())
         })
         .on_window_event(window_event::handle_window_event)
