@@ -629,6 +629,22 @@ fn build_sdk_input_items(prompt: &str, image_paths: &[String]) -> Vec<serde_json
     items
 }
 
+fn sdk_codex_path_override_allowed_for_os(path: &Path, target_os: &str) -> bool {
+    if target_os != "windows" {
+        return true;
+    }
+
+    path.extension()
+        .and_then(|value| value.to_str())
+        .map(|value| value.eq_ignore_ascii_case("exe"))
+        .unwrap_or(false)
+}
+
+fn sdk_codex_path_override_from_resolved_path(path: &Path) -> Option<String> {
+    sdk_codex_path_override_allowed_for_os(path, std::env::consts::OS)
+        .then(|| path_to_runtime_string(path))
+}
+
 #[cfg(unix)]
 fn configure_process_group(command: &mut tokio::process::Command) {
     unsafe {
@@ -1112,10 +1128,10 @@ pub async fn start_codex(
                         match new_node_command(settings.node_path_override.as_deref()).await {
                             Ok(mut command) => {
                                 provider = CodexExecutionProvider::Sdk;
-                                sdk_codex_path_override = resolve_codex_executable_path()
-                                    .await
-                                    .ok()
-                                    .map(|path| path_to_runtime_string(&path));
+                                sdk_codex_path_override =
+                                    resolve_codex_executable_path().await.ok().and_then(|path| {
+                                        sdk_codex_path_override_from_resolved_path(&path)
+                                    });
                                 if let Some(ref codex_path_override) = sdk_codex_path_override {
                                     command.env("CODEX_CLI_PATH", codex_path_override);
                                 }
@@ -1277,6 +1293,7 @@ pub async fn start_codex(
                 "prompt": prompt.clone(),
                 "input": build_sdk_input_items(&prompt, &image_paths),
                 "model": model,
+                "modelReasoningEffort": reasoning_effort,
                 "codexPathOverride": sdk_codex_path_override.clone(),
                 "workingDirectory": run_cwd.clone(),
                 "resumeSessionId": resume_session_id.clone(),
@@ -2075,7 +2092,7 @@ async fn run_ai_command_via_sdk(
     let codex_path_override = resolve_codex_executable_path()
         .await
         .ok()
-        .map(|path| path_to_runtime_string(&path));
+        .and_then(|path| sdk_codex_path_override_from_resolved_path(&path));
     if let Some(ref codex_path_override) = codex_path_override {
         command.env("CODEX_CLI_PATH", codex_path_override);
     }
@@ -2325,6 +2342,7 @@ fn build_ai_generate_plan_prompt(
 mod tests {
     use std::collections::HashMap;
     use std::fs;
+    use std::path::Path;
     use std::time::{SystemTime, UNIX_EPOCH};
 
     use super::{
@@ -2332,7 +2350,7 @@ mod tests {
         compose_codex_prompt, compute_execution_session_file_changes_from_entries,
         extract_session_id_from_output, format_session_prompt_log, hash_worktree_path,
         parse_ai_subtasks_response, parse_sdk_bridge_output, parse_sdk_file_change_event,
-        CodexExecutionProvider, WorkingTreeSnapshotEntry,
+        sdk_codex_path_override_allowed_for_os, CodexExecutionProvider, WorkingTreeSnapshotEntry,
     };
 
     fn snapshot_entry(
@@ -2392,6 +2410,34 @@ mod tests {
                 "-".to_string(),
             ]
         );
+    }
+
+    #[test]
+    fn sdk_path_override_uses_native_binary_only_on_windows() {
+        assert!(sdk_codex_path_override_allowed_for_os(
+            Path::new(r"C:\Users\demo\AppData\Roaming\npm\codex.exe"),
+            "windows"
+        ));
+        assert!(!sdk_codex_path_override_allowed_for_os(
+            Path::new(r"C:\Users\demo\AppData\Roaming\npm\codex.cmd"),
+            "windows"
+        ));
+        assert!(!sdk_codex_path_override_allowed_for_os(
+            Path::new(r"C:\Users\demo\AppData\Roaming\npm\codex"),
+            "windows"
+        ));
+    }
+
+    #[test]
+    fn sdk_path_override_keeps_non_windows_platforms_compatible() {
+        assert!(sdk_codex_path_override_allowed_for_os(
+            Path::new("/usr/local/bin/codex"),
+            "macos"
+        ));
+        assert!(sdk_codex_path_override_allowed_for_os(
+            Path::new("/home/demo/.local/bin/codex"),
+            "linux"
+        ));
     }
 
     #[test]
