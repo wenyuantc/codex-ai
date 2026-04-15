@@ -136,6 +136,11 @@ export interface TaskExecutionChangeHistoryItem {
   changes: CodexSessionFileChange[];
 }
 
+export interface CodexSessionLogLine {
+  event_id: string;
+  line: string;
+}
+
 export interface CodexSessionListItem {
   session_record_id: string;
   session_id: string;

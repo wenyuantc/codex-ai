@@ -14,9 +14,9 @@ use tokio::time::sleep;
 
 use crate::app::{
     fetch_codex_session_by_id, insert_activity_log, insert_codex_session_event,
-    insert_codex_session_record, now_sqlite, path_to_runtime_string,
-    replace_codex_session_file_changes, sqlite_pool, update_codex_session_record,
-    validate_project_repo_path, validate_runtime_working_dir,
+    insert_codex_session_event_with_id, insert_codex_session_record, now_sqlite,
+    path_to_runtime_string, replace_codex_session_file_changes, sqlite_pool,
+    update_codex_session_record, validate_project_repo_path, validate_runtime_working_dir,
 };
 use crate::codex::{
     ensure_sdk_runtime_layout, inspect_sdk_runtime, load_codex_settings, new_codex_command,
@@ -842,6 +842,7 @@ async fn write_task_session_activity(
                 task_id: Some(task_id.to_string()),
                 session_kind: session_kind.as_str().to_string(),
                 session_record_id: session_record_id.to_string(),
+                session_event_id: None,
                 line: format!("[WARN] 活动日志写入失败: {}", error),
             },
         );
@@ -1280,6 +1281,7 @@ pub async fn start_codex(
                             task_id: task_id.clone(),
                             session_kind: session_kind.as_str().to_string(),
                             session_record_id: session_record.id.clone(),
+                            session_event_id: None,
                             line: format!(
                                 "[WARN] CLI 修改文件基线采集失败，将跳过本次 Git 回退记录: {error}"
                             ),
@@ -1315,6 +1317,7 @@ pub async fn start_codex(
                 task_id: task_id.clone(),
                 session_kind: session_kind.as_str().to_string(),
                 session_record_id: session_record.id.clone(),
+                session_event_id: None,
                 line: format!("[WARN] 附件图片不存在，已跳过: {}", missing_path),
             },
         );
@@ -1327,6 +1330,7 @@ pub async fn start_codex(
             task_id: task_id.clone(),
             session_kind: session_kind.as_str().to_string(),
             session_record_id: session_record.id.clone(),
+            session_event_id: None,
             line: format_session_prompt_log(
                 provider,
                 model,
@@ -1544,13 +1548,14 @@ pub async fn start_codex(
                         }
                     }
                 }
-                let _ = insert_codex_session_event(
+                let session_event_id = insert_codex_session_event_with_id(
                     &pool_for_stdout,
                     &session_record_id,
                     "stdout",
                     Some(&line),
                 )
-                .await;
+                .await
+                .ok();
                 let _ = app_clone.emit(
                     "codex-stdout",
                     CodexOutput {
@@ -1558,6 +1563,7 @@ pub async fn start_codex(
                         task_id: task_id_for_stdout.clone(),
                         session_kind: session_kind.as_str().to_string(),
                         session_record_id: session_record_id.clone(),
+                        session_event_id,
                         line,
                     },
                 );
@@ -1608,13 +1614,14 @@ pub async fn start_codex(
                         }
                     }
                 }
-                let _ = insert_codex_session_event(
+                let session_event_id = insert_codex_session_event_with_id(
                     &pool_for_stderr,
                     &session_record_id_for_stderr,
                     "stderr",
                     Some(&line),
                 )
-                .await;
+                .await
+                .ok();
                 let _ = app_clone.emit(
                     "codex-stdout",
                     CodexOutput {
@@ -1622,6 +1629,7 @@ pub async fn start_codex(
                         task_id: task_id_for_stderr.clone(),
                         session_kind: session_kind.as_str().to_string(),
                         session_record_id: session_record_id_for_stderr.clone(),
+                        session_event_id,
                         line,
                     },
                 );
@@ -1655,6 +1663,7 @@ pub async fn start_codex(
                 Err(error) => {
                     let pool = sqlite_pool(&app_clone).await.ok();
                     let ended_at = now_sqlite();
+                    let exit_line = Some(format!("[ERROR] {}", error.trim()));
                     let _ = update_codex_session_record(
                         &app_clone,
                         &session_record_id,
@@ -1664,15 +1673,18 @@ pub async fn start_codex(
                         Some(Some(ended_at.as_str())),
                     )
                     .await;
-                    if let Some(pool) = pool {
-                        let _ = insert_codex_session_event(
-                            &pool,
+                    let session_event_id = if let Some(pool) = pool.as_ref() {
+                        insert_codex_session_event_with_id(
+                            pool,
                             &session_record_id,
                             "session_failed",
                             Some(&error),
                         )
-                        .await;
-                    }
+                        .await
+                        .ok()
+                    } else {
+                        None
+                    };
                     persist_execution_change_history(
                         &app_clone,
                         &session_record_id,
@@ -1692,6 +1704,8 @@ pub async fn start_codex(
                             task_id: task_id_clone.clone(),
                             session_kind: session_kind.as_str().to_string(),
                             session_record_id: session_record_id.clone(),
+                            session_event_id,
+                            line: exit_line,
                             code: None,
                         },
                     );
@@ -1751,16 +1765,23 @@ pub async fn start_codex(
             sdk_file_change_store_for_exit.as_ref(),
         )
         .await;
+        let message = format!("进程退出，exit_code={}", exit_code.unwrap_or_default());
+        let exit_line = Some(if final_status == "exited" {
+            format!("[EXIT] {}", message.trim())
+        } else {
+            format!("[ERROR] {}", message.trim())
+        });
+        let mut session_event_id = None;
         if let Ok(pool) = sqlite_pool(&app_clone).await {
             let event_type = if final_status == "exited" {
                 "session_exited"
             } else {
                 "session_failed"
             };
-            let message = format!("进程退出，exit_code={}", exit_code.unwrap_or_default());
-            let _ =
-                insert_codex_session_event(&pool, &session_record_id, event_type, Some(&message))
-                    .await;
+            session_event_id =
+                insert_codex_session_event_with_id(&pool, &session_record_id, event_type, Some(&message))
+                    .await
+                    .ok();
             if session_kind == CodexSessionKind::Review {
                 let raw_output = captured_output_for_exit
                     .as_ref()
@@ -1828,6 +1849,8 @@ pub async fn start_codex(
                 task_id: task_id_clone,
                 session_kind: session_kind.as_str().to_string(),
                 session_record_id,
+                session_event_id,
+                line: exit_line,
                 code: exit_code,
             },
         );

@@ -7,6 +7,7 @@ export interface CodexOutput {
   task_id: string | null;
   session_kind: CodexSessionKind;
   session_record_id: string;
+  session_event_id: string | null;
   line: string;
 }
 
@@ -15,6 +16,8 @@ export interface CodexExit {
   task_id: string | null;
   session_kind: CodexSessionKind;
   session_record_id: string;
+  session_event_id: string | null;
+  line: string | null;
   code: number | null;
 }
 

@@ -19,10 +19,11 @@ use uuid::Uuid;
 use crate::codex::{inspect_sdk_runtime, load_codex_settings, new_codex_command, CodexManager};
 use crate::db::models::{
     CodexHealthCheck, CodexRuntimeStatus, CodexSessionFileChange, CodexSessionFileChangeInput,
-    CodexSessionListItem, CodexSessionRecord, CodexSessionResumePreview, Comment, CreateComment,
-    CreateEmployee, CreateProject, CreateSubtask, CreateTask, DatabaseBackupResult,
-    DatabaseRestoreResult, Employee, EmployeeMetric, Project, Subtask, Task, TaskAttachment,
-    TaskExecutionChangeHistoryItem, TaskLatestReview, UpdateEmployee, UpdateProject, UpdateTask,
+    CodexSessionListItem, CodexSessionLogLine, CodexSessionRecord, CodexSessionResumePreview,
+    Comment, CreateComment, CreateEmployee, CreateProject, CreateSubtask, CreateTask,
+    DatabaseBackupResult, DatabaseRestoreResult, Employee, EmployeeMetric, Project, Subtask,
+    Task, TaskAttachment, TaskExecutionChangeHistoryItem, TaskLatestReview, UpdateEmployee,
+    UpdateProject, UpdateTask,
 };
 
 pub const DB_URL: &str = "sqlite:codex-ai.db";
@@ -1085,16 +1086,18 @@ pub(crate) async fn insert_activity_log(
     Ok(())
 }
 
-pub(crate) async fn insert_codex_session_event(
+pub(crate) async fn insert_codex_session_event_with_id(
     pool: &SqlitePool,
     session_id: &str,
     event_type: &str,
     message: Option<&str>,
-) -> Result<(), String> {
+) -> Result<String, String> {
+    let event_id = new_id();
+
     sqlx::query(
         "INSERT INTO codex_session_events (id, session_id, event_type, message) VALUES ($1, $2, $3, $4)",
     )
-    .bind(new_id())
+    .bind(&event_id)
     .bind(session_id)
     .bind(event_type)
     .bind(message)
@@ -1102,7 +1105,75 @@ pub(crate) async fn insert_codex_session_event(
     .await
     .map_err(|error| format!("Failed to insert session event: {}", error))?;
 
-    Ok(())
+    Ok(event_id)
+}
+
+pub(crate) async fn insert_codex_session_event(
+    pool: &SqlitePool,
+    session_id: &str,
+    event_type: &str,
+    message: Option<&str>,
+) -> Result<(), String> {
+    insert_codex_session_event_with_id(pool, session_id, event_type, message)
+        .await
+        .map(|_| ())
+}
+
+#[tauri::command]
+pub async fn get_codex_session_log_lines<R: Runtime>(
+    app: AppHandle<R>,
+    session_id: String,
+) -> Result<Vec<CodexSessionLogLine>, String> {
+    let pool = sqlite_pool(&app).await?;
+    let resolved_session_record_id = sqlx::query_scalar::<_, String>(
+        r#"
+        SELECT id
+        FROM codex_sessions
+        WHERE id = $1 OR cli_session_id = $1
+        ORDER BY CASE WHEN id = $1 THEN 0 ELSE 1 END, started_at DESC
+        LIMIT 1
+        "#,
+    )
+    .bind(&session_id)
+    .fetch_optional(&pool)
+    .await
+    .map_err(|error| format!("Failed to resolve session log target: {}", error))?;
+
+    let Some(resolved_session_record_id) = resolved_session_record_id else {
+        return Ok(Vec::new());
+    };
+
+    let rows = sqlx::query_as::<_, (String, String, Option<String>)>(
+        r#"
+        WITH recent AS (
+            SELECT rowid AS event_rowid, id, event_type, message
+            FROM codex_session_events
+            WHERE session_id = $1
+              AND message IS NOT NULL
+            ORDER BY event_rowid DESC
+            LIMIT 2000
+        )
+        SELECT id, event_type, message
+        FROM recent
+        ORDER BY event_rowid ASC
+        "#,
+    )
+    .bind(&resolved_session_record_id)
+    .fetch_all(&pool)
+    .await
+    .map_err(|error| format!("Failed to fetch session log lines: {}", error))?;
+
+    Ok(rows
+        .into_iter()
+        .filter_map(|(event_id, event_type, message)| {
+            message.and_then(|value| {
+                format_session_log_line(&event_type, &value).map(|line| CodexSessionLogLine {
+                    event_id,
+                    line,
+                })
+            })
+        })
+        .collect())
 }
 
 pub(crate) async fn replace_codex_session_file_changes<R: Runtime>(
@@ -2040,58 +2111,6 @@ pub async fn prepare_codex_session_resume<R: Runtime>(
         resume_message,
         can_resume,
     })
-}
-
-#[tauri::command]
-pub async fn get_codex_session_log_lines<R: Runtime>(
-    app: AppHandle<R>,
-    session_id: String,
-) -> Result<Vec<String>, String> {
-    let pool = sqlite_pool(&app).await?;
-    let resolved_session_record_id = sqlx::query_scalar::<_, String>(
-        r#"
-        SELECT id
-        FROM codex_sessions
-        WHERE id = $1 OR cli_session_id = $1
-        ORDER BY CASE WHEN id = $1 THEN 0 ELSE 1 END, started_at DESC
-        LIMIT 1
-        "#,
-    )
-    .bind(&session_id)
-    .fetch_optional(&pool)
-    .await
-    .map_err(|error| format!("Failed to resolve session log target: {}", error))?;
-
-    let Some(resolved_session_record_id) = resolved_session_record_id else {
-        return Ok(Vec::new());
-    };
-
-    let rows = sqlx::query_as::<_, (String, Option<String>)>(
-        r#"
-        WITH recent AS (
-            SELECT event_type, message, created_at, id
-            FROM codex_session_events
-            WHERE session_id = $1
-              AND message IS NOT NULL
-            ORDER BY created_at DESC, id DESC
-            LIMIT 2000
-        )
-        SELECT event_type, message
-        FROM recent
-        ORDER BY created_at ASC, id ASC
-        "#,
-    )
-    .bind(&resolved_session_record_id)
-    .fetch_all(&pool)
-    .await
-    .map_err(|error| format!("Failed to fetch session log lines: {}", error))?;
-
-    Ok(rows
-        .into_iter()
-        .filter_map(|(event_type, message)| {
-            message.and_then(|value| format_session_log_line(&event_type, &value))
-        })
-        .collect())
 }
 
 #[tauri::command]

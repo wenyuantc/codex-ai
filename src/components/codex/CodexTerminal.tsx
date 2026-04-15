@@ -21,10 +21,17 @@ export function CodexTerminal({ employeeId, taskId, sessionRecordId, sessionKind
   const sessionLogs = useEmployeeStore((s) => s.sessionLogs);
   const process = employeeId ? codexProcesses[employeeId] : undefined;
   const output = sessionRecordId
-    ? sessionLogs[sessionRecordId] ?? []
-    : taskId
+    ? (sessionLogs[sessionRecordId] ?? []).map((entry) => ({
+        key: entry.event_id,
+        line: entry.line,
+      }))
+    : (taskId
       ? taskLogs[buildTaskLogKey(taskId, sessionKind)] ?? []
-      : process?.output ?? [];
+      : process?.output ?? []
+    ).map((line, index) => ({
+      key: `${index}:${line}`,
+      line,
+    }));
   const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -69,8 +76,8 @@ export function CodexTerminal({ employeeId, taskId, sessionRecordId, sessionKind
             <div className="text-zinc-600">暂无输出</div>
           ) : (
             output.map((line, i) => (
-              <div key={i} className={`whitespace-pre-wrap ${getLineColor(line)}`}>
-                {line}
+              <div key={output[i].key} className={`whitespace-pre-wrap ${getLineColor(line.line)}`}>
+                {line.line}
               </div>
             ))
           )}

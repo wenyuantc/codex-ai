@@ -34,14 +34,14 @@ export function SessionLogDialog({
   session,
   onOpenChange,
 }: SessionLogDialogProps) {
-  const sessionLogs = useEmployeeStore((state) => state.sessionLogs);
   const hydrateSessionLog = useEmployeeStore((state) => state.hydrateSessionLog);
   const [loadingHistory, setLoadingHistory] = useState(false);
   const [historyError, setHistoryError] = useState<string | null>(null);
+  const [loadedSessionHistories, setLoadedSessionHistories] = useState<Record<string, boolean>>({});
   const sessionRecordId = session?.sessionRecordId ?? null;
 
   useEffect(() => {
-    if (!open || !sessionRecordId || sessionLogs[sessionRecordId]) {
+    if (!open || !sessionRecordId || loadedSessionHistories[sessionRecordId]) {
       return;
     }
 
@@ -55,6 +55,10 @@ export function SessionLogDialog({
           return;
         }
         hydrateSessionLog(sessionRecordId, lines);
+        setLoadedSessionHistories((current) => ({
+          ...current,
+          [sessionRecordId]: true,
+        }));
       })
       .catch((error) => {
         if (!active) {
@@ -71,7 +75,7 @@ export function SessionLogDialog({
     return () => {
       active = false;
     };
-  }, [hydrateSessionLog, open, sessionLogs, sessionRecordId]);
+  }, [hydrateSessionLog, loadedSessionHistories, open, sessionRecordId]);
 
   useEffect(() => {
     if (!open) {

@@ -240,6 +240,12 @@ pub struct TaskExecutionChangeHistoryItem {
     pub changes: Vec<CodexSessionFileChange>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CodexSessionLogLine {
+    pub event_id: String,
+    pub line: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct CodexSessionListItem {
     pub session_record_id: String,
@@ -401,6 +407,7 @@ pub struct CodexOutput {
     pub task_id: Option<String>,
     pub session_kind: String,
     pub session_record_id: String,
+    pub session_event_id: Option<String>,
     pub line: String,
 }
 
@@ -410,6 +417,8 @@ pub struct CodexExit {
     pub task_id: Option<String>,
     pub session_kind: String,
     pub session_record_id: String,
+    pub session_event_id: Option<String>,
+    pub line: Option<String>,
     pub code: Option<i32>,
 }
 

@@ -4,6 +4,7 @@ import type {
   CodexSdkInstallResult,
   CodexSettings,
   CodexRuntimeStatus,
+  CodexSessionLogLine,
   CodexSessionListItem,
   CodexSessionResumePreview,
   DatabaseBackupResult,
@@ -120,7 +121,7 @@ export async function prepareCodexSessionResume(
   return invoke("prepare_codex_session_resume", { sessionId });
 }
 
-export async function getCodexSessionLogLines(sessionId: string): Promise<string[]> {
+export async function getCodexSessionLogLines(sessionId: string): Promise<CodexSessionLogLine[]> {
   return invoke("get_codex_session_log_lines", { sessionId });
 }
 

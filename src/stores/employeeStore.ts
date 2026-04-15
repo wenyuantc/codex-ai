@@ -7,7 +7,13 @@ import {
   updateEmployee as updateEmployeeCommand,
   updateEmployeeStatus as updateEmployeeStatusCommand,
 } from "@/lib/backend";
-import type { CodexSessionKind, Employee, ReasoningEffort, CodexModelId } from "@/lib/types";
+import type {
+  CodexModelId,
+  CodexSessionKind,
+  CodexSessionLogLine,
+  Employee,
+  ReasoningEffort,
+} from "@/lib/types";
 import { onCodexOutput, onCodexExit, type CodexOutput } from "@/lib/codex";
 
 interface CodexProcessState {
@@ -21,18 +27,18 @@ interface EmployeeStore {
   loading: boolean;
   codexProcesses: Record<string, CodexProcessState>;
   taskLogs: Record<string, string[]>;
-  sessionLogs: Record<string, string[]>;
+  sessionLogs: Record<string, CodexSessionLogLine[]>;
   fetchEmployees: () => Promise<void>;
   refreshCodexRuntimeStatus: (employeeId: string) => Promise<void>;
   createEmployee: (data: { name: string; role: string; model?: CodexModelId; reasoning_effort?: ReasoningEffort; specialization?: string; system_prompt?: string; project_id?: string }) => Promise<void>;
   updateEmployee: (id: string, updates: Partial<Pick<Employee, "name" | "role" | "model" | "reasoning_effort" | "specialization" | "system_prompt" | "project_id" | "status">>) => Promise<void>;
   deleteEmployee: (id: string) => Promise<void>;
   updateEmployeeStatus: (id: string, status: string) => Promise<void>;
-  addCodexOutput: (employeeId: string, line: string, taskId?: string | null, sessionKind?: CodexSessionKind, sessionRecordId?: string | null) => void;
+  addCodexOutput: (employeeId: string, line: string, taskId?: string | null, sessionKind?: CodexSessionKind, sessionRecordId?: string | null, sessionEventId?: string | null) => void;
   setCodexRunning: (employeeId: string, running: boolean, activeTaskId?: string | null) => void;
   clearCodexOutput: (employeeId: string) => void;
   clearTaskCodexOutput: (taskId: string, sessionKind?: CodexSessionKind) => void;
-  hydrateSessionLog: (sessionRecordId: string, lines: string[]) => void;
+  hydrateSessionLog: (sessionRecordId: string, lines: CodexSessionLogLine[]) => void;
   clearSessionCodexOutput: (sessionRecordId: string) => void;
   initCodexListeners: () => () => void;
 }
@@ -65,6 +71,45 @@ function deriveEmployeeRuntimeStatus(employee: Employee, runtime: Awaited<Return
 
 export function buildTaskLogKey(taskId: string, sessionKind: CodexSessionKind = "execution") {
   return `${taskId}::${sessionKind}`;
+}
+
+let syntheticSessionLogEventCounter = 0;
+
+function nextSyntheticSessionLogEventId() {
+  syntheticSessionLogEventCounter += 1;
+  return `live:${syntheticSessionLogEventCounter}`;
+}
+
+function appendSessionLogLine(
+  existingLines: CodexSessionLogLine[],
+  line: string,
+  sessionEventId?: string | null,
+) {
+  if (sessionEventId && existingLines.some((entry) => entry.event_id === sessionEventId)) {
+    return existingLines;
+  }
+
+  return [
+    ...existingLines.slice(-1999),
+    {
+      event_id: sessionEventId ?? nextSyntheticSessionLogEventId(),
+      line,
+    },
+  ];
+}
+
+function mergeSessionLogHistory(historyLines: CodexSessionLogLine[], liveLines: CodexSessionLogLine[]) {
+  const mergedLines = historyLines.slice(-2000);
+  const seenEventIds = new Set(mergedLines.map((entry) => entry.event_id));
+
+  for (const liveLine of liveLines) {
+    if (!seenEventIds.has(liveLine.event_id)) {
+      seenEventIds.add(liveLine.event_id);
+      mergedLines.push(liveLine);
+    }
+  }
+
+  return mergedLines.slice(-2000);
 }
 
 export const useEmployeeStore = create<EmployeeStore>((set, get) => ({
@@ -168,7 +213,7 @@ export const useEmployeeStore = create<EmployeeStore>((set, get) => ({
     }));
   },
 
-  addCodexOutput: (employeeId, line, taskId, sessionKind = "execution", sessionRecordId) => {
+  addCodexOutput: (employeeId, line, taskId, sessionKind = "execution", sessionRecordId, sessionEventId) => {
     set((state) => ({
       codexProcesses: {
         ...state.codexProcesses,
@@ -190,10 +235,11 @@ export const useEmployeeStore = create<EmployeeStore>((set, get) => ({
       sessionLogs: sessionRecordId
         ? {
             ...state.sessionLogs,
-            [sessionRecordId]: [
-              ...(state.sessionLogs[sessionRecordId] ?? []).slice(-1999),
+            [sessionRecordId]: appendSessionLogLine(
+              state.sessionLogs[sessionRecordId] ?? [],
               line,
-            ],
+              sessionEventId,
+            ),
           }
         : state.sessionLogs,
     }));
@@ -239,7 +285,10 @@ export const useEmployeeStore = create<EmployeeStore>((set, get) => ({
     set((state) => ({
       sessionLogs: {
         ...state.sessionLogs,
-        [sessionRecordId]: lines.slice(-2000),
+        [sessionRecordId]: mergeSessionLogHistory(
+          lines,
+          state.sessionLogs[sessionRecordId] ?? [],
+        ),
       },
     }));
   },
@@ -265,16 +314,20 @@ export const useEmployeeStore = create<EmployeeStore>((set, get) => ({
             output.task_id,
             output.session_kind,
             output.session_record_id,
+            output.session_event_id,
           );
         }),
         onCodexExit((exit) => {
-          get().addCodexOutput(
-            exit.employee_id,
-            `[EXIT] Code: ${exit.code ?? "unknown"}`,
-            exit.task_id,
-            exit.session_kind,
-            exit.session_record_id,
-          );
+          if (exit.line) {
+            get().addCodexOutput(
+              exit.employee_id,
+              exit.line,
+              exit.task_id,
+              exit.session_kind,
+              exit.session_record_id,
+              exit.session_event_id,
+            );
+          }
           get().setCodexRunning(exit.employee_id, false, null);
           void get().updateEmployeeStatus(exit.employee_id, "offline");
         }),
