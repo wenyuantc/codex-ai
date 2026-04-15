@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { startCodex, stopCodex, restartCodex } from "@/lib/codex";
+import { startTaskCodeReview } from "@/lib/backend";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -15,13 +16,21 @@ const STARTABLE_TASK_STATUSES = ["todo", "in_progress", "review"];
 
 interface CodexControlsProps {
   employeeId: string;
+  employeeRole: string;
   employeeStatus: string;
   model: string;
   reasoningEffort: string;
   systemPrompt?: string | null;
 }
 
-export function CodexControls({ employeeId, employeeStatus, model, reasoningEffort, systemPrompt }: CodexControlsProps) {
+export function CodexControls({
+  employeeId,
+  employeeRole,
+  employeeStatus,
+  model,
+  reasoningEffort,
+  systemPrompt,
+}: CodexControlsProps) {
   const updateEmployeeStatus = useEmployeeStore((s) => s.updateEmployeeStatus);
   const setCodexRunning = useEmployeeStore((s) => s.setCodexRunning);
   const clearCodexOutput = useEmployeeStore((s) => s.clearCodexOutput);
@@ -45,6 +54,7 @@ export function CodexControls({ employeeId, employeeStatus, model, reasoningEffo
   const [selectedTaskId, setSelectedTaskId] = useState("");
 
   const isRunning = employeeStatus === "online" || employeeStatus === "busy";
+  const isReviewer = employeeRole === "reviewer";
   const normalizedKeyword = taskKeyword.trim().toLowerCase();
   const eligibleTasks = tasks.filter((task) => {
     if (currentProjectId && task.project_id !== currentProjectId) {
@@ -55,7 +65,8 @@ export function CodexControls({ employeeId, employeeStatus, model, reasoningEffo
       return false;
     }
 
-    if (task.assignee_id && task.assignee_id !== employeeId) {
+    const reviewerCanPickReviewTask = isReviewer && task.status === "review";
+    if (!reviewerCanPickReviewTask && task.assignee_id && task.assignee_id !== employeeId) {
       return false;
     }
 
@@ -68,6 +79,7 @@ export function CodexControls({ employeeId, employeeStatus, model, reasoningEffo
     return searchableText.includes(normalizedKeyword);
   });
   const selectedTask = eligibleTasks.find((task) => task.id === selectedTaskId) ?? null;
+  const shouldStartReview = isReviewer && selectedTask?.status === "review";
 
   useEffect(() => {
     if (!showTaskDialog) {
@@ -117,8 +129,24 @@ export function CodexControls({ employeeId, employeeStatus, model, reasoningEffo
       return;
     }
 
+    const startAsReview = isReviewer && selectedTask.status === "review";
+    const sessionKind = startAsReview ? "review" : "execution";
     setActionLoading("start");
     try {
+      if (startAsReview) {
+        if (selectedTask.reviewer_id !== employeeId) {
+          await updateTask(selectedTask.id, { reviewer_id: employeeId });
+        }
+
+        await updateEmployeeStatus(employeeId, "busy");
+        setCodexRunning(employeeId, true, selectedTask.id);
+        clearCodexOutput(employeeId);
+        clearTaskCodexOutput(selectedTask.id, "review");
+        await startTaskCodeReview(selectedTask.id);
+        setShowTaskDialog(false);
+        return;
+      }
+
       if (!selectedTask.assignee_id) {
         await updateTask(selectedTask.id, { assignee_id: employeeId });
       }
@@ -147,9 +175,10 @@ export function CodexControls({ employeeId, employeeStatus, model, reasoningEffo
       });
       setShowTaskDialog(false);
     } catch (e) {
-      console.error("Failed to start codex:", e);
+      const message = e instanceof Error ? e.message : String(e);
+      console.error("Failed to start task:", e);
       setCodexRunning(employeeId, false, null);
-      addCodexOutput(employeeId, `[ERROR] ${String(e)}`, selectedTask.id);
+      addCodexOutput(employeeId, `[ERROR] ${message}`, selectedTask.id, sessionKind);
       await refreshCodexRuntimeStatus(employeeId);
     } finally {
       setActionLoading(null);
@@ -245,7 +274,9 @@ export function CodexControls({ employeeId, employeeStatus, model, reasoningEffo
           <DialogHeader>
             <DialogTitle>选择启动任务</DialogTitle>
             <DialogDescription>
-              只显示未指派任务，或已指派给当前员工且状态为待办、进行中、审核中的任务。
+              {isReviewer
+                ? "显示未指派任务、已指派给当前员工的任务，以及当前项目下全部审核中的任务。"
+                : "只显示未指派任务，或已指派给当前员工且状态为待办、进行中、审核中的任务。"}
             </DialogDescription>
           </DialogHeader>
 
@@ -313,7 +344,13 @@ export function CodexControls({ employeeId, employeeStatus, model, reasoningEffo
               <div className="rounded-lg border border-border bg-muted/40 p-3 text-xs text-muted-foreground">
                 <div className="font-medium text-foreground">{selectedTask.title}</div>
                 <div className="mt-1">
-                  {selectedTask.assignee_id ? "将继续使用当前员工负责该任务。" : "启动时会自动把该任务指派给当前员工。"}
+                  {shouldStartReview
+                    ? selectedTask.reviewer_id === employeeId
+                      ? "将以当前审查员身份发起该任务的代码审核。"
+                      : "启动时会自动将该任务改派给当前审查员，并发起代码审核。"
+                    : selectedTask.assignee_id
+                      ? "将继续使用当前员工负责该任务。"
+                      : "启动时会自动把该任务指派给当前员工。"}
                 </div>
               </div>
             )}
@@ -335,7 +372,7 @@ export function CodexControls({ employeeId, employeeStatus, model, reasoningEffo
               className="flex h-8 items-center justify-center gap-1 rounded-lg bg-primary px-3 text-sm text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
             >
               {actionLoading === "start" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />}
-              启动任务
+              {shouldStartReview ? "启动审核" : "启动任务"}
             </button>
           </DialogFooter>
         </DialogContent>

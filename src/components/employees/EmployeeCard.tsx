@@ -93,6 +93,7 @@ export function EmployeeCard({ employee, taskCount = 0 }: EmployeeCardProps) {
       <div className="px-4 pb-3">
         <CodexControls
           employeeId={employee.id}
+          employeeRole={employee.role}
           employeeStatus={employee.status}
           model={employee.model}
           reasoningEffort={employee.reasoning_effort}
