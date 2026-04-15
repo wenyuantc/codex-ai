@@ -13,6 +13,7 @@ const SETTINGS_FILE_NAME: &str = "codex-settings.json";
 const SDK_RUNTIME_DIR_NAME: &str = "codex-sdk-runtime";
 const SDK_BRIDGE_FILE_NAME: &str = "sdk-bridge.mjs";
 const SDK_PACKAGE_NAME: &str = "@openai/codex-sdk";
+const SDK_CLI_PACKAGE_NAME: &str = "@openai/codex";
 const ONE_SHOT_PROVIDER_SDK: &str = "sdk";
 const ONE_SHOT_PROVIDER_EXEC: &str = "exec";
 const MINIMUM_NODE_MAJOR: u32 = 18;
@@ -189,12 +190,81 @@ pub fn merge_codex_settings<R: Runtime>(
     load_codex_settings(app)
 }
 
+fn npm_package_dir(install_dir: &Path, package_name: &str) -> PathBuf {
+    package_name
+        .split('/')
+        .fold(install_dir.join("node_modules"), |dir, segment| {
+            dir.join(segment)
+        })
+}
+
+fn npm_package_json_path(install_dir: &Path, package_name: &str) -> PathBuf {
+    npm_package_dir(install_dir, package_name).join("package.json")
+}
+
 fn sdk_package_json_path(install_dir: &Path) -> PathBuf {
-    install_dir
-        .join("node_modules")
-        .join("@openai")
-        .join("codex-sdk")
-        .join("package.json")
+    npm_package_json_path(install_dir, SDK_PACKAGE_NAME)
+}
+
+fn sdk_cli_package_json_path(install_dir: &Path) -> PathBuf {
+    npm_package_json_path(install_dir, SDK_CLI_PACKAGE_NAME)
+}
+
+fn sdk_platform_package_for_target(
+    target_os: &str,
+    target_arch: &str,
+) -> Option<(&'static str, &'static str, &'static str)> {
+    match (target_os, target_arch) {
+        ("windows", "x86_64") => Some((
+            "@openai/codex-win32-x64",
+            "x86_64-pc-windows-msvc",
+            "codex.exe",
+        )),
+        ("windows", "aarch64") => Some((
+            "@openai/codex-win32-arm64",
+            "aarch64-pc-windows-msvc",
+            "codex.exe",
+        )),
+        ("macos", "x86_64") => Some(("@openai/codex-darwin-x64", "x86_64-apple-darwin", "codex")),
+        ("macos", "aarch64") => Some((
+            "@openai/codex-darwin-arm64",
+            "aarch64-apple-darwin",
+            "codex",
+        )),
+        ("linux", "x86_64") => Some((
+            "@openai/codex-linux-x64",
+            "x86_64-unknown-linux-musl",
+            "codex",
+        )),
+        ("linux", "aarch64") => Some((
+            "@openai/codex-linux-arm64",
+            "aarch64-unknown-linux-musl",
+            "codex",
+        )),
+        _ => None,
+    }
+}
+
+fn current_sdk_platform_package() -> Option<(&'static str, &'static str, &'static str)> {
+    sdk_platform_package_for_target(std::env::consts::OS, std::env::consts::ARCH)
+}
+
+fn sdk_platform_binary_path(install_dir: &Path) -> Option<PathBuf> {
+    let (package_name, target_triple, binary_name) = current_sdk_platform_package()?;
+    Some(
+        npm_package_dir(install_dir, package_name)
+            .join("vendor")
+            .join(target_triple)
+            .join("codex")
+            .join(binary_name),
+    )
+}
+
+fn sdk_cli_binaries_available(install_dir: &Path) -> bool {
+    sdk_cli_package_json_path(install_dir).exists()
+        && sdk_platform_binary_path(install_dir)
+            .map(|path| path.exists())
+            .unwrap_or(false)
 }
 
 pub fn sdk_bridge_script_path(install_dir: &Path) -> PathBuf {
@@ -323,18 +393,19 @@ pub async fn inspect_sdk_runtime<R: Runtime>(
     let sdk_version = sdk_result.as_ref().ok().and_then(Clone::clone);
     let sdk_installed = sdk_version.is_some();
     let sdk_error = sdk_result.err();
+    let cli_binaries_available = sdk_cli_binaries_available(install_dir);
 
     let task_execution_effective_provider = determine_effective_provider(
         settings.task_sdk_enabled,
         node_available && node_supported,
-        sdk_installed,
+        sdk_installed && cli_binaries_available,
     )
     .to_string();
 
     let one_shot_effective_provider = determine_effective_provider(
         settings.one_shot_sdk_enabled,
         node_available && node_supported,
-        sdk_installed,
+        sdk_installed && cli_binaries_available,
     )
     .to_string();
 
@@ -349,6 +420,15 @@ pub async fn inspect_sdk_runtime<R: Runtime>(
             format!("Codex SDK 状态异常，已回退到 codex exec：{error}")
         } else if !sdk_installed {
             "Codex SDK 未安装，已回退到 codex exec".to_string()
+        } else if !cli_binaries_available {
+            match current_sdk_platform_package() {
+                Some((package_name, _, _)) => format!(
+                    "Codex SDK 缺少当前平台 CLI 二进制（{package_name}），已回退到 codex exec"
+                ),
+                None => {
+                    "当前系统架构缺少受支持的 Codex CLI 平台包，已回退到 codex exec".to_string()
+                }
+            }
         } else {
             format!("Codex SDK 已就绪，任务运行与一次性 AI 将优先使用 SDK（Node {version}）")
         }
@@ -389,6 +469,7 @@ pub async fn install_codex_sdk_runtime<R: Runtime>(
         .arg("--no-fund")
         .arg("--include=optional")
         .arg(SDK_PACKAGE_NAME)
+        .arg(SDK_CLI_PACKAGE_NAME)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .output()
@@ -406,6 +487,15 @@ pub async fn install_codex_sdk_runtime<R: Runtime>(
 
     let sdk_version = read_sdk_version_from_dir(&install_dir)?
         .ok_or_else(|| "Codex SDK 已安装，但未能读取版本信息".to_string())?;
+    if !sdk_cli_binaries_available(&install_dir) {
+        let message = match current_sdk_platform_package() {
+            Some((package_name, _, _)) => {
+                format!("Codex SDK 安装不完整，缺少当前平台 CLI 二进制包：{package_name}")
+            }
+            None => "Codex SDK 安装完成，但当前系统架构没有匹配的 Codex CLI 平台包".to_string(),
+        };
+        return Err(message);
+    }
 
     Ok(CodexSdkInstallResult {
         sdk_installed: true,
@@ -440,7 +530,7 @@ pub async fn install_codex_sdk<R: Runtime>(
 mod tests {
     use super::{
         determine_effective_provider, normalize_raw_settings, parse_node_major_version,
-        read_sdk_version_from_dir, RawCodexSettings,
+        read_sdk_version_from_dir, sdk_platform_package_for_target, RawCodexSettings,
     };
     use std::fs;
     use std::path::PathBuf;
@@ -473,6 +563,32 @@ mod tests {
         assert_eq!(version.as_deref(), Some("1.2.3"));
 
         fs::remove_dir_all(base).expect("remove temp dir");
+    }
+
+    #[test]
+    fn resolves_platform_package_for_supported_targets() {
+        assert_eq!(
+            sdk_platform_package_for_target("windows", "x86_64"),
+            Some((
+                "@openai/codex-win32-x64",
+                "x86_64-pc-windows-msvc",
+                "codex.exe"
+            ))
+        );
+        assert_eq!(
+            sdk_platform_package_for_target("macos", "aarch64"),
+            Some((
+                "@openai/codex-darwin-arm64",
+                "aarch64-apple-darwin",
+                "codex"
+            ))
+        );
+    }
+
+    #[test]
+    fn rejects_unsupported_platform_targets() {
+        assert_eq!(sdk_platform_package_for_target("windows", "x86"), None);
+        assert_eq!(sdk_platform_package_for_target("freebsd", "x86_64"), None);
     }
 
     #[test]
