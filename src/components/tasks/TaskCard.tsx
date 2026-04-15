@@ -6,7 +6,6 @@ import type { Task } from "@/lib/types";
 import { getPriorityLabel, getPriorityColor, formatDate } from "@/lib/utils";
 import { buildTaskExecutionInput } from "@/lib/taskPrompt";
 import { Clock, FolderKanban, GripVertical, MessageSquarePlus, Play, ScrollText, Square, Trash2 } from "lucide-react";
-import { startTaskCodeReview } from "@/lib/backend";
 import { ContinueConversationDialog } from "./ContinueConversationDialog";
 import { TaskDetailDialog } from "./TaskDetailDialog";
 import { DeleteTaskDialog } from "./DeleteTaskDialog";
@@ -14,7 +13,8 @@ import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { useProjectStore } from "@/stores/projectStore";
 import { useEmployeeStore } from "@/stores/employeeStore";
 import { useTaskStore } from "@/stores/taskStore";
-import { startCodex, stopCodex } from "@/lib/codex";
+import { useTaskExecutionActions } from "./hooks/useTaskExecutionActions";
+import { useTaskReviewActions } from "./hooks/useTaskReviewActions";
 
 interface TaskCardProps {
   task: Task;
@@ -27,29 +27,51 @@ export function TaskCard({ task, isOverlay, onOpenLog }: TaskCardProps) {
   const [showContinueDialog, setShowContinueDialog] = useState(false);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [deleting, setDeleting] = useState(false);
-  const [actionLoading, setActionLoading] = useState<"run" | "stop" | "continue" | "review" | null>(null);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
   const projects = useProjectStore((s) => s.projects);
   const employees = useEmployeeStore((s) => s.employees);
   const projectName = projects.find((p) => p.id === task.project_id)?.name;
   const projectRepoPath = projects.find((p) => p.id === task.project_id)?.repo_path;
-  const codexProcesses = useEmployeeStore((s) => s.codexProcesses);
-  const updateEmployeeStatus = useEmployeeStore((s) => s.updateEmployeeStatus);
-  const setCodexRunning = useEmployeeStore((s) => s.setCodexRunning);
-  const addCodexOutput = useEmployeeStore((s) => s.addCodexOutput);
-  const clearTaskCodexOutput = useEmployeeStore((s) => s.clearTaskCodexOutput);
-  const refreshCodexRuntimeStatus = useEmployeeStore((s) => s.refreshCodexRuntimeStatus);
-  const updateTaskStatus = useTaskStore((s) => s.updateTaskStatus);
   const fetchAttachments = useTaskStore((s) => s.fetchAttachments);
   const fetchSubtasks = useTaskStore((s) => s.fetchSubtasks);
   const deleteTask = useTaskStore((s) => s.deleteTask);
   const assignee = task.assignee_id ? employees.find((employee) => employee.id === task.assignee_id) : undefined;
   const reviewer = task.reviewer_id ? employees.find((employee) => employee.id === task.reviewer_id) : undefined;
+  const executionActions = useTaskExecutionActions({
+    task,
+    assigneeId: task.assignee_id,
+    assignee,
+    projectRepoPath,
+    prepareExecutionInput: async (followUpPrompt) => {
+      await Promise.all([fetchSubtasks(task.id), fetchAttachments(task.id)]);
+      const executionInput = buildTaskExecutionInput({
+        title: task.title,
+        description: task.description,
+        subtasks: useTaskStore.getState().subtasks[task.id] ?? [],
+        attachments: useTaskStore.getState().attachments[task.id] ?? [],
+        followUpPrompt,
+      });
 
-  const isRunning = task.assignee_id
-    ? (codexProcesses[task.assignee_id]?.running ?? false)
-      && codexProcesses[task.assignee_id]?.activeTaskId === task.id
-    : false;
+      return {
+        prompt: executionInput.prompt,
+        imagePaths: executionInput.imagePaths,
+        resumeSessionId: followUpPrompt ? task.last_codex_session_id ?? undefined : undefined,
+      };
+    },
+    clearTaskOutputOnRun: true,
+    onStarted: (action) => {
+      if (action === "continue") {
+        setShowContinueDialog(false);
+      }
+    },
+  });
+  const reviewActions = useTaskReviewActions({
+    task,
+    reviewerId: task.reviewer_id,
+    status: task.status,
+  });
+  const isRunning = executionActions.isRunning;
+  const isActionLoading = executionActions.loading !== null || reviewActions.loading;
 
   const {
     attributes,
@@ -89,80 +111,17 @@ export function TaskCard({ task, isOverlay, onOpenLog }: TaskCardProps) {
     };
   }, [contextMenu]);
 
-  const startTaskSession = async ({
-    prompt,
-    imagePaths,
-    mode,
-    resumeSessionId,
-  }: {
-    prompt: string;
-    imagePaths: string[];
-    mode: "run" | "continue";
-    resumeSessionId?: string;
-  }) => {
-    if (!task.assignee_id) return;
-
-    setActionLoading(mode);
-    try {
-      await updateEmployeeStatus(task.assignee_id, "busy");
-      await updateTaskStatus(task.id, "in_progress");
-      setCodexRunning(task.assignee_id, true, task.id);
-      await startCodex(task.assignee_id, prompt, {
-        model: assignee?.model,
-        reasoningEffort: assignee?.reasoning_effort,
-        systemPrompt: assignee?.system_prompt,
-        workingDir: projectRepoPath ?? undefined,
-        taskId: task.id,
-        resumeSessionId,
-        imagePaths,
-      });
-      setShowContinueDialog(false);
-    } catch (err) {
-      console.error(`Failed to ${mode === "continue" ? "resume" : "start"} codex:`, err);
-      addCodexOutput(task.assignee_id, `[ERROR] ${String(err)}`, task.id);
-      setCodexRunning(task.assignee_id, false, null);
-      await refreshCodexRuntimeStatus(task.assignee_id);
-    } finally {
-      setActionLoading(null);
-      setContextMenu(null);
-    }
-  };
-
   const handleRun = async (e?: React.MouseEvent) => {
     e?.stopPropagation();
     setContextMenu(null);
     onOpenLog?.(task.id);
-    clearTaskCodexOutput(task.id);
-    await Promise.all([fetchSubtasks(task.id), fetchAttachments(task.id)]);
-    const executionInput = buildTaskExecutionInput({
-      title: task.title,
-      description: task.description,
-      subtasks: useTaskStore.getState().subtasks[task.id] ?? [],
-      attachments: useTaskStore.getState().attachments[task.id] ?? [],
-    });
-    await startTaskSession({
-      prompt: executionInput.prompt,
-      mode: "run",
-      imagePaths: executionInput.imagePaths,
-    });
+    await executionActions.runTask();
   };
 
   const handleStop = async (e?: React.MouseEvent) => {
     e?.stopPropagation();
-    if (!task.assignee_id) return;
-    setActionLoading("stop");
-    try {
-      await stopCodex(task.assignee_id);
-      setCodexRunning(task.assignee_id, false, null);
-      await updateEmployeeStatus(task.assignee_id, "offline");
-      await refreshCodexRuntimeStatus(task.assignee_id);
-    } catch (err) {
-      console.error("Failed to stop codex:", err);
-      await refreshCodexRuntimeStatus(task.assignee_id);
-    } finally {
-      setActionLoading(null);
-      setContextMenu(null);
-    }
+    setContextMenu(null);
+    await executionActions.stopTask();
   };
 
   const handleDelete = async () => {
@@ -182,21 +141,8 @@ export function TaskCard({ task, isOverlay, onOpenLog }: TaskCardProps) {
   const handleReviewCode = async () => {
     if (task.status !== "review" || !task.reviewer_id) return;
 
-    setActionLoading("review");
-    try {
-      await updateEmployeeStatus(task.reviewer_id, "busy");
-      setCodexRunning(task.reviewer_id, true, task.id);
-      clearTaskCodexOutput(task.id, "review");
-      await startTaskCodeReview(task.id);
-    } catch (error) {
-      console.error("Failed to start code review:", error);
-      addCodexOutput(task.reviewer_id, `[ERROR] ${String(error)}`, task.id, "review");
-      setCodexRunning(task.reviewer_id, false, null);
-      await refreshCodexRuntimeStatus(task.reviewer_id);
-    } finally {
-      setActionLoading(null);
-      setContextMenu(null);
-    }
+    setContextMenu(null);
+    await reviewActions.startReview();
   };
 
   const handleContextMenu = (e: React.MouseEvent<HTMLDivElement>) => {
@@ -228,20 +174,7 @@ export function TaskCard({ task, isOverlay, onOpenLog }: TaskCardProps) {
 
   const handleContinueConversation = async (prompt: string) => {
     if (!task.last_codex_session_id) return;
-    await Promise.all([fetchSubtasks(task.id), fetchAttachments(task.id)]);
-    const executionInput = buildTaskExecutionInput({
-      title: task.title,
-      description: task.description,
-      subtasks: useTaskStore.getState().subtasks[task.id] ?? [],
-      attachments: useTaskStore.getState().attachments[task.id] ?? [],
-      followUpPrompt: prompt,
-    });
-    await startTaskSession({
-      prompt: executionInput.prompt,
-      mode: "continue",
-      resumeSessionId: task.last_codex_session_id,
-      imagePaths: executionInput.imagePaths,
-    });
+    await executionActions.continueTask(prompt);
   };
 
   return (
@@ -315,10 +248,10 @@ export function TaskCard({ task, isOverlay, onOpenLog }: TaskCardProps) {
               isRunning ? (
                 <button
                   onClick={handleStop}
-                  disabled={actionLoading !== null}
+                  disabled={isActionLoading}
                   className="flex items-center gap-1 px-2 py-0.5 text-xs bg-red-600 text-white rounded hover:bg-red-700 transition-colors disabled:opacity-50"
                 >
-                  {actionLoading === "stop" ? (
+                  {executionActions.loading === "stop" ? (
                     <Square className="h-3 w-3" />
                   ) : (
                     <span className="inline-block w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
@@ -328,7 +261,7 @@ export function TaskCard({ task, isOverlay, onOpenLog }: TaskCardProps) {
               ) : (
                 <button
                   onClick={handleRun}
-                  disabled={actionLoading !== null}
+                  disabled={isActionLoading}
                   className="flex items-center gap-1 px-2 py-0.5 text-xs bg-green-600 text-white rounded hover:bg-green-700 transition-colors disabled:opacity-50"
                 >
                   <Play className="h-3 w-3" />
@@ -374,7 +307,7 @@ export function TaskCard({ task, isOverlay, onOpenLog }: TaskCardProps) {
               type="button"
               role="menuitem"
               onClick={() => void (isRunning ? handleStop() : handleRun())}
-              disabled={!task.assignee_id || actionLoading !== null}
+              disabled={!task.assignee_id || isActionLoading}
               className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-left hover:bg-accent hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-50"
             >
               {isRunning ? <Square className="h-4 w-4" /> : <Play className="h-4 w-4" />}
@@ -387,7 +320,7 @@ export function TaskCard({ task, isOverlay, onOpenLog }: TaskCardProps) {
                   type="button"
                   role="menuitem"
                   onClick={openContinueDialog}
-                  disabled={isRunning || actionLoading !== null}
+                  disabled={isRunning || isActionLoading}
                   className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-left hover:bg-accent hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-50"
                 >
                   <MessageSquarePlus className="h-4 w-4" />
@@ -402,7 +335,7 @@ export function TaskCard({ task, isOverlay, onOpenLog }: TaskCardProps) {
                   type="button"
                   role="menuitem"
                   onClick={() => void handleReviewCode()}
-                  disabled={!task.reviewer_id || actionLoading !== null}
+                  disabled={!task.reviewer_id || isActionLoading}
                   title={task.reviewer_id ? `由 ${reviewer?.name ?? "审查员"} 发起代码审核` : "请先指定审查员"}
                   className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-left hover:bg-accent hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-50"
                 >
@@ -442,7 +375,7 @@ export function TaskCard({ task, isOverlay, onOpenLog }: TaskCardProps) {
         <ContinueConversationDialog
           open={showContinueDialog}
           task={task}
-          submitting={actionLoading === "continue"}
+          submitting={executionActions.loading === "continue"}
           onOpenChange={setShowContinueDialog}
           onConfirm={handleContinueConversation}
         />
