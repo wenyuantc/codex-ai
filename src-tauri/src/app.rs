@@ -1,4 +1,5 @@
 use std::borrow::Cow;
+use std::collections::HashMap;
 use std::fmt::Write as _;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -18,10 +19,10 @@ use uuid::Uuid;
 use crate::codex::{inspect_sdk_runtime, load_codex_settings, new_codex_command, CodexManager};
 use crate::db::models::{
     CodexHealthCheck, CodexRuntimeStatus, CodexSessionFileChange, CodexSessionFileChangeInput,
-    CodexSessionRecord, Comment, CreateComment, CreateEmployee, CreateProject, CreateSubtask,
-    CreateTask, DatabaseBackupResult, DatabaseRestoreResult, Employee, EmployeeMetric, Project,
-    Subtask, Task, TaskAttachment, TaskExecutionChangeHistoryItem, TaskLatestReview,
-    UpdateEmployee, UpdateProject, UpdateTask,
+    CodexSessionListItem, CodexSessionRecord, CodexSessionResumePreview, Comment, CreateComment,
+    CreateEmployee, CreateProject, CreateSubtask, CreateTask, DatabaseBackupResult,
+    DatabaseRestoreResult, Employee, EmployeeMetric, Project, Subtask, Task, TaskAttachment,
+    TaskExecutionChangeHistoryItem, TaskLatestReview, UpdateEmployee, UpdateProject, UpdateTask,
 };
 
 pub const DB_URL: &str = "sqlite:codex-ai.db";
@@ -1790,6 +1791,233 @@ pub async fn get_codex_session_status<R: Runtime>(
     })
 }
 
+fn resolve_session_resume_state(
+    cli_session_id: Option<&str>,
+    employee_id: Option<&str>,
+    employee_name: Option<&str>,
+    status: &str,
+    employee_is_running: bool,
+) -> (String, Option<String>, bool) {
+    if cli_session_id.is_none() {
+        return (
+            "missing_cli_session".to_string(),
+            Some("该会话缺少可恢复的 CLI session id，只能查看，不能继续对话。".to_string()),
+            false,
+        );
+    }
+
+    if employee_id.is_none() || employee_name.is_none() {
+        return (
+            "missing_employee".to_string(),
+            Some("该会话缺少有效的关联员工，暂时无法恢复。".to_string()),
+            false,
+        );
+    }
+
+    if status == "stopping" {
+        return (
+            "stopping".to_string(),
+            Some("该会话正在停止，请稍后再试。".to_string()),
+            false,
+        );
+    }
+
+    if employee_is_running {
+        return (
+            "running".to_string(),
+            Some("关联员工当前已有运行中的会话，请先停止后再继续对话。".to_string()),
+            false,
+        );
+    }
+
+    ("ready".to_string(), None, true)
+}
+
+async fn query_codex_session_list<R: Runtime>(
+    app: &AppHandle<R>,
+) -> Result<Vec<CodexSessionListItem>, String> {
+    let pool = sqlite_pool(app).await?;
+    sqlx::query_as::<_, CodexSessionListItem>(
+        r#"
+        SELECT
+            s.id AS session_record_id,
+            COALESCE(s.cli_session_id, s.id) AS session_id,
+            s.cli_session_id AS cli_session_id,
+            s.session_kind AS session_kind,
+            s.status AS status,
+            COALESCE(
+                (
+                    SELECT MAX(e.created_at)
+                    FROM codex_session_events e
+                    WHERE e.session_id = s.id
+                ),
+                s.ended_at,
+                s.started_at,
+                s.created_at
+            ) AS last_updated_at,
+            COALESCE(
+                t.title,
+                CASE
+                    WHEN s.session_kind = 'review' THEN '代码审核会话'
+                    ELSE 'Codex 执行会话'
+                END
+            ) AS display_name,
+            CASE
+                WHEN t.title IS NOT NULL AND p.name IS NOT NULL THEN p.name || ' · ' || t.title
+                WHEN p.name IS NOT NULL THEN p.name
+                WHEN s.working_dir IS NOT NULL THEN s.working_dir
+                ELSE NULL
+            END AS summary,
+            SUBSTR(
+                (
+                    SELECT GROUP_CONCAT(message, ' ')
+                    FROM (
+                        SELECT TRIM(REPLACE(REPLACE(e.message, char(10), ' '), char(13), ' ')) AS message
+                        FROM codex_session_events e
+                        WHERE e.session_id = s.id
+                          AND e.message IS NOT NULL
+                          AND TRIM(e.message) <> ''
+                        ORDER BY e.created_at DESC
+                        LIMIT 5
+                    )
+                ),
+                1,
+                600
+            ) AS content_preview,
+            s.employee_id AS employee_id,
+            e.name AS employee_name,
+            s.task_id AS task_id,
+            t.title AS task_title,
+            t.status AS task_status,
+            s.project_id AS project_id,
+            p.name AS project_name,
+            s.working_dir AS working_dir,
+            '' AS resume_status,
+            NULL AS resume_message,
+            0 AS can_resume
+        FROM codex_sessions s
+        LEFT JOIN employees e ON e.id = s.employee_id
+        LEFT JOIN tasks t ON t.id = s.task_id
+        LEFT JOIN projects p ON p.id = s.project_id
+        ORDER BY last_updated_at DESC, s.created_at DESC
+        "#,
+    )
+    .fetch_all(&pool)
+    .await
+    .map_err(|error| format!("Failed to fetch codex sessions: {}", error))
+}
+
+#[tauri::command]
+pub async fn list_codex_sessions<R: Runtime>(
+    app: AppHandle<R>,
+    state: State<'_, Arc<Mutex<CodexManager>>>,
+) -> Result<Vec<CodexSessionListItem>, String> {
+    let mut items = query_codex_session_list(&app).await?;
+    let running_by_employee = {
+        let manager = state.lock().map_err(|error| error.to_string())?;
+        let mut running = HashMap::new();
+        for item in &items {
+            if let Some(employee_id) = item.employee_id.as_ref() {
+                running
+                    .entry(employee_id.clone())
+                    .or_insert_with(|| manager.is_running(employee_id));
+            }
+        }
+        running
+    };
+
+    for item in &mut items {
+        let employee_is_running = item
+            .employee_id
+            .as_ref()
+            .and_then(|employee_id| running_by_employee.get(employee_id))
+            .copied()
+            .unwrap_or(false);
+        let (resume_status, resume_message, can_resume) = resolve_session_resume_state(
+            item.cli_session_id.as_deref(),
+            item.employee_id.as_deref(),
+            item.employee_name.as_deref(),
+            &item.status,
+            employee_is_running,
+        );
+        item.resume_status = resume_status;
+        item.resume_message = resume_message;
+        item.can_resume = can_resume;
+    }
+    Ok(items)
+}
+
+#[tauri::command]
+pub async fn prepare_codex_session_resume<R: Runtime>(
+    app: AppHandle<R>,
+    state: State<'_, Arc<Mutex<CodexManager>>>,
+    session_id: String,
+) -> Result<CodexSessionResumePreview, String> {
+    let mut items = query_codex_session_list(&app).await?;
+    let item = items
+        .drain(..)
+        .find(|current| current.session_id == session_id || current.session_record_id == session_id);
+
+    let Some(item) = item else {
+        return Ok(CodexSessionResumePreview {
+            requested_session_id: session_id,
+            resolved_session_id: None,
+            session_record_id: None,
+            session_kind: None,
+            session_status: None,
+            display_name: None,
+            summary: None,
+            employee_id: None,
+            employee_name: None,
+            task_id: None,
+            task_title: None,
+            project_id: None,
+            project_name: None,
+            working_dir: None,
+            resume_status: "invalid".to_string(),
+            resume_message: Some("无效 session id，未找到对应会话。".to_string()),
+            can_resume: false,
+        });
+    };
+
+    let employee_is_running = item
+        .employee_id
+        .as_ref()
+        .map(|employee_id| {
+            let manager = state.lock().map_err(|error| error.to_string())?;
+            Ok::<bool, String>(manager.is_running(employee_id))
+        })
+        .transpose()?
+        .unwrap_or(false);
+    let (resume_status, resume_message, can_resume) = resolve_session_resume_state(
+        item.cli_session_id.as_deref(),
+        item.employee_id.as_deref(),
+        item.employee_name.as_deref(),
+        &item.status,
+        employee_is_running,
+    );
+
+    Ok(CodexSessionResumePreview {
+        requested_session_id: session_id,
+        resolved_session_id: item.cli_session_id.clone(),
+        session_record_id: Some(item.session_record_id),
+        session_kind: Some(item.session_kind),
+        session_status: Some(item.status),
+        display_name: Some(item.display_name),
+        summary: item.summary,
+        employee_id: item.employee_id,
+        employee_name: item.employee_name,
+        task_id: item.task_id,
+        task_title: item.task_title,
+        project_id: item.project_id,
+        project_name: item.project_name,
+        working_dir: item.working_dir,
+        resume_status,
+        resume_message,
+        can_resume,
+    })
+}
+
 #[tauri::command]
 pub async fn get_task_latest_review<R: Runtime>(
     app: AppHandle<R>,
@@ -2741,8 +2969,8 @@ mod tests {
     use std::fs;
 
     use super::{
-        ensure_statement_terminated, normalize_runtime_path_string, sanitize_sql_backup_script,
-        validate_project_repo_path, validate_runtime_working_dir,
+        ensure_statement_terminated, normalize_runtime_path_string, resolve_session_resume_state,
+        sanitize_sql_backup_script, validate_project_repo_path, validate_runtime_working_dir,
     };
 
     #[test]
@@ -2812,5 +3040,39 @@ mod tests {
             "CREATE TABLE demo(id INTEGER);"
         );
         assert_eq!(ensure_statement_terminated("   "), "");
+    }
+
+    #[test]
+    fn session_resume_state_requires_cli_session_id() {
+        let (status, message, can_resume) =
+            resolve_session_resume_state(None, Some("emp-1"), Some("Alice"), "exited", false);
+
+        assert_eq!(status, "missing_cli_session");
+        assert!(!can_resume);
+        assert!(message.unwrap_or_default().contains("CLI session id"));
+    }
+
+    #[test]
+    fn session_resume_state_blocks_when_employee_missing() {
+        let (status, _, can_resume) =
+            resolve_session_resume_state(Some("sess-1"), None, None, "exited", false);
+
+        assert_eq!(status, "missing_employee");
+        assert!(!can_resume);
+    }
+
+    #[test]
+    fn session_resume_state_allows_resumable_exited_session() {
+        let (status, message, can_resume) = resolve_session_resume_state(
+            Some("sess-1"),
+            Some("emp-1"),
+            Some("Alice"),
+            "exited",
+            false,
+        );
+
+        assert_eq!(status, "ready");
+        assert!(can_resume);
+        assert!(message.is_none());
     }
 }

@@ -4,6 +4,8 @@ import type {
   CodexSdkInstallResult,
   CodexSettings,
   CodexRuntimeStatus,
+  CodexSessionListItem,
+  CodexSessionResumePreview,
   DatabaseBackupResult,
   DatabaseRestoreResult,
   Comment,
@@ -106,6 +108,16 @@ export async function openTaskAttachment(path: string): Promise<void> {
 
 export async function getCodexSessionStatus(employeeId: string): Promise<CodexRuntimeStatus> {
   return invoke("get_codex_session_status", { employeeId });
+}
+
+export async function listCodexSessions(): Promise<CodexSessionListItem[]> {
+  return invoke("list_codex_sessions");
+}
+
+export async function prepareCodexSessionResume(
+  sessionId: string,
+): Promise<CodexSessionResumePreview> {
+  return invoke("prepare_codex_session_resume", { sessionId });
 }
 
 export async function getTaskLatestReview(taskId: string): Promise<TaskLatestReview | null> {

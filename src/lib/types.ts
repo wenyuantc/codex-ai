@@ -136,6 +136,49 @@ export interface TaskExecutionChangeHistoryItem {
   changes: CodexSessionFileChange[];
 }
 
+export interface CodexSessionListItem {
+  session_record_id: string;
+  session_id: string;
+  cli_session_id: string | null;
+  session_kind: CodexSessionKind;
+  status: string;
+  last_updated_at: string;
+  display_name: string;
+  summary: string | null;
+  content_preview: string | null;
+  employee_id: string | null;
+  employee_name: string | null;
+  task_id: string | null;
+  task_title: string | null;
+  task_status: string | null;
+  project_id: string | null;
+  project_name: string | null;
+  working_dir: string | null;
+  resume_status: CodexSessionResumeStatus;
+  resume_message: string | null;
+  can_resume: boolean;
+}
+
+export interface CodexSessionResumePreview {
+  requested_session_id: string;
+  resolved_session_id: string | null;
+  session_record_id: string | null;
+  session_kind: CodexSessionKind | null;
+  session_status: string | null;
+  display_name: string | null;
+  summary: string | null;
+  employee_id: string | null;
+  employee_name: string | null;
+  task_id: string | null;
+  task_title: string | null;
+  project_id: string | null;
+  project_name: string | null;
+  working_dir: string | null;
+  resume_status: CodexSessionResumeStatus;
+  resume_message: string | null;
+  can_resume: boolean;
+}
+
 export interface CodexHealthCheck {
   codex_available: boolean;
   codex_version: string | null;
@@ -199,6 +242,13 @@ export interface DatabaseRestoreResult {
 }
 
 export type CodexSessionKind = "execution" | "review";
+export type CodexSessionResumeStatus =
+  | "ready"
+  | "running"
+  | "missing_employee"
+  | "missing_cli_session"
+  | "stopping"
+  | "invalid";
 export type CodexModelId = "gpt-5.4" | "gpt-5.4-mini" | "gpt-5.3-codex" | "gpt-5.2";
 export type ReasoningEffort = "low" | "medium" | "high" | "xhigh";
 export type TaskStatus = "todo" | "in_progress" | "review" | "completed" | "blocked";

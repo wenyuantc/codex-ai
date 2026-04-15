@@ -240,6 +240,51 @@ pub struct TaskExecutionChangeHistoryItem {
     pub changes: Vec<CodexSessionFileChange>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+pub struct CodexSessionListItem {
+    pub session_record_id: String,
+    pub session_id: String,
+    pub cli_session_id: Option<String>,
+    pub session_kind: String,
+    pub status: String,
+    pub last_updated_at: String,
+    pub display_name: String,
+    pub summary: Option<String>,
+    pub content_preview: Option<String>,
+    pub employee_id: Option<String>,
+    pub employee_name: Option<String>,
+    pub task_id: Option<String>,
+    pub task_title: Option<String>,
+    pub task_status: Option<String>,
+    pub project_id: Option<String>,
+    pub project_name: Option<String>,
+    pub working_dir: Option<String>,
+    pub resume_status: String,
+    pub resume_message: Option<String>,
+    pub can_resume: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CodexSessionResumePreview {
+    pub requested_session_id: String,
+    pub resolved_session_id: Option<String>,
+    pub session_record_id: Option<String>,
+    pub session_kind: Option<String>,
+    pub session_status: Option<String>,
+    pub display_name: Option<String>,
+    pub summary: Option<String>,
+    pub employee_id: Option<String>,
+    pub employee_name: Option<String>,
+    pub task_id: Option<String>,
+    pub task_title: Option<String>,
+    pub project_id: Option<String>,
+    pub project_name: Option<String>,
+    pub working_dir: Option<String>,
+    pub resume_status: String,
+    pub resume_message: Option<String>,
+    pub can_resume: bool,
+}
+
 #[derive(Debug, Clone)]
 pub struct CodexSessionFileChangeInput {
     pub path: String,

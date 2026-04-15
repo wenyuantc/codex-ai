@@ -5,6 +5,7 @@ import { ProjectsPage } from "@/pages/ProjectsPage";
 import { ProjectDetailPage } from "@/pages/ProjectDetailPage";
 import { KanbanPage } from "@/pages/KanbanPage";
 import { EmployeesPage } from "@/pages/EmployeesPage";
+import { SessionsPage } from "@/pages/SessionsPage";
 import { SettingsPage } from "@/pages/SettingsPage";
 import "@/index.css";
 import { useEffect } from "react";
@@ -52,6 +53,7 @@ function App() {
           <Route path="/projects" element={<ProjectsPage />} />
           <Route path="/projects/:id" element={<ProjectDetailPage />} />
           <Route path="/kanban" element={<KanbanPage />} />
+          <Route path="/sessions" element={<SessionsPage />} />
           <Route path="/employees" element={<EmployeesPage />} />
           <Route path="/settings" element={<SettingsPage />} />
         </Route>
