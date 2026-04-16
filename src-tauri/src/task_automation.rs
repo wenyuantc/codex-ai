@@ -515,9 +515,13 @@ async fn retry_pending_fix(
             .as_deref()
             .ok_or_else(|| "自动修复缺少最近审核结论，无法继续执行".to_string())?;
         let verdict = parse_review_verdict_json(last_verdict_json)?;
-        let review_report = latest_review_report_for_task(pool, task_id)
-            .await?
-            .unwrap_or_else(|| verdict.summary.clone());
+        let review_report = if let Some(session_id) = state_record.consumed_session_id.as_deref() {
+            review_report_for_session(pool, session_id)
+                .await?
+                .unwrap_or_else(|| verdict.summary.clone())
+        } else {
+            verdict.summary.clone()
+        };
         let before_sessions = fetch_task_session_ids(pool, task_id, "execution").await?;
         start_automation_fix_round(app, pool, &task, &review_report, &verdict).await?;
         let new_session_id =
@@ -932,6 +936,14 @@ async fn restart_review_step(
         .as_deref()
         .ok_or_else(|| "当前任务未指定审查员，无法重启自动审核".to_string())?;
 
+    let _ = stop_codex_for_automation_restart(
+        app,
+        reviewer_id,
+        state_record.last_trigger_session_id.as_deref(),
+        "自动质控正在重启审核步骤",
+    )
+    .await?;
+
     reserve_pending_action(
         pool,
         &task.id,
@@ -944,8 +956,6 @@ async fn restart_review_step(
         state_record.last_verdict_json.as_deref(),
     )
     .await?;
-
-    let _ = stop_codex_for_automation_restart(app, reviewer_id, "自动质控正在重启审核步骤").await?;
 
     let reserved_state = fetch_task_automation_state_record(pool, &task.id)
         .await?
@@ -974,20 +984,28 @@ async fn restart_fix_step(
         .as_deref()
         .ok_or_else(|| "当前任务未指定开发负责人，无法重启自动修复".to_string())?;
 
+    let _ = stop_codex_for_automation_restart(
+        app,
+        assignee_id,
+        state_record.last_trigger_session_id.as_deref(),
+        "自动质控正在重启修复步骤",
+    )
+    .await?;
+
     reserve_pending_action(
         pool,
         &task.id,
         state_record.last_trigger_session_id.as_deref(),
         PHASE_LAUNCHING_FIX,
         Some(PENDING_ACTION_START_FIX),
-        Some(state_record.round_count),
+        state_record
+            .pending_round_count
+            .or(Some(state_record.round_count)),
         state_record.round_count,
         None,
         state_record.last_verdict_json.as_deref(),
     )
     .await?;
-
-    let _ = stop_codex_for_automation_restart(app, assignee_id, "自动质控正在重启修复步骤").await?;
 
     let reserved_state = fetch_task_automation_state_record(pool, &task.id)
         .await?
@@ -1086,26 +1104,24 @@ async fn resolve_new_task_session_id(
         })
 }
 
-async fn latest_review_report_for_task(
+async fn review_report_for_session(
     pool: &SqlitePool,
-    task_id: &str,
+    session_id: &str,
 ) -> Result<Option<String>, String> {
     sqlx::query_scalar::<_, Option<String>>(
         r#"
-        SELECT e.message
-        FROM codex_session_events e
-        INNER JOIN codex_sessions s ON s.id = e.session_id
-        WHERE s.task_id = $1
-          AND s.session_kind = 'review'
-          AND e.event_type = 'review_report'
-        ORDER BY s.started_at DESC, e.created_at DESC
+        SELECT message
+        FROM codex_session_events
+        WHERE session_id = $1
+          AND event_type = 'review_report'
+        ORDER BY created_at DESC
         LIMIT 1
         "#,
     )
-    .bind(task_id)
+    .bind(session_id)
     .fetch_optional(pool)
     .await
-    .map_err(|error| format!("Failed to fetch latest review report for task: {}", error))
+    .map_err(|error| format!("Failed to fetch review report for session: {}", error))
     .map(|value| value.flatten())
 }
 

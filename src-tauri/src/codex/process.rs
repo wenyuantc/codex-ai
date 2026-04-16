@@ -1368,9 +1368,25 @@ async fn stop_managed_process_with_manager(
 pub(crate) async fn stop_codex_for_automation_restart(
     app: &AppHandle,
     employee_id: &str,
+    expected_session_record_id: Option<&str>,
     message: &str,
 ) -> Result<bool, String> {
     let manager_state = app.state::<Arc<Mutex<CodexManager>>>().inner().clone();
+    let running_process =
+        get_live_managed_process_with_manager(app, &manager_state, employee_id).await?;
+
+    let Some(process) = running_process else {
+        return Ok(false);
+    };
+
+    let Some(expected_session_record_id) = expected_session_record_id else {
+        return Err("当前自动化步骤缺少会话标识，无法安全重启".to_string());
+    };
+
+    if process.session_record_id != expected_session_record_id {
+        return Err("当前员工正在执行其他任务，无法重启这条自动化步骤".to_string());
+    }
+
     stop_managed_process_with_manager(
         app,
         &manager_state,
