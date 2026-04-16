@@ -2178,6 +2178,79 @@ pub async fn get_task_latest_review<R: Runtime>(
     }))
 }
 
+async fn resolve_execution_session_capture_mode(
+    pool: &SqlitePool,
+    session_id: &str,
+    changes: &[CodexSessionFileChange],
+) -> Result<String, String> {
+    if let Some(change) = changes.first() {
+        return Ok(change.capture_mode.clone());
+    }
+
+    let session_started_message = sqlx::query_scalar::<_, Option<String>>(
+        "SELECT message FROM codex_session_events WHERE session_id = $1 AND event_type = 'session_started' ORDER BY created_at DESC LIMIT 1",
+    )
+    .bind(session_id)
+    .fetch_optional(pool)
+    .await
+    .map_err(|error| format!("Failed to fetch session provider info: {}", error))?
+    .flatten()
+    .unwrap_or_default();
+
+    if session_started_message.contains("通过 SDK 启动") {
+        Ok("sdk_event".to_string())
+    } else {
+        Ok("git_fallback".to_string())
+    }
+}
+
+async fn build_execution_change_history_item(
+    pool: &SqlitePool,
+    session: CodexSessionRecord,
+) -> Result<TaskExecutionChangeHistoryItem, String> {
+    let changes = sqlx::query_as::<_, CodexSessionFileChange>(
+        "SELECT * FROM codex_session_file_changes WHERE session_id = $1 ORDER BY path ASC, created_at ASC",
+    )
+    .bind(&session.id)
+    .fetch_all(pool)
+    .await
+    .map_err(|error| format!("Failed to fetch task execution file changes: {}", error))?;
+
+    let capture_mode = resolve_execution_session_capture_mode(pool, &session.id, &changes).await?;
+
+    Ok(TaskExecutionChangeHistoryItem {
+        session,
+        capture_mode,
+        changes,
+    })
+}
+
+async fn fetch_execution_change_history_item_by_session_id(
+    pool: &SqlitePool,
+    session_id: &str,
+) -> Result<TaskExecutionChangeHistoryItem, String> {
+    let session = sqlx::query_as::<_, CodexSessionRecord>(
+        r#"
+        SELECT *
+        FROM codex_sessions
+        WHERE id = $1 OR cli_session_id = $1
+        ORDER BY CASE WHEN id = $1 THEN 0 ELSE 1 END, started_at DESC
+        LIMIT 1
+        "#,
+    )
+    .bind(session_id)
+    .fetch_optional(pool)
+    .await
+    .map_err(|error| format!("Failed to fetch execution session: {}", error))?
+    .ok_or_else(|| "找不到对应的 Session 记录".to_string())?;
+
+    if session.session_kind != "execution" {
+        return Err("只有 execution 会话支持查看改动文件".to_string());
+    }
+
+    build_execution_change_history_item(pool, session).await
+}
+
 #[tauri::command]
 pub async fn get_task_execution_change_history<R: Runtime>(
     app: AppHandle<R>,
@@ -2194,42 +2267,19 @@ pub async fn get_task_execution_change_history<R: Runtime>(
 
     let mut items = Vec::with_capacity(sessions.len());
     for session in sessions {
-        let changes = sqlx::query_as::<_, CodexSessionFileChange>(
-            "SELECT * FROM codex_session_file_changes WHERE session_id = $1 ORDER BY path ASC, created_at ASC",
-        )
-        .bind(&session.id)
-        .fetch_all(&pool)
-        .await
-        .map_err(|error| format!("Failed to fetch task execution file changes: {}", error))?;
-
-        let capture_mode = if let Some(change) = changes.first() {
-            change.capture_mode.clone()
-        } else {
-            let session_started_message = sqlx::query_scalar::<_, Option<String>>(
-                "SELECT message FROM codex_session_events WHERE session_id = $1 AND event_type = 'session_started' ORDER BY created_at DESC LIMIT 1",
-            )
-            .bind(&session.id)
-            .fetch_optional(&pool)
-            .await
-            .map_err(|error| format!("Failed to fetch session provider info: {}", error))?
-            .flatten()
-            .unwrap_or_default();
-
-            if session_started_message.contains("通过 SDK 启动") {
-                "sdk_event".to_string()
-            } else {
-                "git_fallback".to_string()
-            }
-        };
-
-        items.push(TaskExecutionChangeHistoryItem {
-            session,
-            capture_mode,
-            changes,
-        });
+        items.push(build_execution_change_history_item(&pool, session).await?);
     }
 
     Ok(items)
+}
+
+#[tauri::command]
+pub async fn get_codex_session_execution_change_history<R: Runtime>(
+    app: AppHandle<R>,
+    session_id: String,
+) -> Result<TaskExecutionChangeHistoryItem, String> {
+    let pool = sqlite_pool(&app).await?;
+    fetch_execution_change_history_item_by_session_id(&pool, &session_id).await
 }
 
 fn build_file_change_diff_preview(
@@ -3287,11 +3337,103 @@ pub async fn create_comment<R: Runtime>(
 mod tests {
     use std::fs;
 
+    use sqlx::SqlitePool;
+
     use super::{
-        ensure_statement_terminated, normalize_runtime_path_string, resolve_session_resume_state,
-        rewrite_file_change_diff_labels, sanitize_sql_backup_script, validate_project_repo_path,
-        validate_runtime_working_dir,
+        build_current_migrator, ensure_statement_terminated,
+        fetch_execution_change_history_item_by_session_id, normalize_runtime_path_string,
+        resolve_session_resume_state, rewrite_file_change_diff_labels, sanitize_sql_backup_script,
+        validate_project_repo_path, validate_runtime_working_dir,
     };
+
+    async fn setup_test_pool() -> SqlitePool {
+        let pool = SqlitePool::connect("sqlite::memory:")
+            .await
+            .expect("create sqlite memory pool");
+        let migrator = build_current_migrator();
+        let mut connection = pool.acquire().await.expect("acquire sqlite connection");
+        migrator
+            .run_direct(&mut *connection)
+            .await
+            .expect("run migrations");
+        drop(connection);
+        pool
+    }
+
+    async fn insert_session(
+        pool: &SqlitePool,
+        session_id: &str,
+        cli_session_id: Option<&str>,
+        session_kind: &str,
+    ) {
+        sqlx::query(
+            r#"
+            INSERT INTO codex_sessions (
+                id,
+                cli_session_id,
+                session_kind,
+                status,
+                started_at,
+                created_at
+            ) VALUES ($1, $2, $3, 'exited', '2026-04-16 10:00:00', '2026-04-16 10:00:00')
+            "#,
+        )
+        .bind(session_id)
+        .bind(cli_session_id)
+        .bind(session_kind)
+        .execute(pool)
+        .await
+        .expect("insert session");
+    }
+
+    async fn insert_session_started_event(pool: &SqlitePool, session_id: &str, message: &str) {
+        sqlx::query(
+            r#"
+            INSERT INTO codex_session_events (
+                id,
+                session_id,
+                event_type,
+                message,
+                created_at
+            ) VALUES ($1, $2, 'session_started', $3, '2026-04-16 10:00:01')
+            "#,
+        )
+        .bind(format!("event-{session_id}"))
+        .bind(session_id)
+        .bind(message)
+        .execute(pool)
+        .await
+        .expect("insert session started event");
+    }
+
+    async fn insert_file_change(
+        pool: &SqlitePool,
+        change_id: &str,
+        session_id: &str,
+        path: &str,
+        capture_mode: &str,
+    ) {
+        sqlx::query(
+            r#"
+            INSERT INTO codex_session_file_changes (
+                id,
+                session_id,
+                path,
+                change_type,
+                capture_mode,
+                previous_path,
+                created_at
+            ) VALUES ($1, $2, $3, 'modified', $4, NULL, '2026-04-16 10:00:02')
+            "#,
+        )
+        .bind(change_id)
+        .bind(session_id)
+        .bind(path)
+        .bind(capture_mode)
+        .execute(pool)
+        .await
+        .expect("insert file change");
+    }
 
     #[test]
     fn rejects_missing_project_repo_path() {
@@ -3432,5 +3574,73 @@ mod tests {
         assert_eq!(status, "ready");
         assert!(can_resume);
         assert!(message.is_none());
+    }
+
+    #[test]
+    fn fetch_execution_change_history_item_returns_existing_changes() {
+        tauri::async_runtime::block_on(async {
+            let pool = setup_test_pool().await;
+            insert_session(&pool, "sess-1", Some("cli-sess-1"), "execution").await;
+            insert_file_change(
+                &pool,
+                "change-1",
+                "sess-1",
+                "src/pages/SessionsPage.tsx",
+                "sdk_event",
+            )
+            .await;
+
+            let item = fetch_execution_change_history_item_by_session_id(&pool, "sess-1")
+                .await
+                .expect("fetch execution change history item");
+
+            assert_eq!(item.session.id, "sess-1");
+            assert_eq!(item.capture_mode, "sdk_event");
+            assert_eq!(item.changes.len(), 1);
+            assert_eq!(item.changes[0].path, "src/pages/SessionsPage.tsx");
+
+            pool.close().await;
+        });
+    }
+
+    #[test]
+    fn fetch_execution_change_history_item_returns_empty_changes_when_missing() {
+        tauri::async_runtime::block_on(async {
+            let pool = setup_test_pool().await;
+            insert_session(&pool, "sess-2", Some("cli-sess-2"), "execution").await;
+
+            let item = fetch_execution_change_history_item_by_session_id(&pool, "sess-2")
+                .await
+                .expect("fetch empty execution change history item");
+
+            assert_eq!(item.session.id, "sess-2");
+            assert!(item.changes.is_empty());
+            assert_eq!(item.capture_mode, "git_fallback");
+
+            pool.close().await;
+        });
+    }
+
+    #[test]
+    fn fetch_execution_change_history_item_falls_back_to_session_started_provider() {
+        tauri::async_runtime::block_on(async {
+            let pool = setup_test_pool().await;
+            insert_session(&pool, "sess-3", Some("cli-sess-3"), "execution").await;
+            insert_session_started_event(
+                &pool,
+                "sess-3",
+                "通过 SDK 启动，使用模型 gpt-5.4 / 推理强度 high / 图片 0 张",
+            )
+            .await;
+
+            let item = fetch_execution_change_history_item_by_session_id(&pool, "sess-3")
+                .await
+                .expect("fetch provider fallback execution change history item");
+
+            assert!(item.changes.is_empty());
+            assert_eq!(item.capture_mode, "sdk_event");
+
+            pool.close().await;
+        });
     }
 }

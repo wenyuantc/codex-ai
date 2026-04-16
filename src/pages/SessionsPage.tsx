@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { ChevronLeft, ChevronRight, Loader2, RefreshCw } from "lucide-react";
 
 import { SessionContinueDialog } from "@/components/sessions/SessionContinueDialog";
+import { SessionExecutionChangesDialog } from "@/components/sessions/SessionExecutionChangesDialog";
 import { SessionLogDialog, type SessionLogTarget } from "@/components/sessions/SessionLogDialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -114,6 +115,8 @@ export function SessionsPage() {
   const [continueSubmitting, setContinueSubmitting] = useState(false);
   const [logDialogOpen, setLogDialogOpen] = useState(false);
   const [logTarget, setLogTarget] = useState<SessionLogTarget | null>(null);
+  const [changeDialogOpen, setChangeDialogOpen] = useState(false);
+  const [changeTarget, setChangeTarget] = useState<CodexSessionListItem | null>(null);
   const [activeSession, setActiveSession] = useState<SessionLogTarget | null>(null);
   const [sessionIdQuery, setSessionIdQuery] = useState("");
   const [contentQuery, setContentQuery] = useState("");
@@ -212,6 +215,11 @@ export function SessionsPage() {
     setLogDialogOpen(true);
   };
 
+  const openChangeDialog = (session: CodexSessionListItem) => {
+    setChangeTarget(session);
+    setChangeDialogOpen(true);
+  };
+
   const handleContinueConversation = async (prompt: string) => {
     if (!continueSession) {
       return;
@@ -278,7 +286,7 @@ export function SessionsPage() {
           <div>
             <h2 className="text-lg font-semibold">Session 管理</h2>
             <p className="text-sm text-muted-foreground">
-              使用表格分页查看最近 Session，并从操作列直接继续对话。
+              使用表格分页查看最近 Session，并从操作列直接查看日志、改动文件或继续对话。
             </p>
           </div>
           <Button
@@ -410,6 +418,16 @@ export function SessionsPage() {
                           </td>
                           <td className="px-4 py-3">
                             <div className="flex min-w-40 flex-col gap-2">
+                              {session.session_kind === "execution" && (
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant="secondary"
+                                  onClick={() => openChangeDialog(session)}
+                                >
+                                  查看改动
+                                </Button>
+                              )}
                               <Button
                                 type="button"
                                 size="sm"
@@ -494,6 +512,17 @@ export function SessionsPage() {
         open={logDialogOpen}
         session={logTarget}
         onOpenChange={setLogDialogOpen}
+      />
+
+      <SessionExecutionChangesDialog
+        open={changeDialogOpen}
+        session={changeTarget}
+        onOpenChange={(open) => {
+          setChangeDialogOpen(open);
+          if (!open) {
+            setChangeTarget(null);
+          }
+        }}
       />
     </>
   );

@@ -136,6 +136,12 @@ export async function getTaskExecutionChangeHistory(
   return invoke("get_task_execution_change_history", { taskId });
 }
 
+export async function getCodexSessionExecutionChangeHistory(
+  sessionId: string,
+): Promise<TaskExecutionChangeHistoryItem> {
+  return invoke("get_codex_session_execution_change_history", { sessionId });
+}
+
 export async function getCodexSessionFileChangeDetail(
   changeId: string,
 ): Promise<CodexSessionFileChangeDetail> {

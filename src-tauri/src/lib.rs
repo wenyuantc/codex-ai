@@ -52,6 +52,7 @@ pub fn run() {
             app::get_codex_session_log_lines,
             app::get_task_latest_review,
             app::get_task_execution_change_history,
+            app::get_codex_session_execution_change_history,
             app::get_codex_session_file_change_detail,
             app::start_task_code_review,
             app::read_image_file,
@@ -83,6 +84,7 @@ pub fn run() {
             codex::ai_suggest_assignee,
             codex::ai_analyze_complexity,
             codex::ai_generate_comment,
+            codex::ai_optimize_prompt,
             codex::ai_generate_plan,
             codex::ai_split_subtasks,
         ])
