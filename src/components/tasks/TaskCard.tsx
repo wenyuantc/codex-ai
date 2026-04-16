@@ -19,10 +19,11 @@ import { useTaskReviewActions } from "./hooks/useTaskReviewActions";
 interface TaskCardProps {
   task: Task;
   isOverlay?: boolean;
+  hideRunAction?: boolean;
   onOpenLog?: (taskId: string, sessionKind?: CodexSessionKind) => void;
 }
 
-export function TaskCard({ task, isOverlay, onOpenLog }: TaskCardProps) {
+export function TaskCard({ task, isOverlay, hideRunAction = false, onOpenLog }: TaskCardProps) {
   const [showDetail, setShowDetail] = useState(false);
   const [showContinueDialog, setShowContinueDialog] = useState(false);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
@@ -74,6 +75,9 @@ export function TaskCard({ task, isOverlay, onOpenLog }: TaskCardProps) {
   const isReviewRunning = reviewActions.isRunning;
   const isReviewTask = task.status === "review";
   const isActionLoading = executionActions.loading !== null || reviewActions.loading;
+  const shouldShowActionBar = !isOverlay && (isRunning || isReviewTask || !hideRunAction);
+  const shouldShowPrimaryMenuAction = isRunning || isReviewTask || !hideRunAction;
+  const hasPreLogActions = shouldShowPrimaryMenuAction || Boolean(task.last_codex_session_id);
 
   const {
     attributes,
@@ -247,7 +251,7 @@ export function TaskCard({ task, isOverlay, onOpenLog }: TaskCardProps) {
           </div>
         </div>
         {/* Run/Stop Codex */}
-        {!isOverlay && (
+        {shouldShowActionBar && (
           <div className="flex items-center gap-1 mt-2 pt-2 border-t border-border/50">
             {isRunning ? (
               <button
@@ -327,7 +331,7 @@ export function TaskCard({ task, isOverlay, onOpenLog }: TaskCardProps) {
             onMouseDown={(e) => e.stopPropagation()}
             onClick={(e) => e.stopPropagation()}
           >
-            {isRunning ? (
+            {shouldShowPrimaryMenuAction && (isRunning ? (
               <button
                 type="button"
                 role="menuitem"
@@ -361,10 +365,10 @@ export function TaskCard({ task, isOverlay, onOpenLog }: TaskCardProps) {
                 <Play className="h-4 w-4" />
                 运行
               </button>
-            )}
+            ))}
             {task.last_codex_session_id && (
               <>
-                <div className="my-1 h-px bg-border" />
+                {shouldShowPrimaryMenuAction && <div className="my-1 h-px bg-border" />}
                 <button
                   type="button"
                   role="menuitem"
@@ -377,7 +381,7 @@ export function TaskCard({ task, isOverlay, onOpenLog }: TaskCardProps) {
                 </button>
               </>
             )}
-            <div className="my-1 h-px bg-border" />
+            {hasPreLogActions && <div className="my-1 h-px bg-border" />}
             <button
               type="button"
               role="menuitem"
