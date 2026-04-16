@@ -75,6 +75,7 @@ export function getActivityActionLabel(action: string): string {
     remote_sdk_installed: "远程安装SDK",
     remote_codex_validated: "远程校验Codex",
     remote_codex_verified: "远程校验Codex",
+    remote_task_attachments_synced: "同步远程图片附件",
     remote_task_session_started: "启动远程任务会话",
     remote_session_artifact_limited: "远程会话变更明细受限",
     remote_artifact_capture_limited: "远程会话变更明细受限",

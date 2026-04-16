@@ -123,18 +123,12 @@ fn default_sdk_install_dir<R: Runtime>(app: &AppHandle<R>) -> Result<PathBuf, St
     Ok(app_config_dir(app)?.join(SDK_RUNTIME_DIR_NAME))
 }
 
-fn default_remote_sdk_install_dir<R: Runtime>(
-    app: &AppHandle<R>,
-    ssh_config_id: &str,
-) -> Result<PathBuf, String> {
-    Ok(default_sdk_install_dir(app)?
-        .join("remote")
-        .join(ssh_config_id))
+fn default_remote_sdk_install_dir(ssh_config_id: &str) -> String {
+    format!("~/.codex-ai/{SDK_RUNTIME_DIR_NAME}/{ssh_config_id}")
 }
 
-fn default_codex_settings<R: Runtime>(app: &AppHandle<R>) -> Result<CodexSettings, String> {
-    let default_install_dir = default_sdk_install_dir(app)?;
-    Ok(CodexSettings {
+fn default_codex_settings_with_install_dir(install_dir: String) -> CodexSettings {
+    CodexSettings {
         task_sdk_enabled: false,
         one_shot_sdk_enabled: false,
         one_shot_model: DEFAULT_ONE_SHOT_MODEL.to_string(),
@@ -143,12 +137,70 @@ fn default_codex_settings<R: Runtime>(app: &AppHandle<R>) -> Result<CodexSetting
         task_automation_max_fix_rounds: DEFAULT_TASK_AUTOMATION_MAX_FIX_ROUNDS,
         task_automation_failure_strategy: DEFAULT_TASK_AUTOMATION_FAILURE_STRATEGY.to_string(),
         node_path_override: None,
-        sdk_install_dir: default_install_dir.to_string_lossy().to_string(),
+        sdk_install_dir: install_dir,
         one_shot_preferred_provider: ONE_SHOT_PROVIDER_SDK.to_string(),
-    })
+    }
 }
 
-fn normalize_settings(settings: CodexSettings, default_install_dir: &Path) -> CodexSettings {
+fn default_remote_codex_settings(ssh_config_id: &str) -> CodexSettings {
+    default_codex_settings_with_install_dir(default_remote_sdk_install_dir(ssh_config_id))
+}
+
+fn remote_sdk_install_dir_should_be_repaired(
+    sdk_install_dir: &str,
+    local_default_install_dir: &str,
+) -> bool {
+    let normalized_value = sdk_install_dir.trim();
+    let normalized_local = local_default_install_dir.trim();
+    if normalized_value.is_empty() || normalized_local.is_empty() {
+        return normalized_value.is_empty();
+    }
+
+    normalized_value == normalized_local
+        || normalized_value.starts_with(&format!("{normalized_local}/"))
+        || normalized_value.starts_with(&format!("{normalized_local}\\"))
+}
+
+fn normalize_remote_settings(
+    raw: RawCodexSettings,
+    ssh_config_id: &str,
+    local_default_install_dir: &str,
+) -> CodexSettings {
+    let remote_default_install_dir = default_remote_sdk_install_dir(ssh_config_id);
+    let mut settings = normalize_raw_settings(raw, &remote_default_install_dir);
+    if remote_sdk_install_dir_should_be_repaired(
+        &settings.sdk_install_dir,
+        local_default_install_dir,
+    ) {
+        settings.sdk_install_dir = remote_default_install_dir;
+    }
+    settings
+}
+
+fn normalize_remote_profile_settings(
+    settings: CodexSettings,
+    ssh_config_id: &str,
+    local_default_install_dir: &str,
+) -> CodexSettings {
+    let remote_default_install_dir = default_remote_sdk_install_dir(ssh_config_id);
+    let mut settings = normalize_settings(settings, &remote_default_install_dir);
+    if remote_sdk_install_dir_should_be_repaired(
+        &settings.sdk_install_dir,
+        local_default_install_dir,
+    ) {
+        settings.sdk_install_dir = remote_default_install_dir;
+    }
+    settings
+}
+
+fn default_codex_settings<R: Runtime>(app: &AppHandle<R>) -> Result<CodexSettings, String> {
+    let default_install_dir = default_sdk_install_dir(app)?;
+    Ok(default_codex_settings_with_install_dir(
+        default_install_dir.to_string_lossy().to_string(),
+    ))
+}
+
+fn normalize_settings(settings: CodexSettings, default_install_dir: &str) -> CodexSettings {
     CodexSettings {
         task_sdk_enabled: settings.task_sdk_enabled,
         one_shot_sdk_enabled: settings.one_shot_sdk_enabled,
@@ -165,12 +217,12 @@ fn normalize_settings(settings: CodexSettings, default_install_dir: &Path) -> Co
         )),
         node_path_override: normalize_optional_text(settings.node_path_override.as_deref()),
         sdk_install_dir: normalize_optional_text(Some(&settings.sdk_install_dir))
-            .unwrap_or_else(|| default_install_dir.to_string_lossy().to_string()),
+            .unwrap_or_else(|| default_install_dir.to_string()),
         one_shot_preferred_provider: ONE_SHOT_PROVIDER_SDK.to_string(),
     }
 }
 
-fn normalize_raw_settings(raw: RawCodexSettings, default_install_dir: &Path) -> CodexSettings {
+fn normalize_raw_settings(raw: RawCodexSettings, default_install_dir: &str) -> CodexSettings {
     let legacy_sdk_enabled = raw.sdk_enabled.unwrap_or(false);
 
     CodexSettings {
@@ -189,7 +241,7 @@ fn normalize_raw_settings(raw: RawCodexSettings, default_install_dir: &Path) -> 
         ),
         node_path_override: normalize_optional_text(raw.node_path_override.as_deref()),
         sdk_install_dir: normalize_optional_text(raw.sdk_install_dir.as_deref())
-            .unwrap_or_else(|| default_install_dir.to_string_lossy().to_string()),
+            .unwrap_or_else(|| default_install_dir.to_string()),
         one_shot_preferred_provider: raw
             .one_shot_preferred_provider
             .filter(|value| !value.trim().is_empty())
@@ -201,12 +253,14 @@ fn normalize_settings_document<R: Runtime>(
     app: &AppHandle<R>,
     raw: RawCodexSettingsDocument,
 ) -> Result<CodexSettingsDocument, String> {
-    let default_install_dir = default_sdk_install_dir(app)?;
+    let default_install_dir = default_sdk_install_dir(app)?.to_string_lossy().to_string();
     let local = normalize_raw_settings(raw.local.unwrap_or_default(), &default_install_dir);
     let mut remote_profiles = HashMap::new();
     for (ssh_config_id, profile) in raw.remote_profiles {
-        let install_dir = default_remote_sdk_install_dir(app, &ssh_config_id)?;
-        remote_profiles.insert(ssh_config_id, normalize_raw_settings(profile, &install_dir));
+        remote_profiles.insert(
+            ssh_config_id.clone(),
+            normalize_remote_settings(profile, &ssh_config_id, &default_install_dir),
+        );
     }
     Ok(CodexSettingsDocument {
         local,
@@ -236,7 +290,7 @@ pub fn load_codex_settings_document<R: Runtime>(
     }
     let legacy = serde_json::from_value::<RawCodexSettings>(json_value)
         .map_err(|error| format!("解析 Codex 旧版设置失败: {error}"))?;
-    let default_install_dir = default_sdk_install_dir(app)?;
+    let default_install_dir = default_sdk_install_dir(app)?.to_string_lossy().to_string();
     Ok(CodexSettingsDocument {
         local: normalize_raw_settings(legacy, &default_install_dir),
         remote_profiles: HashMap::new(),
@@ -250,13 +304,16 @@ fn save_codex_settings_document<R: Runtime>(
     let config_dir = app_config_dir(app)?;
     fs::create_dir_all(&config_dir).map_err(|error| format!("创建应用配置目录失败: {error}"))?;
 
-    let default_install_dir = default_sdk_install_dir(app)?;
+    let default_install_dir = default_sdk_install_dir(app)?.to_string_lossy().to_string();
     let mut remote_profiles = HashMap::new();
     for (ssh_config_id, settings) in &document.remote_profiles {
-        let install_dir = default_remote_sdk_install_dir(app, ssh_config_id)?;
         remote_profiles.insert(
             ssh_config_id.clone(),
-            normalize_settings(settings.clone(), &install_dir),
+            normalize_remote_profile_settings(
+                settings.clone(),
+                ssh_config_id,
+                &default_install_dir,
+            ),
         );
     }
 
@@ -283,11 +340,7 @@ pub fn load_remote_codex_settings<R: Runtime>(
         return Ok(settings);
     }
 
-    let install_dir = default_remote_sdk_install_dir(app, ssh_config_id)?;
-    Ok(normalize_settings(
-        default_codex_settings(app)?,
-        &install_dir,
-    ))
+    Ok(default_remote_codex_settings(ssh_config_id))
 }
 
 pub fn save_codex_settings<R: Runtime>(
@@ -393,11 +446,7 @@ pub fn merge_remote_codex_settings<R: Runtime>(
     }
     if let Some(sdk_install_dir) = updates.sdk_install_dir {
         settings.sdk_install_dir = normalize_optional_text(sdk_install_dir.as_deref())
-            .unwrap_or_else(|| {
-                default_remote_sdk_install_dir(app, ssh_config_id)
-                    .map(|path| path.to_string_lossy().to_string())
-                    .unwrap_or_else(|_| String::new())
-            });
+            .unwrap_or_else(|| default_remote_sdk_install_dir(ssh_config_id));
     }
 
     document
@@ -569,7 +618,7 @@ async fn read_node_version(node_path_override: Option<&str>) -> Result<String, S
     Ok(version)
 }
 
-fn ensure_supported_node_version(version: &str) -> Result<(), String> {
+pub(crate) fn ensure_supported_node_version(version: &str) -> Result<(), String> {
     match parse_node_major_version(version) {
         Some(major) if major >= MINIMUM_NODE_MAJOR => Ok(()),
         Some(major) => Err(format!(
@@ -798,10 +847,10 @@ pub async fn install_codex_sdk<R: Runtime>(
 #[cfg(test)]
 mod tests {
     use super::{
-        determine_effective_provider, normalize_raw_settings,
-        normalize_task_automation_failure_strategy, normalize_task_automation_max_fix_rounds,
-        parse_node_major_version, read_sdk_version_from_dir, sdk_platform_package_for_target,
-        RawCodexSettings,
+        default_remote_codex_settings, determine_effective_provider, normalize_raw_settings,
+        normalize_remote_settings, normalize_task_automation_failure_strategy,
+        normalize_task_automation_max_fix_rounds, parse_node_major_version,
+        read_sdk_version_from_dir, sdk_platform_package_for_target, RawCodexSettings,
     };
     use std::fs;
     use std::path::PathBuf;
@@ -884,7 +933,7 @@ mod tests {
                 sdk_enabled: Some(true),
                 ..RawCodexSettings::default()
             },
-            &base,
+            base.to_string_lossy().as_ref(),
         );
 
         assert!(normalized.task_sdk_enabled);
@@ -904,7 +953,7 @@ mod tests {
                 one_shot_reasoning_effort: Some("extreme".to_string()),
                 ..RawCodexSettings::default()
             },
-            &base,
+            base.to_string_lossy().as_ref(),
         );
 
         assert_eq!(normalized.one_shot_model, "gpt-5.4");
@@ -923,7 +972,7 @@ mod tests {
                 task_automation_failure_strategy: Some("something-else".to_string()),
                 ..RawCodexSettings::default()
             },
-            &base,
+            base.to_string_lossy().as_ref(),
         );
 
         assert!(normalized.task_automation_default_enabled);
@@ -941,6 +990,34 @@ mod tests {
         assert_eq!(
             normalize_task_automation_failure_strategy(Some("manual_control")),
             "manual_control"
+        );
+    }
+
+    #[test]
+    fn default_remote_codex_settings_use_remote_home_directory() {
+        let settings = default_remote_codex_settings("ssh-1");
+        assert_eq!(
+            settings.sdk_install_dir,
+            "~/.codex-ai/codex-sdk-runtime/ssh-1"
+        );
+    }
+
+    #[test]
+    fn remote_settings_repair_legacy_local_sdk_directory() {
+        let local_default =
+            "/Users/wenyuan/Library/Application Support/com.wenyuan.codex-ai/codex-sdk-runtime";
+        let normalized = normalize_remote_settings(
+            RawCodexSettings {
+                sdk_install_dir: Some(local_default.to_string()),
+                ..RawCodexSettings::default()
+            },
+            "ssh-1",
+            local_default,
+        );
+
+        assert_eq!(
+            normalized.sdk_install_dir,
+            "~/.codex-ai/codex-sdk-runtime/ssh-1"
         );
     }
 }

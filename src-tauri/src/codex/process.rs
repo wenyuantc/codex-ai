@@ -13,12 +13,14 @@ use tokio::process::Child;
 use tokio::time::sleep;
 
 use crate::app::{
-    build_ssh_command, execute_ssh_command, fetch_codex_session_by_id,
-    fetch_ssh_config_record_by_id, insert_activity_log, insert_codex_session_event,
-    insert_codex_session_event_with_id, insert_codex_session_record, normalize_runtime_path_string,
-    now_sqlite, parse_review_verdict_json, path_to_runtime_string,
-    replace_codex_session_file_changes, sqlite_pool, update_codex_session_record,
-    validate_project_repo_path, validate_runtime_working_dir, ARTIFACT_CAPTURE_MODE_LOCAL_FULL,
+    build_remote_shell_command, build_ssh_command, ensure_remote_sdk_runtime_layout,
+    execute_ssh_command, fetch_codex_session_by_id, fetch_ssh_config_record_by_id,
+    insert_activity_log, insert_codex_session_event, insert_codex_session_event_with_id,
+    insert_codex_session_record, inspect_remote_codex_runtime, normalize_runtime_path_string,
+    now_sqlite, parse_review_verdict_json, path_to_runtime_string, remote_sdk_bridge_path,
+    remote_shell_path_expression, replace_codex_session_file_changes, sqlite_pool,
+    sync_task_attachments_to_remote, update_codex_session_record, validate_project_repo_path,
+    validate_runtime_working_dir, ARTIFACT_CAPTURE_MODE_LOCAL_FULL,
     ARTIFACT_CAPTURE_MODE_SSH_GIT_STATUS, ARTIFACT_CAPTURE_MODE_SSH_NONE, EXECUTION_TARGET_LOCAL,
     EXECUTION_TARGET_SSH,
 };
@@ -472,6 +474,13 @@ fn capture_execution_change_baseline(repo_path: &str) -> Result<ExecutionChangeB
     })
 }
 
+fn should_capture_execution_change_baseline(
+    session_kind: CodexSessionKind,
+    execution_target: &str,
+) -> bool {
+    session_kind == CodexSessionKind::Execution && execution_target == EXECUTION_TARGET_LOCAL
+}
+
 fn collect_working_tree_snapshot_entries(
     repo_path: &str,
     capture_text_snapshots: bool,
@@ -663,12 +672,12 @@ async fn capture_remote_git_status_changes(
 ) -> Result<Vec<CodexSessionFileChangeInput>, String> {
     let pool = sqlite_pool(app).await?;
     let ssh_config = fetch_ssh_config_record_by_id(&pool, ssh_config_id).await?;
-    let remote_command = format!(
-        "sh -lc {}",
-        shell_escape_arg(&format!(
+    let remote_command = build_remote_shell_command(
+        &format!(
             "git -C {} status --porcelain=v1 -z --untracked-files=all",
             shell_escape_arg(working_dir)
-        ))
+        ),
+        None,
     );
     let output = execute_ssh_command(app, &ssh_config, &remote_command, true).await?;
     if !output.status.success() {
@@ -910,6 +919,10 @@ fn format_session_prompt_log(
     provider: CodexExecutionProvider,
     model: &str,
     reasoning_effort: &str,
+    execution_target: &str,
+    ssh_config_name: Option<&str>,
+    ssh_host: Option<&str>,
+    target_host_label: Option<&str>,
     working_dir: &str,
     prompt: &str,
     image_paths: &[String],
@@ -932,16 +945,30 @@ fn format_session_prompt_log(
         format!("附带图片: {} 张\n{}", image_paths.len(), lines)
     };
 
+    let runtime_block = if execution_target == EXECUTION_TARGET_SSH {
+        let ssh_name = ssh_config_name.unwrap_or("未命名 SSH 配置");
+        let ssh_host = ssh_host.unwrap_or("未知主机");
+        let ssh_login = target_host_label.unwrap_or("未知登录目标");
+        format!(
+            "执行环境: SSH 远程运行\nSSH 名称: {}\nSSH 主机/IP: {}\nSSH 登录: {}",
+            ssh_name, ssh_host, ssh_login
+        )
+    } else {
+        "执行环境: 本地运行".to_string()
+    };
+
     format!(
         "[PROMPT] 即将发送给 Codex 的完整提示词\n\
 运行通道: {}\n\
 模型: {}\n\
 推理强度: {}\n\
+{}\n\
 工作目录: {}\n\
 {}\n\n{}",
         provider.label(),
         model,
         reasoning_effort,
+        runtime_block,
         working_dir,
         image_block,
         prompt
@@ -971,6 +998,27 @@ fn collect_available_image_paths(image_paths: Option<Vec<String>>) -> (Vec<Strin
     }
 
     (available, missing)
+}
+
+async fn prepare_execution_image_paths(
+    app: &AppHandle,
+    task_id: Option<&str>,
+    execution_target: &str,
+    ssh_config_id: Option<&str>,
+    image_paths: Option<Vec<String>>,
+) -> Result<(Vec<String>, Vec<String>, usize), String> {
+    if execution_target == EXECUTION_TARGET_SSH {
+        if let (Some(task_id), Some(ssh_config_id)) = (task_id, ssh_config_id) {
+            let sync_result = sync_task_attachments_to_remote(app, ssh_config_id, task_id).await?;
+            return Ok((sync_result.remote_paths, sync_result.skipped_local_paths, 0));
+        }
+
+        let ignored_count = image_paths.unwrap_or_default().len();
+        return Ok((Vec::new(), Vec::new(), ignored_count));
+    }
+
+    let (available, missing) = collect_available_image_paths(image_paths);
+    Ok((available, missing, 0))
 }
 
 fn build_sdk_input_items(prompt: &str, image_paths: &[String]) -> Vec<serde_json::Value> {
@@ -1825,10 +1873,44 @@ pub async fn start_codex_with_manager(
     let model = normalize_model(model.as_deref());
     let reasoning_effort = normalize_reasoning_effort(reasoning_effort.as_deref());
     let prompt = compose_codex_prompt(&task_description, system_prompt.as_deref());
-    let (image_paths, missing_image_paths) = collect_available_image_paths(image_paths);
+    let (image_paths, missing_image_paths, ignored_remote_image_count) =
+        match prepare_execution_image_paths(
+            &app,
+            task_id.as_deref(),
+            &execution_context.execution_target,
+            execution_context.ssh_config_id.as_deref(),
+            image_paths,
+        )
+        .await
+        {
+            Ok(result) => result,
+            Err(error) => {
+                let ended_at = now_sqlite();
+                update_codex_session_record(
+                    &app,
+                    &session_record.id,
+                    Some("failed"),
+                    None,
+                    None,
+                    Some(Some(ended_at.as_str())),
+                )
+                .await?;
+                insert_codex_session_event(
+                    &pool,
+                    &session_record.id,
+                    "session_image_prepare_failed",
+                    Some(&error),
+                )
+                .await?;
+                return Err(error);
+            }
+        };
     let mut provider = CodexExecutionProvider::Cli;
     let mut sdk_codex_path_override = None;
     let mut session_lookup_started_at = None;
+    let mut ssh_config_name: Option<String> = None;
+    let mut ssh_host: Option<String> = None;
+    let mut remote_sdk_fallback_error: Option<String> = None;
 
     let command_result: Result<(tokio::process::Command, Vec<PathBuf>), String> =
         if execution_context.execution_target == EXECUTION_TARGET_SSH {
@@ -1838,24 +1920,179 @@ pub async fn start_codex_with_manager(
                 .ok_or_else(|| "SSH 项目缺少 ssh_config_id，无法启动 Codex。".to_string())?;
             let ssh_config =
                 fetch_ssh_config_record_by_id(&sqlite_pool(&app).await?, ssh_config_id).await?;
+            let remote_settings = load_remote_codex_settings(&app, ssh_config_id).ok();
+            ssh_config_name = Some(ssh_config.name.clone());
+            ssh_host = Some(format!("{}:{}", ssh_config.host, ssh_config.port));
             session_lookup_started_at = None;
-            let (mut command, askpass_path) = build_ssh_command(
-                &app,
-                &ssh_config,
-                Some(&build_remote_codex_session_command(
+            let use_remote_sdk = remote_settings
+                .as_ref()
+                .map(|settings| settings.task_sdk_enabled)
+                .unwrap_or(false);
+            if use_remote_sdk {
+                if let Some(remote_settings) = remote_settings.as_ref() {
+                    match inspect_remote_codex_runtime(&app, &ssh_config, remote_settings).await {
+                        Ok(runtime) if runtime.task_execution_effective_provider == "sdk" => {
+                            match ensure_remote_sdk_runtime_layout(&app, ssh_config_id).await {
+                                Ok(remote_runtime_settings) => {
+                                    let remote_command = build_remote_sdk_bridge_command(
+                                        &remote_runtime_settings.sdk_install_dir,
+                                        remote_runtime_settings.node_path_override.as_deref(),
+                                    );
+                                    match build_ssh_command(
+                                        &app,
+                                        &ssh_config,
+                                        Some(&remote_command),
+                                        true,
+                                        false,
+                                    )
+                                    .await
+                                    {
+                                        Ok((mut command, askpass_path)) => {
+                                            provider = CodexExecutionProvider::Sdk;
+                                            command
+                                                .stdin(std::process::Stdio::piped())
+                                                .stdout(std::process::Stdio::piped())
+                                                .stderr(std::process::Stdio::piped());
+                                            Ok((command, askpass_path.into_iter().collect()))
+                                        }
+                                        Err(error) => {
+                                            remote_sdk_fallback_error = Some(error);
+                                            let remote_command = build_remote_codex_session_command(
+                                                model,
+                                                reasoning_effort,
+                                                &run_cwd,
+                                                &image_paths,
+                                                resume_session_id.as_deref(),
+                                                remote_settings.node_path_override.as_deref(),
+                                            );
+                                            let (mut command, askpass_path) = build_ssh_command(
+                                                &app,
+                                                &ssh_config,
+                                                Some(&remote_command),
+                                                true,
+                                                true,
+                                            )
+                                            .await?;
+                                            command
+                                                .stdin(std::process::Stdio::piped())
+                                                .stdout(std::process::Stdio::piped())
+                                                .stderr(std::process::Stdio::piped());
+                                            Ok((command, askpass_path.into_iter().collect()))
+                                        }
+                                    }
+                                }
+                                Err(error) => {
+                                    remote_sdk_fallback_error = Some(error);
+                                    let remote_command = build_remote_codex_session_command(
+                                        model,
+                                        reasoning_effort,
+                                        &run_cwd,
+                                        &image_paths,
+                                        resume_session_id.as_deref(),
+                                        remote_settings.node_path_override.as_deref(),
+                                    );
+                                    let (mut command, askpass_path) = build_ssh_command(
+                                        &app,
+                                        &ssh_config,
+                                        Some(&remote_command),
+                                        true,
+                                        true,
+                                    )
+                                    .await?;
+                                    command
+                                        .stdin(std::process::Stdio::piped())
+                                        .stdout(std::process::Stdio::piped())
+                                        .stderr(std::process::Stdio::piped());
+                                    Ok((command, askpass_path.into_iter().collect()))
+                                }
+                            }
+                        }
+                        Ok(runtime) => {
+                            remote_sdk_fallback_error = Some(runtime.status_message);
+                            let remote_command = build_remote_codex_session_command(
+                                model,
+                                reasoning_effort,
+                                &run_cwd,
+                                &image_paths,
+                                resume_session_id.as_deref(),
+                                remote_settings.node_path_override.as_deref(),
+                            );
+                            let (mut command, askpass_path) = build_ssh_command(
+                                &app,
+                                &ssh_config,
+                                Some(&remote_command),
+                                true,
+                                true,
+                            )
+                            .await?;
+                            command
+                                .stdin(std::process::Stdio::piped())
+                                .stdout(std::process::Stdio::piped())
+                                .stderr(std::process::Stdio::piped());
+                            Ok((command, askpass_path.into_iter().collect()))
+                        }
+                        Err(error) => {
+                            remote_sdk_fallback_error = Some(error);
+                            let remote_command = build_remote_codex_session_command(
+                                model,
+                                reasoning_effort,
+                                &run_cwd,
+                                &image_paths,
+                                resume_session_id.as_deref(),
+                                remote_settings.node_path_override.as_deref(),
+                            );
+                            let (mut command, askpass_path) = build_ssh_command(
+                                &app,
+                                &ssh_config,
+                                Some(&remote_command),
+                                true,
+                                true,
+                            )
+                            .await?;
+                            command
+                                .stdin(std::process::Stdio::piped())
+                                .stdout(std::process::Stdio::piped())
+                                .stderr(std::process::Stdio::piped());
+                            Ok((command, askpass_path.into_iter().collect()))
+                        }
+                    }
+                } else {
+                    let remote_command = build_remote_codex_session_command(
+                        model,
+                        reasoning_effort,
+                        &run_cwd,
+                        &image_paths,
+                        resume_session_id.as_deref(),
+                        None,
+                    );
+                    let (mut command, askpass_path) =
+                        build_ssh_command(&app, &ssh_config, Some(&remote_command), true, true)
+                            .await?;
+                    command
+                        .stdin(std::process::Stdio::piped())
+                        .stdout(std::process::Stdio::piped())
+                        .stderr(std::process::Stdio::piped());
+                    Ok((command, askpass_path.into_iter().collect()))
+                }
+            } else {
+                let remote_command = build_remote_codex_session_command(
                     model,
                     reasoning_effort,
                     &run_cwd,
+                    &image_paths,
                     resume_session_id.as_deref(),
-                )),
-                true,
-            )
-            .await?;
-            command
-                .stdin(std::process::Stdio::piped())
-                .stdout(std::process::Stdio::piped())
-                .stderr(std::process::Stdio::piped());
-            Ok((command, askpass_path.into_iter().collect()))
+                    remote_settings
+                        .as_ref()
+                        .and_then(|settings| settings.node_path_override.as_deref()),
+                );
+                let (mut command, askpass_path) =
+                    build_ssh_command(&app, &ssh_config, Some(&remote_command), true, true).await?;
+                command
+                    .stdin(std::process::Stdio::piped())
+                    .stdout(std::process::Stdio::piped())
+                    .stderr(std::process::Stdio::piped());
+                Ok((command, askpass_path.into_iter().collect()))
+            }
         } else if should_use_sdk_for_session(&app).await {
             match load_codex_settings(&app) {
                 Ok(settings) => {
@@ -1934,7 +2171,10 @@ pub async fn start_codex_with_manager(
             return Err(error);
         }
     };
-    let execution_change_baseline = if session_kind == CodexSessionKind::Execution {
+    let execution_change_baseline = if should_capture_execution_change_baseline(
+        session_kind,
+        &execution_context.execution_target,
+    ) {
         match capture_execution_change_baseline(&run_cwd) {
             Ok(baseline) => Some(baseline),
             Err(error) => {
@@ -1994,6 +2234,37 @@ pub async fn start_codex_with_manager(
         );
     }
 
+    if ignored_remote_image_count > 0 {
+        let _ = app.emit(
+            "codex-stdout",
+            CodexOutput {
+                employee_id: employee_id.clone(),
+                task_id: task_id.clone(),
+                session_kind: session_kind.as_str().to_string(),
+                session_record_id: session_record.id.clone(),
+                session_event_id: None,
+                line: format!(
+                    "[WARN] SSH 远程运行暂不传输本地图片附件，已忽略 {} 张图片。",
+                    ignored_remote_image_count
+                ),
+            },
+        );
+    }
+
+    if let Some(error) = remote_sdk_fallback_error.as_deref() {
+        let _ = app.emit(
+            "codex-stdout",
+            CodexOutput {
+                employee_id: employee_id.clone(),
+                task_id: task_id.clone(),
+                session_kind: session_kind.as_str().to_string(),
+                session_record_id: session_record.id.clone(),
+                session_event_id: None,
+                line: format!("[WARN] 远程 SDK 启动失败，已回退到远程 codex exec: {error}"),
+            },
+        );
+    }
+
     let _ = app.emit(
         "codex-stdout",
         CodexOutput {
@@ -2006,6 +2277,10 @@ pub async fn start_codex_with_manager(
                 provider,
                 model,
                 reasoning_effort,
+                &execution_context.execution_target,
+                ssh_config_name.as_deref(),
+                ssh_host.as_deref(),
+                execution_context.target_host_label.as_deref(),
                 &run_cwd,
                 &prompt,
                 &image_paths,
@@ -2051,12 +2326,18 @@ pub async fn start_codex_with_manager(
                 stdin.write_all(&payload).await.map_err(|error| {
                     format!("Failed to write Codex SDK session payload: {}", error)
                 })?;
+                stdin.shutdown().await.map_err(|error| {
+                    format!("Failed to close Codex SDK session stdin: {}", error)
+                })?;
             }
         }
         CodexExecutionProvider::Cli => {
             if let Some(mut stdin) = child.stdin.take() {
                 stdin.write_all(prompt.as_bytes()).await.map_err(|error| {
                     format!("Failed to write Codex CLI session prompt: {}", error)
+                })?;
+                stdin.shutdown().await.map_err(|error| {
+                    format!("Failed to close Codex CLI session stdin: {}", error)
                 })?;
             }
         }
@@ -2093,11 +2374,24 @@ pub async fn start_codex_with_manager(
         &session_record.id,
         "session_started",
         Some(&format!(
-            "通过 {} 启动，使用模型 {} / 推理强度 {} / 图片 {} 张",
+            "通过 {} 启动，使用模型 {} / 推理强度 {} / 图片 {} 张{}",
             provider.label(),
             model,
             reasoning_effort,
-            image_paths.len()
+            image_paths.len(),
+            if execution_context.execution_target == EXECUTION_TARGET_SSH {
+                format!(
+                    " / SSH {} / 主机 {} / 登录 {}",
+                    ssh_config_name.as_deref().unwrap_or("未命名 SSH 配置"),
+                    ssh_host.as_deref().unwrap_or("未知主机"),
+                    execution_context
+                        .target_host_label
+                        .as_deref()
+                        .unwrap_or("未知登录目标")
+                )
+            } else {
+                String::new()
+            }
         )),
     )
     .await?;
@@ -2172,7 +2466,34 @@ pub async fn start_codex_with_manager(
     tauri::async_runtime::spawn(async move {
         let reader = BufReader::new(stdout);
         let mut lines = reader.lines();
-        while let Ok(Some(line)) = lines.next_line().await {
+        loop {
+            let line = match lines.next_line().await {
+                Ok(Some(line)) => line,
+                Ok(None) => break,
+                Err(error) => {
+                    let error_line = format!("[ERROR] 读取远程 stdout 失败: {}", error);
+                    let session_event_id = insert_codex_session_event_with_id(
+                        &pool_for_stdout,
+                        &session_record_id,
+                        "stdout_read_failed",
+                        Some(&error_line),
+                    )
+                    .await
+                    .ok();
+                    let _ = app_clone.emit(
+                        "codex-stdout",
+                        CodexOutput {
+                            employee_id: eid.clone(),
+                            task_id: task_id_for_stdout.clone(),
+                            session_kind: session_kind.as_str().to_string(),
+                            session_record_id: session_record_id.clone(),
+                            session_event_id,
+                            line: error_line,
+                        },
+                    );
+                    break;
+                }
+            };
             if let Some(event) = parse_sdk_file_change_event(&line) {
                 if let Some(store) = sdk_file_change_store_for_stdout.as_ref() {
                     upsert_sdk_file_change_event(store, event);
@@ -2255,7 +2576,34 @@ pub async fn start_codex_with_manager(
     tauri::async_runtime::spawn(async move {
         let reader = BufReader::new(stderr);
         let mut lines = reader.lines();
-        while let Ok(Some(line)) = lines.next_line().await {
+        loop {
+            let line = match lines.next_line().await {
+                Ok(Some(line)) => line,
+                Ok(None) => break,
+                Err(error) => {
+                    let error_line = format!("[ERROR] 读取远程 stderr 失败: {}", error);
+                    let session_event_id = insert_codex_session_event_with_id(
+                        &pool_for_stderr,
+                        &session_record_id_for_stderr,
+                        "stderr_read_failed",
+                        Some(&error_line),
+                    )
+                    .await
+                    .ok();
+                    let _ = app_clone.emit(
+                        "codex-stdout",
+                        CodexOutput {
+                            employee_id: eid.clone(),
+                            task_id: task_id_for_stderr.clone(),
+                            session_kind: session_kind.as_str().to_string(),
+                            session_record_id: session_record_id_for_stderr.clone(),
+                            session_event_id,
+                            line: error_line,
+                        },
+                    );
+                    break;
+                }
+            };
             if let Some(event) = parse_sdk_file_change_event(&line) {
                 if let Some(store) = sdk_file_change_store_for_stderr.as_ref() {
                     upsert_sdk_file_change_event(store, event);
@@ -2763,20 +3111,36 @@ fn build_remote_codex_session_command(
     model: &str,
     reasoning_effort: &str,
     run_cwd: &str,
+    image_paths: &[String],
     resume_session_id: Option<&str>,
+    node_path_override: Option<&str>,
 ) -> String {
-    let args = build_session_exec_args(model, reasoning_effort, run_cwd, &[], resume_session_id)
-        .into_iter()
-        .map(|value| shell_escape_arg(&value))
-        .collect::<Vec<_>>()
-        .join(" ");
-    format!(
-        "sh -lc {}",
-        shell_escape_arg(&format!(
-            "cd {} && exec codex {}",
-            shell_escape_arg(run_cwd),
-            args
-        ))
+    let args = build_session_exec_args(
+        model,
+        reasoning_effort,
+        run_cwd,
+        image_paths,
+        resume_session_id,
+    )
+    .into_iter()
+    .map(|value| shell_escape_arg(&value))
+    .collect::<Vec<_>>()
+    .join(" ");
+    build_remote_shell_command(
+        &format!("cd {} && exec codex {}", shell_escape_arg(run_cwd), args),
+        node_path_override,
+    )
+}
+
+fn build_remote_sdk_bridge_command(install_dir: &str, node_path_override: Option<&str>) -> String {
+    let bridge_path = remote_sdk_bridge_path(install_dir);
+    build_remote_shell_command(
+        &format!(
+            "install_dir={}; bridge_path={}; cd \"$install_dir\" && exec node \"$bridge_path\"",
+            remote_shell_path_expression(install_dir),
+            remote_shell_path_expression(&bridge_path),
+        ),
+        node_path_override,
     )
 }
 
@@ -2850,6 +3214,61 @@ async fn run_ai_command_via_exec(
     }
 }
 
+async fn run_ai_command_via_remote_sdk(
+    app: &AppHandle,
+    ssh_config_id: &str,
+    prompt: &str,
+    model: &str,
+    reasoning_effort: &str,
+    working_dir: Option<&str>,
+    image_paths: &[String],
+) -> Result<String, String> {
+    let ssh_config = fetch_ssh_config_record_by_id(&sqlite_pool(app).await?, ssh_config_id).await?;
+    let remote_settings = ensure_remote_sdk_runtime_layout(app, ssh_config_id).await?;
+    let remote_command = build_remote_sdk_bridge_command(
+        &remote_settings.sdk_install_dir,
+        remote_settings.node_path_override.as_deref(),
+    );
+    let (mut command, askpass_path) =
+        build_ssh_command(app, &ssh_config, Some(&remote_command), true, false).await?;
+    command
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped());
+
+    let mut child = command
+        .spawn()
+        .map_err(|error| format!("Failed to spawn remote Codex SDK bridge: {error}"))?;
+    if let Some(mut stdin) = child.stdin.take() {
+        let payload = serde_json::to_vec(&serde_json::json!({
+            "prompt": prompt,
+            "input": build_sdk_input_items(prompt, image_paths),
+            "model": model,
+            "modelReasoningEffort": reasoning_effort,
+            "workingDirectory": working_dir,
+        }))
+        .map_err(|error| format!("Failed to serialize remote SDK request: {}", error))?;
+        stdin
+            .write_all(&payload)
+            .await
+            .map_err(|error| format!("Failed to write remote SDK request: {}", error))?;
+        stdin
+            .shutdown()
+            .await
+            .map_err(|error| format!("Failed to close remote SDK request stdin: {}", error))?;
+    }
+
+    let output = child
+        .wait_with_output()
+        .await
+        .map_err(|error| format!("Failed to wait for remote Codex SDK bridge: {}", error))?;
+    if let Some(path) = askpass_path {
+        let _ = fs::remove_file(path);
+    }
+
+    parse_sdk_bridge_output(&output.stdout, &output.stderr)
+}
+
 async fn run_ai_command_via_ssh_exec(
     app: &AppHandle,
     ssh_config_id: &str,
@@ -2857,24 +3276,27 @@ async fn run_ai_command_via_ssh_exec(
     model: &str,
     reasoning_effort: &str,
     working_dir: Option<&str>,
-    _image_paths: &[String],
+    image_paths: &[String],
 ) -> Result<String, String> {
     let ssh_config = fetch_ssh_config_record_by_id(&sqlite_pool(app).await?, ssh_config_id).await?;
+    let remote_settings = load_remote_codex_settings(app, ssh_config_id).ok();
     let run_cwd = working_dir
         .map(normalize_runtime_path_string)
         .ok_or_else(|| "SSH 一次性 AI 缺少远程工作目录".to_string())?;
-    // SSH v1 不承诺把本地图片路径同步到远端，因此这里不透传 --image，避免把本地路径错误交给远程主机。
-    let remote_command = build_one_shot_exec_args(model, reasoning_effort, Some(&run_cwd), &[])
-        .into_iter()
-        .map(|value| shell_escape_arg(&value))
-        .collect::<Vec<_>>()
-        .join(" ");
-    let remote_command = format!(
-        "sh -lc {}",
-        shell_escape_arg(&format!("exec codex {remote_command}"))
+    let remote_command =
+        build_one_shot_exec_args(model, reasoning_effort, Some(&run_cwd), image_paths)
+            .into_iter()
+            .map(|value| shell_escape_arg(&value))
+            .collect::<Vec<_>>()
+            .join(" ");
+    let remote_command = build_remote_shell_command(
+        &format!("exec codex {remote_command}"),
+        remote_settings
+            .as_ref()
+            .and_then(|settings| settings.node_path_override.as_deref()),
     );
     let (mut command, askpass_path) =
-        build_ssh_command(app, &ssh_config, Some(&remote_command), true).await?;
+        build_ssh_command(app, &ssh_config, Some(&remote_command), true, false).await?;
     command
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
@@ -2888,6 +3310,10 @@ async fn run_ai_command_via_ssh_exec(
             .write_all(prompt.as_bytes())
             .await
             .map_err(|error| format!("Failed to write remote codex exec prompt: {error}"))?;
+        stdin
+            .shutdown()
+            .await
+            .map_err(|error| format!("Failed to close remote codex exec stdin: {error}"))?;
     }
 
     let output = child
@@ -3000,7 +3426,6 @@ async fn run_ai_command(
     task_id: Option<String>,
     working_dir: Option<String>,
 ) -> Result<String, String> {
-    let (image_paths, missing_image_paths) = collect_available_image_paths(image_paths);
     let execution_context = match task_id
         .as_deref()
         .map(str::trim)
@@ -3015,6 +3440,15 @@ async fn run_ai_command(
             artifact_capture_mode: ARTIFACT_CAPTURE_MODE_LOCAL_FULL.to_string(),
         },
     };
+    let (image_paths, missing_image_paths, _ignored_remote_image_count) =
+        prepare_execution_image_paths(
+            app,
+            task_id.as_deref(),
+            &execution_context.execution_target,
+            execution_context.ssh_config_id.as_deref(),
+            image_paths,
+        )
+        .await?;
     let mut one_shot_model = normalize_model(None).to_string();
     let mut one_shot_reasoning_effort = normalize_reasoning_effort(None).to_string();
     let mut sdk_error = None;
@@ -3037,7 +3471,7 @@ async fn run_ai_command(
         load_codex_settings(app).ok()
     };
 
-    if let Some(settings) = settings {
+    if let Some(ref settings) = settings {
         one_shot_model = normalize_model(Some(&settings.one_shot_model)).to_string();
         one_shot_reasoning_effort =
             normalize_reasoning_effort(Some(&settings.one_shot_reasoning_effort)).to_string();
@@ -3069,12 +3503,54 @@ async fn run_ai_command(
     }
 
     if execution_context.execution_target == EXECUTION_TARGET_SSH {
+        let ssh_config_id = execution_context
+            .ssh_config_id
+            .as_deref()
+            .ok_or_else(|| "SSH 一次性 AI 缺少 ssh_config_id".to_string())?;
+        if settings
+            .as_ref()
+            .map(|settings| settings.one_shot_sdk_enabled)
+            .unwrap_or(false)
+        {
+            if let Some(remote_settings) = settings.as_ref() {
+                let ssh_config =
+                    fetch_ssh_config_record_by_id(&sqlite_pool(app).await?, ssh_config_id).await?;
+                match inspect_remote_codex_runtime(app, &ssh_config, remote_settings).await {
+                    Ok(runtime) if runtime.one_shot_effective_provider == "sdk" => {
+                        match run_ai_command_via_remote_sdk(
+                            app,
+                            ssh_config_id,
+                            &prompt,
+                            &one_shot_model,
+                            &one_shot_reasoning_effort,
+                            working_dir.as_deref(),
+                            &image_paths,
+                        )
+                        .await
+                        {
+                            Ok(result) => return Ok(result),
+                            Err(error) => {
+                                eprintln!(
+                                    "[codex-sdk] 远程 SDK 调用失败，回退到 remote codex exec: {error}"
+                                );
+                            }
+                        }
+                    }
+                    Ok(runtime) => {
+                        eprintln!("[codex-sdk] {}", runtime.status_message);
+                    }
+                    Err(error) => {
+                        eprintln!(
+                            "[codex-sdk] 远程 SDK 预检失败，回退到 remote codex exec: {error}"
+                        );
+                    }
+                }
+            }
+        }
+
         return run_ai_command_via_ssh_exec(
             app,
-            execution_context
-                .ssh_config_id
-                .as_deref()
-                .ok_or_else(|| "SSH 一次性 AI 缺少 ssh_config_id".to_string())?,
+            ssh_config_id,
             prompt,
             &one_shot_model,
             &one_shot_reasoning_effort,
@@ -3344,12 +3820,15 @@ mod tests {
 
     use super::{
         attach_session_file_change_details, build_ai_generate_plan_prompt,
-        build_ai_optimize_prompt_prompt, build_one_shot_exec_args, build_session_exec_args,
-        compose_codex_prompt, compute_execution_session_file_changes_from_entries,
-        extract_session_id_from_output, format_session_prompt_log, hash_worktree_path,
-        normalize_session_file_change_paths, parse_ai_subtasks_response, parse_sdk_bridge_output,
-        parse_sdk_file_change_event, sdk_codex_path_override_allowed_for_os,
-        CodexExecutionProvider, TextSnapshot, WorkingTreeSnapshotEntry,
+        build_ai_optimize_prompt_prompt, build_one_shot_exec_args,
+        build_remote_codex_session_command, build_remote_sdk_bridge_command,
+        build_session_exec_args, compose_codex_prompt,
+        compute_execution_session_file_changes_from_entries, extract_session_id_from_output,
+        format_session_prompt_log, hash_worktree_path, normalize_session_file_change_paths,
+        parse_ai_subtasks_response, parse_sdk_bridge_output, parse_sdk_file_change_event,
+        sdk_codex_path_override_allowed_for_os, should_capture_execution_change_baseline,
+        CodexExecutionProvider, CodexSessionKind, TextSnapshot, WorkingTreeSnapshotEntry,
+        EXECUTION_TARGET_LOCAL, EXECUTION_TARGET_SSH,
     };
     use crate::db::models::CodexSessionFileChangeInput;
 
@@ -3553,6 +4032,38 @@ mod tests {
     }
 
     #[test]
+    fn remote_codex_session_command_includes_image_args() {
+        let command = build_remote_codex_session_command(
+            "gpt-5.4",
+            "high",
+            "/srv/repo",
+            &["/home/demo/.codex-ai/img/task-1/att-1.png".to_string()],
+            Some("session-123"),
+            None,
+        );
+
+        assert!(command.contains("exec codex"));
+        assert!(command.contains("'--image'"));
+        assert!(command.contains("'/home/demo/.codex-ai/img/task-1/att-1.png'"));
+    }
+
+    #[test]
+    fn execution_change_baseline_only_captures_for_local_execution_sessions() {
+        assert!(should_capture_execution_change_baseline(
+            CodexSessionKind::Execution,
+            EXECUTION_TARGET_LOCAL
+        ));
+        assert!(!should_capture_execution_change_baseline(
+            CodexSessionKind::Execution,
+            EXECUTION_TARGET_SSH
+        ));
+        assert!(!should_capture_execution_change_baseline(
+            CodexSessionKind::Review,
+            EXECUTION_TARGET_LOCAL
+        ));
+    }
+
+    #[test]
     fn parses_sdk_bridge_success_output() {
         let output = parse_sdk_bridge_output(br#"{"ok":true,"text":"sdk output"}"#, &[])
             .expect("parse sdk bridge success");
@@ -3566,6 +4077,10 @@ mod tests {
             CodexExecutionProvider::Sdk,
             "gpt-5.4",
             "high",
+            EXECUTION_TARGET_LOCAL,
+            None,
+            None,
+            None,
             "/tmp/demo",
             "任务标题:\n修复问题",
             &[
@@ -3578,10 +4093,45 @@ mod tests {
         assert!(log.contains("运行通道: SDK"));
         assert!(log.contains("模型: gpt-5.4"));
         assert!(log.contains("推理强度: high"));
+        assert!(log.contains("执行环境: 本地运行"));
         assert!(log.contains("工作目录: /tmp/demo"));
         assert!(log.contains("附带图片: 2 张"));
         assert!(log.contains("1. ui.png"));
         assert!(log.contains("任务标题:\n修复问题"));
+    }
+
+    #[test]
+    fn formats_prompt_log_with_ssh_runtime_context() {
+        let log = format_session_prompt_log(
+            CodexExecutionProvider::Cli,
+            "gpt-5.4",
+            "medium",
+            EXECUTION_TARGET_SSH,
+            Some("生产 SSH"),
+            Some("10.0.0.8:22"),
+            Some("root@10.0.0.8:22"),
+            "/root/code/codex-ai",
+            "任务标题:\n分析项目",
+            &[],
+        );
+
+        assert!(log.contains("执行环境: SSH 远程运行"));
+        assert!(log.contains("SSH 名称: 生产 SSH"));
+        assert!(log.contains("SSH 主机/IP: 10.0.0.8:22"));
+        assert!(log.contains("SSH 登录: root@10.0.0.8:22"));
+    }
+
+    #[test]
+    fn remote_sdk_bridge_command_expands_home_install_dir() {
+        let command = build_remote_sdk_bridge_command(
+            "~/.codex-ai/codex-sdk-runtime/ssh-1",
+            Some("~/.nvm/versions/node/v22.0.0/bin/node"),
+        );
+
+        assert!(command.contains("install_dir=\"$HOME/.codex-ai/codex-sdk-runtime/ssh-1\""));
+        assert!(command
+            .contains("bridge_path=\"$HOME/.codex-ai/codex-sdk-runtime/ssh-1/sdk-bridge.mjs\""));
+        assert!(command.contains("cd \"$install_dir\" && exec node \"$bridge_path\""));
     }
 
     #[test]

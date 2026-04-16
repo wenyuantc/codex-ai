@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import {
   aiAnalyzeComplexity,
@@ -79,7 +79,12 @@ export function useTaskAiActions({
   const [insertSubmitting, setInsertSubmitting] = useState(false);
   const [aiLogs, setAiLogs] = useState<string[]>([]);
   const environmentMode = useProjectStore((state) => state.environmentMode);
+  const sshConfigs = useProjectStore((state) => state.sshConfigs);
   const selectedSshConfigId = useProjectStore((state) => state.selectedSshConfigId);
+  const selectedSshConfig = useMemo(
+    () => sshConfigs.find((config) => config.id === selectedSshConfigId) ?? null,
+    [selectedSshConfigId, sshConfigs],
+  );
 
   useEffect(() => {
     if (!open) {
@@ -127,11 +132,31 @@ export function useTaskAiActions({
 
   const logOneShotAiContext = async (operation: string, imagePaths: string[]) => {
     appendAiLog(`[${operation}] 已载入任务图片 ${imagePaths.length} 张`);
-    appendAiLog(
-      `[${operation}] 当前项目目录：${
-        projectRepoPath?.trim() ? projectRepoPath : "未配置（本次不会附带项目目录上下文）"
-      }`,
-    );
+    if (environmentMode === "ssh") {
+      appendAiLog(`[${operation}] 当前执行环境：SSH 远程运行`);
+      if (selectedSshConfig) {
+        appendAiLog(`[${operation}] SSH 名称：${selectedSshConfig.name}`);
+        appendAiLog(
+          `[${operation}] SSH 主机/IP：${selectedSshConfig.host}:${selectedSshConfig.port}`,
+        );
+        appendAiLog(
+          `[${operation}] SSH 登录：${selectedSshConfig.username}@${selectedSshConfig.host}:${selectedSshConfig.port}`,
+        );
+      } else {
+        appendAiLog(`[WARN] [${operation}] 当前是 SSH 模式，但没有选中的 SSH 配置`);
+      }
+      appendAiLog(
+        `[${operation}] 当前远程目录：${
+          projectRepoPath?.trim() ? projectRepoPath : "未配置（本次不会附带远程目录上下文）"
+        }`,
+      );
+    } else {
+      appendAiLog(
+        `[${operation}] 当前项目目录：${
+          projectRepoPath?.trim() ? projectRepoPath : "未配置（本次不会附带项目目录上下文）"
+        }`,
+      );
+    }
 
     const [settingsResult, healthResult] = await Promise.allSettled([
       environmentMode === "ssh" && selectedSshConfigId
@@ -152,8 +177,17 @@ export function useTaskAiActions({
 
     if (healthResult.status === "fulfilled") {
       const provider =
-        healthResult.value.one_shot_effective_provider === "sdk" ? "SDK" : "exec（自动回退）";
+        environmentMode === "ssh"
+          ? healthResult.value.one_shot_effective_provider === "sdk"
+            ? "SSH SDK（远程）"
+            : "SSH exec（远程）"
+          : healthResult.value.one_shot_effective_provider === "sdk"
+            ? "SDK"
+            : "exec（自动回退）";
       appendAiLog(`[${operation}] 当前执行通道：${provider}`);
+      if (environmentMode === "ssh" && healthResult.value.target_host_label) {
+        appendAiLog(`[${operation}] 当前远程目标：${healthResult.value.target_host_label}`);
+      }
     } else {
       appendAiLog(`[WARN] [${operation}] 读取运行时状态失败：${String(healthResult.reason)}`);
     }

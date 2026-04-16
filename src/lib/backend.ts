@@ -344,7 +344,7 @@ export async function updateRemoteCodexSettings(
 ): Promise<RemoteCodexSettings> {
   return invoke("update_remote_codex_settings", {
     payload: {
-      sshConfigId,
+      ssh_config_id: sshConfigId,
       updates,
     },
   });

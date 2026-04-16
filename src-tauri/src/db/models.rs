@@ -630,6 +630,7 @@ pub struct UpdateCodexSettings {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RemoteCodexSettingsPayload {
+    #[serde(alias = "sshConfigId")]
     pub ssh_config_id: String,
     pub updates: UpdateCodexSettings,
 }

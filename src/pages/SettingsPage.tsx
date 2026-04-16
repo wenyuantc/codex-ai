@@ -46,6 +46,7 @@ import { getEnvironmentModeLabel } from "@/lib/projects";
 import {
   CODEX_MODEL_OPTIONS,
   REASONING_EFFORT_OPTIONS,
+  TASK_AUTOMATION_FAILURE_STRATEGY_OPTIONS,
   normalizeCodexModel,
   normalizeReasoningEffort,
   normalizeTaskAutomationFailureStrategy,
@@ -653,7 +654,7 @@ export function SettingsPage() {
               <h3 className="text-sm font-medium">Codex SDK</h3>
               <p className="text-xs text-muted-foreground">
                 {isRemoteMode
-                  ? "SSH v1 当前固定使用远程 codex exec；这里展示的是远程 SDK 安装状态与运行前检查。"
+                  ? "SSH 模式下任务运行与一次性 AI 会优先使用远程 SDK；如果远程 SDK 不可用，则自动回退到远程 codex exec。"
                   : "任务运行与一次性 AI 优先走 SDK，失败时自动回退到 `codex exec`"}
               </p>
             </div>
@@ -752,6 +753,105 @@ export function SettingsPage() {
                   </SelectContent>
                 </Select>
               </div>
+            </div>
+
+            <div className="space-y-3 rounded-md border border-border px-3 py-3">
+              <div className="space-y-1">
+                <h4 className="text-sm font-medium">自动质控默认设置</h4>
+                <p className="text-xs text-muted-foreground">
+                  影响新建任务默认是否开启自动质控，以及自动审核/自动修复闭环的默认策略。
+                </p>
+              </div>
+
+              <label className="flex items-start gap-3 rounded-md border border-border px-3 py-2">
+                <input
+                  type="checkbox"
+                  className="mt-0.5 h-4 w-4 rounded border-input"
+                  checked={taskAutomationDefaultEnabled}
+                  onChange={(event) => setTaskAutomationDefaultEnabled(event.target.checked)}
+                  disabled={healthLoading || sdkActionLoading !== null}
+                />
+                <div className="space-y-1">
+                  <p className="text-sm font-medium">新建任务默认开启自动质控</p>
+                  <p className="text-xs text-muted-foreground">
+                    开启后，新任务会默认进入“审核 {"->"} 修复 {"->"} 再审核”的闭环流程。
+                  </p>
+                </div>
+              </label>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">最大自动修复轮次</label>
+                  <Select
+                    value={String(taskAutomationMaxFixRounds)}
+                    onValueChange={(value) => {
+                      const nextValue = Number(value);
+                      if (Number.isFinite(nextValue)) {
+                        setTaskAutomationMaxFixRounds(nextValue);
+                      }
+                    }}
+                    disabled={healthLoading || sdkActionLoading !== null}
+                  >
+                    <SelectTrigger className="bg-background">
+                      <SelectValue>
+                        {(value) =>
+                          typeof value === "string" && value.trim()
+                            ? `${value} 轮`
+                            : "选择轮次"
+                        }
+                      </SelectValue>
+                    </SelectTrigger>
+                    <SelectContent>
+                      {Array.from({ length: 10 }, (_, index) => index + 1).map((round) => (
+                        <SelectItem key={round} value={String(round)}>
+                          {round} 轮
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">失败后处理</label>
+                  <Select<TaskAutomationFailureStrategy>
+                    value={taskAutomationFailureStrategy}
+                    onValueChange={(value) => {
+                      if (value) {
+                        setTaskAutomationFailureStrategy(
+                          normalizeTaskAutomationFailureStrategy(value),
+                        );
+                      }
+                    }}
+                    disabled={healthLoading || sdkActionLoading !== null}
+                  >
+                    <SelectTrigger className="bg-background">
+                      <SelectValue>
+                        {(value) =>
+                          typeof value === "string"
+                            ? TASK_AUTOMATION_FAILURE_STRATEGY_OPTIONS.find(
+                                (option) => option.value === value,
+                              )?.label ?? value
+                            : "选择失败策略"
+                        }
+                      </SelectValue>
+                    </SelectTrigger>
+                    <SelectContent>
+                      {TASK_AUTOMATION_FAILURE_STRATEGY_OPTIONS.map((option) => (
+                        <SelectItem key={option.value} value={option.value}>
+                          {option.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+
+              <p className="text-xs leading-5 text-muted-foreground">
+                当前策略：
+                {taskAutomationDefaultEnabled ? " 新任务默认开启自动质控；" : " 新任务默认关闭自动质控；"}
+                最多自动修复 {taskAutomationMaxFixRounds} 轮；
+                失败后{taskAutomationFailureStrategy === "manual_control" ? "转人工处理" : "转阻塞"}。
+              </p>
             </div>
 
             <div className="space-y-2">

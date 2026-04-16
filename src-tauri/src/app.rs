@@ -14,19 +14,21 @@ use sqlx::{
 use tauri::{AppHandle, Manager, Runtime, State};
 use tauri_plugin_opener::OpenerExt;
 use tauri_plugin_sql::{DbInstances, DbPool};
+use tokio::io::AsyncWriteExt;
 use tokio::process::Command as TokioCommand;
 use uuid::Uuid;
 
 use crate::codex::{
-    delete_secret_value, inspect_sdk_runtime, load_codex_settings, load_remote_codex_settings,
-    new_codex_command, new_ssh_command, resolve_secret_value, store_secret_value,
-    sweep_orphan_secret_refs, CodexManager,
+    delete_secret_value, determine_effective_provider, ensure_supported_node_version,
+    inspect_sdk_runtime, load_codex_settings, load_remote_codex_settings, new_codex_command,
+    new_ssh_command, resolve_secret_value, store_secret_value, sweep_orphan_secret_refs,
+    CodexManager,
 };
 use crate::db::models::{
     CodexHealthCheck, CodexRuntimeStatus, CodexSessionFileChange, CodexSessionFileChangeDetail,
     CodexSessionFileChangeDetailRecord, CodexSessionFileChangeInput, CodexSessionListItem,
-    CodexSessionLogLine, CodexSessionRecord, CodexSessionResumePreview, Comment, CreateComment,
-    CreateEmployee, CreateProject, CreateSshConfig, CreateSubtask, CreateTask,
+    CodexSessionLogLine, CodexSessionRecord, CodexSessionResumePreview, CodexSettings, Comment,
+    CreateComment, CreateEmployee, CreateProject, CreateSshConfig, CreateSubtask, CreateTask,
     DatabaseBackupResult, DatabaseRestoreResult, Employee, EmployeeMetric, PasswordAuthProbeResult,
     Project, ReviewVerdict, SetTaskAutomationModePayload, SshConfig, SshConfigRecord, Subtask,
     Task, TaskAttachment, TaskAutomationState, TaskAutomationStateRecord,
@@ -51,6 +53,10 @@ const FILE_CHANGE_DIFF_CHAR_LIMIT: usize = 120_000;
 const REVIEW_UNTRACKED_FILE_LIMIT: usize = 5;
 const REVIEW_UNTRACKED_FILE_SIZE_LIMIT: u64 = 16 * 1024;
 const REVIEW_UNTRACKED_TOTAL_CHAR_LIMIT: usize = 48_000;
+const SDK_BRIDGE_FILE_NAME: &str = "sdk-bridge.mjs";
+const SDK_RUNTIME_PACKAGE_JSON: &str =
+    "{\"name\":\"codex-ai-sdk-runtime\",\"private\":true,\"type\":\"module\"}";
+const REMOTE_TASK_ATTACHMENT_ROOT_DIR: &str = ".codex-ai/img";
 pub(crate) const REVIEW_VERDICT_START_TAG: &str = "<review_verdict>";
 pub(crate) const REVIEW_VERDICT_END_TAG: &str = "</review_verdict>";
 const REVIEW_REPORT_START_TAG: &str = "<review_report>";
@@ -60,6 +66,23 @@ struct DatabaseMigrationStatus {
     applied_count: i64,
     current_version: Option<i64>,
     current_description: Option<String>,
+}
+
+pub(crate) struct RemoteCodexRuntimeHealth {
+    pub codex_available: bool,
+    pub codex_version: Option<String>,
+    pub node_available: bool,
+    pub node_version: Option<String>,
+    pub sdk_installed: bool,
+    pub sdk_version: Option<String>,
+    pub task_execution_effective_provider: String,
+    pub one_shot_effective_provider: String,
+    pub status_message: String,
+}
+
+pub(crate) struct RemoteTaskAttachmentSyncResult {
+    pub remote_paths: Vec<String>,
+    pub skipped_local_paths: Vec<String>,
 }
 
 pub(crate) fn now_sqlite() -> String {
@@ -772,6 +795,84 @@ fn shell_escape_single_quoted(value: &str) -> String {
     format!("'{}'", value.replace('\'', "'\"'\"'"))
 }
 
+fn shell_escape_double_quoted(value: &str) -> String {
+    format!(
+        "\"{}\"",
+        value
+            .replace('\\', "\\\\")
+            .replace('"', "\\\"")
+            .replace('$', "\\$")
+            .replace('`', "\\`")
+    )
+}
+
+pub(crate) fn remote_shell_path_expression(path: &str) -> String {
+    let normalized = path.trim();
+    if normalized.is_empty() {
+        return "\"$HOME\"".to_string();
+    }
+    if matches!(normalized, "~" | "$HOME" | "${HOME}") {
+        return "\"$HOME\"".to_string();
+    }
+    if let Some(rest) = normalized.strip_prefix("~/") {
+        return format!(
+            "\"$HOME/{}\"",
+            shell_escape_double_quoted(rest).trim_matches('"')
+        );
+    }
+    if let Some(rest) = normalized.strip_prefix("$HOME/") {
+        return format!(
+            "\"$HOME/{}\"",
+            shell_escape_double_quoted(rest).trim_matches('"')
+        );
+    }
+    if let Some(rest) = normalized.strip_prefix("${HOME}/") {
+        return format!(
+            "\"$HOME/{}\"",
+            shell_escape_double_quoted(rest).trim_matches('"')
+        );
+    }
+    shell_escape_double_quoted(normalized)
+}
+
+fn remote_node_bin_dir_expression(node_path_override: Option<&str>) -> Option<String> {
+    let node_path = normalize_optional_text(node_path_override)?;
+    let separator_index = node_path.rfind('/')?;
+    if separator_index == 0 {
+        Some("\"/\"".to_string())
+    } else {
+        Some(remote_shell_path_expression(&node_path[..separator_index]))
+    }
+}
+
+fn remote_shell_bootstrap(node_path_override: Option<&str>) -> String {
+    let mut statements = vec![
+        "PATH=\"/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:$PATH\"".to_string(),
+        "for dir in \"$HOME/.local/bin\" \"$HOME/bin\" \"$HOME/.npm-global/bin\" \"$HOME/.local/share/pnpm\" \"$HOME/Library/pnpm\" \"$HOME/.volta/bin\" \"$HOME/.yarn/bin\" \"$HOME/.bun/bin\" \"$HOME/.asdf/shims\"; do [ -d \"$dir\" ] && PATH=\"$dir:$PATH\"; done".to_string(),
+        "if [ -s \"$HOME/.nvm/nvm.sh\" ]; then . \"$HOME/.nvm/nvm.sh\" >/dev/null 2>&1; nvm_default=$(nvm which default 2>/dev/null || true); if [ -n \"$nvm_default\" ] && [ -x \"$nvm_default\" ]; then PATH=\"$(dirname \"$nvm_default\"):$PATH\"; fi; fi".to_string(),
+        "for dir in \"$HOME\"/.nvm/versions/node/*/bin; do [ -d \"$dir\" ] && PATH=\"$PATH:$dir\"; done".to_string(),
+    ];
+
+    if let Some(node_dir) = remote_node_bin_dir_expression(node_path_override) {
+        statements.push(format!("PATH={node_dir}:$PATH"));
+    }
+
+    statements.push("export PATH".to_string());
+    statements.push("hash -r 2>/dev/null || true".to_string());
+    format!("{}; ", statements.join("; "))
+}
+
+pub(crate) fn build_remote_shell_command(script: &str, node_path_override: Option<&str>) -> String {
+    format!(
+        "sh -lc {}",
+        shell_escape_single_quoted(&format!(
+            "{}{}",
+            remote_shell_bootstrap(node_path_override),
+            script
+        ))
+    )
+}
+
 fn create_askpass_script(secret: &str) -> Result<PathBuf, String> {
     let base_dir = std::env::temp_dir().join("codex-ai-ssh-askpass");
     fs::create_dir_all(&base_dir).map_err(|error| format!("创建 askpass 目录失败: {error}"))?;
@@ -802,6 +903,7 @@ pub(crate) async fn build_ssh_command<R: Runtime>(
     ssh_config: &SshConfigRecord,
     remote_command: Option<&str>,
     require_password_probe: bool,
+    allocate_tty: bool,
 ) -> Result<(TokioCommand, Option<PathBuf>), String> {
     let mut command = new_ssh_command().await?;
     let mut askpass_path = None;
@@ -813,6 +915,9 @@ pub(crate) async fn build_ssh_command<R: Runtime>(
         .arg("BatchMode=no")
         .arg("-o")
         .arg("ConnectTimeout=15");
+    if allocate_tty {
+        command.arg("-tt");
+    }
 
     match ssh_config.known_hosts_mode.as_str() {
         "off" => {
@@ -875,6 +980,7 @@ pub(crate) async fn execute_ssh_command<R: Runtime>(
         ssh_config,
         Some(remote_command),
         require_password_probe,
+        false,
     )
     .await?;
     command.stdout(Stdio::piped()).stderr(Stdio::piped());
@@ -886,6 +992,125 @@ pub(crate) async fn execute_ssh_command<R: Runtime>(
         let _ = fs::remove_file(path);
     }
     Ok(output)
+}
+
+pub(crate) async fn execute_ssh_command_with_input<R: Runtime>(
+    app: &AppHandle<R>,
+    ssh_config: &SshConfigRecord,
+    remote_command: &str,
+    stdin_bytes: &[u8],
+    require_password_probe: bool,
+) -> Result<std::process::Output, String> {
+    let (mut command, askpass_path) = build_ssh_command(
+        app,
+        ssh_config,
+        Some(remote_command),
+        require_password_probe,
+        false,
+    )
+    .await?;
+    command
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+
+    let mut child = command
+        .spawn()
+        .map_err(|error| format!("执行远程 SSH 命令失败: {error}"))?;
+    if let Some(mut stdin) = child.stdin.take() {
+        stdin
+            .write_all(stdin_bytes)
+            .await
+            .map_err(|error| format!("写入远程 SSH 标准输入失败: {error}"))?;
+        stdin
+            .shutdown()
+            .await
+            .map_err(|error| format!("关闭远程 SSH 标准输入失败: {error}"))?;
+    }
+    let output = child
+        .wait_with_output()
+        .await
+        .map_err(|error| format!("等待远程 SSH 命令完成失败: {error}"))?;
+    if let Some(path) = askpass_path {
+        let _ = fs::remove_file(path);
+    }
+    Ok(output)
+}
+
+fn remote_path_join(base: &str, leaf: &str) -> String {
+    let trimmed = base.trim_end_matches('/');
+    if trimmed.is_empty() {
+        leaf.to_string()
+    } else {
+        format!("{trimmed}/{leaf}")
+    }
+}
+
+pub(crate) fn remote_sdk_bridge_path(install_dir: &str) -> String {
+    remote_path_join(install_dir, SDK_BRIDGE_FILE_NAME)
+}
+
+pub(crate) async fn ensure_remote_sdk_runtime_layout<R: Runtime>(
+    app: &AppHandle<R>,
+    ssh_config_id: &str,
+) -> Result<crate::db::models::CodexSettings, String> {
+    let pool = sqlite_pool(app).await?;
+    let ssh_config = fetch_ssh_config_record_by_id(&pool, ssh_config_id).await?;
+    let remote_settings = load_remote_codex_settings(app, ssh_config_id)?;
+    let install_dir = remote_settings.sdk_install_dir.clone();
+    let bridge_path = remote_sdk_bridge_path(&install_dir);
+    let init_script = format!(
+        "install_dir={}; mkdir -p \"$install_dir\"; if [ ! -f \"$install_dir/package.json\" ]; then printf '%s' {} > \"$install_dir/package.json\"; fi",
+        remote_shell_path_expression(&install_dir),
+        shell_escape_single_quoted(SDK_RUNTIME_PACKAGE_JSON),
+    );
+    let init_output = execute_ssh_command(
+        app,
+        &ssh_config,
+        &build_remote_shell_command(&init_script, remote_settings.node_path_override.as_deref()),
+        true,
+    )
+    .await?;
+    if !init_output.status.success() {
+        let stderr = String::from_utf8_lossy(&init_output.stderr)
+            .trim()
+            .to_string();
+        return Err(if stderr.is_empty() {
+            "初始化远程 SDK 运行目录失败".to_string()
+        } else {
+            format!(
+                "初始化远程 SDK 运行目录失败：{}",
+                redact_secret_text(&stderr)
+            )
+        });
+    }
+
+    let bridge_output = execute_ssh_command_with_input(
+        app,
+        &ssh_config,
+        &build_remote_shell_command(
+            &format!("cat > {}", remote_shell_path_expression(&bridge_path)),
+            remote_settings.node_path_override.as_deref(),
+        ),
+        include_str!("codex/sdk_bridge.mjs").as_bytes(),
+        true,
+    )
+    .await?;
+    if !bridge_output.status.success() {
+        let stderr = String::from_utf8_lossy(&bridge_output.stderr)
+            .trim()
+            .to_string();
+        return Err(if stderr.is_empty() {
+            "写入远程 SDK bridge 脚本失败".to_string()
+        } else {
+            format!(
+                "写入远程 SDK bridge 脚本失败：{}",
+                redact_secret_text(&stderr)
+            )
+        });
+    }
+
+    Ok(remote_settings)
 }
 
 pub(crate) fn normalize_runtime_path_string(path: &str) -> String {
@@ -1028,25 +1253,35 @@ fn read_untracked_review_snippets(repo_path: &str, untracked_files: &[String]) -
     }
 }
 
-pub(crate) fn collect_task_review_context(repo_path: &str) -> Result<String, String> {
-    let status_output = run_git_text(repo_path, &["status", "--short"])?;
+fn build_untracked_review_section(untracked_files: &[String], snippets: &str) -> String {
+    if untracked_files.is_empty() {
+        "（无未跟踪文件）".to_string()
+    } else {
+        format!(
+            "未跟踪文件列表：\n{}\n\n未跟踪文本文件摘录：\n{}",
+            untracked_files
+                .iter()
+                .map(|path| format!("- {}", path))
+                .collect::<Vec<_>>()
+                .join("\n"),
+            snippets,
+        )
+    }
+}
+
+fn build_task_review_context_from_git_outputs(
+    status_output: &str,
+    unstaged_stat: &str,
+    unstaged_diff: &str,
+    staged_stat: &str,
+    staged_diff: &str,
+    untracked_files: &[String],
+    untracked_section: &str,
+) -> Result<String, String> {
     let status_trimmed = status_output.trim();
     if status_trimmed.is_empty() {
         return Err("当前工作区没有可审核的代码改动".to_string());
     }
-
-    let unstaged_stat = run_git_text(repo_path, &["diff", "--no-ext-diff", "--stat"])?;
-    let unstaged_diff = run_git_text(repo_path, &["diff", "--no-ext-diff"])?;
-    let staged_stat = run_git_text(repo_path, &["diff", "--no-ext-diff", "--stat", "--cached"])?;
-    let staged_diff = run_git_text(repo_path, &["diff", "--no-ext-diff", "--cached"])?;
-    let untracked_output =
-        run_git_text(repo_path, &["ls-files", "--others", "--exclude-standard"])?;
-    let untracked_files = untracked_output
-        .lines()
-        .map(str::trim)
-        .filter(|line| !line.is_empty())
-        .map(str::to_string)
-        .collect::<Vec<_>>();
 
     let combined_diff = [staged_diff.trim(), unstaged_diff.trim()]
         .into_iter()
@@ -1064,19 +1299,6 @@ pub(crate) fn collect_task_review_context(repo_path: &str) -> Result<String, Str
         .collect::<Vec<_>>()
         .join("\n");
     let (diff_body, diff_truncated) = truncate_review_text(&combined_diff, REVIEW_DIFF_CHAR_LIMIT);
-    let untracked_section = if untracked_files.is_empty() {
-        "（无未跟踪文件）".to_string()
-    } else {
-        format!(
-            "未跟踪文件列表：\n{}\n\n未跟踪文本文件摘录：\n{}",
-            untracked_files
-                .iter()
-                .map(|path| format!("- {}", path))
-                .collect::<Vec<_>>()
-                .join("\n"),
-            read_untracked_review_snippets(repo_path, &untracked_files),
-        )
-    };
 
     Ok(format!(
         "## Git 状态\n{}\n\n## Diff 概览\n{}\n\n## 完整 Diff\n{}\n{}\n\n## 未跟踪文件\n{}",
@@ -1100,9 +1322,140 @@ pub(crate) fn collect_task_review_context(repo_path: &str) -> Result<String, Str
     ))
 }
 
+pub(crate) fn collect_task_review_context(repo_path: &str) -> Result<String, String> {
+    let status_output = run_git_text(repo_path, &["status", "--short"])?;
+    let unstaged_stat = run_git_text(repo_path, &["diff", "--no-ext-diff", "--stat"])?;
+    let unstaged_diff = run_git_text(repo_path, &["diff", "--no-ext-diff"])?;
+    let staged_stat = run_git_text(repo_path, &["diff", "--no-ext-diff", "--stat", "--cached"])?;
+    let staged_diff = run_git_text(repo_path, &["diff", "--no-ext-diff", "--cached"])?;
+    let untracked_output =
+        run_git_text(repo_path, &["ls-files", "--others", "--exclude-standard"])?;
+    let untracked_files = untracked_output
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .map(str::to_string)
+        .collect::<Vec<_>>();
+    let untracked_section = build_untracked_review_section(
+        &untracked_files,
+        &read_untracked_review_snippets(repo_path, &untracked_files),
+    );
+
+    build_task_review_context_from_git_outputs(
+        &status_output,
+        &unstaged_stat,
+        &unstaged_diff,
+        &staged_stat,
+        &staged_diff,
+        &untracked_files,
+        &untracked_section,
+    )
+}
+
+fn shell_join_single_quoted(args: &[&str]) -> String {
+    args.iter()
+        .map(|arg| shell_escape_single_quoted(arg))
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+async fn run_remote_git_text<R: Runtime>(
+    app: &AppHandle<R>,
+    ssh_config: &SshConfigRecord,
+    repo_path: &str,
+    args: &[&str],
+) -> Result<String, String> {
+    let remote_command = build_remote_shell_command(
+        &format!(
+            "git -C {} {}",
+            remote_shell_path_expression(repo_path),
+            shell_join_single_quoted(args)
+        ),
+        None,
+    );
+    let output = execute_ssh_command(app, ssh_config, &remote_command, true).await?;
+
+    if output.status.success() {
+        Ok(String::from_utf8_lossy(&output.stdout).to_string())
+    } else {
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        Err(if stderr.is_empty() {
+            format!("远程执行 git {:?} 失败", args)
+        } else {
+            format!(
+                "远程执行 git {:?} 失败: {}",
+                args,
+                redact_secret_text(&stderr)
+            )
+        })
+    }
+}
+
+pub(crate) async fn collect_remote_task_review_context<R: Runtime>(
+    app: &AppHandle<R>,
+    ssh_config_id: &str,
+    repo_path: &str,
+) -> Result<String, String> {
+    let pool = sqlite_pool(app).await?;
+    let ssh_config = fetch_ssh_config_record_by_id(&pool, ssh_config_id).await?;
+    let status_output =
+        run_remote_git_text(app, &ssh_config, repo_path, &["status", "--short"]).await?;
+    let unstaged_stat = run_remote_git_text(
+        app,
+        &ssh_config,
+        repo_path,
+        &["diff", "--no-ext-diff", "--stat"],
+    )
+    .await?;
+    let unstaged_diff =
+        run_remote_git_text(app, &ssh_config, repo_path, &["diff", "--no-ext-diff"]).await?;
+    let staged_stat = run_remote_git_text(
+        app,
+        &ssh_config,
+        repo_path,
+        &["diff", "--no-ext-diff", "--stat", "--cached"],
+    )
+    .await?;
+    let staged_diff = run_remote_git_text(
+        app,
+        &ssh_config,
+        repo_path,
+        &["diff", "--no-ext-diff", "--cached"],
+    )
+    .await?;
+    let untracked_output = run_remote_git_text(
+        app,
+        &ssh_config,
+        repo_path,
+        &["ls-files", "--others", "--exclude-standard"],
+    )
+    .await?;
+    let untracked_files = untracked_output
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .map(str::to_string)
+        .collect::<Vec<_>>();
+    let untracked_section = build_untracked_review_section(
+        &untracked_files,
+        "（SSH 模式暂不采集远程未跟踪文件内容摘录，请结合未跟踪文件列表人工确认）",
+    );
+
+    build_task_review_context_from_git_outputs(
+        &status_output,
+        &unstaged_stat,
+        &unstaged_diff,
+        &staged_stat,
+        &staged_diff,
+        &untracked_files,
+        &untracked_section,
+    )
+}
+
 pub(crate) fn build_task_review_prompt(
     task: &Task,
     project: &Project,
+    review_working_dir: &str,
     review_context: &str,
 ) -> String {
     format!(
@@ -1120,6 +1473,7 @@ pub(crate) fn build_task_review_prompt(
 任务优先级：{priority}\n\
 项目名称：{project_name}\n\
 仓库路径：{repo_path}\n\
+执行目标：{execution_target}\n\
 任务描述：{description}\n\n\
 {review_context}",
         verdict_start_tag = REVIEW_VERDICT_START_TAG,
@@ -1130,7 +1484,12 @@ pub(crate) fn build_task_review_prompt(
         status = task.status.trim(),
         priority = task.priority.trim(),
         project_name = project.name.trim(),
-        repo_path = project.repo_path.as_deref().unwrap_or("（未配置）"),
+        repo_path = review_working_dir,
+        execution_target = if project.project_type == PROJECT_TYPE_SSH {
+            "SSH 远程工作区"
+        } else {
+            "本地工作区"
+        },
         description = task.description.as_deref().unwrap_or("（未填写）"),
         review_context = review_context,
     )
@@ -1329,6 +1688,294 @@ fn build_task_attachments_from_sources<R: Runtime>(
     }
 
     Ok(attachments)
+}
+
+fn task_attachment_file_name(attachment: &TaskAttachment) -> Result<String, String> {
+    Path::new(&attachment.stored_path)
+        .file_name()
+        .map(|value| value.to_string_lossy().to_string())
+        .filter(|value| !value.trim().is_empty())
+        .ok_or_else(|| format!("无法解析附件文件名: {}", attachment.stored_path))
+}
+
+fn remote_task_attachment_dir(home_dir: &str, task_id: &str) -> String {
+    remote_path_join(
+        &remote_path_join(
+            home_dir.trim_end_matches('/'),
+            REMOTE_TASK_ATTACHMENT_ROOT_DIR,
+        ),
+        task_id,
+    )
+}
+
+fn remote_task_attachment_path(
+    home_dir: &str,
+    attachment: &TaskAttachment,
+) -> Result<String, String> {
+    Ok(remote_path_join(
+        &remote_task_attachment_dir(home_dir, &attachment.task_id),
+        &task_attachment_file_name(attachment)?,
+    ))
+}
+
+async fn resolve_remote_home_dir_with_config<R: Runtime>(
+    app: &AppHandle<R>,
+    ssh_config: &SshConfigRecord,
+) -> Result<String, String> {
+    let output = execute_ssh_command(
+        app,
+        ssh_config,
+        &build_remote_shell_command("printf '%s' \"$HOME\"", None),
+        true,
+    )
+    .await?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        return Err(if stderr.is_empty() {
+            "无法解析远程 HOME 目录".to_string()
+        } else {
+            format!("无法解析远程 HOME 目录：{}", redact_secret_text(&stderr))
+        });
+    }
+
+    let home_dir = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if home_dir.is_empty() {
+        return Err("远程 HOME 目录为空".to_string());
+    }
+
+    Ok(home_dir)
+}
+
+async fn upload_task_attachment_to_remote<R: Runtime>(
+    app: &AppHandle<R>,
+    ssh_config: &SshConfigRecord,
+    home_dir: &str,
+    attachment: &TaskAttachment,
+    skip_missing_local_source: bool,
+) -> Result<Option<String>, String> {
+    let source = match validate_managed_task_attachment_path(app, &attachment.stored_path) {
+        Ok(source) => source,
+        Err(error) if skip_missing_local_source => {
+            let _ = error;
+            return Ok(None);
+        }
+        Err(error) => return Err(error),
+    };
+    let bytes = match fs::read(&source) {
+        Ok(bytes) => bytes,
+        Err(_) if skip_missing_local_source => return Ok(None),
+        Err(error) => {
+            return Err(format!("读取本地附件失败: {}: {}", source.display(), error));
+        }
+    };
+    let remote_dir = remote_task_attachment_dir(home_dir, &attachment.task_id);
+    let remote_path = remote_task_attachment_path(home_dir, attachment)?;
+    let remote_command = build_remote_shell_command(
+        &format!(
+            "mkdir -p {} && cat > {}",
+            remote_shell_path_expression(&remote_dir),
+            remote_shell_path_expression(&remote_path),
+        ),
+        None,
+    );
+    let output =
+        execute_ssh_command_with_input(app, ssh_config, &remote_command, &bytes, true).await?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        return Err(if stderr.is_empty() {
+            format!("上传附件到远程失败：{}", attachment.original_name)
+        } else {
+            format!(
+                "上传附件到远程失败：{}：{}",
+                attachment.original_name,
+                redact_secret_text(&stderr)
+            )
+        });
+    }
+
+    Ok(Some(remote_path))
+}
+
+async fn remove_remote_task_attachment_by_path<R: Runtime>(
+    app: &AppHandle<R>,
+    ssh_config: &SshConfigRecord,
+    remote_path: &str,
+) -> Result<(), String> {
+    let output = execute_ssh_command(
+        app,
+        ssh_config,
+        &build_remote_shell_command(
+            &format!("rm -f {}", remote_shell_path_expression(remote_path)),
+            None,
+        ),
+        true,
+    )
+    .await?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        return Err(if stderr.is_empty() {
+            format!("删除远程附件失败：{}", remote_path)
+        } else {
+            format!(
+                "删除远程附件失败：{}：{}",
+                remote_path,
+                redact_secret_text(&stderr)
+            )
+        });
+    }
+    Ok(())
+}
+
+async fn sync_task_attachment_records_to_remote<R: Runtime>(
+    app: &AppHandle<R>,
+    ssh_config_id: &str,
+    attachments: &[TaskAttachment],
+    skip_missing_local_source: bool,
+) -> Result<RemoteTaskAttachmentSyncResult, String> {
+    if attachments.is_empty() {
+        return Ok(RemoteTaskAttachmentSyncResult {
+            remote_paths: Vec::new(),
+            skipped_local_paths: Vec::new(),
+        });
+    }
+
+    let pool = sqlite_pool(app).await?;
+    let ssh_config = fetch_ssh_config_record_by_id(&pool, ssh_config_id).await?;
+    let home_dir = resolve_remote_home_dir_with_config(app, &ssh_config).await?;
+    let mut remote_paths = Vec::with_capacity(attachments.len());
+    let mut skipped_local_paths = Vec::new();
+
+    for attachment in attachments {
+        match upload_task_attachment_to_remote(
+            app,
+            &ssh_config,
+            &home_dir,
+            attachment,
+            skip_missing_local_source,
+        )
+        .await
+        {
+            Ok(Some(remote_path)) => remote_paths.push(remote_path),
+            Ok(None) => skipped_local_paths.push(attachment.stored_path.clone()),
+            Err(error) => {
+                for remote_path in &remote_paths {
+                    if let Err(cleanup_error) =
+                        remove_remote_task_attachment_by_path(app, &ssh_config, remote_path).await
+                    {
+                        eprintln!(
+                            "[task-attachments] 清理远程附件失败: path={}, error={}",
+                            remote_path, cleanup_error
+                        );
+                    }
+                }
+                return Err(error);
+            }
+        }
+    }
+
+    Ok(RemoteTaskAttachmentSyncResult {
+        remote_paths,
+        skipped_local_paths,
+    })
+}
+
+pub(crate) async fn sync_task_attachments_to_remote<R: Runtime>(
+    app: &AppHandle<R>,
+    ssh_config_id: &str,
+    task_id: &str,
+) -> Result<RemoteTaskAttachmentSyncResult, String> {
+    let pool = sqlite_pool(app).await?;
+    let attachments = fetch_task_attachments(&pool, task_id).await?;
+    sync_task_attachment_records_to_remote(app, ssh_config_id, &attachments, true).await
+}
+
+async fn cleanup_remote_task_attachment_paths<R: Runtime>(
+    app: &AppHandle<R>,
+    ssh_config_id: &str,
+    remote_paths: &[String],
+) {
+    if remote_paths.is_empty() {
+        return;
+    }
+
+    let pool = match sqlite_pool(app).await {
+        Ok(pool) => pool,
+        Err(error) => {
+            eprintln!(
+                "[task-attachments] 获取数据库连接失败，无法清理远程附件: {}",
+                error
+            );
+            return;
+        }
+    };
+    let ssh_config = match fetch_ssh_config_record_by_id(&pool, ssh_config_id).await {
+        Ok(config) => config,
+        Err(error) => {
+            eprintln!(
+                "[task-attachments] 读取 SSH 配置失败，无法清理远程附件: {}",
+                error
+            );
+            return;
+        }
+    };
+
+    for remote_path in remote_paths {
+        if let Err(error) =
+            remove_remote_task_attachment_by_path(app, &ssh_config, remote_path).await
+        {
+            eprintln!(
+                "[task-attachments] 清理远程附件失败: path={}, error={}",
+                remote_path, error
+            );
+        }
+    }
+}
+
+async fn cleanup_remote_task_attachments_for_task<R: Runtime>(
+    app: &AppHandle<R>,
+    ssh_config_id: &str,
+    task_id: &str,
+) -> Result<(), String> {
+    let pool = sqlite_pool(app).await?;
+    let ssh_config = fetch_ssh_config_record_by_id(&pool, ssh_config_id).await?;
+    let home_dir = resolve_remote_home_dir_with_config(app, &ssh_config).await?;
+    let remote_dir = remote_task_attachment_dir(&home_dir, task_id);
+    let output = execute_ssh_command(
+        app,
+        &ssh_config,
+        &build_remote_shell_command(
+            &format!("rm -rf {}", remote_shell_path_expression(&remote_dir)),
+            None,
+        ),
+        true,
+    )
+    .await?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        return Err(if stderr.is_empty() {
+            format!("删除远程任务附件目录失败：{}", remote_dir)
+        } else {
+            format!(
+                "删除远程任务附件目录失败：{}：{}",
+                remote_dir,
+                redact_secret_text(&stderr)
+            )
+        });
+    }
+    Ok(())
+}
+
+async fn cleanup_remote_task_attachment<R: Runtime>(
+    app: &AppHandle<R>,
+    ssh_config_id: &str,
+    attachment: &TaskAttachment,
+) -> Result<(), String> {
+    let pool = sqlite_pool(app).await?;
+    let ssh_config = fetch_ssh_config_record_by_id(&pool, ssh_config_id).await?;
+    let home_dir = resolve_remote_home_dir_with_config(app, &ssh_config).await?;
+    let remote_path = remote_task_attachment_path(&home_dir, attachment)?;
+    remove_remote_task_attachment_by_path(app, &ssh_config, &remote_path).await
 }
 
 #[tauri::command]
@@ -1685,7 +2332,7 @@ async fn fetch_task_attachment_by_id(
         .map_err(|error| format!("Task attachment {} not found: {}", id, error))
 }
 
-async fn fetch_task_attachments(
+pub(crate) async fn fetch_task_attachments(
     pool: &SqlitePool,
     task_id: &str,
 ) -> Result<Vec<TaskAttachment>, String> {
@@ -2888,12 +3535,28 @@ pub(crate) async fn start_task_code_review_internal(
     }
 
     let project = fetch_project_by_id(&pool, &task.project_id).await?;
-    let repo_path = project
-        .repo_path
-        .clone()
-        .ok_or_else(|| "当前项目未配置仓库路径，无法审核代码".to_string())?;
-    let review_context = collect_task_review_context(&repo_path)?;
-    let review_prompt = build_task_review_prompt(&task, &project, &review_context);
+    let (review_working_dir, review_context) = if project.project_type == PROJECT_TYPE_SSH {
+        let ssh_config_id = project
+            .ssh_config_id
+            .as_deref()
+            .ok_or_else(|| "当前 SSH 项目未绑定 SSH 配置，无法审核代码".to_string())?;
+        let remote_repo_path = project
+            .remote_repo_path
+            .as_deref()
+            .ok_or_else(|| "当前 SSH 项目未配置远程仓库目录，无法审核代码".to_string())?;
+        let review_context =
+            collect_remote_task_review_context(&app, ssh_config_id, remote_repo_path).await?;
+        (remote_repo_path.to_string(), review_context)
+    } else {
+        let repo_path = project
+            .repo_path
+            .clone()
+            .ok_or_else(|| "当前项目未配置仓库路径，无法审核代码".to_string())?;
+        let review_context = collect_task_review_context(&repo_path)?;
+        (repo_path, review_context)
+    };
+    let review_prompt =
+        build_task_review_prompt(&task, &project, &review_working_dir, &review_context);
 
     crate::codex::start_codex_with_manager(
         app.clone(),
@@ -2903,7 +3566,7 @@ pub(crate) async fn start_task_code_review_internal(
         Some(reviewer.model.clone()),
         Some(reviewer.reasoning_effort.clone()),
         reviewer.system_prompt.clone(),
-        Some(repo_path),
+        Some(review_working_dir),
         Some(task.id.clone()),
         None,
         None,
@@ -3576,18 +4239,6 @@ pub async fn probe_ssh_password_auth<R: Runtime>(
     })
 }
 
-fn remote_path_export_prefix(node_path_override: Option<&str>) -> String {
-    node_path_override
-        .and_then(|value| Path::new(value).parent().map(|path| path.to_path_buf()))
-        .map(|path| {
-            format!(
-                "export PATH={}:$PATH; ",
-                shell_escape_single_quoted(path.to_string_lossy().as_ref())
-            )
-        })
-        .unwrap_or_default()
-}
-
 fn parse_remote_key_value_output(raw: &str) -> HashMap<String, String> {
     raw.lines()
         .filter_map(|line| line.split_once('='))
@@ -3595,40 +4246,11 @@ fn parse_remote_key_value_output(raw: &str) -> HashMap<String, String> {
         .collect()
 }
 
-#[tauri::command]
-pub async fn validate_remote_codex_health<R: Runtime>(
-    app: AppHandle<R>,
-    ssh_config_id: String,
-) -> Result<CodexHealthCheck, String> {
-    let pool = sqlite_pool(&app).await?;
-    let ssh_config = fetch_ssh_config_record_by_id(&pool, &ssh_config_id).await?;
-    let remote_settings = load_remote_codex_settings(&app, &ssh_config_id)?;
-    let prefix = remote_path_export_prefix(remote_settings.node_path_override.as_deref());
-    let sdk_install_dir = shell_escape_single_quoted(&remote_settings.sdk_install_dir);
-    let remote_script = format!(
-        "{prefix}codex_output=$(codex --version 2>/dev/null); codex_status=$?; \
-node_output=$(node --version 2>/dev/null); node_status=$?; \
-sdk_pkg={sdk_install_dir}/node_modules/@openai/codex-sdk/package.json; \
-sdk_cli_pkg={sdk_install_dir}/node_modules/@openai/codex/package.json; \
-if [ -f \"$sdk_pkg\" ] && [ -f \"$sdk_cli_pkg\" ]; then \
-  sdk_installed=1; \
-  sdk_version=$(sed -n 's/.*\"version\"[[:space:]]*:[[:space:]]*\"\\([^\"]*\\)\".*/\\1/p' \"$sdk_pkg\" | head -n 1); \
-else \
-  sdk_installed=0; sdk_version=''; \
-fi; \
-printf 'CODEX_STATUS=%s\\nCODEX_VERSION=%s\\nNODE_STATUS=%s\\nNODE_VERSION=%s\\nSDK_INSTALLED=%s\\nSDK_VERSION=%s\\n' \"$codex_status\" \"$codex_output\" \"$node_status\" \"$node_output\" \"$sdk_installed\" \"$sdk_version\""
-    );
-    let output = execute_ssh_command(
-        &app,
-        &ssh_config,
-        &format!("sh -lc {}", shell_escape_single_quoted(&remote_script)),
-        true,
-    )
-    .await?;
-    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-    let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-    let redacted_stderr = redact_secret_text(&stderr);
-    let values = parse_remote_key_value_output(&stdout);
+fn build_remote_codex_runtime_health(
+    remote_settings: &CodexSettings,
+    values: &HashMap<String, String>,
+    redacted_stderr: &str,
+) -> RemoteCodexRuntimeHealth {
     let codex_available = values
         .get("CODEX_STATUS")
         .map(|value| value == "0")
@@ -3641,24 +4263,130 @@ printf 'CODEX_STATUS=%s\\nCODEX_VERSION=%s\\nNODE_STATUS=%s\\nNODE_VERSION=%s\\n
         .get("SDK_INSTALLED")
         .map(|value| value == "1")
         .unwrap_or(false);
-    let task_execution_effective_provider = "exec".to_string();
-    let one_shot_effective_provider = "exec".to_string();
+    let codex_version = values
+        .get("CODEX_VERSION")
+        .cloned()
+        .filter(|value| !value.is_empty());
+    let node_version = values
+        .get("NODE_VERSION")
+        .cloned()
+        .filter(|value| !value.is_empty());
+    let sdk_version = values
+        .get("SDK_VERSION")
+        .cloned()
+        .filter(|value| !value.is_empty());
+    let node_support_error = if node_available {
+        match node_version.as_deref() {
+            Some(version) => ensure_supported_node_version(version).err(),
+            None => Some("无法解析远程 Node 版本".to_string()),
+        }
+    } else {
+        None
+    };
+    let node_ready_for_sdk = node_available && node_support_error.is_none();
+    let task_execution_effective_provider = determine_effective_provider(
+        remote_settings.task_sdk_enabled,
+        node_ready_for_sdk,
+        sdk_installed,
+    )
+    .to_string();
+    let one_shot_effective_provider = determine_effective_provider(
+        remote_settings.one_shot_sdk_enabled,
+        node_ready_for_sdk,
+        sdk_installed,
+    )
+    .to_string();
     let status_message = if !redacted_stderr.is_empty() {
-        redacted_stderr.clone()
-    } else if codex_available {
-        "远程 Codex 健康检查完成；SSH v1 当前固定使用远程 codex exec，SDK 状态仅用于安装与环境检查。"
+        redacted_stderr.to_string()
+    } else if !remote_settings.task_sdk_enabled && !remote_settings.one_shot_sdk_enabled {
+        "远程 Codex SDK 未启用，任务运行与一次性 AI 将使用远程 codex exec。".to_string()
+    } else if !node_available {
+        "远程 Node 不可用，已回退到远程 codex exec。".to_string()
+    } else if let Some(error) = node_support_error {
+        format!("{error}，已回退到远程 codex exec。")
+    } else if !sdk_installed {
+        "远程 Codex SDK 未安装，已回退到远程 codex exec。".to_string()
+    } else if task_execution_effective_provider == "sdk" || one_shot_effective_provider == "sdk" {
+        "远程 Codex SDK 已就绪，任务运行与一次性 AI 将优先使用远程 SDK，失败时自动回退到远程 codex exec。"
             .to_string()
+    } else if codex_available {
+        "远程 Codex 健康检查完成；当前将使用远程 codex exec。".to_string()
     } else {
         "远程 Codex 不可用".to_string()
     };
+
+    RemoteCodexRuntimeHealth {
+        codex_available,
+        codex_version,
+        node_available,
+        node_version,
+        sdk_installed,
+        sdk_version,
+        task_execution_effective_provider,
+        one_shot_effective_provider,
+        status_message,
+    }
+}
+
+pub(crate) async fn inspect_remote_codex_runtime<R: Runtime>(
+    app: &AppHandle<R>,
+    ssh_config: &SshConfigRecord,
+    remote_settings: &CodexSettings,
+) -> Result<RemoteCodexRuntimeHealth, String> {
+    let sdk_install_dir = remote_shell_path_expression(&remote_settings.sdk_install_dir);
+    let remote_script = format!(
+        "sdk_install_dir={sdk_install_dir}; \
+codex_output=$(codex --version 2>/dev/null); codex_status=$?; \
+node_output=$(node --version 2>/dev/null); node_status=$?; \
+sdk_pkg=\"$sdk_install_dir\"/node_modules/@openai/codex-sdk/package.json; \
+sdk_cli_pkg=\"$sdk_install_dir\"/node_modules/@openai/codex/package.json; \
+if [ -f \"$sdk_pkg\" ] && [ -f \"$sdk_cli_pkg\" ]; then \
+  sdk_installed=1; \
+  sdk_version=$(sed -n 's/.*\"version\"[[:space:]]*:[[:space:]]*\"\\([^\"]*\\)\".*/\\1/p' \"$sdk_pkg\" | head -n 1); \
+else \
+  sdk_installed=0; sdk_version=''; \
+fi; \
+printf 'CODEX_STATUS=%s\\nCODEX_VERSION=%s\\nNODE_STATUS=%s\\nNODE_VERSION=%s\\nSDK_INSTALLED=%s\\nSDK_VERSION=%s\\n' \"$codex_status\" \"$codex_output\" \"$node_status\" \"$node_output\" \"$sdk_installed\" \"$sdk_version\""
+    );
+    let output = execute_ssh_command(
+        app,
+        ssh_config,
+        &build_remote_shell_command(
+            &remote_script,
+            remote_settings.node_path_override.as_deref(),
+        ),
+        true,
+    )
+    .await?;
+    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+    let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+    let redacted_stderr = redact_secret_text(&stderr);
+    let values = parse_remote_key_value_output(&stdout);
+
+    Ok(build_remote_codex_runtime_health(
+        remote_settings,
+        &values,
+        &redacted_stderr,
+    ))
+}
+
+#[tauri::command]
+pub async fn validate_remote_codex_health<R: Runtime>(
+    app: AppHandle<R>,
+    ssh_config_id: String,
+) -> Result<CodexHealthCheck, String> {
+    let pool = sqlite_pool(&app).await?;
+    let ssh_config = fetch_ssh_config_record_by_id(&pool, &ssh_config_id).await?;
+    let remote_settings = load_remote_codex_settings(&app, &ssh_config_id)?;
+    let runtime = inspect_remote_codex_runtime(&app, &ssh_config, &remote_settings).await?;
     let checked_at = now_sqlite();
     sqlx::query(
         "UPDATE ssh_configs SET last_checked_at = $2, last_check_status = $3, last_check_message = $4, updated_at = $5 WHERE id = $1",
     )
     .bind(&ssh_config_id)
     .bind(&checked_at)
-    .bind(if codex_available { "passed" } else { "failed" })
-    .bind(&status_message)
+    .bind(if runtime.codex_available { "passed" } else { "failed" })
+    .bind(&runtime.status_message)
     .bind(now_sqlite())
     .execute(&pool)
     .await
@@ -3679,27 +4407,18 @@ printf 'CODEX_STATUS=%s\\nCODEX_VERSION=%s\\nNODE_STATUS=%s\\nNODE_VERSION=%s\\n
         execution_target: EXECUTION_TARGET_SSH.to_string(),
         ssh_config_id: Some(ssh_config_id),
         target_host_label: Some(ssh_config_target_host_label(&ssh_config)),
-        codex_available,
-        codex_version: values
-            .get("CODEX_VERSION")
-            .cloned()
-            .filter(|value| !value.is_empty()),
-        node_available,
-        node_version: values
-            .get("NODE_VERSION")
-            .cloned()
-            .filter(|value| !value.is_empty()),
+        codex_available: runtime.codex_available,
+        codex_version: runtime.codex_version,
+        node_available: runtime.node_available,
+        node_version: runtime.node_version,
         task_sdk_enabled: remote_settings.task_sdk_enabled,
         one_shot_sdk_enabled: remote_settings.one_shot_sdk_enabled,
-        sdk_installed,
-        sdk_version: values
-            .get("SDK_VERSION")
-            .cloned()
-            .filter(|value| !value.is_empty()),
+        sdk_installed: runtime.sdk_installed,
+        sdk_version: runtime.sdk_version,
         sdk_install_dir: remote_settings.sdk_install_dir,
-        task_execution_effective_provider,
-        one_shot_effective_provider,
-        sdk_status_message: status_message,
+        task_execution_effective_provider: runtime.task_execution_effective_provider,
+        one_shot_effective_provider: runtime.one_shot_effective_provider,
+        sdk_status_message: runtime.status_message,
         database_loaded: true,
         database_path: database_path(&app).map(|path| path.to_string_lossy().to_string()),
         database_current_version: migration_status
@@ -3727,17 +4446,16 @@ pub async fn install_remote_codex_sdk<R: Runtime>(
 ) -> Result<crate::db::models::CodexSdkInstallResult, String> {
     let pool = sqlite_pool(&app).await?;
     let ssh_config = fetch_ssh_config_record_by_id(&pool, &ssh_config_id).await?;
-    let remote_settings = load_remote_codex_settings(&app, &ssh_config_id)?;
-    let prefix = remote_path_export_prefix(remote_settings.node_path_override.as_deref());
-    let install_dir = shell_escape_single_quoted(&remote_settings.sdk_install_dir);
+    let remote_settings = ensure_remote_sdk_runtime_layout(&app, &ssh_config_id).await?;
+    let install_dir = remote_shell_path_expression(&remote_settings.sdk_install_dir);
     let package_json = shell_escape_single_quoted(
         "{\"name\":\"codex-ai-sdk-runtime\",\"private\":true,\"type\":\"module\"}",
     );
     let remote_script = format!(
-        "{prefix}mkdir -p {install_dir} && cd {install_dir} && \
+        "install_dir={install_dir}; mkdir -p \"$install_dir\" && cd \"$install_dir\" && \
 if [ ! -f package.json ]; then printf '%s' {package_json} > package.json; fi && \
 npm install --no-audit --no-fund --include=optional @openai/codex-sdk @openai/codex && \
-sdk_pkg={install_dir}/node_modules/@openai/codex-sdk/package.json && \
+sdk_pkg=\"$install_dir\"/node_modules/@openai/codex-sdk/package.json && \
 sdk_version=$(sed -n 's/.*\"version\"[[:space:]]*:[[:space:]]*\"\\([^\"]*\\)\".*/\\1/p' \"$sdk_pkg\" | head -n 1) && \
 node_version=$(node --version 2>/dev/null || true) && \
 printf 'SDK_VERSION=%s\\nNODE_VERSION=%s\\n' \"$sdk_version\" \"$node_version\""
@@ -3745,7 +4463,10 @@ printf 'SDK_VERSION=%s\\nNODE_VERSION=%s\\n' \"$sdk_version\" \"$node_version\""
     let output = execute_ssh_command(
         &app,
         &ssh_config,
-        &format!("sh -lc {}", shell_escape_single_quoted(&remote_script)),
+        &build_remote_shell_command(
+            &remote_script,
+            remote_settings.node_path_override.as_deref(),
+        ),
         true,
     )
     .await?;
@@ -3995,6 +4716,7 @@ pub async fn create_task<R: Runtime>(
         .await?;
     validate_reviewer_for_project(&pool, payload.reviewer_id.as_deref(), &payload.project_id)
         .await?;
+    let project = fetch_project_by_id(&pool, &payload.project_id).await?;
     let settings = load_codex_settings(&app).ok();
     let automation_mode = settings
         .as_ref()
@@ -4060,8 +4782,33 @@ pub async fn create_task<R: Runtime>(
         .map_err(|error| format!("Failed to initialize task automation state: {}", error))?;
     }
 
+    let mut uploaded_remote_paths = Vec::new();
     let attachments = if let Some(source_paths) = payload.attachment_source_paths.as_ref() {
         let attachments = build_task_attachments_from_sources(&app, &task.id, source_paths, 1)?;
+        if project.project_type == PROJECT_TYPE_SSH && !attachments.is_empty() {
+            let ssh_config_id = project
+                .ssh_config_id
+                .as_deref()
+                .ok_or_else(|| "当前 SSH 项目未绑定 SSH 配置，无法同步图片到远程".to_string())?;
+            match sync_task_attachment_records_to_remote(&app, ssh_config_id, &attachments, false)
+                .await
+            {
+                Ok(sync_result) => {
+                    uploaded_remote_paths = sync_result.remote_paths;
+                }
+                Err(error) => {
+                    cleanup_task_attachment_files(
+                        &attachments
+                            .iter()
+                            .map(|attachment| attachment.stored_path.clone())
+                            .collect::<Vec<_>>(),
+                    );
+                    cleanup_empty_attachment_dir(&app, &task.id);
+                    tx.rollback().await.ok();
+                    return Err(error);
+                }
+            }
+        }
         if let Err(error) = insert_task_attachments(&mut tx, &attachments).await {
             cleanup_task_attachment_files(
                 &attachments
@@ -4070,6 +4817,16 @@ pub async fn create_task<R: Runtime>(
                     .collect::<Vec<_>>(),
             );
             cleanup_empty_attachment_dir(&app, &task.id);
+            if project.project_type == PROJECT_TYPE_SSH {
+                if let Some(ssh_config_id) = project.ssh_config_id.as_deref() {
+                    cleanup_remote_task_attachment_paths(
+                        &app,
+                        ssh_config_id,
+                        &uploaded_remote_paths,
+                    )
+                    .await;
+                }
+            }
             tx.rollback().await.ok();
             return Err(error);
         }
@@ -4086,6 +4843,12 @@ pub async fn create_task<R: Runtime>(
                 .collect::<Vec<_>>(),
         );
         cleanup_empty_attachment_dir(&app, &task.id);
+        if project.project_type == PROJECT_TYPE_SSH {
+            if let Some(ssh_config_id) = project.ssh_config_id.as_deref() {
+                cleanup_remote_task_attachment_paths(&app, ssh_config_id, &uploaded_remote_paths)
+                    .await;
+            }
+        }
         return Err(format!("Failed to commit task create: {}", error));
     }
 
@@ -4106,6 +4869,22 @@ pub async fn create_task<R: Runtime>(
         Some(&task.project_id),
     )
     .await?;
+
+    if project.project_type == PROJECT_TYPE_SSH && !attachments.is_empty() {
+        insert_activity_log(
+            &pool,
+            "remote_task_attachments_synced",
+            &format!(
+                "{}（已同步 {} 张图片到远程）",
+                task.title,
+                attachments.len()
+            ),
+            None,
+            Some(&task.id),
+            Some(&task.project_id),
+        )
+        .await?;
+    }
 
     if task.automation_mode.is_some() {
         insert_activity_log(
@@ -4129,7 +4908,8 @@ pub async fn add_task_attachments<R: Runtime>(
     source_paths: Vec<String>,
 ) -> Result<Vec<TaskAttachment>, String> {
     let pool = sqlite_pool(&app).await?;
-    fetch_task_by_id(&pool, &task_id).await?;
+    let task = fetch_task_by_id(&pool, &task_id).await?;
+    let project = fetch_project_by_id(&pool, &task.project_id).await?;
 
     if source_paths.is_empty() {
         return Ok(Vec::new());
@@ -4138,6 +4918,30 @@ pub async fn add_task_attachments<R: Runtime>(
     let start_sort_order = resolve_next_task_attachment_sort_order(&pool, &task_id).await?;
     let attachments =
         build_task_attachments_from_sources(&app, &task_id, &source_paths, start_sort_order)?;
+    let mut uploaded_remote_paths = Vec::new();
+
+    if project.project_type == PROJECT_TYPE_SSH && !attachments.is_empty() {
+        let ssh_config_id = project
+            .ssh_config_id
+            .as_deref()
+            .ok_or_else(|| "当前 SSH 项目未绑定 SSH 配置，无法同步图片到远程".to_string())?;
+        match sync_task_attachment_records_to_remote(&app, ssh_config_id, &attachments, false).await
+        {
+            Ok(sync_result) => {
+                uploaded_remote_paths = sync_result.remote_paths;
+            }
+            Err(error) => {
+                cleanup_task_attachment_files(
+                    &attachments
+                        .iter()
+                        .map(|attachment| attachment.stored_path.clone())
+                        .collect::<Vec<_>>(),
+                );
+                cleanup_empty_attachment_dir(&app, &task_id);
+                return Err(error);
+            }
+        }
+    }
 
     let mut tx = pool
         .begin()
@@ -4152,13 +4956,48 @@ pub async fn add_task_attachments<R: Runtime>(
                 .collect::<Vec<_>>(),
         );
         cleanup_empty_attachment_dir(&app, &task_id);
+        if project.project_type == PROJECT_TYPE_SSH {
+            if let Some(ssh_config_id) = project.ssh_config_id.as_deref() {
+                cleanup_remote_task_attachment_paths(&app, ssh_config_id, &uploaded_remote_paths)
+                    .await;
+            }
+        }
         tx.rollback().await.ok();
         return Err(error);
     }
 
-    tx.commit()
-        .await
-        .map_err(|error| format!("Failed to commit attachment create: {}", error))?;
+    if let Err(error) = tx.commit().await {
+        cleanup_task_attachment_files(
+            &attachments
+                .iter()
+                .map(|attachment| attachment.stored_path.clone())
+                .collect::<Vec<_>>(),
+        );
+        cleanup_empty_attachment_dir(&app, &task_id);
+        if project.project_type == PROJECT_TYPE_SSH {
+            if let Some(ssh_config_id) = project.ssh_config_id.as_deref() {
+                cleanup_remote_task_attachment_paths(&app, ssh_config_id, &uploaded_remote_paths)
+                    .await;
+            }
+        }
+        return Err(format!("Failed to commit attachment create: {}", error));
+    }
+
+    if project.project_type == PROJECT_TYPE_SSH && !attachments.is_empty() {
+        insert_activity_log(
+            &pool,
+            "remote_task_attachments_synced",
+            &format!(
+                "{}（追加同步 {} 张图片到远程）",
+                task.title,
+                attachments.len()
+            ),
+            None,
+            Some(&task.id),
+            Some(&task.project_id),
+        )
+        .await?;
+    }
 
     fetch_task_attachments(&pool, &task_id).await
 }
@@ -4170,6 +5009,8 @@ pub async fn delete_task_attachment<R: Runtime>(
 ) -> Result<(), String> {
     let pool = sqlite_pool(&app).await?;
     let attachment = fetch_task_attachment_by_id(&pool, &id).await?;
+    let task = fetch_task_by_id(&pool, &attachment.task_id).await?;
+    let project = fetch_project_by_id(&pool, &task.project_id).await?;
     let stored_path = Path::new(&attachment.stored_path);
 
     if stored_path.exists() {
@@ -4184,6 +5025,15 @@ pub async fn delete_task_attachment<R: Runtime>(
         .map_err(|error| format!("Failed to delete task attachment: {}", error))?;
 
     cleanup_empty_attachment_dir(&app, &attachment.task_id);
+    if project.project_type == PROJECT_TYPE_SSH {
+        if let Some(ssh_config_id) = project.ssh_config_id.as_deref() {
+            if let Err(error) =
+                cleanup_remote_task_attachment(&app, ssh_config_id, &attachment).await
+            {
+                eprintln!("[task-attachments] 删除远程附件失败: {}", error);
+            }
+        }
+    }
     Ok(())
 }
 
@@ -4332,6 +5182,7 @@ pub async fn update_task_status<R: Runtime>(
 pub async fn delete_task<R: Runtime>(app: AppHandle<R>, id: String) -> Result<(), String> {
     let pool = sqlite_pool(&app).await?;
     let task = fetch_task_by_id(&pool, &id).await?;
+    let project = fetch_project_by_id(&pool, &task.project_id).await?;
     let attachment_dir = task_attachment_dir(&app, &id).ok();
     let mut tx = pool
         .begin()
@@ -4360,6 +5211,16 @@ pub async fn delete_task<R: Runtime>(app: AppHandle<R>, id: String) -> Result<()
                 attachment_dir.display(),
                 error
             );
+        }
+    }
+
+    if project.project_type == PROJECT_TYPE_SSH {
+        if let Some(ssh_config_id) = project.ssh_config_id.as_deref() {
+            if let Err(error) =
+                cleanup_remote_task_attachments_for_task(&app, ssh_config_id, &task.id).await
+            {
+                eprintln!("[task-attachments] 删除远程任务附件目录失败: {}", error);
+            }
         }
     }
 
@@ -4484,16 +5345,21 @@ pub async fn create_comment<R: Runtime>(
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
     use std::fs;
+    use std::process::Command;
 
     use sqlx::SqlitePool;
 
     use super::{
-        build_current_migrator, ensure_statement_terminated,
-        fetch_execution_change_history_item_by_session_id, fetch_task_by_id, insert_task_record,
-        normalize_runtime_path_string, resolve_session_resume_state,
-        rewrite_file_change_diff_labels, sanitize_sql_backup_script, validate_project_repo_path,
-        validate_runtime_working_dir, Task,
+        build_current_migrator, build_remote_codex_runtime_health, build_remote_shell_command,
+        build_task_review_context_from_git_outputs, build_task_review_prompt,
+        ensure_statement_terminated, fetch_execution_change_history_item_by_session_id,
+        fetch_task_by_id, insert_task_record, normalize_runtime_path_string,
+        remote_shell_path_expression, remote_task_attachment_dir, remote_task_attachment_path,
+        resolve_session_resume_state, rewrite_file_change_diff_labels, sanitize_sql_backup_script,
+        validate_project_repo_path, validate_runtime_working_dir, CodexSettings, Project, Task,
+        TaskAttachment, PROJECT_TYPE_LOCAL, PROJECT_TYPE_SSH,
     };
 
     async fn setup_test_pool() -> SqlitePool {
@@ -4674,6 +5540,286 @@ mod tests {
             normalize_runtime_path_string(r"/tmp/codex-ai"),
             "/tmp/codex-ai"
         );
+    }
+
+    #[test]
+    fn remote_shell_path_expression_expands_home_prefix() {
+        assert_eq!(
+            remote_shell_path_expression("~/codex sdk"),
+            "\"$HOME/codex sdk\""
+        );
+        assert_eq!(
+            remote_shell_path_expression("${HOME}/runtime"),
+            "\"$HOME/runtime\""
+        );
+    }
+
+    #[test]
+    fn remote_shell_command_bootstraps_common_node_paths() {
+        let command = build_remote_shell_command(
+            "codex --version",
+            Some("~/.nvm/versions/node/v22.0.0/bin/node"),
+        );
+
+        assert!(command.starts_with("sh -lc "));
+        assert!(command.contains(".nvm/versions/node/*/bin"));
+        assert!(command.contains(". \"$HOME/.nvm/nvm.sh\""));
+        assert!(command.contains(".local/share/pnpm"));
+        assert!(command.contains("$HOME/.nvm/versions/node/v22.0.0/bin"));
+    }
+
+    #[test]
+    fn remote_shell_bootstrap_prefers_nvm_default_alias_before_fallback_versions() {
+        let root = std::env::temp_dir().join(format!("codex-nvm-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(root.join(".nvm/versions/node/v18.20.0/bin")).expect("create v18 dir");
+        fs::create_dir_all(root.join(".nvm/versions/node/v9.11.2/bin")).expect("create v9 dir");
+        fs::write(
+            root.join(".nvm/versions/node/v18.20.0/bin/node"),
+            "#!/bin/sh\nexit 0\n",
+        )
+        .expect("write fake v18 node");
+        fs::write(
+            root.join(".nvm/versions/node/v9.11.2/bin/node"),
+            "#!/bin/sh\nexit 0\n",
+        )
+        .expect("write fake v9 node");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+
+            fs::set_permissions(
+                root.join(".nvm/versions/node/v18.20.0/bin/node"),
+                fs::Permissions::from_mode(0o755),
+            )
+            .expect("chmod fake v18 node");
+            fs::set_permissions(
+                root.join(".nvm/versions/node/v9.11.2/bin/node"),
+                fs::Permissions::from_mode(0o755),
+            )
+            .expect("chmod fake v9 node");
+        }
+        fs::write(
+            root.join(".nvm/nvm.sh"),
+            r#"nvm() {
+  if [ "$1" = "which" ] && [ "$2" = "default" ]; then
+    printf '%s\n' "$HOME/.nvm/versions/node/v18.20.0/bin/node"
+    return 0
+  fi
+  return 1
+}
+"#,
+        )
+        .expect("write fake nvm script");
+
+        let output = Command::new("sh")
+            .env("HOME", &root)
+            .arg("-lc")
+            .arg(build_remote_shell_command("printf '%s' \"$PATH\"", None))
+            .output()
+            .expect("run bootstrap command");
+        assert!(output.status.success(), "bootstrap shell should succeed");
+
+        let path = String::from_utf8_lossy(&output.stdout).to_string();
+        let expected_v18 = root
+            .join(".nvm/versions/node/v18.20.0/bin")
+            .to_string_lossy()
+            .to_string();
+        let expected_v9 = root
+            .join(".nvm/versions/node/v9.11.2/bin")
+            .to_string_lossy()
+            .to_string();
+
+        assert!(path.starts_with(&format!("{expected_v18}:")));
+        assert!(path.contains(&expected_v9));
+        assert!(
+            path.find(&expected_v18).unwrap_or(usize::MAX)
+                < path.find(&expected_v9).unwrap_or(usize::MAX)
+        );
+
+        fs::remove_dir_all(root).expect("cleanup temp dir");
+    }
+
+    #[test]
+    fn remote_runtime_health_falls_back_to_exec_when_sdk_is_missing() {
+        let settings = CodexSettings {
+            task_sdk_enabled: true,
+            one_shot_sdk_enabled: true,
+            one_shot_model: "gpt-5.4".to_string(),
+            one_shot_reasoning_effort: "high".to_string(),
+            task_automation_default_enabled: false,
+            task_automation_max_fix_rounds: 3,
+            task_automation_failure_strategy: "blocked".to_string(),
+            node_path_override: None,
+            sdk_install_dir: "~/.codex-ai/codex-sdk-runtime/ssh-1".to_string(),
+            one_shot_preferred_provider: "sdk".to_string(),
+        };
+        let values = HashMap::from([
+            ("CODEX_STATUS".to_string(), "0".to_string()),
+            ("CODEX_VERSION".to_string(), "0.34.0".to_string()),
+            ("NODE_STATUS".to_string(), "0".to_string()),
+            ("NODE_VERSION".to_string(), "v22.15.0".to_string()),
+            ("SDK_INSTALLED".to_string(), "0".to_string()),
+            ("SDK_VERSION".to_string(), "".to_string()),
+        ]);
+
+        let runtime = build_remote_codex_runtime_health(&settings, &values, "");
+
+        assert_eq!(runtime.task_execution_effective_provider, "exec");
+        assert_eq!(runtime.one_shot_effective_provider, "exec");
+        assert!(runtime.status_message.contains("未安装"));
+    }
+
+    #[test]
+    fn remote_runtime_health_rejects_unsupported_node_versions() {
+        let settings = CodexSettings {
+            task_sdk_enabled: true,
+            one_shot_sdk_enabled: true,
+            one_shot_model: "gpt-5.4".to_string(),
+            one_shot_reasoning_effort: "high".to_string(),
+            task_automation_default_enabled: false,
+            task_automation_max_fix_rounds: 3,
+            task_automation_failure_strategy: "blocked".to_string(),
+            node_path_override: None,
+            sdk_install_dir: "~/.codex-ai/codex-sdk-runtime/ssh-1".to_string(),
+            one_shot_preferred_provider: "sdk".to_string(),
+        };
+        let values = HashMap::from([
+            ("CODEX_STATUS".to_string(), "0".to_string()),
+            ("CODEX_VERSION".to_string(), "0.34.0".to_string()),
+            ("NODE_STATUS".to_string(), "0".to_string()),
+            ("NODE_VERSION".to_string(), "v9.11.2".to_string()),
+            ("SDK_INSTALLED".to_string(), "1".to_string()),
+            ("SDK_VERSION".to_string(), "0.12.0".to_string()),
+        ]);
+
+        let runtime = build_remote_codex_runtime_health(&settings, &values, "");
+
+        assert_eq!(runtime.task_execution_effective_provider, "exec");
+        assert_eq!(runtime.one_shot_effective_provider, "exec");
+        assert!(runtime.status_message.contains("Node 版本过低"));
+    }
+
+    #[test]
+    fn remote_task_attachment_dir_uses_home_scoped_task_folder() {
+        assert_eq!(
+            remote_task_attachment_dir("/home/demo", "task-1"),
+            "/home/demo/.codex-ai/img/task-1"
+        );
+    }
+
+    #[test]
+    fn remote_task_attachment_path_reuses_managed_file_name() {
+        let attachment = TaskAttachment {
+            id: "att-1".to_string(),
+            task_id: "task-1".to_string(),
+            original_name: "ui.png".to_string(),
+            stored_path: "/tmp/task-attachments/task-1/att-1.png".to_string(),
+            mime_type: "image/png".to_string(),
+            file_size: 123,
+            sort_order: 1,
+            created_at: "2026-04-16 10:00:00".to_string(),
+        };
+
+        assert_eq!(
+            remote_task_attachment_path("/home/demo", &attachment).expect("remote attachment path"),
+            "/home/demo/.codex-ai/img/task-1/att-1.png"
+        );
+    }
+
+    #[test]
+    fn review_context_builder_accepts_remote_untracked_summary_without_snippets() {
+        let context = build_task_review_context_from_git_outputs(
+            " M src/main.rs\n?? notes.txt\n",
+            " src/main.rs | 2 ++\n 1 file changed, 2 insertions(+)\n",
+            "diff --git a/src/main.rs b/src/main.rs\n+println!(\"hi\");\n",
+            "",
+            "",
+            &["notes.txt".to_string()],
+            "未跟踪文件列表：\n- notes.txt\n\n未跟踪文本文件摘录：\n（SSH 模式暂不采集远程未跟踪文件内容摘录，请结合未跟踪文件列表人工确认）",
+        )
+        .expect("build review context");
+
+        assert!(context.contains("## Git 状态"));
+        assert!(context.contains("notes.txt"));
+        assert!(context.contains("SSH 模式暂不采集远程未跟踪文件内容摘录"));
+    }
+
+    #[test]
+    fn review_prompt_uses_explicit_remote_working_dir_for_ssh_projects() {
+        let task = Task {
+            id: "task-1".to_string(),
+            title: "审核远程改动".to_string(),
+            description: Some("检查 SSH 项目的改动".to_string()),
+            status: "review".to_string(),
+            priority: "high".to_string(),
+            project_id: "project-1".to_string(),
+            assignee_id: None,
+            reviewer_id: Some("reviewer-1".to_string()),
+            complexity: None,
+            ai_suggestion: None,
+            automation_mode: None,
+            last_codex_session_id: None,
+            last_review_session_id: None,
+            created_at: "2026-04-16 10:00:00".to_string(),
+            updated_at: "2026-04-16 10:00:00".to_string(),
+        };
+        let project = Project {
+            id: "project-1".to_string(),
+            name: "SSH 项目".to_string(),
+            description: None,
+            status: "active".to_string(),
+            repo_path: None,
+            project_type: PROJECT_TYPE_SSH.to_string(),
+            ssh_config_id: Some("ssh-1".to_string()),
+            remote_repo_path: Some("/srv/demo".to_string()),
+            created_at: "2026-04-16 10:00:00".to_string(),
+            updated_at: "2026-04-16 10:00:00".to_string(),
+        };
+
+        let prompt =
+            build_task_review_prompt(&task, &project, "/srv/demo", "## Git 状态\n M src/main.rs");
+
+        assert!(prompt.contains("仓库路径：/srv/demo"));
+        assert!(prompt.contains("执行目标：SSH 远程工作区"));
+        assert!(!prompt.contains("仓库路径：（未配置）"));
+    }
+
+    #[test]
+    fn review_prompt_marks_local_projects_as_local_workspace() {
+        let task = Task {
+            id: "task-2".to_string(),
+            title: "审核本地改动".to_string(),
+            description: None,
+            status: "review".to_string(),
+            priority: "medium".to_string(),
+            project_id: "project-2".to_string(),
+            assignee_id: None,
+            reviewer_id: Some("reviewer-2".to_string()),
+            complexity: None,
+            ai_suggestion: None,
+            automation_mode: None,
+            last_codex_session_id: None,
+            last_review_session_id: None,
+            created_at: "2026-04-16 10:00:00".to_string(),
+            updated_at: "2026-04-16 10:00:00".to_string(),
+        };
+        let project = Project {
+            id: "project-2".to_string(),
+            name: "本地项目".to_string(),
+            description: None,
+            status: "active".to_string(),
+            repo_path: Some("/tmp/demo".to_string()),
+            project_type: PROJECT_TYPE_LOCAL.to_string(),
+            ssh_config_id: None,
+            remote_repo_path: None,
+            created_at: "2026-04-16 10:00:00".to_string(),
+            updated_at: "2026-04-16 10:00:00".to_string(),
+        };
+
+        let prompt =
+            build_task_review_prompt(&task, &project, "/tmp/demo", "## Git 状态\n M src/main.rs");
+
+        assert!(prompt.contains("执行目标：本地工作区"));
     }
 
     #[test]
