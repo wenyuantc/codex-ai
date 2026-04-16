@@ -6,8 +6,10 @@ import { useTaskStore } from "@/stores/taskStore";
 import { useProjectStore } from "@/stores/projectStore";
 import { useEmployeeStore } from "@/stores/employeeStore";
 import { useAiOptimizePrompt } from "@/hooks/useAiOptimizePrompt";
+import { getEmployeeRoleLabel } from "@/lib/utils";
 import { IMAGE_FILE_FILTERS, dedupePaths, isTauriRuntime, normalizeDialogSelection } from "@/lib/taskAttachments";
 import { PRIORITIES } from "@/lib/types";
+import { getCodexSettings } from "@/lib/backend";
 import {
   Dialog,
   DialogContent,
@@ -49,10 +51,13 @@ export function CreateTaskDialog({
     projectId ?? ""
   );
   const [assigneeId, setAssigneeId] = useState("");
+  const [reviewerId, setReviewerId] = useState("");
   const [attachmentPaths, setAttachmentPaths] = useState<string[]>([]);
   const [createError, setCreateError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [defaultAutomationEnabled, setDefaultAutomationEnabled] = useState(false);
   const selectedProject = projects.find((project) => project.id === selectedProjectId);
+  const reviewerCandidates = employees.filter((employee) => employee.role === "reviewer");
 
   useEffect(() => {
     if (open) {
@@ -64,11 +69,20 @@ export function CreateTaskDialog({
     if (isOpen) {
       fetchEmployees();
       fetchProjects();
+      void getCodexSettings()
+        .then((settings) => {
+          setDefaultAutomationEnabled(settings.task_automation_default_enabled);
+        })
+        .catch((error) => {
+          console.error("Failed to load task automation default setting:", error);
+          setDefaultAutomationEnabled(false);
+        });
       setTitle("");
       setDescription("");
       setPriority("medium");
       setSelectedProjectId(projectId ?? "");
       setAssigneeId("");
+      setReviewerId("");
       setAttachmentPaths([]);
       setCreateError(null);
     }
@@ -127,6 +141,10 @@ export function CreateTaskDialog({
 
   const handleCreate = async () => {
     if (!title.trim() || !selectedProjectId) return;
+    if (defaultAutomationEnabled && !reviewerId) {
+      setCreateError("当前已开启“新建任务默认自动质控”，请先指定审查员。");
+      return;
+    }
     setCreateError(null);
     setSaving(true);
     try {
@@ -136,6 +154,7 @@ export function CreateTaskDialog({
         priority,
         project_id: selectedProjectId,
         assignee_id: assigneeId || undefined,
+        reviewer_id: reviewerId || undefined,
         attachment_source_paths: attachmentPaths,
       }, {
         refreshProjectId: projectId,
@@ -302,7 +321,9 @@ export function CreateTaskDialog({
                     }
 
                     const employee = employees.find((emp) => emp.id === value);
-                    return employee ? `${employee.name} (${employee.role})` : "未指派";
+                    return employee
+                      ? `${employee.name} (${getEmployeeRoleLabel(employee.role)})`
+                      : "未指派";
                   }}
                 </SelectValue>
               </SelectTrigger>
@@ -310,11 +331,53 @@ export function CreateTaskDialog({
                 <SelectItem value={UNASSIGNED_VALUE}>未指派</SelectItem>
                 {employees.map((emp) => (
                   <SelectItem key={emp.id} value={emp.id}>
-                    {emp.name} ({emp.role})
+                    {emp.name} ({getEmployeeRoleLabel(emp.role)})
                   </SelectItem>
                 ))}
               </SelectContent>
             </Select>
+          </div>
+
+          <div>
+            <label className="text-xs font-medium text-muted-foreground">
+              审查员
+            </label>
+            <Select
+              disabled={saving}
+              value={reviewerId || UNASSIGNED_VALUE}
+              onValueChange={(value) => {
+                setCreateError(null);
+                setReviewerId(!value || value === UNASSIGNED_VALUE ? "" : value);
+              }}
+            >
+              <SelectTrigger className="mt-1 bg-background">
+                <SelectValue>
+                  {(value) => {
+                    if (!value || value === UNASSIGNED_VALUE) {
+                      return "未指定";
+                    }
+
+                    const employee = reviewerCandidates.find((emp) => emp.id === value);
+                    return employee
+                      ? `${employee.name} (${getEmployeeRoleLabel(employee.role)})`
+                      : "未指定";
+                  }}
+                </SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={UNASSIGNED_VALUE}>未指定</SelectItem>
+                {reviewerCandidates.map((emp) => (
+                  <SelectItem key={emp.id} value={emp.id}>
+                    {emp.name} ({getEmployeeRoleLabel(emp.role)})
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {defaultAutomationEnabled && (
+              <p className="mt-1 text-[11px] text-muted-foreground">
+                当前已开启“新建任务默认自动质控”，新建任务时需要指定审查员。
+              </p>
+            )}
           </div>
 
           <div className="space-y-2">

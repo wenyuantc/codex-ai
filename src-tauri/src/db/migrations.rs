@@ -389,6 +389,30 @@ pub fn get_all_migrations() -> Vec<Migration> {
             "#,
             kind: tauri_plugin_sql::MigrationKind::Up,
         },
+        Migration {
+            version: 22,
+            description: "add task automation configuration and runtime state",
+            sql: r#"
+                ALTER TABLE tasks ADD COLUMN automation_mode TEXT;
+
+                CREATE TABLE task_automation_state (
+                    task_id TEXT PRIMARY KEY REFERENCES tasks(id) ON DELETE CASCADE,
+                    phase TEXT NOT NULL DEFAULT 'idle',
+                    round_count INTEGER NOT NULL DEFAULT 0,
+                    consumed_session_id TEXT,
+                    last_trigger_session_id TEXT,
+                    pending_action TEXT,
+                    pending_round_count INTEGER,
+                    last_error TEXT,
+                    last_verdict_json TEXT,
+                    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+                );
+
+                CREATE INDEX idx_task_automation_state_phase
+                    ON task_automation_state(phase, updated_at);
+            "#,
+            kind: tauri_plugin_sql::MigrationKind::Up,
+        },
     ]
 }
 

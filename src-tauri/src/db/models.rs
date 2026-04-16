@@ -51,6 +51,7 @@ pub struct Task {
     pub reviewer_id: Option<String>,
     pub complexity: Option<i32>,
     pub ai_suggestion: Option<String>,
+    pub automation_mode: Option<String>,
     pub last_codex_session_id: Option<String>,
     pub last_review_session_id: Option<String>,
     pub created_at: String,
@@ -209,6 +210,9 @@ pub struct CodexSettings {
     pub one_shot_sdk_enabled: bool,
     pub one_shot_model: String,
     pub one_shot_reasoning_effort: String,
+    pub task_automation_default_enabled: bool,
+    pub task_automation_max_fix_rounds: i32,
+    pub task_automation_failure_strategy: String,
     pub node_path_override: Option<String>,
     pub sdk_install_dir: String,
     pub one_shot_preferred_provider: String,
@@ -253,6 +257,42 @@ pub struct TaskExecutionChangeHistoryItem {
     pub session: CodexSessionRecord,
     pub capture_mode: String,
     pub changes: Vec<CodexSessionFileChange>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ReviewVerdict {
+    pub passed: bool,
+    pub needs_human: bool,
+    pub blocking_issue_count: i32,
+    pub summary: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+pub struct TaskAutomationStateRecord {
+    pub task_id: String,
+    pub phase: String,
+    pub round_count: i32,
+    pub consumed_session_id: Option<String>,
+    pub last_trigger_session_id: Option<String>,
+    pub pending_action: Option<String>,
+    pub pending_round_count: Option<i32>,
+    pub last_error: Option<String>,
+    pub last_verdict_json: Option<String>,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TaskAutomationState {
+    pub task_id: String,
+    pub phase: String,
+    pub round_count: i32,
+    pub consumed_session_id: Option<String>,
+    pub last_trigger_session_id: Option<String>,
+    pub pending_action: Option<String>,
+    pub pending_round_count: Option<i32>,
+    pub last_error: Option<String>,
+    pub last_verdict: Option<ReviewVerdict>,
+    pub updated_at: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -397,6 +437,7 @@ pub struct CreateTask {
     pub priority: Option<String>,
     pub project_id: String,
     pub assignee_id: Option<String>,
+    pub reviewer_id: Option<String>,
     pub attachment_source_paths: Option<Vec<String>>,
 }
 
@@ -422,11 +463,21 @@ pub struct UpdateTask {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SetTaskAutomationModePayload {
+    pub task_id: String,
+    #[serde(default, deserialize_with = "deserialize_explicit_nullable")]
+    pub automation_mode: Option<Option<String>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UpdateCodexSettings {
     pub task_sdk_enabled: Option<bool>,
     pub one_shot_sdk_enabled: Option<bool>,
     pub one_shot_model: Option<String>,
     pub one_shot_reasoning_effort: Option<String>,
+    pub task_automation_default_enabled: Option<bool>,
+    pub task_automation_max_fix_rounds: Option<i32>,
+    pub task_automation_failure_strategy: Option<String>,
     #[serde(default, deserialize_with = "deserialize_explicit_nullable")]
     pub node_path_override: Option<Option<String>>,
 }
@@ -479,7 +530,7 @@ pub struct CodexSession {
 
 #[cfg(test)]
 mod tests {
-    use super::{CreateTask, UpdateEmployee, UpdateProject, UpdateTask};
+    use super::{CreateTask, ReviewVerdict, UpdateEmployee, UpdateProject, UpdateTask};
 
     #[test]
     fn project_update_keeps_explicit_nulls() {
@@ -543,5 +594,18 @@ mod tests {
             payload.attachment_source_paths,
             Some(vec!["/tmp/a.png".to_string(), "/tmp/b.jpg".to_string()])
         );
+    }
+
+    #[test]
+    fn review_verdict_deserializes() {
+        let verdict: ReviewVerdict = serde_json::from_str(
+            r#"{"passed":false,"needs_human":true,"blocking_issue_count":2,"summary":"需人工确认"}"#,
+        )
+        .expect("deserialize review verdict");
+
+        assert!(!verdict.passed);
+        assert!(verdict.needs_human);
+        assert_eq!(verdict.blocking_issue_count, 2);
+        assert_eq!(verdict.summary, "需人工确认");
     }
 }

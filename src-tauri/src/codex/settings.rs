@@ -5,7 +5,7 @@ use std::process::Stdio;
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager, Runtime};
 
-use crate::app::normalize_optional_text;
+use crate::app::{insert_activity_log, normalize_optional_text, sqlite_pool};
 use crate::codex::{new_node_command, new_npm_command};
 use crate::db::models::{CodexSdkInstallResult, CodexSettings, UpdateCodexSettings};
 
@@ -19,8 +19,11 @@ const ONE_SHOT_PROVIDER_EXEC: &str = "exec";
 const MINIMUM_NODE_MAJOR: u32 = 18;
 const DEFAULT_ONE_SHOT_MODEL: &str = "gpt-5.4";
 const DEFAULT_ONE_SHOT_REASONING_EFFORT: &str = "high";
+const DEFAULT_TASK_AUTOMATION_MAX_FIX_ROUNDS: i32 = 3;
+const DEFAULT_TASK_AUTOMATION_FAILURE_STRATEGY: &str = "blocked";
 const SUPPORTED_MODELS: &[&str] = &["gpt-5.4", "gpt-5.4-mini", "gpt-5.3-codex", "gpt-5.2"];
 const SUPPORTED_REASONING_EFFORTS: &[&str] = &["low", "medium", "high", "xhigh"];
+const SUPPORTED_TASK_AUTOMATION_FAILURE_STRATEGIES: &[&str] = &["blocked", "manual_control"];
 
 #[derive(Debug, Clone)]
 pub struct SdkRuntimeHealth {
@@ -51,6 +54,12 @@ struct RawCodexSettings {
     #[serde(default)]
     one_shot_reasoning_effort: Option<String>,
     #[serde(default)]
+    task_automation_default_enabled: Option<bool>,
+    #[serde(default)]
+    task_automation_max_fix_rounds: Option<i32>,
+    #[serde(default)]
+    task_automation_failure_strategy: Option<String>,
+    #[serde(default)]
     node_path_override: Option<String>,
     #[serde(default)]
     sdk_install_dir: Option<String>,
@@ -69,6 +78,22 @@ fn normalize_one_shot_reasoning_effort(value: Option<&str>) -> String {
     match value.map(str::trim) {
         Some(value) if SUPPORTED_REASONING_EFFORTS.contains(&value) => value.to_string(),
         _ => DEFAULT_ONE_SHOT_REASONING_EFFORT.to_string(),
+    }
+}
+
+fn normalize_task_automation_max_fix_rounds(value: Option<i32>) -> i32 {
+    match value {
+        Some(value) if (1..=10).contains(&value) => value,
+        _ => DEFAULT_TASK_AUTOMATION_MAX_FIX_ROUNDS,
+    }
+}
+
+fn normalize_task_automation_failure_strategy(value: Option<&str>) -> String {
+    match value.map(str::trim) {
+        Some(value) if SUPPORTED_TASK_AUTOMATION_FAILURE_STRATEGIES.contains(&value) => {
+            value.to_string()
+        }
+        _ => DEFAULT_TASK_AUTOMATION_FAILURE_STRATEGY.to_string(),
     }
 }
 
@@ -94,6 +119,13 @@ fn normalize_settings(settings: CodexSettings, default_install_dir: &Path) -> Co
         one_shot_reasoning_effort: normalize_one_shot_reasoning_effort(Some(
             &settings.one_shot_reasoning_effort,
         )),
+        task_automation_default_enabled: settings.task_automation_default_enabled,
+        task_automation_max_fix_rounds: normalize_task_automation_max_fix_rounds(Some(
+            settings.task_automation_max_fix_rounds,
+        )),
+        task_automation_failure_strategy: normalize_task_automation_failure_strategy(Some(
+            &settings.task_automation_failure_strategy,
+        )),
         node_path_override: normalize_optional_text(settings.node_path_override.as_deref()),
         sdk_install_dir: normalize_optional_text(Some(&settings.sdk_install_dir))
             .unwrap_or_else(|| default_install_dir.to_string_lossy().to_string()),
@@ -110,6 +142,13 @@ fn normalize_raw_settings(raw: RawCodexSettings, default_install_dir: &Path) -> 
         one_shot_model: normalize_one_shot_model(raw.one_shot_model.as_deref()),
         one_shot_reasoning_effort: normalize_one_shot_reasoning_effort(
             raw.one_shot_reasoning_effort.as_deref(),
+        ),
+        task_automation_default_enabled: raw.task_automation_default_enabled.unwrap_or(false),
+        task_automation_max_fix_rounds: normalize_task_automation_max_fix_rounds(
+            raw.task_automation_max_fix_rounds,
+        ),
+        task_automation_failure_strategy: normalize_task_automation_failure_strategy(
+            raw.task_automation_failure_strategy.as_deref(),
         ),
         node_path_override: normalize_optional_text(raw.node_path_override.as_deref()),
         sdk_install_dir: normalize_optional_text(raw.sdk_install_dir.as_deref())
@@ -128,6 +167,9 @@ pub fn load_codex_settings<R: Runtime>(app: &AppHandle<R>) -> Result<CodexSettin
         one_shot_sdk_enabled: false,
         one_shot_model: DEFAULT_ONE_SHOT_MODEL.to_string(),
         one_shot_reasoning_effort: DEFAULT_ONE_SHOT_REASONING_EFFORT.to_string(),
+        task_automation_default_enabled: false,
+        task_automation_max_fix_rounds: DEFAULT_TASK_AUTOMATION_MAX_FIX_ROUNDS,
+        task_automation_failure_strategy: DEFAULT_TASK_AUTOMATION_FAILURE_STRATEGY.to_string(),
         node_path_override: None,
         sdk_install_dir: default_install_dir.to_string_lossy().to_string(),
         one_shot_preferred_provider: ONE_SHOT_PROVIDER_SDK.to_string(),
@@ -180,6 +222,20 @@ pub fn merge_codex_settings<R: Runtime>(
     if let Some(one_shot_reasoning_effort) = updates.one_shot_reasoning_effort {
         settings.one_shot_reasoning_effort =
             normalize_one_shot_reasoning_effort(Some(&one_shot_reasoning_effort));
+    }
+
+    if let Some(task_automation_default_enabled) = updates.task_automation_default_enabled {
+        settings.task_automation_default_enabled = task_automation_default_enabled;
+    }
+
+    if let Some(task_automation_max_fix_rounds) = updates.task_automation_max_fix_rounds {
+        settings.task_automation_max_fix_rounds =
+            normalize_task_automation_max_fix_rounds(Some(task_automation_max_fix_rounds));
+    }
+
+    if let Some(task_automation_failure_strategy) = updates.task_automation_failure_strategy {
+        settings.task_automation_failure_strategy =
+            normalize_task_automation_failure_strategy(Some(&task_automation_failure_strategy));
     }
 
     if let Some(node_path_override) = updates.node_path_override {
@@ -516,7 +572,40 @@ pub async fn update_codex_settings<R: Runtime>(
     app: AppHandle<R>,
     updates: UpdateCodexSettings,
 ) -> Result<CodexSettings, String> {
-    merge_codex_settings(&app, updates)
+    let previous = load_codex_settings(&app)?;
+    let next = merge_codex_settings(&app, updates)?;
+
+    if previous.task_automation_default_enabled != next.task_automation_default_enabled
+        || previous.task_automation_max_fix_rounds != next.task_automation_max_fix_rounds
+        || previous.task_automation_failure_strategy != next.task_automation_failure_strategy
+    {
+        if let Ok(pool) = sqlite_pool(&app).await {
+            let _ = insert_activity_log(
+                &pool,
+                "task_automation_settings_updated",
+                &format!(
+                    "新建任务默认自动质控：{}；最大自动修复轮次：{}；失败后：{}",
+                    if next.task_automation_default_enabled {
+                        "开启"
+                    } else {
+                        "关闭"
+                    },
+                    next.task_automation_max_fix_rounds,
+                    if next.task_automation_failure_strategy == "manual_control" {
+                        "转人工"
+                    } else {
+                        "转阻塞"
+                    }
+                ),
+                None,
+                None,
+                None,
+            )
+            .await;
+        }
+    }
+
+    Ok(next)
 }
 
 #[tauri::command]
@@ -529,8 +618,10 @@ pub async fn install_codex_sdk<R: Runtime>(
 #[cfg(test)]
 mod tests {
     use super::{
-        determine_effective_provider, normalize_raw_settings, parse_node_major_version,
-        read_sdk_version_from_dir, sdk_platform_package_for_target, RawCodexSettings,
+        determine_effective_provider, normalize_raw_settings,
+        normalize_task_automation_failure_strategy, normalize_task_automation_max_fix_rounds,
+        parse_node_major_version, read_sdk_version_from_dir, sdk_platform_package_for_target,
+        RawCodexSettings,
     };
     use std::fs;
     use std::path::PathBuf;
@@ -640,5 +731,36 @@ mod tests {
         assert_eq!(normalized.one_shot_reasoning_effort, "high");
 
         fs::remove_dir_all(base).expect("remove temp dir");
+    }
+
+    #[test]
+    fn invalid_task_automation_settings_fall_back_to_defaults() {
+        let base = create_temp_dir();
+        let normalized = normalize_raw_settings(
+            RawCodexSettings {
+                task_automation_default_enabled: Some(true),
+                task_automation_max_fix_rounds: Some(0),
+                task_automation_failure_strategy: Some("something-else".to_string()),
+                ..RawCodexSettings::default()
+            },
+            &base,
+        );
+
+        assert!(normalized.task_automation_default_enabled);
+        assert_eq!(normalized.task_automation_max_fix_rounds, 3);
+        assert_eq!(normalized.task_automation_failure_strategy, "blocked");
+
+        fs::remove_dir_all(base).expect("remove temp dir");
+    }
+
+    #[test]
+    fn task_automation_settings_are_normalized_within_supported_range() {
+        assert_eq!(normalize_task_automation_max_fix_rounds(Some(1)), 1);
+        assert_eq!(normalize_task_automation_max_fix_rounds(Some(10)), 10);
+        assert_eq!(normalize_task_automation_max_fix_rounds(Some(11)), 3);
+        assert_eq!(
+            normalize_task_automation_failure_strategy(Some("manual_control")),
+            "manual_control"
+        );
     }
 }

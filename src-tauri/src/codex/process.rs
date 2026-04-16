@@ -15,8 +15,9 @@ use tokio::time::sleep;
 use crate::app::{
     fetch_codex_session_by_id, insert_activity_log, insert_codex_session_event,
     insert_codex_session_event_with_id, insert_codex_session_record, normalize_runtime_path_string,
-    now_sqlite, path_to_runtime_string, replace_codex_session_file_changes, sqlite_pool,
-    update_codex_session_record, validate_project_repo_path, validate_runtime_working_dir,
+    now_sqlite, parse_review_verdict_json, path_to_runtime_string,
+    replace_codex_session_file_changes, sqlite_pool, update_codex_session_record,
+    validate_project_repo_path, validate_runtime_working_dir,
 };
 use crate::codex::{
     ensure_sdk_runtime_layout, inspect_sdk_runtime, load_codex_settings, new_codex_command,
@@ -26,11 +27,14 @@ use crate::db::models::{
     CodexExit, CodexOutput, CodexSession, CodexSessionFileChangeDetailInput,
     CodexSessionFileChangeInput,
 };
+use crate::task_automation;
 
 const SUPPORTED_MODELS: &[&str] = &["gpt-5.4", "gpt-5.4-mini", "gpt-5.3-codex", "gpt-5.2"];
 const SUPPORTED_REASONING_EFFORTS: &[&str] = &["low", "medium", "high", "xhigh"];
 const SESSION_ID_PREFIX: &str = "session id:";
 const SDK_FILE_CHANGE_EVENT_PREFIX: &str = "[CODEX_FILE_CHANGE]";
+const REVIEW_VERDICT_START_TAG: &str = "<review_verdict>";
+const REVIEW_VERDICT_END_TAG: &str = "</review_verdict>";
 const REVIEW_REPORT_START_TAG: &str = "<review_report>";
 const REVIEW_REPORT_END_TAG: &str = "</review_report>";
 const STOP_WAIT_POLL_MS: u64 = 50;
@@ -786,6 +790,10 @@ fn extract_review_report(raw: &str) -> Option<String> {
     })
 }
 
+fn extract_review_verdict(raw: &str) -> Option<String> {
+    extract_tagged_block(raw, REVIEW_VERDICT_START_TAG, REVIEW_VERDICT_END_TAG)
+}
+
 fn compose_codex_prompt(task_description: &str, system_prompt: Option<&str>) -> String {
     let task_description = task_description.trim();
     let system_prompt = system_prompt
@@ -1227,8 +1235,16 @@ async fn get_live_managed_process(
     state: &State<'_, Arc<Mutex<CodexManager>>>,
     employee_id: &str,
 ) -> Result<Option<crate::codex::manager::ManagedCodexProcess>, String> {
+    get_live_managed_process_with_manager(app, state.inner(), employee_id).await
+}
+
+async fn get_live_managed_process_with_manager(
+    app: &AppHandle,
+    manager_state: &Arc<Mutex<CodexManager>>,
+    employee_id: &str,
+) -> Result<Option<crate::codex::manager::ManagedCodexProcess>, String> {
     let process = {
-        let manager = state.lock().map_err(|error| error.to_string())?;
+        let manager = manager_state.lock().map_err(|error| error.to_string())?;
         manager.get_process(employee_id)
     };
 
@@ -1254,7 +1270,7 @@ async fn get_live_managed_process(
                 process.sdk_file_change_store.as_ref(),
             )
             .await;
-            let mut manager = state.lock().map_err(|error| error.to_string())?;
+            let mut manager = manager_state.lock().map_err(|error| error.to_string())?;
             manager.remove_process(employee_id);
             Ok(None)
         }
@@ -1269,7 +1285,7 @@ async fn get_live_managed_process(
                 process.sdk_file_change_store.as_ref(),
             )
             .await;
-            let mut manager = state.lock().map_err(|error| error.to_string())?;
+            let mut manager = manager_state.lock().map_err(|error| error.to_string())?;
             manager.remove_process(employee_id);
             Ok(None)
         }
@@ -1373,10 +1389,41 @@ pub async fn start_codex(
     image_paths: Option<Vec<String>>,
     session_kind: Option<String>,
 ) -> Result<(), String> {
+    start_codex_with_manager(
+        app,
+        state.inner().clone(),
+        employee_id,
+        task_description,
+        model,
+        reasoning_effort,
+        system_prompt,
+        working_dir,
+        task_id,
+        resume_session_id,
+        image_paths,
+        session_kind,
+    )
+    .await
+}
+
+pub async fn start_codex_with_manager(
+    app: AppHandle,
+    manager_state: Arc<Mutex<CodexManager>>,
+    employee_id: String,
+    task_description: String,
+    model: Option<String>,
+    reasoning_effort: Option<String>,
+    system_prompt: Option<String>,
+    working_dir: Option<String>,
+    task_id: Option<String>,
+    resume_session_id: Option<String>,
+    image_paths: Option<Vec<String>>,
+    session_kind: Option<String>,
+) -> Result<(), String> {
     let session_kind = normalize_session_kind(session_kind.as_deref());
 
     // Check if already running
-    if get_live_managed_process(&app, &state, &employee_id)
+    if get_live_managed_process_with_manager(&app, &manager_state, &employee_id)
         .await?
         .is_some()
     {
@@ -1665,7 +1712,7 @@ pub async fn start_codex(
     let child_handle = Arc::new(tokio::sync::Mutex::new(CodexChild { child }));
 
     {
-        let mut manager = state.lock().map_err(|e| e.to_string())?;
+        let mut manager = manager_state.lock().map_err(|e| e.to_string())?;
         manager.add_process(
             employee_id.clone(),
             child_handle.clone(),
@@ -1955,9 +2002,11 @@ pub async fn start_codex(
                         sdk_file_change_store_for_exit.as_ref(),
                     )
                     .await;
-                    let manager = app_clone.state::<Arc<Mutex<CodexManager>>>();
-                    let mut manager = manager.lock().unwrap();
-                    manager.remove_process(&eid);
+                    {
+                        let manager = app_clone.state::<Arc<Mutex<CodexManager>>>();
+                        let mut manager = manager.lock().unwrap();
+                        manager.remove_process(&eid);
+                    }
                     let _ = app_clone.emit(
                         "codex-exit",
                         CodexExit {
@@ -1970,6 +2019,11 @@ pub async fn start_codex(
                             code: None,
                         },
                     );
+                    task_automation::handle_session_exit_blocking(
+                        app_clone.clone(),
+                        session_record_id.clone(),
+                    )
+                    .await;
                     return;
                 }
             }
@@ -2052,6 +2106,17 @@ pub async fn start_codex(
                     .as_ref()
                     .map(|captured| captured.lock().unwrap().join("\n"))
                     .unwrap_or_default();
+                if let Some(verdict_raw) = extract_review_verdict(&raw_output) {
+                    if parse_review_verdict_json(&verdict_raw).is_ok() {
+                        let _ = insert_codex_session_event(
+                            &pool,
+                            &session_record_id,
+                            "review_verdict",
+                            Some(&verdict_raw),
+                        )
+                        .await;
+                    }
+                }
                 let report = extract_review_report(&raw_output);
                 if let Some(report) = report.as_ref() {
                     let _ = insert_codex_session_event(
@@ -2106,6 +2171,9 @@ pub async fn start_codex(
                 }
             }
         }
+
+        task_automation::handle_session_exit_blocking(app_clone.clone(), session_record_id.clone())
+            .await;
 
         let _ = app_clone.emit(
             "codex-exit",

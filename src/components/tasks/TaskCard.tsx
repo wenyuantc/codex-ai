@@ -3,9 +3,20 @@ import { createPortal } from "react-dom";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import type { CodexSessionKind, Task } from "@/lib/types";
-import { getPriorityLabel, getPriorityColor, formatDate } from "@/lib/utils";
+import { formatDate, getPriorityColor, getPriorityLabel, getTaskAutomationDisplayState, getTaskAutomationStatusLabel } from "@/lib/utils";
 import { buildTaskExecutionInput } from "@/lib/taskPrompt";
-import { Clock, FolderKanban, GripVertical, Loader2, MessageSquarePlus, Play, ScrollText, Square, Trash2 } from "lucide-react";
+import {
+  Bot,
+  Clock,
+  FolderKanban,
+  GripVertical,
+  Loader2,
+  MessageSquarePlus,
+  Play,
+  ScrollText,
+  Square,
+  Trash2,
+} from "lucide-react";
 import { ContinueConversationDialog } from "./ContinueConversationDialog";
 import { TaskDetailDialog } from "./TaskDetailDialog";
 import { DeleteTaskDialog } from "./DeleteTaskDialog";
@@ -28,6 +39,7 @@ export function TaskCard({ task, isOverlay, hideRunAction = false, onOpenLog }: 
   const [showContinueDialog, setShowContinueDialog] = useState(false);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [automationSubmitting, setAutomationSubmitting] = useState(false);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
   const projects = useProjectStore((s) => s.projects);
   const employees = useEmployeeStore((s) => s.employees);
@@ -35,9 +47,13 @@ export function TaskCard({ task, isOverlay, hideRunAction = false, onOpenLog }: 
   const projectRepoPath = projects.find((p) => p.id === task.project_id)?.repo_path;
   const fetchAttachments = useTaskStore((s) => s.fetchAttachments);
   const fetchSubtasks = useTaskStore((s) => s.fetchSubtasks);
+  const fetchTaskAutomationState = useTaskStore((s) => s.fetchTaskAutomationState);
+  const persistedAutomationState = useTaskStore((s) => s.automationStates[task.id]);
+  const setTaskAutomationMode = useTaskStore((s) => s.setTaskAutomationMode);
   const deleteTask = useTaskStore((s) => s.deleteTask);
   const assignee = task.assignee_id ? employees.find((employee) => employee.id === task.assignee_id) : undefined;
   const reviewer = task.reviewer_id ? employees.find((employee) => employee.id === task.reviewer_id) : undefined;
+  const automationState = getTaskAutomationDisplayState(task, persistedAutomationState ?? null);
   const executionActions = useTaskExecutionActions({
     task,
     assigneeId: task.assignee_id,
@@ -74,7 +90,7 @@ export function TaskCard({ task, isOverlay, hideRunAction = false, onOpenLog }: 
   const isRunning = executionActions.isRunning;
   const isReviewRunning = reviewActions.isRunning;
   const isReviewTask = task.status === "review";
-  const isActionLoading = executionActions.loading !== null || reviewActions.loading;
+  const isActionLoading = executionActions.loading !== null || reviewActions.loading || automationSubmitting;
   const shouldShowActionBar = !isOverlay && (isRunning || isReviewTask || !hideRunAction);
   const shouldShowPrimaryMenuAction = isRunning || isReviewTask || !hideRunAction;
   const hasPreLogActions = shouldShowPrimaryMenuAction || Boolean(task.last_codex_session_id);
@@ -116,6 +132,15 @@ export function TaskCard({ task, isOverlay, hideRunAction = false, onOpenLog }: 
       document.removeEventListener("keydown", handleKeyDown);
     };
   }, [contextMenu]);
+
+  useEffect(() => {
+    if (
+      task.automation_mode === "review_fix_loop_v1"
+      && typeof persistedAutomationState === "undefined"
+    ) {
+      void fetchTaskAutomationState(task.id);
+    }
+  }, [fetchTaskAutomationState, persistedAutomationState, task.automation_mode, task.id]);
 
   const handleRun = async (e?: React.MouseEvent) => {
     e?.stopPropagation();
@@ -181,6 +206,22 @@ export function TaskCard({ task, isOverlay, hideRunAction = false, onOpenLog }: 
     setShowContinueDialog(true);
   };
 
+  const handleToggleAutomation = async () => {
+    setContextMenu(null);
+    setAutomationSubmitting(true);
+
+    try {
+      await setTaskAutomationMode(
+        task.id,
+        automationState.enabled ? null : "review_fix_loop_v1",
+      );
+    } catch (error) {
+      console.error("Failed to toggle task automation:", error);
+    } finally {
+      setAutomationSubmitting(false);
+    }
+  };
+
   const handleContinueConversation = async (prompt: string) => {
     if (!task.last_codex_session_id) return;
     await executionActions.continueTask(prompt);
@@ -228,6 +269,17 @@ export function TaskCard({ task, isOverlay, hideRunAction = false, onOpenLog }: 
                   复杂度: {task.complexity}/10
                 </span>
               )}
+              <span
+                className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] ${
+                  automationState.enabled
+                    ? "bg-emerald-500/10 text-emerald-700"
+                    : "bg-muted text-muted-foreground"
+                }`}
+                title={automationState.note ?? (automationState.enabled ? "自动质控已开启" : "自动质控未开启")}
+              >
+                <Bot className="h-3 w-3" />
+                自动质控·{getTaskAutomationStatusLabel(automationState.status)}
+              </span>
             </div>
             <div className="flex items-center justify-between mt-1.5 text-xs text-muted-foreground">
               <div className="flex flex-col gap-0.5">
@@ -314,6 +366,7 @@ export function TaskCard({ task, isOverlay, hideRunAction = false, onOpenLog }: 
             task={task}
             open={showDetail}
             onOpenChange={setShowDetail}
+            automationState={automationState}
           />
         </ErrorBoundary>
       )}
@@ -382,6 +435,24 @@ export function TaskCard({ task, isOverlay, hideRunAction = false, onOpenLog }: 
               </>
             )}
             {hasPreLogActions && <div className="my-1 h-px bg-border" />}
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => void handleToggleAutomation()}
+              disabled={automationSubmitting}
+              className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-left hover:bg-accent hover:text-accent-foreground"
+            >
+              {automationSubmitting ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Bot className="h-4 w-4" />
+              )}
+              {automationState.enabled ? "关闭自动质控" : "开启自动质控"}
+            </button>
+            <div className="px-2 pb-1 text-[11px] text-muted-foreground">
+              当前：{getTaskAutomationStatusLabel(automationState.status)}
+            </div>
+            <div className="my-1 h-px bg-border" />
             <button
               type="button"
               role="menuitem"

@@ -1,3 +1,4 @@
+import type { Task, TaskAutomationState as PersistedTaskAutomationState } from "./types"
 import { clsx, type ClassValue } from "clsx"
 import { twMerge } from "tailwind-merge"
 
@@ -53,6 +54,19 @@ export function getActivityActionLabel(action: string): string {
     task_deleted: "删除任务",
     task_execution_started: "开始任务会话",
     task_execution_resumed: "继续任务会话",
+    task_automation_enabled: "开启自动质控",
+    task_automation_disabled: "关闭自动质控",
+    task_automation_review_started: "自动质控开始审核",
+    task_automation_fix_started: "自动质控开始修复",
+    task_automation_completed: "自动质控闭环完成",
+    task_automation_blocked: "自动质控阻塞",
+    task_automation_manual_control: "自动质控转人工处理",
+    task_automation_skip_disabled: "自动质控因配置关闭而跳过",
+    task_automation_settings_updated: "自动质控设置更新",
+    task_review_requested: "请求代码审核",
+    task_review_started: "开始代码审核",
+    task_review_completed: "代码审核完成",
+    task_review_failed: "代码审核失败",
   };
   return labels[action] || action;
 }
@@ -97,4 +111,84 @@ export function getPriorityLabel(priority: string): string {
     urgent: "紧急",
   };
   return labels[priority] || priority;
+}
+
+export function getEmployeeRoleLabel(role: string): string {
+  const labels: Record<string, string> = {
+    developer: "开发者",
+    reviewer: "审查员",
+    tester: "测试员",
+    coordinator: "协调员",
+  };
+
+  return labels[role] || role;
+}
+
+export interface TaskAutomationDisplayState {
+  enabled: boolean
+  status: string
+  updatedAt: string | null
+  note: string | null
+  source: "task" | "automation_state"
+  roundCount: number | null
+}
+
+export function getTaskAutomationStatusLabel(status: string): string {
+  const labels: Record<string, string> = {
+    disabled: "未开启",
+    enabled: "已开启",
+    idle: "待命",
+    launching_review: "启动审核中",
+    waiting_review: "自动审核中",
+    launching_fix: "启动修复中",
+    waiting_execution: "自动修复中",
+    review_launch_failed: "审核启动失败",
+    fix_launch_failed: "修复启动失败",
+    review_started: "自动审核中",
+    fix_started: "自动修复中",
+    completed: "闭环完成",
+    blocked: "已阻塞",
+    manual_control: "转人工处理",
+    skip_disabled: "因配置关闭而跳过",
+  }
+
+  return labels[status] || status
+}
+
+export function getTaskAutomationDisplayState(
+  task: Task,
+  automationState?: PersistedTaskAutomationState | null,
+): TaskAutomationDisplayState {
+  const enabled = task.automation_mode === "review_fix_loop_v1"
+
+  if (!enabled) {
+    return {
+      enabled: false,
+      status: "disabled",
+      updatedAt: task.updated_at ?? null,
+      note: null,
+      source: "task",
+      roundCount: null,
+    }
+  }
+
+  if (!automationState) {
+    return {
+      enabled: true,
+      status: "idle",
+      updatedAt: task.updated_at ?? null,
+      note: null,
+      source: "task",
+      roundCount: 0,
+    }
+  }
+
+  return {
+    enabled: true,
+    status: automationState.phase,
+    updatedAt: automationState.updated_at ?? task.updated_at ?? null,
+    note: automationState.last_error ?? automationState.last_verdict?.summary ?? null,
+    source: "automation_state",
+    roundCount: automationState.round_count,
+  }
 }

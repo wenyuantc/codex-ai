@@ -22,8 +22,10 @@ use crate::db::models::{
     CodexSessionFileChangeDetailRecord, CodexSessionFileChangeInput, CodexSessionListItem,
     CodexSessionLogLine, CodexSessionRecord, CodexSessionResumePreview, Comment, CreateComment,
     CreateEmployee, CreateProject, CreateSubtask, CreateTask, DatabaseBackupResult,
-    DatabaseRestoreResult, Employee, EmployeeMetric, Project, Subtask, Task, TaskAttachment,
-    TaskExecutionChangeHistoryItem, TaskLatestReview, UpdateEmployee, UpdateProject, UpdateTask,
+    DatabaseRestoreResult, Employee, EmployeeMetric, Project, ReviewVerdict,
+    SetTaskAutomationModePayload, Subtask, Task, TaskAttachment, TaskAutomationState,
+    TaskAutomationStateRecord, TaskExecutionChangeHistoryItem, TaskLatestReview, UpdateEmployee,
+    UpdateProject, UpdateTask,
 };
 
 pub const DB_URL: &str = "sqlite:codex-ai.db";
@@ -35,6 +37,8 @@ const FILE_CHANGE_DIFF_CHAR_LIMIT: usize = 120_000;
 const REVIEW_UNTRACKED_FILE_LIMIT: usize = 5;
 const REVIEW_UNTRACKED_FILE_SIZE_LIMIT: u64 = 16 * 1024;
 const REVIEW_UNTRACKED_TOTAL_CHAR_LIMIT: usize = 48_000;
+pub(crate) const REVIEW_VERDICT_START_TAG: &str = "<review_verdict>";
+pub(crate) const REVIEW_VERDICT_END_TAG: &str = "</review_verdict>";
 const REVIEW_REPORT_START_TAG: &str = "<review_report>";
 const REVIEW_REPORT_END_TAG: &str = "</review_report>";
 
@@ -761,7 +765,7 @@ fn read_untracked_review_snippets(repo_path: &str, untracked_files: &[String]) -
     }
 }
 
-fn collect_task_review_context(repo_path: &str) -> Result<String, String> {
+pub(crate) fn collect_task_review_context(repo_path: &str) -> Result<String, String> {
     let status_output = run_git_text(repo_path, &["status", "--short"])?;
     let status_trimmed = status_output.trim();
     if status_trimmed.is_empty() {
@@ -833,13 +837,18 @@ fn collect_task_review_context(repo_path: &str) -> Result<String, String> {
     ))
 }
 
-fn build_task_review_prompt(task: &Task, project: &Project, review_context: &str) -> String {
+pub(crate) fn build_task_review_prompt(
+    task: &Task,
+    project: &Project,
+    review_context: &str,
+) -> String {
     format!(
         "你正在执行一次只读代码审查。\n\
 要求：\n\
 - 只允许阅读和分析代码，禁止修改任何文件，禁止执行 git commit/reset/checkout/merge/rebase 等写操作\n\
 - 审核范围仅限下方提供的任务信息和当前工作区改动\n\
-- 最终结论必须且只能输出在 {start_tag} 和 {end_tag} 之间\n\
+- 最终结构化判定必须且只能输出在 {verdict_start_tag} 和 {verdict_end_tag} 之间，内容必须是 JSON，对应字段：passed(boolean)、needs_human(boolean)、blocking_issue_count(number)、summary(string)\n\
+- 最终人类可读报告必须且只能输出在 {start_tag} 和 {end_tag} 之间\n\
 - 报告必须使用中文 Markdown，包含以下小节：## 结论、## 阻断问题、## 风险提醒、## 改进建议、## 验证缺口\n\
 - 如果没有阻断问题，明确写“无阻断问题”\n\
 - 如果 diff 信息被截断，要把这件事写进“验证缺口”\n\n\
@@ -850,6 +859,8 @@ fn build_task_review_prompt(task: &Task, project: &Project, review_context: &str
 仓库路径：{repo_path}\n\
 任务描述：{description}\n\n\
 {review_context}",
+        verdict_start_tag = REVIEW_VERDICT_START_TAG,
+        verdict_end_tag = REVIEW_VERDICT_END_TAG,
         start_tag = REVIEW_REPORT_START_TAG,
         end_tag = REVIEW_REPORT_END_TAG,
         title = task.title.trim(),
@@ -860,6 +871,21 @@ fn build_task_review_prompt(task: &Task, project: &Project, review_context: &str
         description = task.description.as_deref().unwrap_or("（未填写）"),
         review_context = review_context,
     )
+}
+
+pub(crate) fn parse_review_verdict_json(value: &str) -> Result<ReviewVerdict, String> {
+    let verdict = serde_json::from_str::<ReviewVerdict>(value)
+        .map_err(|error| format!("Failed to parse review verdict JSON: {}", error))?;
+
+    if verdict.summary.trim().is_empty() {
+        return Err("Review verdict summary cannot be empty".to_string());
+    }
+
+    if verdict.blocking_issue_count < 0 {
+        return Err("Review verdict blocking_issue_count cannot be negative".to_string());
+    }
+
+    Ok(verdict)
 }
 
 fn task_attachments_root_dir<R: Runtime>(app: &AppHandle<R>) -> Result<PathBuf, String> {
@@ -1349,7 +1375,7 @@ pub(crate) async fn fetch_codex_session_by_id<R: Runtime>(
         .map_err(|error| format!("Failed to fetch session record: {}", error))
 }
 
-async fn fetch_project_by_id(pool: &SqlitePool, id: &str) -> Result<Project, String> {
+pub(crate) async fn fetch_project_by_id(pool: &SqlitePool, id: &str) -> Result<Project, String> {
     sqlx::query_as::<_, Project>("SELECT * FROM projects WHERE id = $1 LIMIT 1")
         .bind(id)
         .fetch_one(pool)
@@ -1357,7 +1383,7 @@ async fn fetch_project_by_id(pool: &SqlitePool, id: &str) -> Result<Project, Str
         .map_err(|error| format!("Project {} not found: {}", id, error))
 }
 
-async fn fetch_employee_by_id(pool: &SqlitePool, id: &str) -> Result<Employee, String> {
+pub(crate) async fn fetch_employee_by_id(pool: &SqlitePool, id: &str) -> Result<Employee, String> {
     sqlx::query_as::<_, Employee>("SELECT * FROM employees WHERE id = $1 LIMIT 1")
         .bind(id)
         .fetch_one(pool)
@@ -1365,7 +1391,7 @@ async fn fetch_employee_by_id(pool: &SqlitePool, id: &str) -> Result<Employee, S
         .map_err(|error| format!("Employee {} not found: {}", id, error))
 }
 
-async fn fetch_task_by_id(pool: &SqlitePool, id: &str) -> Result<Task, String> {
+pub(crate) async fn fetch_task_by_id(pool: &SqlitePool, id: &str) -> Result<Task, String> {
     sqlx::query_as::<_, Task>("SELECT * FROM tasks WHERE id = $1 LIMIT 1")
         .bind(id)
         .fetch_one(pool)
@@ -1425,7 +1451,7 @@ async fn validate_assignee_for_project(
     Ok(())
 }
 
-async fn validate_reviewer_for_project(
+pub(crate) async fn validate_reviewer_for_project(
     pool: &SqlitePool,
     reviewer_id: Option<&str>,
     _project_id: &str,
@@ -1440,6 +1466,41 @@ async fn validate_reviewer_for_project(
     }
 
     Ok(())
+}
+
+pub(crate) async fn fetch_task_automation_state_record(
+    pool: &SqlitePool,
+    task_id: &str,
+) -> Result<Option<TaskAutomationStateRecord>, String> {
+    sqlx::query_as::<_, TaskAutomationStateRecord>(
+        "SELECT * FROM task_automation_state WHERE task_id = $1 LIMIT 1",
+    )
+    .bind(task_id)
+    .fetch_optional(pool)
+    .await
+    .map_err(|error| format!("Failed to fetch task automation state: {}", error))
+}
+
+pub(crate) fn decode_task_automation_state(
+    record: TaskAutomationStateRecord,
+) -> Result<TaskAutomationState, String> {
+    let last_verdict = match record.last_verdict_json.as_deref() {
+        Some(raw) => Some(parse_review_verdict_json(raw)?),
+        None => None,
+    };
+
+    Ok(TaskAutomationState {
+        task_id: record.task_id,
+        phase: record.phase,
+        round_count: record.round_count,
+        consumed_session_id: record.consumed_session_id,
+        last_trigger_session_id: record.last_trigger_session_id,
+        pending_action: record.pending_action,
+        pending_round_count: record.pending_round_count,
+        last_error: record.last_error,
+        last_verdict,
+        updated_at: record.updated_at,
+    })
 }
 
 async fn resolve_next_task_attachment_sort_order(
@@ -1483,7 +1544,7 @@ async fn insert_task_attachments(
     Ok(())
 }
 
-async fn record_completion_metric(pool: &SqlitePool, task: &Task) -> Result<(), String> {
+pub(crate) async fn record_completion_metric(pool: &SqlitePool, task: &Task) -> Result<(), String> {
     let Some(employee_id) = task.assignee_id.as_deref() else {
         return Ok(());
     };
@@ -2487,14 +2548,13 @@ pub async fn get_codex_session_file_change_detail<R: Runtime>(
     })
 }
 
-#[tauri::command]
-pub async fn start_task_code_review(
+pub(crate) async fn start_task_code_review_internal(
     app: AppHandle,
-    state: State<'_, Arc<Mutex<CodexManager>>>,
-    task_id: String,
+    manager_state: Arc<Mutex<CodexManager>>,
+    task_id: &str,
 ) -> Result<(), String> {
     let pool = sqlite_pool(&app).await?;
-    let task = fetch_task_by_id(&pool, &task_id).await?;
+    let task = fetch_task_by_id(&pool, task_id).await?;
     if task.status != "review" {
         return Err("只有“审核中”的任务才能发起代码审核".to_string());
     }
@@ -2516,9 +2576,9 @@ pub async fn start_task_code_review(
     let review_context = collect_task_review_context(&repo_path)?;
     let review_prompt = build_task_review_prompt(&task, &project, &review_context);
 
-    crate::codex::start_codex(
+    crate::codex::start_codex_with_manager(
         app.clone(),
-        state,
+        manager_state,
         reviewer.id.clone(),
         review_prompt,
         Some(reviewer.model.clone()),
@@ -2543,6 +2603,125 @@ pub async fn start_task_code_review(
     .await?;
 
     Ok(())
+}
+
+#[tauri::command]
+pub async fn start_task_code_review(
+    app: AppHandle,
+    state: State<'_, Arc<Mutex<CodexManager>>>,
+    task_id: String,
+) -> Result<(), String> {
+    start_task_code_review_internal(app, state.inner().clone(), &task_id).await
+}
+
+#[tauri::command]
+pub async fn set_task_automation_mode<R: Runtime>(
+    app: AppHandle<R>,
+    payload: SetTaskAutomationModePayload,
+) -> Result<Task, String> {
+    let pool = sqlite_pool(&app).await?;
+    let task = fetch_task_by_id(&pool, &payload.task_id).await?;
+    let normalized_mode = payload
+        .automation_mode
+        .and_then(|value| value)
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty());
+
+    if let Some(mode) = normalized_mode.as_deref() {
+        if mode != "review_fix_loop_v1" {
+            return Err(format!("不支持的自动质控模式: {}", mode));
+        }
+    }
+
+    sqlx::query("UPDATE tasks SET automation_mode = $1 WHERE id = $2")
+        .bind(&normalized_mode)
+        .bind(&payload.task_id)
+        .execute(&pool)
+        .await
+        .map_err(|error| format!("Failed to update task automation mode: {}", error))?;
+
+    if normalized_mode.is_some() {
+        sqlx::query(
+            r#"
+            INSERT INTO task_automation_state (
+                task_id,
+                phase,
+                round_count,
+                consumed_session_id,
+                last_trigger_session_id,
+                pending_action,
+                pending_round_count,
+                last_error,
+                last_verdict_json,
+                updated_at
+            ) VALUES ($1, 'idle', 0, NULL, NULL, NULL, NULL, NULL, NULL, $2)
+            ON CONFLICT(task_id) DO UPDATE SET
+                phase = 'idle',
+                round_count = 0,
+                consumed_session_id = NULL,
+                last_trigger_session_id = NULL,
+                pending_action = NULL,
+                pending_round_count = NULL,
+                last_error = NULL,
+                last_verdict_json = NULL,
+                updated_at = excluded.updated_at
+            "#,
+        )
+        .bind(&payload.task_id)
+        .bind(now_sqlite())
+        .execute(&pool)
+        .await
+        .map_err(|error| format!("Failed to upsert task automation state: {}", error))?;
+    } else {
+        sqlx::query(
+            r#"
+            UPDATE task_automation_state
+            SET pending_action = NULL,
+                pending_round_count = NULL,
+                last_verdict_json = NULL,
+                phase = CASE
+                    WHEN phase IN ('review_launch_failed', 'fix_launch_failed') THEN 'idle'
+                    ELSE phase
+                END,
+                updated_at = $2
+            WHERE task_id = $1
+            "#,
+        )
+        .bind(&payload.task_id)
+        .bind(now_sqlite())
+        .execute(&pool)
+        .await
+        .map_err(|error| format!("Failed to clear pending automation state: {}", error))?;
+    }
+
+    insert_activity_log(
+        &pool,
+        if normalized_mode.is_some() {
+            "task_automation_enabled"
+        } else {
+            "task_automation_disabled"
+        },
+        &task.title,
+        None,
+        Some(task.id.as_str()),
+        Some(task.project_id.as_str()),
+    )
+    .await?;
+
+    fetch_task_by_id(&pool, &payload.task_id).await
+}
+
+#[tauri::command]
+pub async fn get_task_automation_state<R: Runtime>(
+    app: AppHandle<R>,
+    task_id: String,
+) -> Result<Option<TaskAutomationState>, String> {
+    let pool = sqlite_pool(&app).await?;
+    let Some(record) = fetch_task_automation_state_record(&pool, &task_id).await? else {
+        return Ok(None);
+    };
+
+    Ok(Some(decode_task_automation_state(record)?))
 }
 
 #[tauri::command]
@@ -2880,6 +3059,19 @@ pub async fn create_task<R: Runtime>(
     ensure_project_exists(&pool, &payload.project_id).await?;
     validate_assignee_for_project(&pool, payload.assignee_id.as_deref(), &payload.project_id)
         .await?;
+    validate_reviewer_for_project(&pool, payload.reviewer_id.as_deref(), &payload.project_id)
+        .await?;
+    let settings = load_codex_settings(&app).ok();
+    let automation_mode = settings
+        .as_ref()
+        .filter(|settings| settings.task_automation_default_enabled)
+        .map(|_| "review_fix_loop_v1".to_string());
+
+    if automation_mode.is_some()
+        && normalize_optional_text(payload.reviewer_id.as_deref()).is_none()
+    {
+        return Err("当前已开启“新建任务默认自动质控”，请先指定审查员。".to_string());
+    }
 
     let task = Task {
         id: new_id(),
@@ -2889,9 +3081,10 @@ pub async fn create_task<R: Runtime>(
         priority: payload.priority.unwrap_or_else(|| "medium".to_string()),
         project_id: payload.project_id,
         assignee_id: normalize_optional_text(payload.assignee_id.as_deref()),
-        reviewer_id: None,
+        reviewer_id: normalize_optional_text(payload.reviewer_id.as_deref()),
         complexity: None,
         ai_suggestion: None,
+        automation_mode,
         last_codex_session_id: None,
         last_review_session_id: None,
         created_at: now_sqlite(),
@@ -2908,7 +3101,7 @@ pub async fn create_task<R: Runtime>(
         .map_err(|error| format!("Failed to start task transaction: {}", error))?;
 
     sqlx::query(
-        "INSERT INTO tasks (id, title, description, status, priority, project_id, assignee_id, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
+        "INSERT INTO tasks (id, title, description, status, priority, project_id, assignee_id, automation_mode, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)",
     )
     .bind(&task.id)
     .bind(&task.title)
@@ -2917,11 +3110,36 @@ pub async fn create_task<R: Runtime>(
     .bind(&task.priority)
     .bind(&task.project_id)
     .bind(&task.assignee_id)
+    .bind(&task.automation_mode)
     .bind(&task.created_at)
     .bind(&task.updated_at)
     .execute(&mut *tx)
     .await
     .map_err(|error| format!("Failed to create task: {}", error))?;
+
+    if task.automation_mode.is_some() {
+        sqlx::query(
+            r#"
+            INSERT INTO task_automation_state (
+                task_id,
+                phase,
+                round_count,
+                consumed_session_id,
+                last_trigger_session_id,
+                pending_action,
+                pending_round_count,
+                last_error,
+                last_verdict_json,
+                updated_at
+            ) VALUES ($1, 'idle', 0, NULL, NULL, NULL, NULL, NULL, NULL, $2)
+            "#,
+        )
+        .bind(&task.id)
+        .bind(now_sqlite())
+        .execute(&mut *tx)
+        .await
+        .map_err(|error| format!("Failed to initialize task automation state: {}", error))?;
+    }
 
     let attachments = if let Some(source_paths) = payload.attachment_source_paths.as_ref() {
         let attachments = build_task_attachments_from_sources(&app, &task.id, source_paths, 1)?;
@@ -2969,6 +3187,18 @@ pub async fn create_task<R: Runtime>(
         Some(&task.project_id),
     )
     .await?;
+
+    if task.automation_mode.is_some() {
+        insert_activity_log(
+            &pool,
+            "task_automation_enabled",
+            &format!("{}（新建任务默认开启）", task.title),
+            None,
+            Some(&task.id),
+            Some(&task.project_id),
+        )
+        .await?;
+    }
 
     fetch_task_by_id(&pool, &task.id).await
 }

@@ -158,12 +158,17 @@ export function TaskReviewPanel({
               disabled={
                 !latestReview?.report?.trim() || !assigneeId || reviewFixSubmitting || reviewLoading || isReviewRunning
               }
-              title={!assigneeId ? "原任务未指派开发负责人" : "创建修复任务并立即运行"}
+              title={!assigneeId ? "原任务未指派开发负责人" : "手动修复会新建一个修复任务并立即运行"}
             >
               <Wrench className="h-3 w-3" />
-              修复
+              新建修复任务
             </Button>
           </div>
+        </div>
+
+        <div className="rounded-md border border-dashed border-border bg-background/70 px-3 py-2 text-[11px] text-muted-foreground">
+          手动修复：基于审核结果新建一个修复任务，不改变原任务流程。
+          自动质控：会在原任务内继续审核与修复闭环，不额外拆出修复任务。
         </div>
 
         {latestReview?.report ? (

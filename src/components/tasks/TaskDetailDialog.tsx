@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
+import { AlertTriangle, Bot } from "lucide-react";
 
 import type {
   CodexSessionFileChange,
@@ -34,6 +35,8 @@ import {
   normalizeDialogSelection,
 } from "@/lib/taskAttachments";
 import { startCodex } from "@/lib/codex";
+import type { TaskAutomationDisplayState } from "@/lib/utils";
+import { formatDate, getTaskAutomationStatusLabel } from "@/lib/utils";
 import { DeleteTaskDialog } from "./DeleteTaskDialog";
 import { InsertPlanConfirmDialog } from "./InsertPlanConfirmDialog";
 import { ReviewFixConfirmDialog } from "./ReviewFixConfirmDialog";
@@ -53,12 +56,14 @@ interface TaskDetailDialogProps {
   task: Task;
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  automationState?: TaskAutomationDisplayState;
 }
 
 export function TaskDetailDialog({
   task,
   open,
   onOpenChange,
+  automationState,
 }: TaskDetailDialogProps) {
   const {
     updateTask,
@@ -66,6 +71,7 @@ export function TaskDetailDialog({
     addComment,
     fetchAttachments,
     fetchSubtasks,
+    fetchTaskAutomationState,
     addTaskAttachments,
     deleteTaskAttachment,
     addSubtasks,
@@ -185,6 +191,9 @@ export function TaskDetailDialog({
     if (open) {
       fetchEmployees();
       void fetchAttachments(task.id);
+      if (task.automation_mode === "review_fix_loop_v1") {
+        void fetchTaskAutomationState(task.id);
+      }
       setTitle(task.title);
       setDescription(task.description ?? "");
       setPriority(task.priority);
@@ -548,6 +557,59 @@ export function TaskDetailDialog({
           </DialogHeader>
 
           <Tabs defaultValue="overview" className="gap-4">
+            <section className="space-y-3 rounded-lg border border-border/70 bg-muted/20 p-4">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2">
+                    <Bot className="h-4 w-4 text-primary" />
+                  <p className="text-sm font-medium">自动质控</p>
+                  </div>
+                  <p className="text-[11px] text-muted-foreground">
+                    这里展示原任务内的自动审核与自动修复闭环状态；开关入口在任务卡片右键菜单。
+                  </p>
+                </div>
+                <div
+                  className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium ${
+                    automationState?.enabled
+                      ? "bg-emerald-500/10 text-emerald-700"
+                      : "bg-muted text-muted-foreground"
+                  }`}
+                >
+                  {automationState?.enabled ? "已开启" : "未开启"}
+                </div>
+              </div>
+
+              <div className="grid gap-2 text-xs text-muted-foreground md:grid-cols-4">
+                <div className="rounded-md border border-border bg-background/70 px-3 py-2">
+                  <span className="font-medium text-foreground">闭环阶段：</span>
+                  {getTaskAutomationStatusLabel(automationState?.status ?? "disabled")}
+                </div>
+                <div className="rounded-md border border-border bg-background/70 px-3 py-2">
+                  <span className="font-medium text-foreground">自动修复轮次：</span>
+                  {automationState?.roundCount ?? 0}
+                </div>
+                <div className="rounded-md border border-border bg-background/70 px-3 py-2">
+                  <span className="font-medium text-foreground">最近更新时间：</span>
+                  {automationState?.updatedAt ? formatDate(automationState.updatedAt) : "暂无"}
+                </div>
+                <div className="rounded-md border border-border bg-background/70 px-3 py-2">
+                  <span className="font-medium text-foreground">状态来源：</span>
+                  {automationState?.source === "automation_state" ? "自动化状态" : "任务配置"}
+                </div>
+              </div>
+
+              <div className="rounded-md border border-dashed border-border bg-background/70 px-3 py-2 text-xs text-muted-foreground">
+                自动质控不会替代现有“审核结果 → 修复”手动路径。手动修复仍然通过创建新任务推进；自动质控接线后则在原任务内完成审核与修复闭环。
+              </div>
+
+              {automationState?.note && (
+                <div className="flex items-start gap-2 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-800">
+                  <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                  <span>{automationState.note}</span>
+                </div>
+              )}
+            </section>
+
             <div className="overflow-x-auto overflow-y-hidden pb-[5px]">
               <TabsList variant="line" className="w-full min-w-max justify-start">
                 <TabsTrigger value="overview">概览</TabsTrigger>

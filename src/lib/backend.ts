@@ -15,6 +15,8 @@ import type {
   Project,
   Subtask,
   Task,
+  TaskAutomationMode,
+  TaskAutomationState,
   TaskAttachment,
   TaskExecutionChangeHistoryItem,
   TaskLatestReview,
@@ -25,6 +27,9 @@ export interface UpdateCodexSettingsInput {
   one_shot_sdk_enabled?: boolean;
   one_shot_model?: string;
   one_shot_reasoning_effort?: string;
+  task_automation_default_enabled?: boolean;
+  task_automation_max_fix_rounds?: number;
+  task_automation_failure_strategy?: "blocked" | "manual_control";
   node_path_override?: string | null;
 }
 
@@ -68,6 +73,7 @@ export interface CreateTaskInput {
   priority?: string;
   project_id: string;
   assignee_id?: string | null;
+  reviewer_id?: string | null;
   attachment_source_paths?: string[];
 }
 
@@ -82,6 +88,11 @@ export interface UpdateTaskInput {
   ai_suggestion?: string | null;
   last_codex_session_id?: string | null;
   last_review_session_id?: string | null;
+}
+
+export interface SetTaskAutomationModeInput {
+  task_id: string;
+  automation_mode?: TaskAutomationMode | null;
 }
 
 export async function healthCheck(): Promise<CodexHealthCheck> {
@@ -150,6 +161,14 @@ export async function getCodexSessionFileChangeDetail(
 
 export async function startTaskCodeReview(taskId: string): Promise<void> {
   return invoke("start_task_code_review", { taskId });
+}
+
+export async function setTaskAutomationMode(input: SetTaskAutomationModeInput): Promise<Task> {
+  return invoke("set_task_automation_mode", { payload: input });
+}
+
+export async function getTaskAutomationState(taskId: string): Promise<TaskAutomationState | null> {
+  return invoke("get_task_automation_state", { taskId });
 }
 
 export async function getCodexSettings(): Promise<CodexSettings> {

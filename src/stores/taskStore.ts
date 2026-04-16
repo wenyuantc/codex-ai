@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import { select } from "@/lib/database";
 import type { CodexSessionKind, Task, TaskAttachment, Subtask, Comment, TaskStatus } from "@/lib/types";
-import { onCodexSession, type CodexSession } from "@/lib/codex";
+import { onCodexExit, onCodexSession, type CodexSession } from "@/lib/codex";
 import {
   addTaskAttachments as addTaskAttachmentsCommand,
   createComment as createCommentCommand,
@@ -10,10 +10,13 @@ import {
   deleteSubtask as deleteSubtaskCommand,
   deleteTaskAttachment as deleteTaskAttachmentCommand,
   deleteTask as deleteTaskCommand,
+  getTaskAutomationState as getTaskAutomationStateCommand,
+  setTaskAutomationMode as setTaskAutomationModeCommand,
   updateSubtaskStatus as updateSubtaskStatusCommand,
   updateTask as updateTaskCommand,
   updateTaskStatus as updateTaskStatusCommand,
 } from "@/lib/backend";
+import type { TaskAutomationMode, TaskAutomationState } from "@/lib/types";
 
 function normalizeSubtaskTitle(title: string): string {
   return title.trim().replace(/\s+/g, " ").toLocaleLowerCase();
@@ -24,6 +27,7 @@ interface TaskStore {
   attachments: Record<string, TaskAttachment[]>;
   subtasks: Record<string, Subtask[]>;
   comments: Record<string, Comment[]>;
+  automationStates: Record<string, TaskAutomationState | null>;
   activeProjectId?: string;
   loading: boolean;
   fetchTasks: (projectId?: string) => Promise<void>;
@@ -37,12 +41,15 @@ interface TaskStore {
       priority?: string;
       project_id: string;
       assignee_id?: string;
+      reviewer_id?: string;
       attachment_source_paths?: string[];
     },
     options?: { refreshProjectId?: string },
   ) => Promise<Task>;
   updateTaskStatus: (id: string, status: TaskStatus) => Promise<void>;
   updateTask: (id: string, updates: Partial<Pick<Task, "title" | "description" | "priority" | "status" | "assignee_id" | "reviewer_id" | "complexity" | "ai_suggestion" | "last_codex_session_id" | "last_review_session_id">>) => Promise<void>;
+  setTaskAutomationMode: (taskId: string, automationMode: TaskAutomationMode | null) => Promise<void>;
+  fetchTaskAutomationState: (taskId: string) => Promise<void>;
   deleteTask: (id: string) => Promise<void>;
   addTaskAttachments: (taskId: string, sourcePaths: string[]) => Promise<void>;
   deleteTaskAttachment: (taskId: string, attachmentId: string) => Promise<void>;
@@ -71,6 +78,7 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
   attachments: {},
   subtasks: {},
   comments: {},
+  automationStates: {},
   activeProjectId: undefined,
   loading: false,
 
@@ -80,7 +88,29 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
       const tasks = projectId
         ? await select<Task>("SELECT * FROM tasks WHERE project_id = $1 ORDER BY updated_at DESC", [projectId])
         : await select<Task>("SELECT * FROM tasks ORDER BY updated_at DESC");
-      set({ tasks, loading: false, activeProjectId: projectId });
+      const automationEntries = await Promise.all(
+        tasks
+          .filter((task) => task.automation_mode === "review_fix_loop_v1")
+          .map(async (task) => {
+            try {
+              const automationState = await getTaskAutomationStateCommand(task.id);
+              return [task.id, automationState] as const;
+            } catch (error) {
+              console.error(`Failed to fetch automation state for task ${task.id}:`, error);
+              return [task.id, null] as const;
+            }
+          }),
+      );
+
+      set((state) => ({
+        tasks,
+        loading: false,
+        activeProjectId: projectId,
+        automationStates: {
+          ...state.automationStates,
+          ...Object.fromEntries(automationEntries),
+        },
+      }));
     } catch (e) {
       console.error("Failed to fetch tasks:", e);
       set({ loading: false });
@@ -110,6 +140,7 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
       ...data,
       description: data.description ?? null,
       assignee_id: data.assignee_id ?? null,
+      reviewer_id: data.reviewer_id ?? null,
       attachment_source_paths: data.attachment_source_paths ?? [],
     });
     await get().fetchTasks(options?.refreshProjectId ?? get().activeProjectId);
@@ -127,6 +158,27 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
     const task = await updateTaskCommand(id, updates);
     set((state) => ({
       tasks: state.tasks.map((current) => (current.id === id ? task : current)),
+    }));
+  },
+
+  setTaskAutomationMode: async (taskId, automationMode) => {
+    const task = await setTaskAutomationModeCommand({
+      task_id: taskId,
+      automation_mode: automationMode,
+    });
+    set((state) => ({
+      tasks: state.tasks.map((current) => (current.id === taskId ? task : current)),
+    }));
+    await get().fetchTaskAutomationState(taskId);
+  },
+
+  fetchTaskAutomationState: async (taskId) => {
+    const state = await getTaskAutomationStateCommand(taskId);
+    set((current) => ({
+      automationStates: {
+        ...current.automationStates,
+        [taskId]: state,
+      },
     }));
   },
 
@@ -161,7 +213,8 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
       const { [id]: _attachments, ...attachments } = state.attachments;
       const { [id]: _subtasks, ...subtasks } = state.subtasks;
       const { [id]: _comments, ...comments } = state.comments;
-      return { attachments, subtasks, comments };
+      const { [id]: _automationState, ...automationStates } = state.automationStates;
+      return { attachments, subtasks, comments, automationStates };
     });
     await get().fetchTasks(get().activeProjectId);
   },
@@ -261,6 +314,14 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
               session.session_kind,
             );
           }
+        }),
+        onCodexExit((exit) => {
+          if (!exit.task_id) {
+            return;
+          }
+
+          void get().fetchTaskAutomationState(exit.task_id);
+          void get().fetchTasks(get().activeProjectId);
         }),
       ])
         .then((unlisteners) => {

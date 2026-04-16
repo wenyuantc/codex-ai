@@ -1,6 +1,7 @@
 mod app;
 mod codex;
 mod db;
+mod task_automation;
 mod tray;
 mod window_event;
 mod window_state;
@@ -38,6 +39,8 @@ pub fn run() {
                 });
             }
 
+            task_automation::spawn_resume_pending_automation(app_handle.clone());
+
             Ok(())
         })
         .on_window_event(window_event::handle_window_event)
@@ -55,6 +58,8 @@ pub fn run() {
             app::get_codex_session_execution_change_history,
             app::get_codex_session_file_change_detail,
             app::start_task_code_review,
+            app::set_task_automation_mode,
+            app::get_task_automation_state,
             app::read_image_file,
             app::open_task_attachment,
             app::create_project,

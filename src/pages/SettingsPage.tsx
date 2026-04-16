@@ -25,10 +25,13 @@ import {
   REASONING_EFFORT_OPTIONS,
   normalizeCodexModel,
   normalizeReasoningEffort,
+  normalizeTaskAutomationFailureStrategy,
+  TASK_AUTOMATION_FAILURE_STRATEGY_OPTIONS,
   type CodexHealthCheck,
   type CodexModelId,
   type CodexSettings,
   type ReasoningEffort,
+  type TaskAutomationFailureStrategy,
 } from "@/lib/types";
 import { applyTheme, getThemePreference, type ThemeMode } from "@/lib/theme";
 
@@ -73,6 +76,10 @@ export function SettingsPage() {
   const [oneShotSdkEnabled, setOneShotSdkEnabled] = useState(false);
   const [oneShotModel, setOneShotModel] = useState<CodexModelId>("gpt-5.4");
   const [oneShotReasoningEffort, setOneShotReasoningEffort] = useState<ReasoningEffort>("high");
+  const [taskAutomationDefaultEnabled, setTaskAutomationDefaultEnabled] = useState(false);
+  const [taskAutomationMaxFixRounds, setTaskAutomationMaxFixRounds] = useState(3);
+  const [taskAutomationFailureStrategy, setTaskAutomationFailureStrategy] =
+    useState<TaskAutomationFailureStrategy>("blocked");
   const [nodePathOverride, setNodePathOverride] = useState("");
   const [healthLoading, setHealthLoading] = useState(false);
   const [sdkActionLoading, setSdkActionLoading] = useState<"save" | "install" | null>(null);
@@ -96,6 +103,11 @@ export function SettingsPage() {
       setOneShotSdkEnabled(settings.one_shot_sdk_enabled);
       setOneShotModel(normalizeCodexModel(settings.one_shot_model));
       setOneShotReasoningEffort(normalizeReasoningEffort(settings.one_shot_reasoning_effort));
+      setTaskAutomationDefaultEnabled(settings.task_automation_default_enabled);
+      setTaskAutomationMaxFixRounds(settings.task_automation_max_fix_rounds);
+      setTaskAutomationFailureStrategy(
+        normalizeTaskAutomationFailureStrategy(settings.task_automation_failure_strategy),
+      );
       setNodePathOverride(settings.node_path_override ?? "");
     } catch (error) {
       console.error("Failed to load codex settings state:", error);
@@ -143,10 +155,13 @@ export function SettingsPage() {
         one_shot_sdk_enabled: oneShotSdkEnabled,
         one_shot_model: oneShotModel,
         one_shot_reasoning_effort: oneShotReasoningEffort,
+        task_automation_default_enabled: taskAutomationDefaultEnabled,
+        task_automation_max_fix_rounds: taskAutomationMaxFixRounds,
+        task_automation_failure_strategy: taskAutomationFailureStrategy,
         node_path_override: nodePathOverride.trim() || null,
       });
       setCodexSettings(nextSettings);
-      setSdkActionMessage("Codex SDK 配置已保存");
+      setSdkActionMessage("系统设置已保存");
       await loadSettingsState();
     } catch (error) {
       console.error("Failed to save codex sdk settings:", error);
@@ -500,6 +515,124 @@ export function SettingsPage() {
             {sdkActionError && (
               <p className="text-xs text-destructive">{sdkActionError}</p>
             )}
+          </div>
+        </div>
+
+        <div className="border-t border-border pt-4">
+          <div className="flex items-start justify-between gap-4">
+            <div className="space-y-1">
+              <h3 className="text-sm font-medium">自动质控</h3>
+              <p className="text-xs text-muted-foreground">
+                配置新建任务默认是否开启自动质控，以及自动修复失败后的收口策略。
+              </p>
+            </div>
+            <span className="rounded bg-slate-100 px-2 py-1 text-xs text-slate-700">
+              原任务闭环
+            </span>
+          </div>
+
+          <div className="mt-4 space-y-4">
+            <label className="flex items-start gap-3 rounded-md border border-border px-3 py-2">
+              <input
+                type="checkbox"
+                className="mt-0.5 h-4 w-4 rounded border-input"
+                checked={taskAutomationDefaultEnabled}
+                onChange={(event) => setTaskAutomationDefaultEnabled(event.target.checked)}
+                disabled={healthLoading || sdkActionLoading !== null}
+              />
+              <div className="space-y-1">
+                <p className="text-sm font-medium">新建任务默认开启自动质控</p>
+                <p className="text-xs text-muted-foreground">
+                  开启后，新建任务会自动带上原任务内的审核/修复闭环配置。
+                </p>
+              </div>
+            </label>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-2">
+                <label htmlFor="task-automation-max-fix-rounds" className="text-sm font-medium">
+                  最大自动修复轮次
+                </label>
+                <Input
+                  id="task-automation-max-fix-rounds"
+                  type="number"
+                  min={1}
+                  max={10}
+                  value={taskAutomationMaxFixRounds}
+                  onChange={(event) => {
+                    const nextValue = Number.parseInt(event.target.value, 10);
+                    setTaskAutomationMaxFixRounds(Number.isFinite(nextValue) ? nextValue : 3);
+                  }}
+                  disabled={healthLoading || sdkActionLoading !== null}
+                />
+                <p className="text-xs text-muted-foreground">
+                  支持 1-10 轮，超过范围会自动回退为默认值 3。
+                </p>
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-sm font-medium">达到最大自动修复轮次后</label>
+                <Select<TaskAutomationFailureStrategy>
+                  value={taskAutomationFailureStrategy}
+                  onValueChange={(value) => {
+                    if (value) {
+                      setTaskAutomationFailureStrategy(
+                        normalizeTaskAutomationFailureStrategy(value),
+                      );
+                    }
+                  }}
+                  disabled={healthLoading || sdkActionLoading !== null}
+                >
+                  <SelectTrigger className="bg-background">
+                    <SelectValue>
+                      {(value) =>
+                        typeof value === "string"
+                          ? TASK_AUTOMATION_FAILURE_STRATEGY_OPTIONS.find(
+                              (option) => option.value === value,
+                            )?.label ?? value
+                          : "选择失败策略"
+                      }
+                    </SelectValue>
+                  </SelectTrigger>
+                  <SelectContent>
+                    {TASK_AUTOMATION_FAILURE_STRATEGY_OPTIONS.map((option) => (
+                      <SelectItem key={option.value} value={option.value}>
+                        {option.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">
+                  审核未通过会优先继续自动修复；只有达到最大自动修复轮次后，才会按这里的策略收口。
+                </p>
+              </div>
+            </div>
+
+            <div className="grid gap-2 rounded-md border border-border px-3 py-3 text-xs text-muted-foreground">
+              <p>
+                新建任务默认自动质控：
+                {taskAutomationDefaultEnabled ? "开启" : "关闭"}
+              </p>
+              <p>最大自动修复轮次：{taskAutomationMaxFixRounds}</p>
+              <p>
+                最终失败后：
+                {TASK_AUTOMATION_FAILURE_STRATEGY_OPTIONS.find(
+                  (option) => option.value === taskAutomationFailureStrategy,
+                )?.label ?? "转阻塞"}
+              </p>
+            </div>
+
+            <div className="flex flex-wrap gap-2">
+              <Button
+                onClick={() => void handleSaveSdkSettings()}
+                disabled={healthLoading || sdkActionLoading !== null}
+              >
+                {sdkActionLoading === "save" ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : null}
+                保存配置
+              </Button>
+            </div>
           </div>
         </div>
 

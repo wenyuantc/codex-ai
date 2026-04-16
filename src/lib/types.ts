@@ -33,6 +33,7 @@ export interface Task {
   reviewer_id: string | null;
   complexity: number | null;
   ai_suggestion: string | null;
+  automation_mode: TaskAutomationMode | null;
   last_codex_session_id: string | null;
   last_review_session_id: string | null;
   created_at: string;
@@ -136,6 +137,26 @@ export interface TaskExecutionChangeHistoryItem {
   changes: CodexSessionFileChange[];
 }
 
+export interface ReviewVerdict {
+  passed: boolean;
+  needs_human: boolean;
+  blocking_issue_count: number;
+  summary: string;
+}
+
+export interface TaskAutomationState {
+  task_id: string;
+  phase: TaskAutomationPhase;
+  round_count: number;
+  consumed_session_id: string | null;
+  last_trigger_session_id: string | null;
+  pending_action: TaskAutomationPendingAction | null;
+  pending_round_count: number | null;
+  last_error: string | null;
+  last_verdict: ReviewVerdict | null;
+  updated_at: string;
+}
+
 export interface CodexSessionFileChangeDetail {
   change: CodexSessionFileChange;
   working_dir: string | null;
@@ -234,6 +255,9 @@ export interface CodexSettings {
   one_shot_sdk_enabled: boolean;
   one_shot_model: string;
   one_shot_reasoning_effort: string;
+  task_automation_default_enabled: boolean;
+  task_automation_max_fix_rounds: number;
+  task_automation_failure_strategy: TaskAutomationFailureStrategy;
   node_path_override: string | null;
   sdk_install_dir: string;
   one_shot_preferred_provider: string;
@@ -274,8 +298,42 @@ export type CodexSessionResumeStatus =
 export type CodexModelId = "gpt-5.4" | "gpt-5.4-mini" | "gpt-5.3-codex" | "gpt-5.2";
 export type ReasoningEffort = "low" | "medium" | "high" | "xhigh";
 export type TaskStatus = "todo" | "in_progress" | "review" | "completed" | "blocked";
+export type TaskAutomationMode = "review_fix_loop_v1";
+export type TaskAutomationPhase =
+  | "idle"
+  | "launching_review"
+  | "waiting_review"
+  | "launching_fix"
+  | "waiting_execution"
+  | "review_launch_failed"
+  | "fix_launch_failed"
+  | "manual_control"
+  | "blocked"
+  | "completed";
+export type TaskAutomationPendingAction = "start_review" | "start_fix";
+export type TaskAutomationFailureStrategy = "blocked" | "manual_control";
 export type EmployeeStatus = "online" | "busy" | "offline" | "error";
 export type Priority = "low" | "medium" | "high" | "urgent";
+
+export const TASK_AUTOMATION_FAILURE_STRATEGY_OPTIONS: {
+  value: TaskAutomationFailureStrategy;
+  label: string;
+}[] = [
+  { value: "blocked", label: "转阻塞" },
+  { value: "manual_control", label: "转人工" },
+];
+
+export function isSupportedTaskAutomationFailureStrategy(
+  value: string,
+): value is TaskAutomationFailureStrategy {
+  return TASK_AUTOMATION_FAILURE_STRATEGY_OPTIONS.some((option) => option.value === value);
+}
+
+export function normalizeTaskAutomationFailureStrategy(
+  value: string | null | undefined,
+): TaskAutomationFailureStrategy {
+  return value && isSupportedTaskAutomationFailureStrategy(value) ? value : "blocked";
+}
 
 export const CODEX_MODEL_OPTIONS: { value: CodexModelId; label: string }[] = [
   { value: "gpt-5.4", label: "GPT-5.4" },
