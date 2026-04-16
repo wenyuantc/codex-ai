@@ -2,6 +2,8 @@ import type { Project } from "@/lib/types";
 import { getStatusLabel, getStatusColor, formatDate } from "@/lib/utils";
 import { Trash2, Edit2, FolderKanban } from "lucide-react";
 import { RepoPathDisplay } from "@/components/projects/RepoPathDisplay";
+import { getProjectTypeLabel, getProjectWorkingDir } from "@/lib/projects";
+import { Badge } from "@/components/ui/badge";
 
 interface ProjectCardProps {
   project: Project;
@@ -23,7 +25,17 @@ export function ProjectCard({ project, taskCount, onEdit, onDelete }: ProjectCar
             {project.description && (
               <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">{project.description}</p>
             )}
-            <RepoPathDisplay repoPath={project.repo_path} compact className="mt-2" />
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              <Badge variant={project.project_type === "ssh" ? "secondary" : "outline"}>
+                {getProjectTypeLabel(project.project_type)}
+              </Badge>
+            </div>
+            <RepoPathDisplay
+              repoPath={getProjectWorkingDir(project)}
+              projectType={project.project_type}
+              compact
+              className="mt-2"
+            />
           </div>
         </div>
         <div className="flex items-center gap-1 shrink-0">

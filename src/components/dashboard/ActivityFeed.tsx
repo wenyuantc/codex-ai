@@ -12,15 +12,16 @@ export function ActivityFeed() {
   const { recentActivities, fetchRecentActivities } = useDashboardStore();
   const currentProjectId = useProjectStore((state) => state.currentProject?.id);
   const currentProjectName = useProjectStore((state) => state.currentProject?.name);
+  const environmentMode = useProjectStore((state) => state.environmentMode);
   const [dialogOpen, setDialogOpen] = useState(false);
 
   useEffect(() => {
-    void fetchRecentActivities(30, currentProjectId);
-  }, [currentProjectId, fetchRecentActivities]);
+    void fetchRecentActivities(environmentMode, 30, currentProjectId);
+  }, [currentProjectId, environmentMode, fetchRecentActivities]);
 
   const refresh = useCallback(() => {
-    void fetchRecentActivities(30, currentProjectId);
-  }, [currentProjectId, fetchRecentActivities]);
+    void fetchRecentActivities(environmentMode, 30, currentProjectId);
+  }, [currentProjectId, environmentMode, fetchRecentActivities]);
 
   // Auto-refresh every 30 seconds
   useEffect(() => {
@@ -97,6 +98,7 @@ export function ActivityFeed() {
         onOpenChange={setDialogOpen}
         projectId={currentProjectId}
         projectName={currentProjectName}
+        environmentMode={environmentMode}
       />
     </Card>
   );

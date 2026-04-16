@@ -161,11 +161,19 @@ export function SessionExecutionChangesDialog({
                 <div className="mt-1 text-muted-foreground">
                   员工：{session.employee_name ?? "未绑定"} · 任务：{session.task_title ?? "无关联任务"}
                 </div>
+                {session.target_host_label && (
+                  <div className="mt-1 text-muted-foreground">主机：{session.target_host_label}</div>
+                )}
               </div>
               {session.working_dir && (
                 <div className="rounded-md border border-border/70 bg-muted/20 px-3 py-2 text-muted-foreground md:col-span-2">
                   <div className="font-medium text-foreground">工作目录</div>
                   <div className="mt-1 break-all font-mono">{session.working_dir}</div>
+                </div>
+              )}
+              {session.artifact_capture_mode !== "local_full" && (
+                <div className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-amber-800 md:col-span-2">
+                  远程变更明细受限：SSH v1 只保证远程执行与会话元数据，不承诺本地级 diff 和文件快照。
                 </div>
               )}
             </div>
@@ -177,7 +185,9 @@ export function SessionExecutionChangesDialog({
 
           <TaskFileChangeHistoryPanel
             title="执行会话改动文件"
-            description="SDK 会话按 Codex 事件精确记录；CLI 会话仅在缺少结构化事件时回退为 Git 快照估算。"
+            description={session?.artifact_capture_mode === "local_full"
+              ? "SDK 会话按 Codex 事件精确记录；CLI 会话仅在缺少结构化事件时回退为 Git 快照估算。"
+              : "当前是远程 Session，变更采集能力受限，仅展示 SSH v1 可提供的记录。"}
             history={history ? [history] : []}
             loading={historyLoading}
             error={historyError}

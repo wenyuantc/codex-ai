@@ -1,5 +1,5 @@
 use std::borrow::Cow;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt::Write as _;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -14,21 +14,35 @@ use sqlx::{
 use tauri::{AppHandle, Manager, Runtime, State};
 use tauri_plugin_opener::OpenerExt;
 use tauri_plugin_sql::{DbInstances, DbPool};
+use tokio::process::Command as TokioCommand;
 use uuid::Uuid;
 
-use crate::codex::{inspect_sdk_runtime, load_codex_settings, new_codex_command, CodexManager};
+use crate::codex::{
+    delete_secret_value, inspect_sdk_runtime, load_codex_settings, load_remote_codex_settings,
+    new_codex_command, new_ssh_command, resolve_secret_value, store_secret_value,
+    sweep_orphan_secret_refs, CodexManager,
+};
 use crate::db::models::{
     CodexHealthCheck, CodexRuntimeStatus, CodexSessionFileChange, CodexSessionFileChangeDetail,
     CodexSessionFileChangeDetailRecord, CodexSessionFileChangeInput, CodexSessionListItem,
     CodexSessionLogLine, CodexSessionRecord, CodexSessionResumePreview, Comment, CreateComment,
-    CreateEmployee, CreateProject, CreateSubtask, CreateTask, DatabaseBackupResult,
-    DatabaseRestoreResult, Employee, EmployeeMetric, Project, ReviewVerdict,
-    SetTaskAutomationModePayload, Subtask, Task, TaskAttachment, TaskAutomationState,
-    TaskAutomationStateRecord, TaskExecutionChangeHistoryItem, TaskLatestReview, UpdateEmployee,
-    UpdateProject, UpdateTask,
+    CreateEmployee, CreateProject, CreateSshConfig, CreateSubtask, CreateTask,
+    DatabaseBackupResult, DatabaseRestoreResult, Employee, EmployeeMetric, PasswordAuthProbeResult,
+    Project, ReviewVerdict, SetTaskAutomationModePayload, SshConfig, SshConfigRecord, Subtask,
+    Task, TaskAttachment, TaskAutomationState, TaskAutomationStateRecord,
+    TaskExecutionChangeHistoryItem, TaskLatestReview, UpdateEmployee, UpdateProject,
+    UpdateSshConfig, UpdateTask,
 };
+use crate::process_spawn::configure_std_command;
 
 pub const DB_URL: &str = "sqlite:codex-ai.db";
+pub(crate) const PROJECT_TYPE_LOCAL: &str = "local";
+pub(crate) const PROJECT_TYPE_SSH: &str = "ssh";
+pub(crate) const EXECUTION_TARGET_LOCAL: &str = "local";
+pub(crate) const EXECUTION_TARGET_SSH: &str = "ssh";
+pub(crate) const ARTIFACT_CAPTURE_MODE_LOCAL_FULL: &str = "local_full";
+pub(crate) const ARTIFACT_CAPTURE_MODE_SSH_GIT_STATUS: &str = "ssh_git_status";
+pub(crate) const ARTIFACT_CAPTURE_MODE_SSH_NONE: &str = "ssh_none";
 const DB_FILE_NAME: &str = "codex-ai.db";
 const DB_AUTO_IMPORT_BACKUP_PREFIX: &str = "codex-ai.pre-import-backup";
 const SQLITE_DATETIME_FORMAT: &str = "%Y-%m-%d %H:%M:%S";
@@ -627,6 +641,253 @@ pub(crate) fn validate_project_repo_path(
     }
 }
 
+pub(crate) fn normalize_project_type(value: Option<&str>) -> Result<String, String> {
+    match value.map(str::trim).filter(|value| !value.is_empty()) {
+        None | Some(PROJECT_TYPE_LOCAL) => Ok(PROJECT_TYPE_LOCAL.to_string()),
+        Some(PROJECT_TYPE_SSH) => Ok(PROJECT_TYPE_SSH.to_string()),
+        Some(other) => Err(format!("不支持的项目类型: {other}")),
+    }
+}
+
+pub(crate) fn validate_remote_repo_path(
+    remote_repo_path: Option<&str>,
+) -> Result<Option<String>, String> {
+    match normalize_optional_text(remote_repo_path) {
+        Some(path) => Ok(Some(path)),
+        None => Ok(None),
+    }
+}
+
+async fn ensure_ssh_config_exists(pool: &SqlitePool, ssh_config_id: &str) -> Result<(), String> {
+    let exists = sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM ssh_configs WHERE id = $1")
+        .bind(ssh_config_id)
+        .fetch_one(pool)
+        .await
+        .map_err(|error| format!("Failed to verify ssh config: {}", error))?;
+
+    if exists > 0 {
+        Ok(())
+    } else {
+        Err(format!("SSH 配置 {} 不存在", ssh_config_id))
+    }
+}
+
+async fn validate_project_storage_fields(
+    pool: &SqlitePool,
+    project_type: &str,
+    repo_path: Option<&str>,
+    ssh_config_id: Option<&str>,
+    remote_repo_path: Option<&str>,
+) -> Result<(Option<String>, Option<String>, Option<String>), String> {
+    match project_type {
+        PROJECT_TYPE_LOCAL => Ok((validate_project_repo_path(repo_path)?, None, None)),
+        PROJECT_TYPE_SSH => {
+            let ssh_config_id = normalize_optional_text(ssh_config_id)
+                .ok_or_else(|| "SSH 项目必须绑定 SSH 配置".to_string())?;
+            ensure_ssh_config_exists(pool, &ssh_config_id).await?;
+            let remote_repo_path = validate_remote_repo_path(remote_repo_path)?
+                .ok_or_else(|| "SSH 项目必须提供远程仓库目录".to_string())?;
+            Ok((None, Some(ssh_config_id), Some(remote_repo_path)))
+        }
+        other => Err(format!("不支持的项目类型: {other}")),
+    }
+}
+
+pub(crate) fn normalize_ssh_auth_type(value: Option<&str>) -> Result<String, String> {
+    match value.map(str::trim).filter(|value| !value.is_empty()) {
+        None | Some("key") => Ok("key".to_string()),
+        Some("password") => Ok("password".to_string()),
+        Some(other) => Err(format!("不支持的 SSH 认证类型: {other}")),
+    }
+}
+
+fn normalize_known_hosts_mode(value: Option<&str>) -> String {
+    match value.map(str::trim).filter(|value| !value.is_empty()) {
+        Some("strict") => "strict".to_string(),
+        Some("off") => "off".to_string(),
+        _ => "accept-new".to_string(),
+    }
+}
+
+pub(crate) fn ssh_config_target_host_label(config: &SshConfigRecord) -> String {
+    format!("{}@{}:{}", config.username, config.host, config.port)
+}
+
+pub(crate) async fn fetch_ssh_config_record_by_id(
+    pool: &SqlitePool,
+    ssh_config_id: &str,
+) -> Result<SshConfigRecord, String> {
+    sqlx::query_as::<_, SshConfigRecord>("SELECT * FROM ssh_configs WHERE id = $1 LIMIT 1")
+        .bind(ssh_config_id)
+        .fetch_one(pool)
+        .await
+        .map_err(|error| format!("SSH 配置 {} 不存在: {}", ssh_config_id, error))
+}
+
+async fn fetch_ssh_config_by_id(
+    pool: &SqlitePool,
+    ssh_config_id: &str,
+) -> Result<SshConfig, String> {
+    Ok(fetch_ssh_config_record_by_id(pool, ssh_config_id)
+        .await?
+        .into())
+}
+
+async fn collect_all_ssh_secret_refs(pool: &SqlitePool) -> Result<HashSet<String>, String> {
+    let rows = sqlx::query_as::<_, (Option<String>, Option<String>)>(
+        "SELECT password_ref, passphrase_ref FROM ssh_configs",
+    )
+    .fetch_all(pool)
+    .await
+    .map_err(|error| format!("Failed to load ssh secret refs: {}", error))?;
+
+    let mut refs = HashSet::new();
+    for (password_ref, passphrase_ref) in rows {
+        if let Some(password_ref) = password_ref {
+            refs.insert(password_ref);
+        }
+        if let Some(passphrase_ref) = passphrase_ref {
+            refs.insert(passphrase_ref);
+        }
+    }
+    Ok(refs)
+}
+
+async fn sweep_ssh_secret_store<R: Runtime>(app: &AppHandle<R>) -> Result<usize, String> {
+    let pool = sqlite_pool(app).await?;
+    let active_refs = collect_all_ssh_secret_refs(&pool).await?;
+    sweep_orphan_secret_refs(app, &active_refs)
+}
+
+fn redact_secret_text(value: &str) -> String {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        String::new()
+    } else {
+        "[REDACTED]".to_string()
+    }
+}
+
+fn shell_escape_single_quoted(value: &str) -> String {
+    format!("'{}'", value.replace('\'', "'\"'\"'"))
+}
+
+fn create_askpass_script(secret: &str) -> Result<PathBuf, String> {
+    let base_dir = std::env::temp_dir().join("codex-ai-ssh-askpass");
+    fs::create_dir_all(&base_dir).map_err(|error| format!("创建 askpass 目录失败: {error}"))?;
+    let path = if cfg!(target_os = "windows") {
+        base_dir.join(format!("askpass-{}.cmd", Uuid::new_v4()))
+    } else {
+        base_dir.join(format!("askpass-{}", Uuid::new_v4()))
+    };
+    let contents = if cfg!(target_os = "windows") {
+        "@echo off\r\nsetlocal\r\n<nul set /p =%CODEX_SSH_SECRET%\r\n"
+    } else {
+        "#!/bin/sh\nprintf '%s' \"$CODEX_SSH_SECRET\"\n"
+    };
+    fs::write(&path, contents).map_err(|error| format!("写入 askpass 脚本失败: {error}"))?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let permissions = fs::Permissions::from_mode(0o700);
+        fs::set_permissions(&path, permissions)
+            .map_err(|error| format!("设置 askpass 权限失败: {error}"))?;
+    }
+    let _ = secret;
+    Ok(path)
+}
+
+pub(crate) async fn build_ssh_command<R: Runtime>(
+    app: &AppHandle<R>,
+    ssh_config: &SshConfigRecord,
+    remote_command: Option<&str>,
+    require_password_probe: bool,
+) -> Result<(TokioCommand, Option<PathBuf>), String> {
+    let mut command = new_ssh_command().await?;
+    let mut askpass_path = None;
+
+    command
+        .arg("-p")
+        .arg(ssh_config.port.to_string())
+        .arg("-o")
+        .arg("BatchMode=no")
+        .arg("-o")
+        .arg("ConnectTimeout=15");
+
+    match ssh_config.known_hosts_mode.as_str() {
+        "off" => {
+            command.arg("-o").arg("StrictHostKeyChecking=no");
+            command.arg("-o").arg("UserKnownHostsFile=/dev/null");
+        }
+        "strict" => {
+            command.arg("-o").arg("StrictHostKeyChecking=yes");
+        }
+        _ => {
+            command.arg("-o").arg("StrictHostKeyChecking=accept-new");
+        }
+    }
+
+    if let Some(private_key_path) = ssh_config
+        .private_key_path
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        command.arg("-i").arg(private_key_path);
+    }
+
+    if ssh_config.auth_type == "password" {
+        if require_password_probe
+            && !matches!(
+                ssh_config.password_probe_status.as_deref(),
+                Some("passed" | "available")
+            )
+        {
+            return Err("当前 SSH 配置的密码认证尚未通过 probe，已阻止执行入口".to_string());
+        }
+
+        let secret = resolve_secret_value(app, ssh_config.password_ref.as_deref())?
+            .ok_or_else(|| "当前 SSH 配置缺少可用密码引用".to_string())?;
+        let askpass_script = create_askpass_script(&secret)?;
+        command.env("DISPLAY", "codex-ai-ssh");
+        command.env("SSH_ASKPASS_REQUIRE", "force");
+        command.env("SSH_ASKPASS", &askpass_script);
+        command.env("CODEX_SSH_SECRET", secret);
+        askpass_path = Some(askpass_script);
+    }
+
+    command.arg(format!("{}@{}", ssh_config.username, ssh_config.host));
+    if let Some(remote_command) = remote_command {
+        command.arg(remote_command);
+    }
+
+    Ok((command, askpass_path))
+}
+
+pub(crate) async fn execute_ssh_command<R: Runtime>(
+    app: &AppHandle<R>,
+    ssh_config: &SshConfigRecord,
+    remote_command: &str,
+    require_password_probe: bool,
+) -> Result<std::process::Output, String> {
+    let (mut command, askpass_path) = build_ssh_command(
+        app,
+        ssh_config,
+        Some(remote_command),
+        require_password_probe,
+    )
+    .await?;
+    command.stdout(Stdio::piped()).stderr(Stdio::piped());
+    let output = command
+        .output()
+        .await
+        .map_err(|error| format!("执行远程 SSH 命令失败: {error}"))?;
+    if let Some(path) = askpass_path {
+        let _ = fs::remove_file(path);
+    }
+    Ok(output)
+}
+
 pub(crate) fn normalize_runtime_path_string(path: &str) -> String {
     if let Some(rest) = path.strip_prefix(r"\\?\UNC\") {
         format!(r"\\{rest}")
@@ -695,7 +956,9 @@ fn is_supported_review_text_extension(path: &Path) -> bool {
 }
 
 fn run_git_text(repo_path: &str, args: &[&str]) -> Result<String, String> {
-    let output = Command::new("git")
+    let mut command = Command::new("git");
+    configure_std_command(&mut command);
+    let output = command
         .arg("-C")
         .arg(repo_path)
         .args(args)
@@ -1260,6 +1523,10 @@ pub(crate) async fn insert_codex_session_record<R: Runtime>(
     resume_session_id: Option<&str>,
     session_kind: &str,
     status: &str,
+    execution_target: &str,
+    ssh_config_id: Option<&str>,
+    target_host_label: Option<&str>,
+    artifact_capture_mode: &str,
 ) -> Result<CodexSessionRecord, String> {
     let pool = sqlite_pool(app).await?;
     let project_id = match task_id {
@@ -1281,6 +1548,10 @@ pub(crate) async fn insert_codex_session_record<R: Runtime>(
         project_id,
         cli_session_id: None,
         working_dir: working_dir.map(ToOwned::to_owned),
+        execution_target: execution_target.to_string(),
+        ssh_config_id: ssh_config_id.map(ToOwned::to_owned),
+        target_host_label: target_host_label.map(ToOwned::to_owned),
+        artifact_capture_mode: artifact_capture_mode.to_string(),
         session_kind: session_kind.to_string(),
         status: status.to_string(),
         started_at: now_sqlite(),
@@ -1291,7 +1562,7 @@ pub(crate) async fn insert_codex_session_record<R: Runtime>(
     };
 
     sqlx::query(
-        "INSERT INTO codex_sessions (id, employee_id, task_id, project_id, cli_session_id, working_dir, session_kind, status, started_at, ended_at, exit_code, resume_session_id, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)",
+        "INSERT INTO codex_sessions (id, employee_id, task_id, project_id, cli_session_id, working_dir, execution_target, ssh_config_id, target_host_label, artifact_capture_mode, session_kind, status, started_at, ended_at, exit_code, resume_session_id, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)",
     )
     .bind(&record.id)
     .bind(&record.employee_id)
@@ -1299,6 +1570,10 @@ pub(crate) async fn insert_codex_session_record<R: Runtime>(
     .bind(&record.project_id)
     .bind(&record.cli_session_id)
     .bind(&record.working_dir)
+    .bind(&record.execution_target)
+    .bind(&record.ssh_config_id)
+    .bind(&record.target_host_label)
+    .bind(&record.artifact_capture_mode)
     .bind(&record.session_kind)
     .bind(&record.status)
     .bind(&record.started_at)
@@ -1703,6 +1978,9 @@ pub async fn health_check<R: Runtime>(app: AppHandle<R>) -> Result<CodexHealthCh
     let sdk_health = inspect_sdk_runtime(&app, &codex_settings).await;
 
     Ok(CodexHealthCheck {
+        execution_target: EXECUTION_TARGET_LOCAL.to_string(),
+        ssh_config_id: None,
+        target_host_label: None,
         codex_available,
         codex_version,
         node_available: sdk_health.node_available,
@@ -1725,6 +2003,8 @@ pub async fn health_check<R: Runtime>(app: AppHandle<R>) -> Result<CodexHealthCh
             .and_then(|status| status.current_description.clone()),
         database_latest_version: latest_registered_version,
         shell_available: true,
+        password_auth_available: false,
+        password_probe_status: None,
         last_session_error,
         checked_at: now_sqlite(),
     })
@@ -2092,6 +2372,10 @@ async fn query_codex_session_list<R: Runtime>(
             s.project_id AS project_id,
             p.name AS project_name,
             s.working_dir AS working_dir,
+            s.execution_target AS execution_target,
+            s.ssh_config_id AS ssh_config_id,
+            s.target_host_label AS target_host_label,
+            s.artifact_capture_mode AS artifact_capture_mode,
             '' AS resume_status,
             NULL AS resume_message,
             0 AS can_resume
@@ -2174,6 +2458,10 @@ pub async fn prepare_codex_session_resume<R: Runtime>(
             project_id: None,
             project_name: None,
             working_dir: None,
+            execution_target: None,
+            ssh_config_id: None,
+            target_host_label: None,
+            artifact_capture_mode: None,
             resume_status: "invalid".to_string(),
             resume_message: Some("无效 session id，未找到对应会话。".to_string()),
             can_resume: false,
@@ -2212,6 +2500,10 @@ pub async fn prepare_codex_session_resume<R: Runtime>(
         project_id: item.project_id,
         project_name: item.project_name,
         working_dir: item.working_dir,
+        execution_target: Some(item.execution_target),
+        ssh_config_id: item.ssh_config_id,
+        target_host_label: item.target_host_label,
+        artifact_capture_mode: Some(item.artifact_capture_mode),
         resume_status,
         resume_message,
         can_resume,
@@ -2396,7 +2688,9 @@ fn build_file_change_diff_preview(
         return Err(error);
     }
 
-    let output = Command::new("git")
+    let mut command = Command::new("git");
+    configure_std_command(&mut command);
+    let output = command
         .current_dir(&temp_dir)
         .args([
             "diff",
@@ -2755,12 +3049,24 @@ pub async fn create_project<R: Runtime>(
     payload: CreateProject,
 ) -> Result<Project, String> {
     let pool = sqlite_pool(&app).await?;
+    let project_type = normalize_project_type(payload.project_type.as_deref())?;
+    let (repo_path, ssh_config_id, remote_repo_path) = validate_project_storage_fields(
+        &pool,
+        &project_type,
+        payload.repo_path.as_deref(),
+        payload.ssh_config_id.as_deref(),
+        payload.remote_repo_path.as_deref(),
+    )
+    .await?;
     let project = Project {
         id: new_id(),
         name: payload.name.trim().to_string(),
         description: normalize_optional_text(payload.description.as_deref()),
         status: "active".to_string(),
-        repo_path: validate_project_repo_path(payload.repo_path.as_deref())?,
+        repo_path,
+        project_type,
+        ssh_config_id,
+        remote_repo_path,
         created_at: now_sqlite(),
         updated_at: now_sqlite(),
     };
@@ -2770,13 +3076,16 @@ pub async fn create_project<R: Runtime>(
     }
 
     sqlx::query(
-        "INSERT INTO projects (id, name, description, status, repo_path, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7)",
+        "INSERT INTO projects (id, name, description, status, repo_path, project_type, ssh_config_id, remote_repo_path, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)",
     )
     .bind(&project.id)
     .bind(&project.name)
     .bind(&project.description)
     .bind(&project.status)
     .bind(&project.repo_path)
+    .bind(&project.project_type)
+    .bind(&project.ssh_config_id)
+    .bind(&project.remote_repo_path)
     .bind(&project.created_at)
     .bind(&project.updated_at)
     .execute(&pool)
@@ -2794,6 +3103,36 @@ pub async fn update_project<R: Runtime>(
 ) -> Result<Project, String> {
     let pool = sqlite_pool(&app).await?;
     let current = fetch_project_by_id(&pool, &id).await?;
+    let resolved_project_type = normalize_project_type(
+        updates
+            .project_type
+            .as_deref()
+            .or(Some(&current.project_type)),
+    )?;
+    let resolved_repo_path = match updates.repo_path.as_ref() {
+        Some(Some(value)) => Some(value.as_str()),
+        Some(None) => None,
+        None => current.repo_path.as_deref(),
+    };
+    let resolved_ssh_config_id = match updates.ssh_config_id.as_ref() {
+        Some(Some(value)) => Some(value.as_str()),
+        Some(None) => None,
+        None => current.ssh_config_id.as_deref(),
+    };
+    let resolved_remote_repo_path = match updates.remote_repo_path.as_ref() {
+        Some(Some(value)) => Some(value.as_str()),
+        Some(None) => None,
+        None => current.remote_repo_path.as_deref(),
+    };
+    let (validated_repo_path, validated_ssh_config_id, validated_remote_repo_path) =
+        validate_project_storage_fields(
+            &pool,
+            &resolved_project_type,
+            resolved_repo_path,
+            resolved_ssh_config_id,
+            resolved_remote_repo_path,
+        )
+        .await?;
     let mut builder = QueryBuilder::<Sqlite>::new("UPDATE projects SET ");
     let mut separated = builder.separated(", ");
     let mut touched = false;
@@ -2816,13 +3155,31 @@ pub async fn update_project<R: Runtime>(
         separated.push("status = ").push_bind_unseparated(status);
         touched = true;
     }
+    if updates.project_type.is_some() {
+        separated
+            .push("project_type = ")
+            .push_bind_unseparated(resolved_project_type.clone());
+        touched = true;
+    }
     if let Some(repo_path) = updates.repo_path {
         separated
             .push("repo_path = ")
             .push_bind_unseparated(match repo_path {
-                Some(repo_path) => validate_project_repo_path(Some(&repo_path))?,
+                Some(_) => validated_repo_path.clone(),
                 None => None,
             });
+        touched = true;
+    }
+    if updates.ssh_config_id.is_some() || updates.project_type.is_some() {
+        separated
+            .push("ssh_config_id = ")
+            .push_bind_unseparated(validated_ssh_config_id.clone());
+        touched = true;
+    }
+    if updates.remote_repo_path.is_some() || updates.project_type.is_some() {
+        separated
+            .push("remote_repo_path = ")
+            .push_bind_unseparated(validated_remote_repo_path.clone());
         touched = true;
     }
 
@@ -2876,6 +3233,567 @@ pub async fn delete_project<R: Runtime>(app: AppHandle<R>, id: String) -> Result
         .map_err(|error| format!("Failed to commit project delete: {}", error))?;
 
     Ok(())
+}
+
+#[tauri::command]
+pub async fn list_ssh_configs<R: Runtime>(app: AppHandle<R>) -> Result<Vec<SshConfig>, String> {
+    let pool = sqlite_pool(&app).await?;
+    let records = sqlx::query_as::<_, SshConfigRecord>(
+        "SELECT * FROM ssh_configs ORDER BY updated_at DESC, created_at DESC",
+    )
+    .fetch_all(&pool)
+    .await
+    .map_err(|error| format!("Failed to list ssh configs: {}", error))?;
+
+    Ok(records.into_iter().map(Into::into).collect())
+}
+
+#[tauri::command]
+pub async fn get_ssh_config<R: Runtime>(
+    app: AppHandle<R>,
+    id: String,
+) -> Result<SshConfig, String> {
+    let pool = sqlite_pool(&app).await?;
+    fetch_ssh_config_by_id(&pool, &id).await
+}
+
+#[tauri::command]
+pub async fn create_ssh_config<R: Runtime>(
+    app: AppHandle<R>,
+    payload: CreateSshConfig,
+) -> Result<SshConfig, String> {
+    let pool = sqlite_pool(&app).await?;
+    let id = new_id();
+    let name = payload.name.trim().to_string();
+    let host = payload.host.trim().to_string();
+    let username = payload.username.trim().to_string();
+    let auth_type = normalize_ssh_auth_type(Some(&payload.auth_type))?;
+    let private_key_path = normalize_optional_text(payload.private_key_path.as_deref());
+    let known_hosts_mode = normalize_known_hosts_mode(payload.known_hosts_mode.as_deref());
+    let port = payload.port.unwrap_or(22).clamp(1, 65535);
+
+    if name.is_empty() || host.is_empty() || username.is_empty() {
+        return Err("SSH 配置名称、主机和用户名不能为空".to_string());
+    }
+
+    if auth_type == "key" && private_key_path.is_none() {
+        return Err("密钥认证必须提供 private_key_path".to_string());
+    }
+
+    let password_ref = store_secret_value(&app, payload.password.as_deref(), None)?;
+    let passphrase_ref = store_secret_value(&app, payload.passphrase.as_deref(), None)?;
+
+    let insert_result = sqlx::query(
+        r#"
+        INSERT INTO ssh_configs (
+            id,
+            name,
+            host,
+            port,
+            username,
+            auth_type,
+            private_key_path,
+            password_ref,
+            passphrase_ref,
+            known_hosts_mode,
+            created_at,
+            updated_at
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+        "#,
+    )
+    .bind(&id)
+    .bind(&name)
+    .bind(&host)
+    .bind(port)
+    .bind(&username)
+    .bind(&auth_type)
+    .bind(&private_key_path)
+    .bind(&password_ref)
+    .bind(&passphrase_ref)
+    .bind(&known_hosts_mode)
+    .bind(now_sqlite())
+    .bind(now_sqlite())
+    .execute(&pool)
+    .await;
+
+    if let Err(error) = insert_result {
+        let _ = delete_secret_value(&app, password_ref.as_deref());
+        let _ = delete_secret_value(&app, passphrase_ref.as_deref());
+        return Err(format!("Failed to create ssh config: {}", error));
+    }
+
+    let _ = insert_activity_log(&pool, "ssh_config_created", &name, None, None, None).await;
+    let _ = sweep_ssh_secret_store(&app).await;
+
+    fetch_ssh_config_by_id(&pool, &id).await
+}
+
+#[tauri::command]
+pub async fn update_ssh_config<R: Runtime>(
+    app: AppHandle<R>,
+    id: String,
+    updates: UpdateSshConfig,
+) -> Result<SshConfig, String> {
+    let pool = sqlite_pool(&app).await?;
+    let current = fetch_ssh_config_record_by_id(&pool, &id).await?;
+
+    let host_changed = updates.host.is_some();
+    let port_changed = updates.port.is_some();
+    let username_changed = updates.username.is_some();
+
+    let name = updates
+        .name
+        .map(|value| value.trim().to_string())
+        .unwrap_or_else(|| current.name.clone());
+    let host = updates
+        .host
+        .map(|value| value.trim().to_string())
+        .unwrap_or_else(|| current.host.clone());
+    let username = updates
+        .username
+        .map(|value| value.trim().to_string())
+        .unwrap_or_else(|| current.username.clone());
+    let auth_type =
+        normalize_ssh_auth_type(updates.auth_type.as_deref().or(Some(&current.auth_type)))?;
+    let private_key_path = match updates.private_key_path {
+        Some(Some(value)) => normalize_optional_text(Some(&value)),
+        Some(None) => None,
+        None => current.private_key_path.clone(),
+    };
+    let known_hosts_mode = updates
+        .known_hosts_mode
+        .map(|value| normalize_known_hosts_mode(Some(&value)))
+        .unwrap_or_else(|| current.known_hosts_mode.clone());
+    let port = updates.port.unwrap_or(current.port).clamp(1, 65535);
+
+    if name.is_empty() || host.is_empty() || username.is_empty() {
+        return Err("SSH 配置名称、主机和用户名不能为空".to_string());
+    }
+    if auth_type == "key" && private_key_path.is_none() {
+        return Err("密钥认证必须提供 private_key_path".to_string());
+    }
+
+    let mut created_password_ref: Option<String> = None;
+    let mut created_passphrase_ref: Option<String> = None;
+
+    let password_ref = if auth_type == "password" {
+        match updates.password {
+            Some(Some(ref value)) => {
+                let next = store_secret_value(&app, Some(value), None)?;
+                created_password_ref = next.clone();
+                next
+            }
+            Some(None) => None,
+            None => current.password_ref.clone(),
+        }
+    } else {
+        None
+    };
+    let passphrase_ref = if auth_type == "key" {
+        match updates.passphrase {
+            Some(Some(ref value)) => {
+                let next = store_secret_value(&app, Some(value), None)?;
+                created_passphrase_ref = next.clone();
+                next
+            }
+            Some(None) => None,
+            None => current.passphrase_ref.clone(),
+        }
+    } else {
+        None
+    };
+
+    let password_probe_needs_reset = auth_type != "password"
+        || current.auth_type != "password"
+        || updates.password.is_some()
+        || host_changed
+        || port_changed
+        || username_changed;
+    let password_probe_status = if auth_type == "password" && !password_probe_needs_reset {
+        current.password_probe_status.clone()
+    } else {
+        None
+    };
+    let password_probe_checked_at = if auth_type == "password" && !password_probe_needs_reset {
+        current.password_probe_checked_at.clone()
+    } else {
+        None
+    };
+    let password_probe_message = if auth_type == "password" && !password_probe_needs_reset {
+        current.password_probe_message.clone()
+    } else {
+        None
+    };
+
+    let update_result = sqlx::query(
+        r#"
+        UPDATE ssh_configs
+        SET name = $2,
+            host = $3,
+            port = $4,
+            username = $5,
+            auth_type = $6,
+            private_key_path = $7,
+            password_ref = $8,
+            passphrase_ref = $9,
+            known_hosts_mode = $10,
+            password_probe_checked_at = $11,
+            password_probe_status = $12,
+            password_probe_message = $13,
+            updated_at = $14
+        WHERE id = $1
+        "#,
+    )
+    .bind(&id)
+    .bind(&name)
+    .bind(&host)
+    .bind(port)
+    .bind(&username)
+    .bind(&auth_type)
+    .bind(&private_key_path)
+    .bind(&password_ref)
+    .bind(&passphrase_ref)
+    .bind(&known_hosts_mode)
+    .bind(&password_probe_checked_at)
+    .bind(&password_probe_status)
+    .bind(&password_probe_message)
+    .bind(now_sqlite())
+    .execute(&pool)
+    .await;
+
+    if let Err(error) = update_result {
+        if created_password_ref.is_some() {
+            let _ = delete_secret_value(&app, password_ref.as_deref());
+        }
+        if created_passphrase_ref.is_some() {
+            let _ = delete_secret_value(&app, passphrase_ref.as_deref());
+        }
+        return Err(format!("Failed to update ssh config: {}", error));
+    }
+
+    if current.password_ref != password_ref {
+        delete_secret_value(&app, current.password_ref.as_deref())?;
+    }
+    if current.passphrase_ref != passphrase_ref {
+        delete_secret_value(&app, current.passphrase_ref.as_deref())?;
+    }
+
+    let _ = insert_activity_log(&pool, "ssh_config_updated", &name, None, None, None).await;
+    sweep_ssh_secret_store(&app).await?;
+
+    fetch_ssh_config_by_id(&pool, &id).await
+}
+
+#[tauri::command]
+pub async fn delete_ssh_config<R: Runtime>(app: AppHandle<R>, id: String) -> Result<(), String> {
+    let pool = sqlite_pool(&app).await?;
+    let current = fetch_ssh_config_record_by_id(&pool, &id).await?;
+    let usage_count =
+        sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM projects WHERE ssh_config_id = $1")
+            .bind(&id)
+            .fetch_one(&pool)
+            .await
+            .map_err(|error| format!("Failed to check ssh config usage: {}", error))?;
+    if usage_count > 0 {
+        return Err("当前 SSH 配置仍被项目引用，不能删除".to_string());
+    }
+
+    sqlx::query("DELETE FROM ssh_configs WHERE id = $1")
+        .bind(&id)
+        .execute(&pool)
+        .await
+        .map_err(|error| format!("Failed to delete ssh config: {}", error))?;
+
+    delete_secret_value(&app, current.password_ref.as_deref())?;
+    delete_secret_value(&app, current.passphrase_ref.as_deref())?;
+    sweep_ssh_secret_store(&app).await?;
+    let _ = insert_activity_log(&pool, "ssh_config_deleted", &current.name, None, None, None).await;
+
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn probe_ssh_password_auth<R: Runtime>(
+    app: AppHandle<R>,
+    ssh_config_id: String,
+) -> Result<PasswordAuthProbeResult, String> {
+    let pool = sqlite_pool(&app).await?;
+    let current = fetch_ssh_config_record_by_id(&pool, &ssh_config_id).await?;
+    if current.auth_type != "password" {
+        return Err("当前 SSH 配置不是密码认证，无需执行 password probe".to_string());
+    }
+
+    let checked_at = now_sqlite();
+    let remote_command = format!(
+        "sh -lc {}",
+        shell_escape_single_quoted("printf 'codex-ai-password-probe' >/dev/null")
+    );
+    let output = execute_ssh_command(&app, &current, &remote_command, false).await;
+    let (supported, status, message) = match output {
+        Ok(output) if output.status.success() => (
+            true,
+            "passed".to_string(),
+            "密码认证 probe 通过".to_string(),
+        ),
+        Ok(output) => {
+            let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+            let message = if stderr.is_empty() {
+                "密码认证 probe 失败".to_string()
+            } else {
+                format!("密码认证 probe 失败：{}", redact_secret_text(&stderr))
+            };
+            (false, "failed".to_string(), message)
+        }
+        Err(error) => (false, "failed".to_string(), error),
+    };
+
+    sqlx::query(
+        r#"
+        UPDATE ssh_configs
+        SET password_probe_checked_at = $2,
+            password_probe_status = $3,
+            password_probe_message = $4,
+            updated_at = $5
+        WHERE id = $1
+        "#,
+    )
+    .bind(&ssh_config_id)
+    .bind(&checked_at)
+    .bind(&status)
+    .bind(&message)
+    .bind(now_sqlite())
+    .execute(&pool)
+    .await
+    .map_err(|error| format!("Failed to persist password probe: {}", error))?;
+
+    Ok(PasswordAuthProbeResult {
+        ssh_config_id,
+        target_host_label: ssh_config_target_host_label(&current),
+        supported,
+        status,
+        message,
+        checked_at,
+    })
+}
+
+fn remote_path_export_prefix(node_path_override: Option<&str>) -> String {
+    node_path_override
+        .and_then(|value| Path::new(value).parent().map(|path| path.to_path_buf()))
+        .map(|path| {
+            format!(
+                "export PATH={}:$PATH; ",
+                shell_escape_single_quoted(path.to_string_lossy().as_ref())
+            )
+        })
+        .unwrap_or_default()
+}
+
+fn parse_remote_key_value_output(raw: &str) -> HashMap<String, String> {
+    raw.lines()
+        .filter_map(|line| line.split_once('='))
+        .map(|(key, value)| (key.trim().to_string(), value.trim().to_string()))
+        .collect()
+}
+
+#[tauri::command]
+pub async fn validate_remote_codex_health<R: Runtime>(
+    app: AppHandle<R>,
+    ssh_config_id: String,
+) -> Result<CodexHealthCheck, String> {
+    let pool = sqlite_pool(&app).await?;
+    let ssh_config = fetch_ssh_config_record_by_id(&pool, &ssh_config_id).await?;
+    let remote_settings = load_remote_codex_settings(&app, &ssh_config_id)?;
+    let prefix = remote_path_export_prefix(remote_settings.node_path_override.as_deref());
+    let sdk_install_dir = shell_escape_single_quoted(&remote_settings.sdk_install_dir);
+    let remote_script = format!(
+        "{prefix}codex_output=$(codex --version 2>/dev/null); codex_status=$?; \
+node_output=$(node --version 2>/dev/null); node_status=$?; \
+sdk_pkg={sdk_install_dir}/node_modules/@openai/codex-sdk/package.json; \
+sdk_cli_pkg={sdk_install_dir}/node_modules/@openai/codex/package.json; \
+if [ -f \"$sdk_pkg\" ] && [ -f \"$sdk_cli_pkg\" ]; then \
+  sdk_installed=1; \
+  sdk_version=$(sed -n 's/.*\"version\"[[:space:]]*:[[:space:]]*\"\\([^\"]*\\)\".*/\\1/p' \"$sdk_pkg\" | head -n 1); \
+else \
+  sdk_installed=0; sdk_version=''; \
+fi; \
+printf 'CODEX_STATUS=%s\\nCODEX_VERSION=%s\\nNODE_STATUS=%s\\nNODE_VERSION=%s\\nSDK_INSTALLED=%s\\nSDK_VERSION=%s\\n' \"$codex_status\" \"$codex_output\" \"$node_status\" \"$node_output\" \"$sdk_installed\" \"$sdk_version\""
+    );
+    let output = execute_ssh_command(
+        &app,
+        &ssh_config,
+        &format!("sh -lc {}", shell_escape_single_quoted(&remote_script)),
+        true,
+    )
+    .await?;
+    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+    let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+    let redacted_stderr = redact_secret_text(&stderr);
+    let values = parse_remote_key_value_output(&stdout);
+    let codex_available = values
+        .get("CODEX_STATUS")
+        .map(|value| value == "0")
+        .unwrap_or(false);
+    let node_available = values
+        .get("NODE_STATUS")
+        .map(|value| value == "0")
+        .unwrap_or(false);
+    let sdk_installed = values
+        .get("SDK_INSTALLED")
+        .map(|value| value == "1")
+        .unwrap_or(false);
+    let task_execution_effective_provider =
+        if remote_settings.task_sdk_enabled && node_available && sdk_installed {
+            "sdk".to_string()
+        } else {
+            "exec".to_string()
+        };
+    let one_shot_effective_provider =
+        if remote_settings.one_shot_sdk_enabled && node_available && sdk_installed {
+            "sdk".to_string()
+        } else {
+            "exec".to_string()
+        };
+    let status_message = if !redacted_stderr.is_empty() {
+        redacted_stderr.clone()
+    } else if codex_available {
+        "远程 Codex 健康检查完成".to_string()
+    } else {
+        "远程 Codex 不可用".to_string()
+    };
+    let checked_at = now_sqlite();
+    sqlx::query(
+        "UPDATE ssh_configs SET last_checked_at = $2, last_check_status = $3, last_check_message = $4, updated_at = $5 WHERE id = $1",
+    )
+    .bind(&ssh_config_id)
+    .bind(&checked_at)
+    .bind(if codex_available { "passed" } else { "failed" })
+    .bind(&status_message)
+    .bind(now_sqlite())
+    .execute(&pool)
+    .await
+    .map_err(|error| format!("Failed to persist remote health check: {}", error))?;
+    let _ = insert_activity_log(
+        &pool,
+        "remote_codex_validated",
+        &ssh_config_target_host_label(&ssh_config),
+        None,
+        None,
+        None,
+    )
+    .await;
+
+    let latest_registered_version = crate::db::migrations::latest_migration_version();
+    let migration_status = fetch_database_migration_status(&pool).await.ok();
+    Ok(CodexHealthCheck {
+        execution_target: EXECUTION_TARGET_SSH.to_string(),
+        ssh_config_id: Some(ssh_config_id),
+        target_host_label: Some(ssh_config_target_host_label(&ssh_config)),
+        codex_available,
+        codex_version: values
+            .get("CODEX_VERSION")
+            .cloned()
+            .filter(|value| !value.is_empty()),
+        node_available,
+        node_version: values
+            .get("NODE_VERSION")
+            .cloned()
+            .filter(|value| !value.is_empty()),
+        task_sdk_enabled: remote_settings.task_sdk_enabled,
+        one_shot_sdk_enabled: remote_settings.one_shot_sdk_enabled,
+        sdk_installed,
+        sdk_version: values
+            .get("SDK_VERSION")
+            .cloned()
+            .filter(|value| !value.is_empty()),
+        sdk_install_dir: remote_settings.sdk_install_dir,
+        task_execution_effective_provider,
+        one_shot_effective_provider,
+        sdk_status_message: status_message,
+        database_loaded: true,
+        database_path: database_path(&app).map(|path| path.to_string_lossy().to_string()),
+        database_current_version: migration_status
+            .as_ref()
+            .and_then(|status| status.current_version),
+        database_current_description: migration_status
+            .as_ref()
+            .and_then(|status| status.current_description.clone()),
+        database_latest_version: latest_registered_version,
+        shell_available: true,
+        password_auth_available: matches!(
+            ssh_config.password_probe_status.as_deref(),
+            Some("passed" | "available")
+        ),
+        password_probe_status: ssh_config.password_probe_status,
+        last_session_error: None,
+        checked_at,
+    })
+}
+
+#[tauri::command]
+pub async fn install_remote_codex_sdk<R: Runtime>(
+    app: AppHandle<R>,
+    ssh_config_id: String,
+) -> Result<crate::db::models::CodexSdkInstallResult, String> {
+    let pool = sqlite_pool(&app).await?;
+    let ssh_config = fetch_ssh_config_record_by_id(&pool, &ssh_config_id).await?;
+    let remote_settings = load_remote_codex_settings(&app, &ssh_config_id)?;
+    let prefix = remote_path_export_prefix(remote_settings.node_path_override.as_deref());
+    let install_dir = shell_escape_single_quoted(&remote_settings.sdk_install_dir);
+    let package_json = shell_escape_single_quoted(
+        "{\"name\":\"codex-ai-sdk-runtime\",\"private\":true,\"type\":\"module\"}",
+    );
+    let remote_script = format!(
+        "{prefix}mkdir -p {install_dir} && cd {install_dir} && \
+if [ ! -f package.json ]; then printf '%s' {package_json} > package.json; fi && \
+npm install --no-audit --no-fund --include=optional @openai/codex-sdk @openai/codex && \
+sdk_pkg={install_dir}/node_modules/@openai/codex-sdk/package.json && \
+sdk_version=$(sed -n 's/.*\"version\"[[:space:]]*:[[:space:]]*\"\\([^\"]*\\)\".*/\\1/p' \"$sdk_pkg\" | head -n 1) && \
+node_version=$(node --version 2>/dev/null || true) && \
+printf 'SDK_VERSION=%s\\nNODE_VERSION=%s\\n' \"$sdk_version\" \"$node_version\""
+    );
+    let output = execute_ssh_command(
+        &app,
+        &ssh_config,
+        &format!("sh -lc {}", shell_escape_single_quoted(&remote_script)),
+        true,
+    )
+    .await?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        return Err(if stderr.is_empty() {
+            "远程安装 Codex SDK 失败".to_string()
+        } else {
+            format!("远程安装 Codex SDK 失败：{}", redact_secret_text(&stderr))
+        });
+    }
+
+    let values = parse_remote_key_value_output(&String::from_utf8_lossy(&output.stdout));
+    let result = crate::db::models::CodexSdkInstallResult {
+        execution_target: EXECUTION_TARGET_SSH.to_string(),
+        ssh_config_id: Some(ssh_config_id.clone()),
+        target_host_label: Some(ssh_config_target_host_label(&ssh_config)),
+        sdk_installed: true,
+        sdk_version: values
+            .get("SDK_VERSION")
+            .cloned()
+            .filter(|value| !value.is_empty()),
+        install_dir: remote_settings.sdk_install_dir,
+        node_version: values
+            .get("NODE_VERSION")
+            .cloned()
+            .filter(|value| !value.is_empty()),
+        message: "远程 Codex SDK 安装完成".to_string(),
+    };
+    let _ = insert_activity_log(
+        &pool,
+        "remote_sdk_installed",
+        &ssh_config_target_host_label(&ssh_config),
+        None,
+        None,
+        None,
+    )
+    .await;
+    Ok(result)
 }
 
 #[tauri::command]

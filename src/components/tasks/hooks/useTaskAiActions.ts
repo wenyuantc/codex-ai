@@ -7,8 +7,14 @@ import {
   aiSplitSubtasks,
   aiSuggestAssignee,
 } from "@/lib/codex";
-import { getCodexSettings, healthCheck } from "@/lib/backend";
+import {
+  getCodexSettings,
+  getRemoteCodexSettings,
+  getRemoteHealthCheck,
+  healthCheck,
+} from "@/lib/backend";
 import type { Employee, Task } from "@/lib/types";
+import { useProjectStore } from "@/stores/projectStore";
 import { useTaskStore } from "@/stores/taskStore";
 
 type PlanInsertMode = "append" | "replace";
@@ -72,6 +78,8 @@ export function useTaskAiActions({
   const [insertDialogOpen, setInsertDialogOpen] = useState(false);
   const [insertSubmitting, setInsertSubmitting] = useState(false);
   const [aiLogs, setAiLogs] = useState<string[]>([]);
+  const environmentMode = useProjectStore((state) => state.environmentMode);
+  const selectedSshConfigId = useProjectStore((state) => state.selectedSshConfigId);
 
   useEffect(() => {
     if (!open) {
@@ -126,8 +134,12 @@ export function useTaskAiActions({
     );
 
     const [settingsResult, healthResult] = await Promise.allSettled([
-      getCodexSettings(),
-      healthCheck(),
+      environmentMode === "ssh" && selectedSshConfigId
+        ? getRemoteCodexSettings(selectedSshConfigId)
+        : getCodexSettings(),
+      environmentMode === "ssh" && selectedSshConfigId
+        ? getRemoteHealthCheck(selectedSshConfigId)
+        : healthCheck(),
     ]);
 
     if (settingsResult.status === "fulfilled") {

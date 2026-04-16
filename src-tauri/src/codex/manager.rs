@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use tokio::sync::Mutex;
@@ -14,6 +15,7 @@ pub struct ManagedCodexProcess {
     pub provider: CodexExecutionProvider,
     pub execution_change_baseline: Option<ExecutionChangeBaseline>,
     pub sdk_file_change_store: Option<SdkFileChangeStore>,
+    pub cleanup_paths: Vec<PathBuf>,
 }
 
 /// Manages running Codex CLI subprocess instances, keyed by employee_id.
@@ -36,6 +38,7 @@ impl CodexManager {
         provider: CodexExecutionProvider,
         execution_change_baseline: Option<ExecutionChangeBaseline>,
         sdk_file_change_store: Option<SdkFileChangeStore>,
+        cleanup_paths: Vec<PathBuf>,
     ) {
         self.processes.insert(
             employee_id,
@@ -45,6 +48,7 @@ impl CodexManager {
                 provider,
                 execution_change_baseline,
                 sdk_file_change_store,
+                cleanup_paths,
             },
         );
     }

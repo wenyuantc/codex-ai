@@ -413,6 +413,81 @@ pub fn get_all_migrations() -> Vec<Migration> {
             "#,
             kind: tauri_plugin_sql::MigrationKind::Up,
         },
+        Migration {
+            version: 23,
+            description: "add ssh projects runtime profiles and remote session metadata",
+            sql: r#"
+                CREATE TABLE ssh_configs (
+                    id TEXT PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    host TEXT NOT NULL,
+                    port INTEGER NOT NULL DEFAULT 22,
+                    username TEXT NOT NULL,
+                    auth_type TEXT NOT NULL DEFAULT 'key' CHECK (auth_type IN ('key', 'password')),
+                    private_key_path TEXT,
+                    password_ref TEXT,
+                    passphrase_ref TEXT,
+                    known_hosts_mode TEXT NOT NULL DEFAULT 'accept-new',
+                    last_checked_at TEXT,
+                    last_check_status TEXT,
+                    last_check_message TEXT,
+                    password_probe_checked_at TEXT,
+                    password_probe_status TEXT,
+                    password_probe_message TEXT,
+                    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+                );
+
+                CREATE INDEX idx_ssh_configs_name ON ssh_configs(name);
+                CREATE INDEX idx_ssh_configs_host ON ssh_configs(host, username);
+
+                CREATE TRIGGER update_ssh_configs_updated_at AFTER UPDATE ON ssh_configs
+                    FOR EACH ROW BEGIN UPDATE ssh_configs SET updated_at = datetime('now') WHERE id = NEW.id; END;
+
+                ALTER TABLE projects
+                    ADD COLUMN project_type TEXT NOT NULL DEFAULT 'local'
+                    CHECK (project_type IN ('local', 'ssh'));
+                ALTER TABLE projects
+                    ADD COLUMN ssh_config_id TEXT REFERENCES ssh_configs(id) ON DELETE RESTRICT;
+                ALTER TABLE projects
+                    ADD COLUMN remote_repo_path TEXT;
+
+                UPDATE projects
+                SET project_type = 'local'
+                WHERE project_type IS NULL
+                   OR project_type NOT IN ('local', 'ssh');
+
+                CREATE INDEX idx_projects_project_type ON projects(project_type, updated_at DESC);
+                CREATE INDEX idx_projects_ssh_config_id ON projects(ssh_config_id);
+
+                ALTER TABLE codex_sessions
+                    ADD COLUMN execution_target TEXT NOT NULL DEFAULT 'local'
+                    CHECK (execution_target IN ('local', 'ssh'));
+                ALTER TABLE codex_sessions
+                    ADD COLUMN ssh_config_id TEXT REFERENCES ssh_configs(id) ON DELETE SET NULL;
+                ALTER TABLE codex_sessions
+                    ADD COLUMN target_host_label TEXT;
+                ALTER TABLE codex_sessions
+                    ADD COLUMN artifact_capture_mode TEXT NOT NULL DEFAULT 'local_full'
+                    CHECK (artifact_capture_mode IN ('local_full', 'ssh_git_status', 'ssh_none'));
+
+                UPDATE codex_sessions
+                SET execution_target = 'local'
+                WHERE execution_target IS NULL
+                   OR execution_target NOT IN ('local', 'ssh');
+
+                UPDATE codex_sessions
+                SET artifact_capture_mode = 'local_full'
+                WHERE artifact_capture_mode IS NULL
+                   OR artifact_capture_mode NOT IN ('local_full', 'ssh_git_status', 'ssh_none');
+
+                CREATE INDEX idx_codex_sessions_execution_target_started
+                    ON codex_sessions(execution_target, started_at DESC);
+                CREATE INDEX idx_codex_sessions_ssh_config_id
+                    ON codex_sessions(ssh_config_id, started_at DESC);
+            "#,
+            kind: tauri_plugin_sql::MigrationKind::Up,
+        },
     ]
 }
 

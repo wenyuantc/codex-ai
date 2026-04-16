@@ -1,6 +1,7 @@
 mod app;
 mod codex;
 mod db;
+mod process_spawn;
 mod task_automation;
 mod tray;
 mod window_event;
@@ -66,6 +67,14 @@ pub fn run() {
             app::create_project,
             app::update_project,
             app::delete_project,
+            app::list_ssh_configs,
+            app::get_ssh_config,
+            app::create_ssh_config,
+            app::update_ssh_config,
+            app::delete_ssh_config,
+            app::probe_ssh_password_auth,
+            app::validate_remote_codex_health,
+            app::install_remote_codex_sdk,
             app::create_employee,
             app::update_employee,
             app::delete_employee,
@@ -81,7 +90,9 @@ pub fn run() {
             app::delete_subtask,
             app::create_comment,
             codex::get_codex_settings,
+            codex::get_remote_codex_settings,
             codex::update_codex_settings,
+            codex::update_remote_codex_settings,
             codex::install_codex_sdk,
             codex::start_codex,
             codex::stop_codex,

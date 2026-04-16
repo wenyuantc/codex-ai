@@ -68,6 +68,16 @@ export function getActivityActionLabel(action: string): string {
     task_review_started: "开始代码审核",
     task_review_completed: "代码审核完成",
     task_review_failed: "代码审核失败",
+    environment_mode_switched: "切换SSH模式",
+    ssh_config_created: "新增SSH配置",
+    ssh_config_updated: "更新SSH配置",
+    ssh_config_deleted: "删除SSH配置",
+    remote_sdk_installed: "远程安装SDK",
+    remote_codex_validated: "远程校验Codex",
+    remote_codex_verified: "远程校验Codex",
+    remote_task_session_started: "启动远程任务会话",
+    remote_session_artifact_limited: "远程会话变更明细受限",
+    remote_artifact_capture_limited: "远程会话变更明细受限",
   };
   return labels[action] || action;
 }

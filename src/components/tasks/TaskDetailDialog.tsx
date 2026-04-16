@@ -35,6 +35,7 @@ import {
   normalizeDialogSelection,
 } from "@/lib/taskAttachments";
 import { startCodex } from "@/lib/codex";
+import { getProjectWorkingDir } from "@/lib/projects";
 import type { TaskAutomationDisplayState } from "@/lib/utils";
 import { formatDate, getTaskAutomationStatusLabel } from "@/lib/utils";
 import { DeleteTaskDialog } from "./DeleteTaskDialog";
@@ -91,7 +92,7 @@ export function TaskDetailDialog({
   const projects = useProjectStore((s) => s.projects);
   const attachmentMap = useTaskStore((state) => state.attachments);
   const attachments = attachmentMap[task.id] ?? EMPTY_ATTACHMENTS;
-  const projectRepoPath = projects.find((p) => p.id === task.project_id)?.repo_path;
+  const projectRepoPath = getProjectWorkingDir(projects.find((p) => p.id === task.project_id));
   const [title, setTitle] = useState(task.title);
   const [description, setDescription] = useState(task.description ?? "");
   const [priority, setPriority] = useState(task.priority);

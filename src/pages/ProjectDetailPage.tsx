@@ -12,6 +12,7 @@ import { DeleteProjectDialog } from "@/components/projects/DeleteProjectDialog";
 import { RepoPathDisplay } from "@/components/projects/RepoPathDisplay";
 import { ArrowLeft, Edit2, Trash2 } from "lucide-react";
 import { getStatusLabel, getStatusColor, getPriorityLabel, formatDate } from "@/lib/utils";
+import { getProjectWorkingDir, getProjectTypeLabel } from "@/lib/projects";
 
 export function ProjectDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -85,6 +86,7 @@ export function ProjectDetailPage() {
             <Badge variant={project.status === "active" ? "default" : "secondary"}>
               {getStatusLabel(project.status)}
             </Badge>
+            <Badge variant="outline">{getProjectTypeLabel(project.project_type)}</Badge>
             <span className="text-xs text-muted-foreground">
               创建于 {formatDate(project.created_at)}
             </span>
@@ -109,7 +111,11 @@ export function ProjectDetailPage() {
 
       <Card className="p-4">
         <h3 className="mb-3 text-sm font-semibold">仓库信息</h3>
-        <RepoPathDisplay repoPath={project.repo_path} showCopyAction />
+        <RepoPathDisplay
+          repoPath={getProjectWorkingDir(project)}
+          projectType={project.project_type}
+          showCopyAction
+        />
       </Card>
 
       {/* Task Stats */}

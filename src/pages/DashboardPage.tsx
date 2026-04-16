@@ -11,10 +11,11 @@ import { getStatusLabel, getStatusColor } from "@/lib/utils";
 export function DashboardPage() {
   const { stats, fetchStats } = useDashboardStore();
   const currentProjectId = useProjectStore((state) => state.currentProject?.id);
+  const environmentMode = useProjectStore((state) => state.environmentMode);
 
   useEffect(() => {
-    void fetchStats(currentProjectId);
-  }, [currentProjectId, fetchStats]);
+    void fetchStats(environmentMode, currentProjectId);
+  }, [currentProjectId, environmentMode, fetchStats]);
 
   return (
     <div className="space-y-6">

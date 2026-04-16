@@ -18,6 +18,7 @@ import {
   updateTaskStatus as updateTaskStatusCommand,
 } from "@/lib/backend";
 import type { TaskAutomationMode, TaskAutomationState } from "@/lib/types";
+import { useProjectStore } from "./projectStore";
 
 function normalizeSubtaskTitle(title: string): string {
   return title.trim().replace(/\s+/g, " ").toLocaleLowerCase();
@@ -87,9 +88,11 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
   fetchTasks: async (projectId) => {
     set({ loading: true, activeProjectId: projectId });
     try {
-      const tasks = projectId
+      const rawTasks = projectId
         ? await select<Task>("SELECT * FROM tasks WHERE project_id = $1 ORDER BY updated_at DESC", [projectId])
         : await select<Task>("SELECT * FROM tasks ORDER BY updated_at DESC");
+      const visibleProjectIds = new Set(useProjectStore.getState().projects.map((project) => project.id));
+      const tasks = rawTasks.filter((task) => visibleProjectIds.has(task.project_id));
       const automationEntries = await Promise.all(
         tasks
           .filter((task) => task.automation_mode === "review_fix_loop_v1")

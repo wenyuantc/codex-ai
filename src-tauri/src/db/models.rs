@@ -1,5 +1,7 @@
 #![allow(dead_code)]
 
+use std::collections::HashMap;
+
 use serde::{Deserialize, Deserializer, Serialize};
 use sqlx::FromRow;
 
@@ -20,8 +22,86 @@ pub struct Project {
     pub description: Option<String>,
     pub status: String,
     pub repo_path: Option<String>,
+    pub project_type: String,
+    pub ssh_config_id: Option<String>,
+    pub remote_repo_path: Option<String>,
     pub created_at: String,
     pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+pub struct SshConfigRecord {
+    pub id: String,
+    pub name: String,
+    pub host: String,
+    pub port: i64,
+    pub username: String,
+    pub auth_type: String,
+    pub private_key_path: Option<String>,
+    pub password_ref: Option<String>,
+    pub passphrase_ref: Option<String>,
+    pub known_hosts_mode: String,
+    pub last_checked_at: Option<String>,
+    pub last_check_status: Option<String>,
+    pub last_check_message: Option<String>,
+    pub password_probe_checked_at: Option<String>,
+    pub password_probe_status: Option<String>,
+    pub password_probe_message: Option<String>,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SshConfig {
+    pub id: String,
+    pub name: String,
+    pub host: String,
+    pub port: i64,
+    pub username: String,
+    pub auth_type: String,
+    pub private_key_path: Option<String>,
+    pub known_hosts_mode: String,
+    pub last_checked_at: Option<String>,
+    pub last_check_status: Option<String>,
+    pub last_check_message: Option<String>,
+    pub password_probe_checked_at: Option<String>,
+    pub password_probe_status: Option<String>,
+    pub password_probe_message: Option<String>,
+    pub password_configured: bool,
+    pub passphrase_configured: bool,
+    pub password_auth_available: bool,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+impl From<SshConfigRecord> for SshConfig {
+    fn from(value: SshConfigRecord) -> Self {
+        let password_probe_status = value.password_probe_status.clone();
+        Self {
+            id: value.id,
+            name: value.name,
+            host: value.host,
+            port: value.port,
+            username: value.username,
+            auth_type: value.auth_type,
+            private_key_path: value.private_key_path,
+            known_hosts_mode: value.known_hosts_mode,
+            last_checked_at: value.last_checked_at,
+            last_check_status: value.last_check_status,
+            last_check_message: value.last_check_message,
+            password_probe_checked_at: value.password_probe_checked_at,
+            password_probe_status,
+            password_probe_message: value.password_probe_message,
+            password_configured: value.password_ref.is_some(),
+            passphrase_configured: value.passphrase_ref.is_some(),
+            password_auth_available: matches!(
+                value.password_probe_status.as_deref(),
+                Some("passed" | "available")
+            ),
+            created_at: value.created_at,
+            updated_at: value.updated_at,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
@@ -130,6 +210,10 @@ pub struct CodexSessionRecord {
     pub project_id: Option<String>,
     pub cli_session_id: Option<String>,
     pub working_dir: Option<String>,
+    pub execution_target: String,
+    pub ssh_config_id: Option<String>,
+    pub target_host_label: Option<String>,
+    pub artifact_capture_mode: String,
     pub session_kind: String,
     pub status: String,
     pub started_at: String,
@@ -176,6 +260,9 @@ pub struct CodexSessionFileChangeDetailRecord {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CodexHealthCheck {
+    pub execution_target: String,
+    pub ssh_config_id: Option<String>,
+    pub target_host_label: Option<String>,
     pub codex_available: bool,
     pub codex_version: Option<String>,
     pub node_available: bool,
@@ -194,6 +281,8 @@ pub struct CodexHealthCheck {
     pub database_current_description: Option<String>,
     pub database_latest_version: i64,
     pub shell_available: bool,
+    pub password_auth_available: bool,
+    pub password_probe_status: Option<String>,
     pub last_session_error: Option<String>,
     pub checked_at: String,
 }
@@ -219,7 +308,17 @@ pub struct CodexSettings {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CodexSettingsDocument {
+    pub local: CodexSettings,
+    #[serde(default)]
+    pub remote_profiles: HashMap<String, CodexSettings>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CodexSdkInstallResult {
+    pub execution_target: String,
+    pub ssh_config_id: Option<String>,
+    pub target_host_label: Option<String>,
     pub sdk_installed: bool,
     pub sdk_version: Option<String>,
     pub install_dir: String,
@@ -338,6 +437,10 @@ pub struct CodexSessionListItem {
     pub project_id: Option<String>,
     pub project_name: Option<String>,
     pub working_dir: Option<String>,
+    pub execution_target: String,
+    pub ssh_config_id: Option<String>,
+    pub target_host_label: Option<String>,
+    pub artifact_capture_mode: String,
     pub resume_status: String,
     pub resume_message: Option<String>,
     pub can_resume: bool,
@@ -359,6 +462,10 @@ pub struct CodexSessionResumePreview {
     pub project_id: Option<String>,
     pub project_name: Option<String>,
     pub working_dir: Option<String>,
+    pub execution_target: Option<String>,
+    pub ssh_config_id: Option<String>,
+    pub target_host_label: Option<String>,
+    pub artifact_capture_mode: Option<String>,
     pub resume_status: String,
     pub resume_message: Option<String>,
     pub can_resume: bool,
@@ -391,7 +498,10 @@ pub struct CodexSessionFileChangeDetailInput {
 pub struct CreateProject {
     pub name: String,
     pub description: Option<String>,
+    pub project_type: Option<String>,
     pub repo_path: Option<String>,
+    pub ssh_config_id: Option<String>,
+    pub remote_repo_path: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -400,8 +510,42 @@ pub struct UpdateProject {
     #[serde(default, deserialize_with = "deserialize_explicit_nullable")]
     pub description: Option<Option<String>>,
     pub status: Option<String>,
+    pub project_type: Option<String>,
     #[serde(default, deserialize_with = "deserialize_explicit_nullable")]
     pub repo_path: Option<Option<String>>,
+    #[serde(default, deserialize_with = "deserialize_explicit_nullable")]
+    pub ssh_config_id: Option<Option<String>>,
+    #[serde(default, deserialize_with = "deserialize_explicit_nullable")]
+    pub remote_repo_path: Option<Option<String>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CreateSshConfig {
+    pub name: String,
+    pub host: String,
+    pub port: Option<i64>,
+    pub username: String,
+    pub auth_type: String,
+    pub private_key_path: Option<String>,
+    pub password: Option<String>,
+    pub passphrase: Option<String>,
+    pub known_hosts_mode: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UpdateSshConfig {
+    pub name: Option<String>,
+    pub host: Option<String>,
+    pub port: Option<i64>,
+    pub username: Option<String>,
+    pub auth_type: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_explicit_nullable")]
+    pub private_key_path: Option<Option<String>>,
+    #[serde(default, deserialize_with = "deserialize_explicit_nullable")]
+    pub password: Option<Option<String>>,
+    #[serde(default, deserialize_with = "deserialize_explicit_nullable")]
+    pub passphrase: Option<Option<String>>,
+    pub known_hosts_mode: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -480,6 +624,24 @@ pub struct UpdateCodexSettings {
     pub task_automation_failure_strategy: Option<String>,
     #[serde(default, deserialize_with = "deserialize_explicit_nullable")]
     pub node_path_override: Option<Option<String>>,
+    #[serde(default, deserialize_with = "deserialize_explicit_nullable")]
+    pub sdk_install_dir: Option<Option<String>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RemoteCodexSettingsPayload {
+    pub ssh_config_id: String,
+    pub updates: UpdateCodexSettings,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PasswordAuthProbeResult {
+    pub ssh_config_id: String,
+    pub target_host_label: String,
+    pub supported: bool,
+    pub status: String,
+    pub message: String,
+    pub checked_at: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -530,7 +692,9 @@ pub struct CodexSession {
 
 #[cfg(test)]
 mod tests {
-    use super::{CreateTask, ReviewVerdict, UpdateEmployee, UpdateProject, UpdateTask};
+    use super::{
+        CreateTask, ReviewVerdict, UpdateEmployee, UpdateProject, UpdateSshConfig, UpdateTask,
+    };
 
     #[test]
     fn project_update_keeps_explicit_nulls() {
@@ -542,6 +706,21 @@ mod tests {
         assert_eq!(payload.name.as_deref(), Some("项目A"));
         assert_eq!(payload.description, Some(None));
         assert_eq!(payload.repo_path, Some(Some("/tmp/repo".to_string())));
+    }
+
+    #[test]
+    fn project_update_keeps_ssh_nullable_fields() {
+        let payload: UpdateProject = serde_json::from_str(
+            r#"{"project_type":"ssh","ssh_config_id":null,"remote_repo_path":"/srv/repo"}"#,
+        )
+        .expect("deserialize ssh project update");
+
+        assert_eq!(payload.project_type.as_deref(), Some("ssh"));
+        assert_eq!(payload.ssh_config_id, Some(None));
+        assert_eq!(
+            payload.remote_repo_path,
+            Some(Some("/srv/repo".to_string()))
+        );
     }
 
     #[test]
@@ -607,5 +786,17 @@ mod tests {
         assert!(verdict.needs_human);
         assert_eq!(verdict.blocking_issue_count, 2);
         assert_eq!(verdict.summary, "需人工确认");
+    }
+
+    #[test]
+    fn ssh_config_update_keeps_secret_nullable_fields() {
+        let payload: UpdateSshConfig = serde_json::from_str(
+            r#"{"private_key_path":null,"password":"secret","passphrase":null}"#,
+        )
+        .expect("deserialize ssh config update");
+
+        assert_eq!(payload.private_key_path, Some(None));
+        assert_eq!(payload.password, Some(Some("secret".to_string())));
+        assert_eq!(payload.passphrase, Some(None));
     }
 }

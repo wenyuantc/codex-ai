@@ -11,6 +11,7 @@ import { useProjectStore } from "@/stores/projectStore";
 import { useTaskStore } from "@/stores/taskStore";
 import type { Task } from "@/lib/types";
 import { Play, Square, RotateCw, Loader2, Search } from "lucide-react";
+import { getProjectWorkingDir } from "@/lib/projects";
 
 const STARTABLE_TASK_STATUSES = ["todo", "in_progress", "review"];
 
@@ -121,7 +122,7 @@ export function CodexControls({
   );
 
   const getProjectRepoPath = (task: Task) => (
-    projects.find((project) => project.id === task.project_id)?.repo_path ?? undefined
+    getProjectWorkingDir(projects.find((project) => project.id === task.project_id)) ?? undefined
   );
 
   const handleStart = async () => {

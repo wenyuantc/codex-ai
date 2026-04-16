@@ -13,20 +13,25 @@ use tokio::process::Child;
 use tokio::time::sleep;
 
 use crate::app::{
-    fetch_codex_session_by_id, insert_activity_log, insert_codex_session_event,
+    build_ssh_command, execute_ssh_command, fetch_codex_session_by_id,
+    fetch_ssh_config_record_by_id, insert_activity_log, insert_codex_session_event,
     insert_codex_session_event_with_id, insert_codex_session_record, normalize_runtime_path_string,
     now_sqlite, parse_review_verdict_json, path_to_runtime_string,
     replace_codex_session_file_changes, sqlite_pool, update_codex_session_record,
-    validate_project_repo_path, validate_runtime_working_dir,
+    validate_project_repo_path, validate_runtime_working_dir, ARTIFACT_CAPTURE_MODE_LOCAL_FULL,
+    ARTIFACT_CAPTURE_MODE_SSH_GIT_STATUS, ARTIFACT_CAPTURE_MODE_SSH_NONE, EXECUTION_TARGET_LOCAL,
+    EXECUTION_TARGET_SSH,
 };
 use crate::codex::{
-    ensure_sdk_runtime_layout, inspect_sdk_runtime, load_codex_settings, new_codex_command,
-    new_node_command, resolve_codex_executable_path, sdk_bridge_script_path, CodexManager,
+    ensure_sdk_runtime_layout, inspect_sdk_runtime, load_codex_settings,
+    load_remote_codex_settings, new_codex_command, new_node_command,
+    resolve_codex_executable_path, sdk_bridge_script_path, CodexManager,
 };
 use crate::db::models::{
     CodexExit, CodexOutput, CodexSession, CodexSessionFileChangeDetailInput,
     CodexSessionFileChangeInput,
 };
+use crate::process_spawn::configure_std_command;
 use crate::task_automation;
 
 const SUPPORTED_MODELS: &[&str] = &["gpt-5.4", "gpt-5.4-mini", "gpt-5.3-codex", "gpt-5.2"];
@@ -291,7 +296,9 @@ fn upsert_sdk_file_change_event(store: &SdkFileChangeStore, event: SdkFileChange
 }
 
 fn run_git_bytes(repo_path: &str, args: &[&str]) -> Result<Vec<u8>, String> {
-    let output = std::process::Command::new("git")
+    let mut command = std::process::Command::new("git");
+    configure_std_command(&mut command);
+    let output = command
         .arg("-C")
         .arg(repo_path)
         .args(args)
@@ -311,7 +318,9 @@ fn hash_worktree_path(repo_path: &str, relative_path: &str) -> Result<Option<Str
         return Ok(None);
     }
 
-    let output = std::process::Command::new("git")
+    let mut command = std::process::Command::new("git");
+    configure_std_command(&mut command);
+    let output = command
         .arg("-C")
         .arg(repo_path)
         .arg("hash-object")
@@ -587,6 +596,94 @@ fn normalize_session_file_change_paths(
         .map(|value| normalize_session_change_path(repo_path, value))
         .filter(|value| !value.is_empty());
     change
+}
+
+fn parse_git_status_stdout_to_session_changes(
+    repo_path: &str,
+    stdout: &[u8],
+    capture_mode: &str,
+) -> Result<Vec<CodexSessionFileChangeInput>, String> {
+    let parts = stdout.split(|byte| *byte == 0).collect::<Vec<_>>();
+    let mut index = 0usize;
+    let mut changes = Vec::new();
+
+    while index < parts.len() {
+        let segment = parts[index];
+        index += 1;
+
+        if segment.is_empty() {
+            continue;
+        }
+        if segment.len() < 4 {
+            return Err(format!(
+                "无法解析 git status 输出片段: {:?}",
+                String::from_utf8_lossy(segment)
+            ));
+        }
+
+        let status_x = segment[0] as char;
+        let status_y = segment[1] as char;
+        let path = String::from_utf8_lossy(&segment[3..]).to_string();
+        let previous_path = if should_read_previous_path(status_x, status_y) {
+            let original_segment = parts
+                .get(index)
+                .ok_or_else(|| format!("git status 缺少重命名原路径: {}", path))?;
+            index += 1;
+            Some(String::from_utf8_lossy(original_segment).to_string())
+        } else {
+            None
+        };
+
+        let entry = WorkingTreeSnapshotEntry {
+            path: path.clone(),
+            previous_path: previous_path.clone(),
+            status_x,
+            status_y,
+            content_hash: None,
+            text_snapshot: TextSnapshot::missing(),
+        };
+        changes.push(normalize_session_file_change_paths(
+            repo_path,
+            build_session_file_change(
+                path,
+                classify_new_entry_change_kind(&entry),
+                capture_mode,
+                previous_path.filter(|_| entry_is_renamed(&entry)),
+            ),
+        ));
+    }
+
+    Ok(changes)
+}
+
+async fn capture_remote_git_status_changes(
+    app: &AppHandle,
+    ssh_config_id: &str,
+    working_dir: &str,
+) -> Result<Vec<CodexSessionFileChangeInput>, String> {
+    let pool = sqlite_pool(app).await?;
+    let ssh_config = fetch_ssh_config_record_by_id(&pool, ssh_config_id).await?;
+    let remote_command = format!(
+        "sh -lc {}",
+        shell_escape_arg(&format!(
+            "git -C {} status --porcelain=v1 -z --untracked-files=all",
+            shell_escape_arg(working_dir)
+        ))
+    );
+    let output = execute_ssh_command(app, &ssh_config, &remote_command, true).await?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        return Err(if stderr.is_empty() {
+            "远程 git status 采集失败".to_string()
+        } else {
+            format!("远程 git status 采集失败: {stderr}")
+        });
+    }
+    parse_git_status_stdout_to_session_changes(
+        working_dir,
+        &output.stdout,
+        ARTIFACT_CAPTURE_MODE_SSH_GIT_STATUS,
+    )
 }
 
 fn build_session_file_change_detail(
@@ -892,18 +989,61 @@ fn build_sdk_input_items(prompt: &str, image_paths: &[String]) -> Vec<serde_json
     items
 }
 
-async fn resolve_task_project_repo_path(
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct ExecutionContext {
+    execution_target: String,
+    working_dir: Option<String>,
+    ssh_config_id: Option<String>,
+    target_host_label: Option<String>,
+    artifact_capture_mode: String,
+}
+
+async fn resolve_task_project_execution_context(
     app: &AppHandle,
     task_id: &str,
-) -> Result<Option<String>, String> {
-    sqlx::query_scalar::<_, Option<String>>(
-        "SELECT projects.repo_path FROM tasks INNER JOIN projects ON projects.id = tasks.project_id WHERE tasks.id = $1 LIMIT 1",
+) -> Result<ExecutionContext, String> {
+    let pool = sqlite_pool(app).await?;
+    let row = sqlx::query_as::<_, (Option<String>, String, Option<String>, Option<String>)>(
+        "SELECT projects.repo_path, projects.project_type, projects.ssh_config_id, projects.remote_repo_path FROM tasks INNER JOIN projects ON projects.id = tasks.project_id WHERE tasks.id = $1 LIMIT 1",
     )
     .bind(task_id)
-    .fetch_optional(&sqlite_pool(app).await?)
+    .fetch_optional(&pool)
     .await
-    .map_err(|error| format!("Failed to resolve task {} project repo path: {}", task_id, error))?
-    .ok_or_else(|| format!("Task {} not found when resolving project path", task_id))
+    .map_err(|error| {
+        format!(
+            "Failed to resolve task {} project execution context: {}",
+            task_id, error
+        )
+    })?
+    .ok_or_else(|| format!("Task {} not found when resolving project path", task_id))?;
+
+    let (repo_path, project_type, ssh_config_id, remote_repo_path) = row;
+    if project_type == EXECUTION_TARGET_SSH {
+        let ssh_config_id = ssh_config_id
+            .ok_or_else(|| "当前 SSH 项目缺少 ssh_config_id，无法启动 Codex。".to_string())?;
+        let ssh_config = fetch_ssh_config_record_by_id(&pool, &ssh_config_id).await?;
+        let working_dir = remote_repo_path
+            .map(|value| normalize_runtime_path_string(&value))
+            .ok_or_else(|| "当前 SSH 项目缺少远程仓库目录，无法启动 Codex。".to_string())?;
+        Ok(ExecutionContext {
+            execution_target: EXECUTION_TARGET_SSH.to_string(),
+            working_dir: Some(working_dir),
+            ssh_config_id: Some(ssh_config_id),
+            target_host_label: Some(format!(
+                "{}@{}:{}",
+                ssh_config.username, ssh_config.host, ssh_config.port
+            )),
+            artifact_capture_mode: ARTIFACT_CAPTURE_MODE_SSH_NONE.to_string(),
+        })
+    } else {
+        Ok(ExecutionContext {
+            execution_target: EXECUTION_TARGET_LOCAL.to_string(),
+            working_dir: repo_path,
+            ssh_config_id: None,
+            target_host_label: None,
+            artifact_capture_mode: ARTIFACT_CAPTURE_MODE_LOCAL_FULL.to_string(),
+        })
+    }
 }
 
 async fn resolve_one_shot_working_dir(
@@ -911,38 +1051,83 @@ async fn resolve_one_shot_working_dir(
     task_id: Option<&str>,
     working_dir: Option<&str>,
 ) -> Result<Option<String>, String> {
+    let task_context = match task_id.map(str::trim).filter(|value| !value.is_empty()) {
+        Some(task_id) => Some(resolve_task_project_execution_context(app, task_id).await?),
+        None => None,
+    };
+
     if let Some(explicit_working_dir) = working_dir.map(str::trim).filter(|value| !value.is_empty())
     {
+        if matches!(
+            task_context.as_ref().map(|context| context.execution_target.as_str()),
+            Some(EXECUTION_TARGET_SSH)
+        ) {
+            return Ok(Some(normalize_runtime_path_string(explicit_working_dir)));
+        }
         return validate_project_repo_path(Some(explicit_working_dir));
     }
 
-    let Some(task_id) = task_id.map(str::trim).filter(|value| !value.is_empty()) else {
-        return Ok(None);
-    };
-
-    match resolve_task_project_repo_path(app, task_id).await? {
-        Some(repo_path) => validate_project_repo_path(Some(&repo_path)),
+    match task_context {
+        Some(context) => match context.execution_target.as_str() {
+            EXECUTION_TARGET_LOCAL => match context.working_dir {
+                Some(repo_path) => validate_project_repo_path(Some(&repo_path)),
+                None => Ok(None),
+            },
+            EXECUTION_TARGET_SSH => Ok(context.working_dir),
+            _ => Ok(None),
+        },
         None => Ok(None),
     }
 }
 
-async fn resolve_session_working_dir(
+async fn resolve_session_execution_context(
     app: &AppHandle,
     task_id: Option<&str>,
     working_dir: Option<&str>,
-) -> Result<Option<String>, String> {
-    if let Some(explicit_working_dir) = working_dir.map(str::trim).filter(|value| !value.is_empty())
-    {
-        return validate_project_repo_path(Some(explicit_working_dir));
-    }
-
-    let Some(task_id) = task_id.map(str::trim).filter(|value| !value.is_empty()) else {
-        return Ok(None);
+) -> Result<ExecutionContext, String> {
+    let task_context = match task_id.map(str::trim).filter(|value| !value.is_empty()) {
+        Some(task_id) => Some(resolve_task_project_execution_context(app, task_id).await?),
+        None => None,
     };
 
-    match resolve_task_project_repo_path(app, task_id).await? {
-        Some(repo_path) => validate_project_repo_path(Some(&repo_path)),
-        None => Err("当前任务所属项目未配置仓库路径，无法启动 Codex。".to_string()),
+    if let Some(explicit_working_dir) = working_dir.map(str::trim).filter(|value| !value.is_empty())
+    {
+        if let Some(mut context) = task_context {
+            if context.execution_target == EXECUTION_TARGET_SSH {
+                context.working_dir = Some(normalize_runtime_path_string(explicit_working_dir));
+                return Ok(context);
+            }
+        }
+        return Ok(ExecutionContext {
+            execution_target: EXECUTION_TARGET_LOCAL.to_string(),
+            working_dir: validate_project_repo_path(Some(explicit_working_dir))?,
+            ssh_config_id: None,
+            target_host_label: None,
+            artifact_capture_mode: ARTIFACT_CAPTURE_MODE_LOCAL_FULL.to_string(),
+        });
+    }
+
+    match task_context {
+        Some(context) => {
+            if context.execution_target == EXECUTION_TARGET_LOCAL {
+                match context.working_dir.as_deref() {
+                    Some(repo_path) => Ok(ExecutionContext {
+                        working_dir: validate_project_repo_path(Some(repo_path))?,
+                        ..context
+                    }),
+                    None => Err("当前任务所属项目未配置仓库路径，无法启动 Codex。".to_string()),
+                }
+            } else {
+                Ok(context)
+            }
+        }
+        None => Ok(ExecutionContext {
+            execution_target: EXECUTION_TARGET_LOCAL.to_string(),
+            working_dir: None,
+            ssh_config_id: None,
+            target_host_label: None,
+            artifact_capture_mode: ARTIFACT_CAPTURE_MODE_LOCAL_FULL.to_string(),
+        }),
     }
 }
 
@@ -994,6 +1179,10 @@ async fn record_failed_session(
         resume_session_id,
         session_kind.as_str(),
         "failed",
+        EXECUTION_TARGET_LOCAL,
+        None,
+        None,
+        ARTIFACT_CAPTURE_MODE_LOCAL_FULL,
     )
     .await
     {
@@ -1076,7 +1265,14 @@ async fn write_task_session_activity(
 
     let result = async {
         let (task_title, project_id) = fetch_task_activity_context(pool, task_id).await?;
-        let action = session_kind.activity_start_action(resume_session_id.is_some());
+        let session = fetch_codex_session_by_id(app, session_record_id).await?;
+        let action = if session.execution_target == EXECUTION_TARGET_SSH
+            && session_kind == CodexSessionKind::Execution
+        {
+            "remote_task_session_started"
+        } else {
+            session_kind.activity_start_action(resume_session_id.is_some())
+        };
 
         insert_activity_log(
             pool,
@@ -1125,30 +1321,79 @@ async fn persist_execution_change_history(
     }
 
     let result = async {
-        let changes = match provider {
-            CodexExecutionProvider::Sdk => sdk_file_change_store
-                .map(|store| {
-                    let guard = store.lock().unwrap();
-                    let mut values = guard.values().cloned().collect::<Vec<_>>();
-                    values.sort_by(|left, right| left.path.cmp(&right.path));
-                    if let Some(execution_change_baseline) = execution_change_baseline {
-                        attach_session_file_change_details(
-                            &execution_change_baseline.repo_path,
-                            &execution_change_baseline.entries,
-                            values,
-                        )
-                    } else {
-                        values
+        let session = fetch_codex_session_by_id(app, session_record_id).await?;
+        let (changes, artifact_capture_mode) = if session.execution_target == EXECUTION_TARGET_SSH {
+            match (
+                session.ssh_config_id.as_deref(),
+                session.working_dir.as_deref(),
+            ) {
+                (Some(ssh_config_id), Some(working_dir)) => {
+                    match capture_remote_git_status_changes(app, ssh_config_id, working_dir).await {
+                        Ok(changes) => (changes, ARTIFACT_CAPTURE_MODE_SSH_GIT_STATUS.to_string()),
+                        Err(_) => (Vec::new(), ARTIFACT_CAPTURE_MODE_SSH_NONE.to_string()),
                     }
-                })
-                .unwrap_or_default(),
-            CodexExecutionProvider::Cli => {
-                let Some(execution_change_baseline) = execution_change_baseline else {
-                    return Ok(());
-                };
-                compute_execution_session_file_changes(execution_change_baseline)?
+                }
+                _ => (Vec::new(), ARTIFACT_CAPTURE_MODE_SSH_NONE.to_string()),
             }
+        } else {
+            let changes = match provider {
+                CodexExecutionProvider::Sdk => sdk_file_change_store
+                    .map(|store| {
+                        let guard = store.lock().unwrap();
+                        let mut values = guard.values().cloned().collect::<Vec<_>>();
+                        values.sort_by(|left, right| left.path.cmp(&right.path));
+                        if let Some(execution_change_baseline) = execution_change_baseline {
+                            attach_session_file_change_details(
+                                &execution_change_baseline.repo_path,
+                                &execution_change_baseline.entries,
+                                values,
+                            )
+                        } else {
+                            values
+                        }
+                    })
+                    .unwrap_or_default(),
+                CodexExecutionProvider::Cli => {
+                    let Some(execution_change_baseline) = execution_change_baseline else {
+                        return Ok(());
+                    };
+                    compute_execution_session_file_changes(execution_change_baseline)?
+                }
+            };
+            (changes, ARTIFACT_CAPTURE_MODE_LOCAL_FULL.to_string())
         };
+
+        if session.execution_target == EXECUTION_TARGET_SSH
+            && artifact_capture_mode == ARTIFACT_CAPTURE_MODE_SSH_NONE
+        {
+            if let Ok(pool) = sqlite_pool(app).await {
+                let _ = insert_codex_session_event(
+                    &pool,
+                    session_record_id,
+                    "remote_artifact_capture_limited",
+                    Some("远程会话变更明细受限，未采集到 git status 摘要"),
+                )
+                .await;
+                let _ = insert_activity_log(
+                    &pool,
+                    "remote_session_artifact_limited",
+                    "远程会话变更明细受限",
+                    session.employee_id.as_deref(),
+                    session.task_id.as_deref(),
+                    session.project_id.as_deref(),
+                )
+                .await;
+            }
+        }
+
+        if let Ok(pool) = sqlite_pool(app).await {
+            let _ =
+                sqlx::query("UPDATE codex_sessions SET artifact_capture_mode = $2 WHERE id = $1")
+                    .bind(session_record_id)
+                    .bind(&artifact_capture_mode)
+                    .execute(&pool)
+                    .await;
+        }
         replace_codex_session_file_changes(app, session_record_id, &changes).await
     }
     .await;
@@ -1230,6 +1475,12 @@ async fn finalize_stale_process_slot(
     .await;
 }
 
+fn cleanup_process_artifacts(paths: &[PathBuf]) {
+    for path in paths {
+        let _ = fs::remove_file(path);
+    }
+}
+
 async fn get_live_managed_process(
     app: &AppHandle,
     state: &State<'_, Arc<Mutex<CodexManager>>>,
@@ -1270,6 +1521,7 @@ async fn get_live_managed_process_with_manager(
                 process.sdk_file_change_store.as_ref(),
             )
             .await;
+            cleanup_process_artifacts(&process.cleanup_paths);
             let mut manager = manager_state.lock().map_err(|error| error.to_string())?;
             manager.remove_process(employee_id);
             Ok(None)
@@ -1285,6 +1537,7 @@ async fn get_live_managed_process_with_manager(
                 process.sdk_file_change_store.as_ref(),
             )
             .await;
+            cleanup_process_artifacts(&process.cleanup_paths);
             let mut manager = manager_state.lock().map_err(|error| error.to_string())?;
             manager.remove_process(employee_id);
             Ok(None)
@@ -1323,6 +1576,7 @@ async fn wait_until_process_stops_with_manager(
             process.sdk_file_change_store.as_ref(),
         )
         .await;
+        cleanup_process_artifacts(&process.cleanup_paths);
     }
 
     Ok(())
@@ -1499,9 +1753,11 @@ pub async fn start_codex_with_manager(
         return Err(format!("员工{}的Codex实例已在运行", employee_id));
     }
 
-    let requested_working_dir =
-        match resolve_session_working_dir(&app, task_id.as_deref(), working_dir.as_deref()).await {
-            Ok(path) => path,
+    let execution_context =
+        match resolve_session_execution_context(&app, task_id.as_deref(), working_dir.as_deref())
+            .await
+        {
+            Ok(context) => context,
             Err(error) => {
                 record_failed_session(
                     &app,
@@ -1517,21 +1773,28 @@ pub async fn start_codex_with_manager(
             }
         };
 
-    let run_cwd = match validate_runtime_working_dir(requested_working_dir.as_deref()) {
-        Ok(path) => path,
-        Err(error) => {
-            record_failed_session(
-                &app,
-                &employee_id,
-                task_id.as_deref(),
-                requested_working_dir.as_deref(),
-                resume_session_id.as_deref(),
-                session_kind,
-                &error,
-            )
-            .await;
-            return Err(error);
+    let run_cwd = if execution_context.execution_target == EXECUTION_TARGET_LOCAL {
+        match validate_runtime_working_dir(execution_context.working_dir.as_deref()) {
+            Ok(path) => path,
+            Err(error) => {
+                record_failed_session(
+                    &app,
+                    &employee_id,
+                    task_id.as_deref(),
+                    execution_context.working_dir.as_deref(),
+                    resume_session_id.as_deref(),
+                    session_kind,
+                    &error,
+                )
+                .await;
+                return Err(error);
+            }
         }
+    } else {
+        execution_context
+            .working_dir
+            .clone()
+            .ok_or_else(|| "SSH 项目缺少远程仓库目录，无法启动 Codex。".to_string())?
     };
 
     let session_record = insert_codex_session_record(
@@ -1542,6 +1805,10 @@ pub async fn start_codex_with_manager(
         resume_session_id.as_deref(),
         session_kind.as_str(),
         "pending",
+        &execution_context.execution_target,
+        execution_context.ssh_config_id.as_deref(),
+        execution_context.target_host_label.as_deref(),
+        &execution_context.artifact_capture_mode,
     )
     .await?;
     let pool = sqlite_pool(&app).await?;
@@ -1561,8 +1828,33 @@ pub async fn start_codex_with_manager(
     let mut sdk_codex_path_override = None;
     let mut session_lookup_started_at = None;
 
-    let command_result: Result<tokio::process::Command, String> =
-        if should_use_sdk_for_session(&app).await {
+    let command_result: Result<(tokio::process::Command, Vec<PathBuf>), String> =
+        if execution_context.execution_target == EXECUTION_TARGET_SSH {
+            let ssh_config_id = execution_context
+                .ssh_config_id
+                .as_deref()
+                .ok_or_else(|| "SSH 项目缺少 ssh_config_id，无法启动 Codex。".to_string())?;
+            let ssh_config =
+                fetch_ssh_config_record_by_id(&sqlite_pool(&app).await?, ssh_config_id).await?;
+            session_lookup_started_at = None;
+            let (mut command, askpass_path) = build_ssh_command(
+                &app,
+                &ssh_config,
+                Some(&build_remote_codex_session_command(
+                    model,
+                    reasoning_effort,
+                    &run_cwd,
+                    resume_session_id.as_deref(),
+                )),
+                true,
+            )
+            .await?;
+            command
+                .stdin(std::process::Stdio::piped())
+                .stdout(std::process::Stdio::piped())
+                .stderr(std::process::Stdio::piped());
+            Ok((command, askpass_path.into_iter().collect()))
+        } else if should_use_sdk_for_session(&app).await {
             match load_codex_settings(&app) {
                 Ok(settings) => {
                     let install_dir = PathBuf::from(&settings.sdk_install_dir);
@@ -1572,7 +1864,7 @@ pub async fn start_codex_with_manager(
                             .await
                             .map_err(|cli_error| format!("Failed to spawn codex: {cli_error}"))?;
                         session_lookup_started_at = Some(SystemTime::now());
-                        Ok(command)
+                        Ok((command, Vec::new()))
                     } else {
                         let bridge_path =
                             sdk_bridge_script_path(Path::new(&settings.sdk_install_dir));
@@ -1592,7 +1884,7 @@ pub async fn start_codex_with_manager(
                                     .stdin(std::process::Stdio::piped())
                                     .stdout(std::process::Stdio::piped())
                                     .stderr(std::process::Stdio::piped());
-                                Ok(command)
+                                Ok((command, Vec::new()))
                             }
                             Err(error) => {
                                 eprintln!("[codex-sdk] SDK 任务启动失败，回退 CLI: {error}");
@@ -1600,7 +1892,7 @@ pub async fn start_codex_with_manager(
                                     format!("Failed to spawn codex: {cli_error}")
                                 })?;
                                 session_lookup_started_at = Some(SystemTime::now());
-                                Ok(command)
+                                Ok((command, Vec::new()))
                             }
                         }
                     }
@@ -1611,7 +1903,7 @@ pub async fn start_codex_with_manager(
                         .await
                         .map_err(|cli_error| format!("Failed to spawn codex: {cli_error}"))?;
                     session_lookup_started_at = Some(SystemTime::now());
-                    Ok(command)
+                    Ok((command, Vec::new()))
                 }
             }
         } else {
@@ -1619,10 +1911,10 @@ pub async fn start_codex_with_manager(
                 .await
                 .map_err(|error| format!("Failed to spawn codex: {error}"))?;
             session_lookup_started_at = Some(SystemTime::now());
-            Ok(command)
+            Ok((command, Vec::new()))
         };
 
-    let mut cmd = match command_result {
+    let (mut cmd, cleanup_paths) = match command_result {
         Ok(command) => command,
         Err(error) => {
             let ended_at = now_sqlite();
@@ -1789,6 +2081,7 @@ pub async fn start_codex_with_manager(
             provider,
             execution_change_baseline.clone(),
             sdk_file_change_store.clone(),
+            cleanup_paths,
         );
     }
     update_codex_session_record(&app, &session_record.id, Some("running"), None, None, None)
@@ -2074,7 +2367,10 @@ pub async fn start_codex_with_manager(
                     {
                         let manager = app_clone.state::<Arc<Mutex<CodexManager>>>();
                         let mut manager = manager.lock().unwrap();
-                        manager.remove_process(&eid);
+                        let removed = manager.remove_process(&eid);
+                        if let Some(process) = removed.as_ref() {
+                            cleanup_process_artifacts(&process.cleanup_paths);
+                        }
                     }
                     let _ = app_clone.emit(
                         "codex-exit",
@@ -2101,7 +2397,10 @@ pub async fn start_codex_with_manager(
         {
             let manager = app_clone.state::<Arc<Mutex<CodexManager>>>();
             let mut manager = manager.lock().unwrap();
-            manager.remove_process(&eid);
+            let removed = manager.remove_process(&eid);
+            if let Some(process) = removed.as_ref() {
+                cleanup_process_artifacts(&process.cleanup_paths);
+            }
         }
 
         if provider_for_exit == CodexExecutionProvider::Cli
@@ -2454,6 +2753,31 @@ fn build_session_exec_args(
     args
 }
 
+fn shell_escape_arg(value: &str) -> String {
+    format!("'{}'", value.replace('\'', "'\"'\"'"))
+}
+
+fn build_remote_codex_session_command(
+    model: &str,
+    reasoning_effort: &str,
+    run_cwd: &str,
+    resume_session_id: Option<&str>,
+) -> String {
+    let args = build_session_exec_args(model, reasoning_effort, run_cwd, &[], resume_session_id)
+        .into_iter()
+        .map(|value| shell_escape_arg(&value))
+        .collect::<Vec<_>>()
+        .join(" ");
+    format!(
+        "sh -lc {}",
+        shell_escape_arg(&format!(
+            "cd {} && exec codex {}",
+            shell_escape_arg(run_cwd),
+            args
+        ))
+    )
+}
+
 fn build_one_shot_exec_args(
     model: &str,
     reasoning_effort: &str,
@@ -2521,6 +2845,58 @@ async fn run_ai_command_via_exec(
     } else {
         let stderr = String::from_utf8_lossy(&output.stderr);
         Err(format!("codex exec failed: {}", stderr.trim()))
+    }
+}
+
+async fn run_ai_command_via_ssh_exec(
+    app: &AppHandle,
+    ssh_config_id: &str,
+    prompt: String,
+    model: &str,
+    reasoning_effort: &str,
+    working_dir: Option<&str>,
+    image_paths: &[String],
+) -> Result<String, String> {
+    let ssh_config = fetch_ssh_config_record_by_id(&sqlite_pool(app).await?, ssh_config_id).await?;
+    let run_cwd = working_dir
+        .map(normalize_runtime_path_string)
+        .ok_or_else(|| "SSH 一次性 AI 缺少远程工作目录".to_string())?;
+    let remote_command = build_one_shot_exec_args(model, reasoning_effort, Some(&run_cwd), image_paths)
+        .into_iter()
+        .map(|value| shell_escape_arg(&value))
+        .collect::<Vec<_>>()
+        .join(" ");
+    let remote_command = format!("sh -lc {}", shell_escape_arg(&format!("exec codex {remote_command}")));
+    let (mut command, askpass_path) =
+        build_ssh_command(app, &ssh_config, Some(&remote_command), true).await?;
+    command
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped());
+
+    let mut child = command
+        .spawn()
+        .map_err(|error| format!("Failed to spawn remote codex exec: {error}"))?;
+    if let Some(mut stdin) = child.stdin.take() {
+        stdin
+            .write_all(prompt.as_bytes())
+            .await
+            .map_err(|error| format!("Failed to write remote codex exec prompt: {error}"))?;
+    }
+
+    let output = child
+        .wait_with_output()
+        .await
+        .map_err(|error| format!("Failed to wait for remote codex exec: {error}"))?;
+    if let Some(path) = askpass_path {
+        let _ = fs::remove_file(path);
+    }
+
+    if output.status.success() {
+        Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
+    } else {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        Err(format!("remote codex exec failed: {}", stderr.trim()))
     }
 }
 
@@ -2619,6 +2995,16 @@ async fn run_ai_command(
     working_dir: Option<String>,
 ) -> Result<String, String> {
     let (image_paths, missing_image_paths) = collect_available_image_paths(image_paths);
+    let execution_context = match task_id.as_deref().map(str::trim).filter(|value| !value.is_empty()) {
+        Some(task_id) => resolve_task_project_execution_context(app, task_id).await?,
+        None => ExecutionContext {
+            execution_target: EXECUTION_TARGET_LOCAL.to_string(),
+            working_dir: None,
+            ssh_config_id: None,
+            target_host_label: None,
+            artifact_capture_mode: ARTIFACT_CAPTURE_MODE_LOCAL_FULL.to_string(),
+        },
+    };
     let mut one_shot_model = normalize_model(None).to_string();
     let mut one_shot_reasoning_effort = normalize_reasoning_effort(None).to_string();
     let mut sdk_error = None;
@@ -2630,11 +3016,22 @@ async fn run_ai_command(
     let working_dir =
         resolve_one_shot_working_dir(app, task_id.as_deref(), working_dir.as_deref()).await?;
 
-    if let Ok(settings) = load_codex_settings(app) {
+    let settings = if execution_context.execution_target == EXECUTION_TARGET_SSH {
+        execution_context
+            .ssh_config_id
+            .as_deref()
+            .map(|ssh_config_id| load_remote_codex_settings(app, ssh_config_id))
+            .transpose()?
+            .or_else(|| load_codex_settings(app).ok())
+    } else {
+        load_codex_settings(app).ok()
+    };
+
+    if let Some(settings) = settings {
         one_shot_model = normalize_model(Some(&settings.one_shot_model)).to_string();
         one_shot_reasoning_effort =
             normalize_reasoning_effort(Some(&settings.one_shot_reasoning_effort)).to_string();
-        if settings.one_shot_sdk_enabled {
+        if execution_context.execution_target == EXECUTION_TARGET_LOCAL && settings.one_shot_sdk_enabled {
             let runtime = inspect_sdk_runtime(app, &settings).await;
             if runtime.one_shot_effective_provider == "sdk" {
                 match run_ai_command_via_sdk(
@@ -2657,6 +3054,22 @@ async fn run_ai_command(
                 eprintln!("[codex-sdk] {}", runtime.status_message);
             }
         }
+    }
+
+    if execution_context.execution_target == EXECUTION_TARGET_SSH {
+        return run_ai_command_via_ssh_exec(
+            app,
+            execution_context
+                .ssh_config_id
+                .as_deref()
+                .ok_or_else(|| "SSH 一次性 AI 缺少 ssh_config_id".to_string())?,
+            prompt,
+            &one_shot_model,
+            &one_shot_reasoning_effort,
+            working_dir.as_deref(),
+            &image_paths,
+        )
+        .await;
     }
 
     match run_ai_command_via_exec(

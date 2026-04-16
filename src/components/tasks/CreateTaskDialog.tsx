@@ -10,6 +10,7 @@ import { getEmployeeRoleLabel } from "@/lib/utils";
 import { IMAGE_FILE_FILTERS, dedupePaths, isTauriRuntime, normalizeDialogSelection } from "@/lib/taskAttachments";
 import { PRIORITIES } from "@/lib/types";
 import { getCodexSettings } from "@/lib/backend";
+import { getProjectWorkingDir } from "@/lib/projects";
 import {
   Dialog,
   DialogContent,
@@ -119,14 +120,14 @@ export function CreateTaskDialog({
       scene: "task_create",
       projectName: selectedProject.name,
       projectDescription: selectedProject.description,
-      projectRepoPath: selectedProject.repo_path,
+      projectRepoPath: getProjectWorkingDir(selectedProject),
       title,
       description,
       currentPrompt: null,
       taskTitle: null,
       sessionSummary: null,
       taskId: null,
-      workingDir: selectedProject.repo_path ?? null,
+      workingDir: getProjectWorkingDir(selectedProject),
     });
   };
 

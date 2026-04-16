@@ -7,9 +7,12 @@ use std::process::Stdio;
 
 use tokio::process::Command;
 
+use crate::process_spawn::configure_tokio_command;
+
 const CODEX_PATH_ENV_VARS: &[&str] = &["CODEX_CLI_PATH", "CODEX_PATH"];
 const NODE_PATH_ENV_VARS: &[&str] = &["CODEX_NODE_PATH"];
 const NPM_PATH_ENV_VARS: &[&str] = &["CODEX_NPM_PATH"];
+const SSH_PATH_ENV_VARS: &[&str] = &["CODEX_SSH_PATH", "SSH_PATH"];
 
 #[cfg(not(target_os = "windows"))]
 const COMMON_UNIX_DIRS: &[&str] = &["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin"];
@@ -63,6 +66,14 @@ pub async fn new_npm_command(node_path_override: Option<&str>) -> Result<Command
     .await
 }
 
+pub async fn new_ssh_command() -> Result<Command, String> {
+    build_command("ssh", SSH_PATH_ENV_VARS, None, &[], None).await
+}
+
+pub async fn resolve_ssh_executable_path() -> Result<PathBuf, String> {
+    resolve_executable("ssh", SSH_PATH_ENV_VARS, None, &[]).await
+}
+
 async fn build_command(
     binary_name: &str,
     env_vars: &[&str],
@@ -81,6 +92,7 @@ async fn build_command(
             path_dirs,
         } => {
             let mut command = Command::new(&executable);
+            configure_tokio_command(&mut command);
             apply_augmented_path(&mut command, path_dirs);
             command
         }
@@ -90,6 +102,7 @@ async fn build_command(
             path_dirs,
         } => {
             let mut command = Command::new(&node_executable);
+            configure_tokio_command(&mut command);
             command.arg(&script_path);
             apply_augmented_path(&mut command, path_dirs);
             command
@@ -320,7 +333,9 @@ async fn resolve_from_shell(binary_name: &str) -> Option<PathBuf> {
             continue;
         }
 
-        let output = match Command::new(program)
+        let mut command = Command::new(program);
+        configure_tokio_command(&mut command);
+        let output = match command
             .args(args)
             .stdin(Stdio::null())
             .stdout(Stdio::piped())

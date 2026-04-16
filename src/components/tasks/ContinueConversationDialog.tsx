@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Loader2, Sparkles } from "lucide-react";
 
 import { useAiOptimizePrompt } from "@/hooks/useAiOptimizePrompt";
+import { getProjectWorkingDir } from "@/lib/projects";
 import { useProjectStore } from "@/stores/projectStore";
 import type { Task } from "@/lib/types";
 import { Button } from "@/components/ui/button";
@@ -71,14 +72,14 @@ export function ContinueConversationDialog({
       scene: "task_continue",
       projectName: currentProject.name,
       projectDescription: currentProject.description,
-      projectRepoPath: currentProject.repo_path,
+      projectRepoPath: getProjectWorkingDir(currentProject),
       title: null,
       description: task.description,
       currentPrompt: prompt,
       taskTitle: task.title,
       sessionSummary: null,
       taskId: task.id,
-      workingDir: currentProject.repo_path ?? null,
+      workingDir: getProjectWorkingDir(currentProject),
     });
   };
 

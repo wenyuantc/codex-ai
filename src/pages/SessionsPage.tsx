@@ -13,6 +13,7 @@ import { startCodex } from "@/lib/codex";
 import type { CodexSessionListItem, CodexSessionResumeStatus } from "@/lib/types";
 import { formatDate } from "@/lib/utils";
 import { useEmployeeStore } from "@/stores/employeeStore";
+import { useProjectStore } from "@/stores/projectStore";
 
 const PAGE_SIZE = 10;
 
@@ -106,6 +107,7 @@ export function SessionsPage() {
   const setCodexRunning = useEmployeeStore((state) => state.setCodexRunning);
   const refreshCodexRuntimeStatus = useEmployeeStore((state) => state.refreshCodexRuntimeStatus);
 
+  const environmentMode = useProjectStore((state) => state.environmentMode);
   const [sessions, setSessions] = useState<CodexSessionListItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -128,6 +130,14 @@ export function SessionsPage() {
     const normalizedContentQuery = normalizeSearchText(contentQuery);
 
     return sessions.filter((session) => {
+      if (environmentMode === "ssh" && session.execution_target !== "ssh") {
+        return false;
+      }
+
+      if (environmentMode === "local" && session.execution_target === "ssh") {
+        return false;
+      }
+
       const matchesSessionId = !normalizedSessionIdQuery
         || normalizeSearchText(session.session_id).includes(normalizedSessionIdQuery)
         || normalizeSearchText(session.session_record_id).includes(normalizedSessionIdQuery)
@@ -155,7 +165,7 @@ export function SessionsPage() {
 
       return contentHaystack.includes(normalizedContentQuery);
     });
-  }, [contentQuery, sessionIdQuery, sessions]);
+  }, [contentQuery, environmentMode, sessionIdQuery, sessions]);
 
   const totalPages = filteredSessions.length > 0 ? Math.ceil(filteredSessions.length / PAGE_SIZE) : 0;
   const pageSessions = useMemo(
@@ -286,7 +296,7 @@ export function SessionsPage() {
           <div>
             <h2 className="text-lg font-semibold">Session 管理</h2>
             <p className="text-sm text-muted-foreground">
-              使用表格分页查看最近 Session，并从操作列直接查看日志、改动文件或继续对话。
+              当前仅展示{environmentMode === "ssh" ? " SSH " : "本地 "}执行链路下的 Session。
             </p>
           </div>
           <Button
@@ -394,6 +404,9 @@ export function SessionsPage() {
                             <div className="flex flex-col gap-2">
                               <Badge variant="outline">{formatSessionKind(session.session_kind)}</Badge>
                               <Badge variant="secondary">{formatSessionStatus(session.status)}</Badge>
+                              <Badge variant={session.execution_target === "ssh" ? "default" : "outline"}>
+                                {session.execution_target === "ssh" ? "SSH" : "本地"}
+                              </Badge>
                               <Badge variant={resumeBadgeVariant(session.resume_status)}>
                                 {formatResumeStatus(session.resume_status)}
                               </Badge>
@@ -406,6 +419,9 @@ export function SessionsPage() {
                             <div className="space-y-1 text-xs">
                               <div>{session.task_title ?? "无关联任务"}</div>
                               <div className="text-muted-foreground">{session.project_name ?? "无关联项目"}</div>
+                              {session.target_host_label && (
+                                <div className="text-muted-foreground">主机：{session.target_host_label}</div>
+                              )}
                             </div>
                           </td>
                           <td className="px-4 py-3">
@@ -413,6 +429,11 @@ export function SessionsPage() {
                               <div>{session.employee_name ?? "未绑定"}</div>
                               {session.working_dir && (
                                 <div className="max-w-56 break-all text-muted-foreground">{session.working_dir}</div>
+                              )}
+                              {session.artifact_capture_mode !== "local_full" && (
+                                <div className="rounded border border-amber-500/30 bg-amber-500/10 px-2 py-1 text-[11px] text-amber-800">
+                                  远程变更明细受限
+                                </div>
                               )}
                             </div>
                           </td>

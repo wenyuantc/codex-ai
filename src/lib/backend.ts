@@ -1,5 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
+import { normalizeProject } from "./projects";
 import type {
+  ArtifactCaptureMode,
   CodexHealthCheck,
   CodexSdkInstallResult,
   CodexSettings,
@@ -12,7 +14,13 @@ import type {
   DatabaseRestoreResult,
   Comment,
   Employee,
+  EnvironmentMode,
   Project,
+  RemoteCodexHealthCheck,
+  RemoteCodexSdkInstallResult,
+  RemoteCodexSettings,
+  SshConfig,
+  SshPasswordProbeResult,
   Subtask,
   Task,
   TaskAutomationMode,
@@ -21,6 +29,81 @@ import type {
   TaskExecutionChangeHistoryItem,
   TaskLatestReview,
 } from "./types";
+
+function normalizeExecutionTarget(value: string | null | undefined): EnvironmentMode {
+  return value === "ssh" ? "ssh" : "local";
+}
+
+function normalizeArtifactCaptureMode(value: string | null | undefined): ArtifactCaptureMode {
+  switch (value) {
+    case "ssh_git_status":
+    case "ssh_none":
+      return value;
+    default:
+      return "local_full";
+  }
+}
+
+function normalizeSessionListItem(session: CodexSessionListItem): CodexSessionListItem {
+  return {
+    ...session,
+    execution_target: normalizeExecutionTarget(session.execution_target),
+    ssh_config_id: session.ssh_config_id ?? null,
+    target_host_label: session.target_host_label ?? null,
+    artifact_capture_mode: normalizeArtifactCaptureMode(session.artifact_capture_mode),
+  };
+}
+
+function normalizeHealthCheck<T extends CodexHealthCheck>(health: T): T {
+  const passwordExecutionAllowed =
+    health.password_execution_allowed
+    ?? health.password_auth_available
+    ?? false;
+  return {
+    ...health,
+    execution_target: normalizeExecutionTarget(health.execution_target),
+    ssh_config_id: health.ssh_config_id ?? null,
+    target_host_label: health.target_host_label ?? null,
+    password_probe_status: health.password_probe_status ?? null,
+    password_probe_message: health.password_probe_message ?? null,
+    password_execution_allowed: passwordExecutionAllowed,
+    password_auth_available: passwordExecutionAllowed,
+  };
+}
+
+function normalizeSshConfig(config: SshConfig): SshConfig {
+  const passwordExecutionAllowed =
+    config.password_execution_allowed
+    ?? config.password_auth_available
+    ?? false;
+  return {
+    ...config,
+    port: Number(config.port ?? 22) || 22,
+    private_key_path: config.private_key_path ?? null,
+    known_hosts_mode: config.known_hosts_mode ?? "accept-new",
+    password_configured: config.password_configured ?? false,
+    passphrase_configured: config.passphrase_configured ?? false,
+    password_probe_status: config.password_probe_status ?? null,
+    password_probe_message: config.password_probe_message ?? null,
+    password_execution_allowed: passwordExecutionAllowed,
+    password_auth_available: passwordExecutionAllowed,
+    last_checked_at: config.last_checked_at ?? null,
+    last_check_status: config.last_check_status ?? null,
+    last_check_message: config.last_check_message ?? null,
+  };
+}
+
+function normalizePasswordProbeResult(result: SshPasswordProbeResult): SshPasswordProbeResult {
+  const executionAllowed = result.execution_allowed ?? result.supported ?? false;
+  return {
+    ...result,
+    auth_type: result.auth_type ?? "password",
+    execution_allowed: executionAllowed,
+    supported: executionAllowed,
+    target_host_label: result.target_host_label ?? null,
+    status: result.status === "passed" ? "supported" : result.status ?? "failed",
+  };
+}
 
 export interface UpdateCodexSettingsInput {
   task_sdk_enabled?: boolean;
@@ -36,14 +119,44 @@ export interface UpdateCodexSettingsInput {
 export interface CreateProjectInput {
   name: string;
   description?: string | null;
+  project_type?: EnvironmentMode;
   repo_path?: string | null;
+  ssh_config_id?: string | null;
+  remote_repo_path?: string | null;
 }
 
 export interface UpdateProjectInput {
   name?: string;
   description?: string | null;
   status?: string;
+  project_type?: EnvironmentMode;
   repo_path?: string | null;
+  ssh_config_id?: string | null;
+  remote_repo_path?: string | null;
+}
+
+export interface CreateSshConfigInput {
+  name: string;
+  host: string;
+  port?: number;
+  username: string;
+  auth_type: "key" | "password";
+  private_key_path?: string | null;
+  password?: string | null;
+  passphrase?: string | null;
+  known_hosts_mode?: string;
+}
+
+export interface UpdateSshConfigInput {
+  name?: string;
+  host?: string;
+  port?: number;
+  username?: string;
+  auth_type?: "key" | "password";
+  private_key_path?: string | null;
+  password?: string | null;
+  passphrase?: string | null;
+  known_hosts_mode?: string;
 }
 
 export interface CreateEmployeeInput {
@@ -96,7 +209,13 @@ export interface SetTaskAutomationModeInput {
 }
 
 export async function healthCheck(): Promise<CodexHealthCheck> {
-  return invoke("health_check");
+  return normalizeHealthCheck(await invoke<CodexHealthCheck>("health_check"));
+}
+
+export async function getRemoteHealthCheck(sshConfigId: string): Promise<RemoteCodexHealthCheck> {
+  return normalizeHealthCheck(
+    await invoke<RemoteCodexHealthCheck>("validate_remote_codex_health", { sshConfigId }),
+  );
 }
 
 export async function backupDatabase(destinationPath: string): Promise<DatabaseBackupResult> {
@@ -124,7 +243,8 @@ export async function getCodexSessionStatus(employeeId: string): Promise<CodexRu
 }
 
 export async function listCodexSessions(): Promise<CodexSessionListItem[]> {
-  return invoke("list_codex_sessions");
+  const sessions = await invoke<CodexSessionListItem[]>("list_codex_sessions");
+  return sessions.map(normalizeSessionListItem);
 }
 
 export async function prepareCodexSessionResume(
@@ -179,26 +299,73 @@ export async function getCodexSettings(): Promise<CodexSettings> {
   return invoke("get_codex_settings");
 }
 
+export async function getRemoteCodexSettings(sshConfigId: string): Promise<RemoteCodexSettings> {
+  return invoke("get_remote_codex_settings", { sshConfigId });
+}
+
 export async function updateCodexSettings(
   updates: UpdateCodexSettingsInput,
 ): Promise<CodexSettings> {
   return invoke("update_codex_settings", { updates });
 }
 
+export async function updateRemoteCodexSettings(
+  sshConfigId: string,
+  updates: UpdateCodexSettingsInput,
+): Promise<RemoteCodexSettings> {
+  return invoke("update_remote_codex_settings", {
+    payload: {
+      sshConfigId,
+      updates,
+    },
+  });
+}
+
 export async function installCodexSdk(): Promise<CodexSdkInstallResult> {
   return invoke("install_codex_sdk");
 }
 
+export async function installRemoteCodexSdk(
+  sshConfigId: string,
+): Promise<RemoteCodexSdkInstallResult> {
+  return invoke("install_remote_codex_sdk", { sshConfigId });
+}
+
 export async function createProject(input: CreateProjectInput): Promise<Project> {
-  return invoke("create_project", { payload: input });
+  const project = await invoke<Project>("create_project", { payload: input });
+  return normalizeProject(project);
 }
 
 export async function updateProject(id: string, updates: UpdateProjectInput): Promise<Project> {
-  return invoke("update_project", { id, updates });
+  const project = await invoke<Project>("update_project", { id, updates });
+  return normalizeProject(project);
 }
 
 export async function deleteProject(id: string): Promise<void> {
   return invoke("delete_project", { id });
+}
+
+export async function listSshConfigs(): Promise<SshConfig[]> {
+  const configs = await invoke<SshConfig[]>("list_ssh_configs");
+  return configs.map(normalizeSshConfig);
+}
+
+export async function createSshConfig(input: CreateSshConfigInput): Promise<SshConfig> {
+  return normalizeSshConfig(await invoke<SshConfig>("create_ssh_config", { payload: input }));
+}
+
+export async function updateSshConfig(id: string, updates: UpdateSshConfigInput): Promise<SshConfig> {
+  return normalizeSshConfig(await invoke<SshConfig>("update_ssh_config", { id, updates }));
+}
+
+export async function deleteSshConfig(id: string): Promise<void> {
+  return invoke("delete_ssh_config", { id });
+}
+
+export async function runSshPasswordProbe(id: string): Promise<SshPasswordProbeResult> {
+  return normalizePasswordProbeResult(
+    await invoke<SshPasswordProbeResult>("probe_ssh_password_auth", { sshConfigId: id }),
+  );
 }
 
 export async function createEmployee(input: CreateEmployeeInput): Promise<Employee> {

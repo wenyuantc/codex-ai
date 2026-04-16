@@ -27,6 +27,7 @@ import { useEmployeeStore } from "@/stores/employeeStore";
 import { useTaskStore } from "@/stores/taskStore";
 import { useTaskExecutionActions } from "./hooks/useTaskExecutionActions";
 import { useTaskReviewActions } from "./hooks/useTaskReviewActions";
+import { getProjectWorkingDir } from "@/lib/projects";
 
 interface TaskCardProps {
   task: Task;
@@ -45,8 +46,9 @@ export function TaskCard({ task, isOverlay, hideRunAction = false, onOpenLog }: 
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
   const projects = useProjectStore((s) => s.projects);
   const employees = useEmployeeStore((s) => s.employees);
-  const projectName = projects.find((p) => p.id === task.project_id)?.name;
-  const projectRepoPath = projects.find((p) => p.id === task.project_id)?.repo_path;
+  const project = projects.find((p) => p.id === task.project_id);
+  const projectName = project?.name;
+  const projectRepoPath = getProjectWorkingDir(project);
   const fetchAttachments = useTaskStore((s) => s.fetchAttachments);
   const fetchSubtasks = useTaskStore((s) => s.fetchSubtasks);
   const fetchTaskAutomationState = useTaskStore((s) => s.fetchTaskAutomationState);

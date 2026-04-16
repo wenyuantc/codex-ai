@@ -1,6 +1,19 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { confirm, message, open, save } from "@tauri-apps/plugin-dialog";
-import { Download, FolderOpen, Loader2, Monitor, Moon, RefreshCw, Sun, Upload } from "lucide-react";
+import {
+  Download,
+  FolderOpen,
+  Loader2,
+  Monitor,
+  Moon,
+  Plus,
+  RefreshCw,
+  ServerCog,
+  ShieldAlert,
+  Sun,
+  Trash2,
+  Upload,
+} from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -13,35 +26,79 @@ import {
 } from "@/components/ui/select";
 import {
   backupDatabase,
+  createSshConfig as createSshConfigCommand,
+  deleteSshConfig as deleteSshConfigCommand,
   getCodexSettings,
+  getRemoteCodexSettings,
+  getRemoteHealthCheck,
   healthCheck,
   installCodexSdk,
+  installRemoteCodexSdk,
   openDatabaseFolder,
   restoreDatabase,
   updateCodexSettings,
+  updateRemoteCodexSettings,
+  updateSshConfig as updateSshConfigCommand,
+  type CreateSshConfigInput,
+  type UpdateSshConfigInput,
 } from "@/lib/backend";
+import { getEnvironmentModeLabel } from "@/lib/projects";
 import {
   CODEX_MODEL_OPTIONS,
   REASONING_EFFORT_OPTIONS,
   normalizeCodexModel,
   normalizeReasoningEffort,
   normalizeTaskAutomationFailureStrategy,
-  TASK_AUTOMATION_FAILURE_STRATEGY_OPTIONS,
   type CodexHealthCheck,
   type CodexModelId,
   type CodexSettings,
   type ReasoningEffort,
+  type RemoteCodexHealthCheck,
+  type SshAuthType,
+  type SshConfig,
   type TaskAutomationFailureStrategy,
 } from "@/lib/types";
 import { applyTheme, getThemePreference, type ThemeMode } from "@/lib/theme";
+import { formatDate } from "@/lib/utils";
+import { useProjectStore } from "@/stores/projectStore";
 
 const DATABASE_FILE_FILTERS = [
   { name: "SQL 备份", extensions: ["sql"] },
 ];
 
+const KNOWN_HOSTS_OPTIONS = [
+  { value: "accept-new", label: "首次连接自动接受" },
+  { value: "strict", label: "严格校验" },
+  { value: "off", label: "关闭校验（不推荐）" },
+];
+
 const isTauriRuntime =
   typeof window !== "undefined" &&
   typeof (window as typeof window & { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__ !== "undefined";
+
+interface SshConfigFormState {
+  name: string;
+  host: string;
+  port: string;
+  username: string;
+  authType: SshAuthType;
+  privateKeyPath: string;
+  password: string;
+  passphrase: string;
+  knownHostsMode: string;
+}
+
+const EMPTY_SSH_CONFIG_FORM: SshConfigFormState = {
+  name: "",
+  host: "",
+  port: "22",
+  username: "",
+  authType: "key",
+  privateKeyPath: "",
+  password: "",
+  passphrase: "",
+  knownHostsMode: "accept-new",
+};
 
 function formatBackupTimestamp(date = new Date()) {
   const year = date.getFullYear();
@@ -68,9 +125,34 @@ function buildBackupDefaultPath(health: CodexHealthCheck | null) {
   return `${directory}${separator}${fileName}`;
 }
 
+function buildSshConfigFormState(config: SshConfig | null): SshConfigFormState {
+  if (!config) {
+    return EMPTY_SSH_CONFIG_FORM;
+  }
+
+  return {
+    name: config.name,
+    host: config.host,
+    port: String(config.port || 22),
+    username: config.username,
+    authType: config.auth_type,
+    privateKeyPath: config.private_key_path ?? "",
+    password: "",
+    passphrase: "",
+    knownHostsMode: config.known_hosts_mode ?? "accept-new",
+  };
+}
+
 export function SettingsPage() {
+  const environmentMode = useProjectStore((state) => state.environmentMode);
+  const sshConfigs = useProjectStore((state) => state.sshConfigs);
+  const selectedSshConfigId = useProjectStore((state) => state.selectedSshConfigId);
+  const sshConfigsLoading = useProjectStore((state) => state.sshConfigsLoading);
+  const setSelectedSshConfigId = useProjectStore((state) => state.setSelectedSshConfigId);
+  const fetchSshConfigs = useProjectStore((state) => state.fetchSshConfigs);
+
   const [themeMode, setThemeMode] = useState<ThemeMode>(getThemePreference);
-  const [codexHealth, setCodexHealth] = useState<CodexHealthCheck | null>(null);
+  const [codexHealth, setCodexHealth] = useState<CodexHealthCheck | RemoteCodexHealthCheck | null>(null);
   const [codexSettings, setCodexSettings] = useState<CodexSettings | null>(null);
   const [taskSdkEnabled, setTaskSdkEnabled] = useState(false);
   const [oneShotSdkEnabled, setOneShotSdkEnabled] = useState(false);
@@ -90,12 +172,58 @@ export function SettingsPage() {
   >(null);
   const [databaseActionMessage, setDatabaseActionMessage] = useState<string | null>(null);
   const [databaseActionError, setDatabaseActionError] = useState<string | null>(null);
+  const [editingSshConfigId, setEditingSshConfigId] = useState<string | null>(null);
+  const [sshForm, setSshForm] = useState<SshConfigFormState>(EMPTY_SSH_CONFIG_FORM);
+  const [sshFormLoading, setSshFormLoading] = useState<"save" | "delete" | "probe" | null>(null);
+  const [sshFormMessage, setSshFormMessage] = useState<string | null>(null);
+  const [sshFormError, setSshFormError] = useState<string | null>(null);
 
-  async function loadSettingsState() {
+  const selectedSshConfig = useMemo(
+    () => sshConfigs.find((config) => config.id === selectedSshConfigId) ?? null,
+    [selectedSshConfigId, sshConfigs],
+  );
+
+  const isRemoteMode = environmentMode === "ssh";
+  const remoteTargetName = selectedSshConfig?.name ?? "当前 SSH 配置";
+  const passwordAuthBlocked = Boolean(
+    isRemoteMode
+    && selectedSshConfig
+    && selectedSshConfig.auth_type === "password"
+    && !selectedSshConfig.password_execution_allowed,
+  );
+
+  async function loadRuntimeState() {
     setHealthLoading(true);
     setSdkActionError(null);
 
     try {
+      if (isRemoteMode) {
+        if (!selectedSshConfigId) {
+          setCodexHealth(null);
+          setCodexSettings(null);
+          setSdkActionError("当前没有可用的 SSH 配置，请先创建并选择 SSH 配置。");
+          return;
+        }
+
+        const [health, settings] = await Promise.all([
+          getRemoteHealthCheck(selectedSshConfigId),
+          getRemoteCodexSettings(selectedSshConfigId),
+        ]);
+        setCodexHealth(health);
+        setCodexSettings(settings);
+        setTaskSdkEnabled(settings.task_sdk_enabled);
+        setOneShotSdkEnabled(settings.one_shot_sdk_enabled);
+        setOneShotModel(normalizeCodexModel(settings.one_shot_model));
+        setOneShotReasoningEffort(normalizeReasoningEffort(settings.one_shot_reasoning_effort));
+        setTaskAutomationDefaultEnabled(settings.task_automation_default_enabled);
+        setTaskAutomationMaxFixRounds(settings.task_automation_max_fix_rounds);
+        setTaskAutomationFailureStrategy(
+          normalizeTaskAutomationFailureStrategy(settings.task_automation_failure_strategy),
+        );
+        setNodePathOverride(settings.node_path_override ?? "");
+        return;
+      }
+
       const [health, settings] = await Promise.all([healthCheck(), getCodexSettings()]);
       setCodexHealth(health);
       setCodexSettings(settings);
@@ -124,8 +252,21 @@ export function SettingsPage() {
   }, [themeMode]);
 
   useEffect(() => {
-    void loadSettingsState();
-  }, []);
+    void fetchSshConfigs();
+  }, [fetchSshConfigs]);
+
+  useEffect(() => {
+    if (!editingSshConfigId) {
+      setSshForm(EMPTY_SSH_CONFIG_FORM);
+      return;
+    }
+
+    setSshForm(buildSshConfigFormState(selectedSshConfig));
+  }, [editingSshConfigId, selectedSshConfig]);
+
+  useEffect(() => {
+    void loadRuntimeState();
+  }, [environmentMode, selectedSshConfigId]);
 
   const themeOptions: { value: ThemeMode; label: string; icon: typeof Sun }[] = [
     { value: "light", label: "亮色", icon: Sun },
@@ -144,13 +285,20 @@ export function SettingsPage() {
       ? "打开数据库所在的文件夹"
       : "数据库路径不可用";
 
+  const resetSshForm = () => {
+    setEditingSshConfigId(null);
+    setSshForm(EMPTY_SSH_CONFIG_FORM);
+    setSshFormError(null);
+    setSshFormMessage(null);
+  };
+
   async function handleSaveSdkSettings() {
     setSdkActionLoading("save");
     setSdkActionError(null);
     setSdkActionMessage(null);
 
     try {
-      const nextSettings = await updateCodexSettings({
+      const updates = {
         task_sdk_enabled: taskSdkEnabled,
         one_shot_sdk_enabled: oneShotSdkEnabled,
         one_shot_model: oneShotModel,
@@ -159,31 +307,41 @@ export function SettingsPage() {
         task_automation_max_fix_rounds: taskAutomationMaxFixRounds,
         task_automation_failure_strategy: taskAutomationFailureStrategy,
         node_path_override: nodePathOverride.trim() || null,
-      });
+      };
+      const nextSettings = isRemoteMode && selectedSshConfigId
+        ? await updateRemoteCodexSettings(selectedSshConfigId, updates)
+        : await updateCodexSettings(updates);
       setCodexSettings(nextSettings);
-      setSdkActionMessage("系统设置已保存");
-      await loadSettingsState();
+      setSdkActionMessage(isRemoteMode ? `远程配置已保存到 ${remoteTargetName}` : "系统设置已保存");
+      await loadRuntimeState();
     } catch (error) {
       console.error("Failed to save codex sdk settings:", error);
-      setSdkActionError(error instanceof Error ? error.message : "保存 Codex SDK 配置失败");
+      setSdkActionError(error instanceof Error ? error.message : "保存 Codex 配置失败");
     } finally {
       setSdkActionLoading(null);
     }
   }
 
   async function handleInstallSdk() {
+    if (isRemoteMode && !selectedSshConfigId) {
+      setSdkActionError("请先选择 SSH 配置后再安装远程 SDK。");
+      return;
+    }
+
     setSdkActionLoading("install");
     setSdkActionError(null);
     setSdkActionMessage(null);
 
     try {
-      const result = await installCodexSdk();
+      const result = isRemoteMode && selectedSshConfigId
+        ? await installRemoteCodexSdk(selectedSshConfigId)
+        : await installCodexSdk();
       setSdkActionMessage(
         result.sdk_version
-          ? `Codex SDK 安装完成，版本 ${result.sdk_version}`
+          ? `${isRemoteMode ? "远程" : "本地"} SDK 安装完成，版本 ${result.sdk_version}`
           : result.message,
       );
-      await loadSettingsState();
+      await loadRuntimeState();
     } catch (error) {
       console.error("Failed to install codex sdk:", error);
       setSdkActionError(error instanceof Error ? error.message : "安装 Codex SDK 失败");
@@ -264,7 +422,7 @@ export function SettingsPage() {
 
       const result = await restoreDatabase(selected);
       setDatabaseActionMessage(result.message);
-      await loadSettingsState();
+      await loadRuntimeState();
       await message(
         `${result.message}\n\n导入前自动备份：${result.backup_path}`,
         {
@@ -280,9 +438,113 @@ export function SettingsPage() {
     }
   }
 
+  async function handleSaveSshConfig() {
+    if (!sshForm.name.trim() || !sshForm.host.trim() || !sshForm.username.trim()) {
+      setSshFormError("SSH 配置名称、主机和用户名不能为空。");
+      return;
+    }
+    if (sshForm.authType === "key" && !sshForm.privateKeyPath.trim()) {
+      setSshFormError("密钥登录必须填写私钥路径。");
+      return;
+    }
+
+    setSshFormLoading("save");
+    setSshFormError(null);
+    setSshFormMessage(null);
+
+    try {
+      const payload: CreateSshConfigInput | UpdateSshConfigInput = {
+        name: sshForm.name.trim(),
+        host: sshForm.host.trim(),
+        port: Number(sshForm.port) || 22,
+        username: sshForm.username.trim(),
+        auth_type: sshForm.authType,
+        private_key_path: sshForm.authType === "key" ? sshForm.privateKeyPath.trim() || null : null,
+        password: sshForm.authType === "password" && sshForm.password ? sshForm.password : null,
+        passphrase: sshForm.passphrase || null,
+        known_hosts_mode: sshForm.knownHostsMode,
+      };
+
+      const sshConfig = editingSshConfigId
+        ? await updateSshConfigCommand(editingSshConfigId, payload)
+        : await createSshConfigCommand(payload as CreateSshConfigInput);
+      await fetchSshConfigs();
+      setSelectedSshConfigId(sshConfig.id);
+      setEditingSshConfigId(sshConfig.id);
+      setSshForm(buildSshConfigFormState(sshConfig));
+      setSshFormMessage(editingSshConfigId ? "SSH 配置已更新。" : "SSH 配置已创建。");
+    } catch (error) {
+      console.error("Failed to save SSH config:", error);
+      setSshFormError(error instanceof Error ? error.message : "保存 SSH 配置失败");
+    } finally {
+      setSshFormLoading(null);
+    }
+  }
+
+  async function handleDeleteSshConfig() {
+    if (!editingSshConfigId || !selectedSshConfig) {
+      return;
+    }
+
+    const confirmed = await confirm(`确认删除 SSH 配置“${selectedSshConfig.name}”？`, {
+      title: "删除 SSH 配置",
+      kind: "warning",
+    });
+
+    if (!confirmed) {
+      return;
+    }
+
+    setSshFormLoading("delete");
+    setSshFormError(null);
+    setSshFormMessage(null);
+
+    try {
+      await deleteSshConfigCommand(editingSshConfigId);
+      await fetchSshConfigs();
+      resetSshForm();
+      setSshFormMessage("SSH 配置已删除。");
+    } catch (error) {
+      console.error("Failed to delete SSH config:", error);
+      setSshFormError(error instanceof Error ? error.message : "删除 SSH 配置失败");
+    } finally {
+      setSshFormLoading(null);
+    }
+  }
+
+  async function handleRunPasswordProbe() {
+    if (!selectedSshConfigId) {
+      return;
+    }
+
+    setSshFormLoading("probe");
+    setSshFormError(null);
+    setSshFormMessage(null);
+
+    try {
+      const result = await useProjectStore.getState().runSshPasswordProbe(selectedSshConfigId);
+      setSshFormMessage(result.message);
+      await loadRuntimeState();
+    } catch (error) {
+      console.error("Failed to run SSH password probe:", error);
+      setSshFormError(error instanceof Error ? error.message : "密码登录探测失败");
+    } finally {
+      setSshFormLoading(null);
+    }
+  }
+
+  const selectedSshConfigSummary = selectedSshConfig
+    ? `${selectedSshConfig.username}@${selectedSshConfig.host}:${selectedSshConfig.port}`
+    : "未选择 SSH 配置";
+
   return (
-    <div className="max-w-2xl space-y-6">
-      <h2 className="text-lg font-semibold">系统设置</h2>
+    <div className="max-w-4xl space-y-6">
+      <div>
+        <h2 className="text-lg font-semibold">系统设置</h2>
+        <p className="text-sm text-muted-foreground">
+          当前处于 {getEnvironmentModeLabel(environmentMode)}，Codex 运行配置与 SSH 配置分开保存。
+        </p>
+      </div>
 
       <div className="space-y-4 rounded-lg border border-border bg-card p-4">
         <div>
@@ -309,14 +571,53 @@ export function SettingsPage() {
         <div className="border-t border-border pt-4">
           <div className="flex items-center justify-between gap-4">
             <div>
+              <h3 className="text-sm font-medium">
+                {isRemoteMode ? "远程执行目标" : "本地执行目标"}
+              </h3>
+              <p className="text-xs text-muted-foreground">
+                {isRemoteMode
+                  ? `当前远程配置：${remoteTargetName}（${selectedSshConfigSummary}）`
+                  : "当前保存的是本地运行配置。"}
+              </p>
+            </div>
+            <span className="rounded bg-secondary px-2 py-1 text-xs text-secondary-foreground">
+              {isRemoteMode ? "SSH Profile" : "Local Profile"}
+            </span>
+          </div>
+
+          {isRemoteMode && !selectedSshConfig && (
+            <div className="mt-3 rounded-md border border-dashed border-border px-3 py-3 text-sm text-muted-foreground">
+              当前是 SSH 模式，但还没有可用的 SSH 配置。请先在下方新增 SSH 配置。
+            </div>
+          )}
+
+          {passwordAuthBlocked && (
+            <div className="mt-3 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-3 text-sm text-amber-800">
+              <div className="flex items-center gap-2 font-medium">
+                <ShieldAlert className="h-4 w-4" />
+                配置存在但当前平台不可执行
+              </div>
+              <p className="mt-1 text-xs leading-5">
+                当前 SSH 配置使用密码认证，但无交互探针尚未通过。远程 Codex 校验、SDK 安装和实际执行链路都必须保持阻断。
+              </p>
+              {selectedSshConfig?.password_probe_message && (
+                <p className="mt-2 text-xs">{selectedSshConfig.password_probe_message}</p>
+              )}
+            </div>
+          )}
+        </div>
+
+        <div className="border-t border-border pt-4">
+          <div className="flex items-center justify-between gap-4">
+            <div>
               <h3 className="text-sm font-medium">Codex CLI</h3>
               <p className="text-xs text-muted-foreground">
-                作为回退通道保留，用于 SDK 不可用时继续执行任务
+                {isRemoteMode
+                  ? "SSH 模式下会校验当前 SSH 配置对应远程主机的 Codex 环境。"
+                  : "作为回退通道保留，用于 SDK 不可用时继续执行任务。"}
               </p>
               {codexHealth?.codex_version && (
-                <p className="mt-1 text-xs text-muted-foreground">
-                  版本：{codexHealth.codex_version}
-                </p>
+                <p className="mt-1 text-xs text-muted-foreground">版本：{codexHealth.codex_version}</p>
               )}
             </div>
             <span
@@ -329,10 +630,11 @@ export function SettingsPage() {
               {healthLoading ? "检测中" : codexHealth?.codex_available ? "已连接" : "不可用"}
             </span>
           </div>
+          {codexHealth?.target_host_label && (
+            <p className="mt-2 text-xs text-muted-foreground">主机：{codexHealth.target_host_label}</p>
+          )}
           {codexHealth?.last_session_error && (
-            <p className="mt-2 text-xs text-amber-700">
-              最近错误：{codexHealth.last_session_error}
-            </p>
+            <p className="mt-2 text-xs text-amber-700">最近错误：{codexHealth.last_session_error}</p>
           )}
         </div>
 
@@ -346,8 +648,8 @@ export function SettingsPage() {
             </div>
             <span
               className={`rounded px-2 py-1 text-xs ${
-                codexHealth?.task_execution_effective_provider === "sdk" ||
-                codexHealth?.one_shot_effective_provider === "sdk"
+                codexHealth?.task_execution_effective_provider === "sdk"
+                || codexHealth?.one_shot_effective_provider === "sdk"
                   ? "bg-green-100 text-green-700"
                   : "bg-slate-100 text-slate-700"
               }`}
@@ -449,7 +751,7 @@ export function SettingsPage() {
                 id="node-path-override"
                 value={nodePathOverride}
                 onChange={(event) => setNodePathOverride(event.target.value)}
-                placeholder="/opt/homebrew/bin/node"
+                placeholder={isRemoteMode ? "/usr/local/bin/node" : "/opt/homebrew/bin/node"}
                 disabled={healthLoading || sdkActionLoading !== null}
               />
               <p className="text-xs text-muted-foreground">
@@ -469,11 +771,9 @@ export function SettingsPage() {
               </p>
               <p>任务运行引擎：{taskProviderLabel}</p>
               <p>一次性 AI 引擎：{oneShotProviderLabel}</p>
-              <p>
-                一次性 AI 默认模型：{CODEX_MODEL_OPTIONS.find((option) => option.value === oneShotModel)?.label ?? oneShotModel}
-                {" / "}
-                推理：{REASONING_EFFORT_OPTIONS.find((option) => option.value === oneShotReasoningEffort)?.label ?? oneShotReasoningEffort}
-              </p>
+              {codexHealth?.checked_at && (
+                <p>检测时间：{formatDate(codexHealth.checked_at)}</p>
+              )}
               {codexHealth?.sdk_status_message && (
                 <p className="text-[11px] leading-5">{codexHealth.sdk_status_message}</p>
               )}
@@ -482,26 +782,26 @@ export function SettingsPage() {
             <div className="flex flex-wrap gap-2">
               <Button
                 onClick={() => void handleSaveSdkSettings()}
-                disabled={healthLoading || sdkActionLoading !== null}
+                disabled={healthLoading || sdkActionLoading !== null || (isRemoteMode && !selectedSshConfigId)}
               >
-                {sdkActionLoading === "save" ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : null}
+                {sdkActionLoading === "save" ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
                 保存配置
               </Button>
               <Button
                 variant="outline"
                 onClick={() => void handleInstallSdk()}
-                disabled={healthLoading || sdkActionLoading !== null}
+                disabled={
+                  healthLoading
+                  || sdkActionLoading !== null
+                  || (isRemoteMode && (!selectedSshConfigId || passwordAuthBlocked))
+                }
               >
-                {sdkActionLoading === "install" ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : null}
+                {sdkActionLoading === "install" ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
                 {installButtonLabel}
               </Button>
               <Button
                 variant="ghost"
-                onClick={() => void loadSettingsState()}
+                onClick={() => void loadRuntimeState()}
                 disabled={healthLoading || sdkActionLoading !== null}
               >
                 <RefreshCw className={`h-4 w-4 ${healthLoading ? "animate-spin" : ""}`} />
@@ -509,245 +809,307 @@ export function SettingsPage() {
               </Button>
             </div>
 
-            {sdkActionMessage && (
-              <p className="text-xs text-green-700">{sdkActionMessage}</p>
-            )}
-            {sdkActionError && (
-              <p className="text-xs text-destructive">{sdkActionError}</p>
-            )}
+            {sdkActionMessage && <p className="text-xs text-green-700">{sdkActionMessage}</p>}
+            {sdkActionError && <p className="text-xs text-destructive">{sdkActionError}</p>}
           </div>
         </div>
+      </div>
 
-        <div className="border-t border-border pt-4">
-          <div className="flex items-start justify-between gap-4">
-            <div className="space-y-1">
-              <h3 className="text-sm font-medium">自动质控</h3>
-              <p className="text-xs text-muted-foreground">
-                配置新建任务默认是否开启自动质控，以及自动修复失败后的收口策略。
-              </p>
+      <div className="space-y-4 rounded-lg border border-border bg-card p-4">
+        <div className="flex items-center justify-between gap-4">
+          <div>
+            <h3 className="text-sm font-medium">SSH 配置管理</h3>
+            <p className="text-xs text-muted-foreground">
+              支持多个 SSH 配置；SSH 项目会固定绑定其中一项配置和一个远程仓库目录。
+            </p>
+          </div>
+          <Button variant="outline" onClick={resetSshForm}>
+            <Plus className="mr-1 h-4 w-4" />
+            新建配置
+          </Button>
+        </div>
+
+        <div className="grid gap-4 lg:grid-cols-[18rem,1fr]">
+          <div className="space-y-2">
+            <div className="rounded-md border border-border">
+              {sshConfigsLoading ? (
+                <div className="flex h-28 items-center justify-center text-sm text-muted-foreground">
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  正在读取 SSH 配置...
+                </div>
+              ) : sshConfigs.length === 0 ? (
+                <div className="px-3 py-6 text-sm text-muted-foreground">
+                  当前还没有 SSH 配置。
+                </div>
+              ) : (
+                sshConfigs.map((config) => (
+                  <button
+                    key={config.id}
+                    type="button"
+                    onClick={() => {
+                      setSelectedSshConfigId(config.id);
+                      setEditingSshConfigId(config.id);
+                      setSshForm(buildSshConfigFormState(config));
+                      setSshFormError(null);
+                      setSshFormMessage(null);
+                    }}
+                    className={`w-full border-b border-border px-3 py-3 text-left last:border-b-0 ${
+                      selectedSshConfigId === config.id ? "bg-primary/5" : "hover:bg-muted/40"
+                    }`}
+                  >
+                    <div className="text-sm font-medium">{config.name}</div>
+                    <div className="mt-1 text-xs text-muted-foreground">
+                      {config.username}@{config.host}:{config.port}
+                    </div>
+                    <div className="mt-2 flex flex-wrap gap-2 text-[11px]">
+                      <span className="rounded bg-secondary px-1.5 py-0.5 text-secondary-foreground">
+                        {config.auth_type === "password" ? "密码登录" : "密钥登录"}
+                      </span>
+                      {config.last_checked_at && (
+                        <span className="rounded border border-border px-1.5 py-0.5 text-muted-foreground">
+                          检测于 {formatDate(config.last_checked_at)}
+                        </span>
+                      )}
+                    </div>
+                  </button>
+                ))
+              )}
             </div>
-            <span className="rounded bg-slate-100 px-2 py-1 text-xs text-slate-700">
-              原任务闭环
-            </span>
           </div>
 
-          <div className="mt-4 space-y-4">
-            <label className="flex items-start gap-3 rounded-md border border-border px-3 py-2">
-              <input
-                type="checkbox"
-                className="mt-0.5 h-4 w-4 rounded border-input"
-                checked={taskAutomationDefaultEnabled}
-                onChange={(event) => setTaskAutomationDefaultEnabled(event.target.checked)}
-                disabled={healthLoading || sdkActionLoading !== null}
-              />
-              <div className="space-y-1">
-                <p className="text-sm font-medium">新建任务默认开启自动质控</p>
+          <div className="space-y-3 rounded-md border border-border p-4">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <h4 className="text-sm font-medium">
+                  {editingSshConfigId ? "编辑 SSH 配置" : "新建 SSH 配置"}
+                </h4>
                 <p className="text-xs text-muted-foreground">
-                  开启后，新建任务会自动带上原任务内的审核/修复闭环配置。
+                  {editingSshConfigId ? "更新后会保留当前配置引用。" : "保存后可用于 SSH 项目和远程运行设置。"}
                 </p>
               </div>
-            </label>
+              {selectedSshConfig && (
+                <span className="rounded bg-secondary px-2 py-1 text-xs text-secondary-foreground">
+                  {selectedSshConfig.auth_type === "password" ? "密码认证" : "密钥认证"}
+                </span>
+              )}
+            </div>
 
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-2">
-                <label htmlFor="task-automation-max-fix-rounds" className="text-sm font-medium">
-                  最大自动修复轮次
-                </label>
+            <div className="grid gap-3 md:grid-cols-2">
+              <div>
+                <label className="text-xs font-medium text-muted-foreground">配置名称 *</label>
                 <Input
-                  id="task-automation-max-fix-rounds"
-                  type="number"
-                  min={1}
-                  max={10}
-                  value={taskAutomationMaxFixRounds}
-                  onChange={(event) => {
-                    const nextValue = Number.parseInt(event.target.value, 10);
-                    setTaskAutomationMaxFixRounds(Number.isFinite(nextValue) ? nextValue : 3);
-                  }}
-                  disabled={healthLoading || sdkActionLoading !== null}
+                  value={sshForm.name}
+                  onChange={(event) => setSshForm((current) => ({ ...current, name: event.target.value }))}
+                  placeholder="生产主机"
+                  className="mt-1"
                 />
-                <p className="text-xs text-muted-foreground">
-                  支持 1-10 轮，超过范围会自动回退为默认值 3。
-                </p>
               </div>
-
-              <div className="space-y-2">
-                <label className="text-sm font-medium">达到最大自动修复轮次后</label>
-                <Select<TaskAutomationFailureStrategy>
-                  value={taskAutomationFailureStrategy}
+              <div>
+                <label className="text-xs font-medium text-muted-foreground">主机 *</label>
+                <Input
+                  value={sshForm.host}
+                  onChange={(event) => setSshForm((current) => ({ ...current, host: event.target.value }))}
+                  placeholder="10.0.0.12"
+                  className="mt-1"
+                />
+              </div>
+              <div>
+                <label className="text-xs font-medium text-muted-foreground">端口</label>
+                <Input
+                  value={sshForm.port}
+                  onChange={(event) => setSshForm((current) => ({ ...current, port: event.target.value }))}
+                  placeholder="22"
+                  className="mt-1"
+                />
+              </div>
+              <div>
+                <label className="text-xs font-medium text-muted-foreground">用户名 *</label>
+                <Input
+                  value={sshForm.username}
+                  onChange={(event) => setSshForm((current) => ({ ...current, username: event.target.value }))}
+                  placeholder="deploy"
+                  className="mt-1"
+                />
+              </div>
+              <div>
+                <label className="text-xs font-medium text-muted-foreground">认证方式</label>
+                <Select<SshAuthType>
+                  value={sshForm.authType}
                   onValueChange={(value) => {
                     if (value) {
-                      setTaskAutomationFailureStrategy(
-                        normalizeTaskAutomationFailureStrategy(value),
-                      );
+                      setSshForm((current) => ({ ...current, authType: value }));
                     }
                   }}
-                  disabled={healthLoading || sdkActionLoading !== null}
                 >
-                  <SelectTrigger className="bg-background">
-                    <SelectValue>
-                      {(value) =>
-                        typeof value === "string"
-                          ? TASK_AUTOMATION_FAILURE_STRATEGY_OPTIONS.find(
-                              (option) => option.value === value,
-                            )?.label ?? value
-                          : "选择失败策略"
-                      }
-                    </SelectValue>
+                  <SelectTrigger className="mt-1 bg-background">
+                    <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    {TASK_AUTOMATION_FAILURE_STRATEGY_OPTIONS.map((option) => (
+                    <SelectItem value="key">密钥登录</SelectItem>
+                    <SelectItem value="password">账号密码登录</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <label className="text-xs font-medium text-muted-foreground">Known Hosts 策略</label>
+                <Select
+                  value={sshForm.knownHostsMode}
+                  onValueChange={(value) => setSshForm((current) => ({ ...current, knownHostsMode: value ?? "accept-new" }))}
+                >
+                  <SelectTrigger className="mt-1 bg-background">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {KNOWN_HOSTS_OPTIONS.map((option) => (
                       <SelectItem key={option.value} value={option.value}>
                         {option.label}
                       </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
-                <p className="text-xs text-muted-foreground">
-                  审核未通过会优先继续自动修复；只有达到最大自动修复轮次后，才会按这里的策略收口。
-                </p>
               </div>
             </div>
 
-            <div className="grid gap-2 rounded-md border border-border px-3 py-3 text-xs text-muted-foreground">
-              <p>
-                新建任务默认自动质控：
-                {taskAutomationDefaultEnabled ? "开启" : "关闭"}
-              </p>
-              <p>最大自动修复轮次：{taskAutomationMaxFixRounds}</p>
-              <p>
-                最终失败后：
-                {TASK_AUTOMATION_FAILURE_STRATEGY_OPTIONS.find(
-                  (option) => option.value === taskAutomationFailureStrategy,
-                )?.label ?? "转阻塞"}
-              </p>
-            </div>
+            {sshForm.authType === "key" ? (
+              <div className="grid gap-3 md:grid-cols-2">
+                <div>
+                  <label className="text-xs font-medium text-muted-foreground">私钥路径 *</label>
+                  <Input
+                    value={sshForm.privateKeyPath}
+                    onChange={(event) => setSshForm((current) => ({ ...current, privateKeyPath: event.target.value }))}
+                    placeholder="~/.ssh/id_ed25519"
+                    className="mt-1"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-muted-foreground">Passphrase（可选）</label>
+                  <Input
+                    type="password"
+                    value={sshForm.passphrase}
+                    onChange={(event) => setSshForm((current) => ({ ...current, passphrase: event.target.value }))}
+                    placeholder={selectedSshConfig?.passphrase_configured ? "留空表示保持现有 passphrase" : "可选"}
+                    className="mt-1"
+                  />
+                </div>
+              </div>
+            ) : (
+              <div className="grid gap-3 md:grid-cols-2">
+                <div>
+                  <label className="text-xs font-medium text-muted-foreground">密码</label>
+                  <Input
+                    type="password"
+                    value={sshForm.password}
+                    onChange={(event) => setSshForm((current) => ({ ...current, password: event.target.value }))}
+                    placeholder={selectedSshConfig?.password_configured ? "留空表示保持现有密码" : "输入登录密码"}
+                    className="mt-1"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-muted-foreground">Passphrase（可选）</label>
+                  <Input
+                    type="password"
+                    value={sshForm.passphrase}
+                    onChange={(event) => setSshForm((current) => ({ ...current, passphrase: event.target.value }))}
+                    placeholder={selectedSshConfig?.passphrase_configured ? "留空表示保持现有 passphrase" : "可选"}
+                    className="mt-1"
+                  />
+                </div>
+              </div>
+            )}
+
+            {selectedSshConfig && (
+              <div className="rounded-md border border-border bg-muted/30 px-3 py-3 text-xs text-muted-foreground">
+                <div className="font-medium text-foreground">当前配置状态</div>
+                <div className="mt-1">主机：{selectedSshConfigSummary}</div>
+                <div className="mt-1">
+                  密码探测：
+                  {selectedSshConfig.password_probe_status
+                    ? ` ${selectedSshConfig.password_probe_status}`
+                    : " 未检测"}
+                </div>
+                {selectedSshConfig.password_probe_message && (
+                  <div className="mt-1">{selectedSshConfig.password_probe_message}</div>
+                )}
+                {selectedSshConfig.last_check_message && (
+                  <div className="mt-1">{selectedSshConfig.last_check_message}</div>
+                )}
+              </div>
+            )}
 
             <div className="flex flex-wrap gap-2">
-              <Button
-                onClick={() => void handleSaveSdkSettings()}
-                disabled={healthLoading || sdkActionLoading !== null}
-              >
-                {sdkActionLoading === "save" ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : null}
-                保存配置
-              </Button>
-            </div>
-          </div>
-        </div>
-
-        <div className="border-t border-border pt-4">
-          <div>
-            <h3 className="text-sm font-medium">数据存储</h3>
-            <p className="text-xs text-muted-foreground">
-              所有数据存储在本地 SQLite 数据库中，无需网络连接
-            </p>
-            <div className="mt-3 grid gap-2 rounded-md border border-border px-3 py-3 text-xs text-muted-foreground">
-              <p>
-                当前数据版本：
-                {codexHealth?.database_current_version != null
-                  ? `v${codexHealth.database_current_version}`
-                  : "检测中"}
-              </p>
-              <p>
-                当前应用支持的最新版本：
-                {codexHealth ? `v${codexHealth.database_latest_version}` : "检测中"}
-              </p>
-              <p>
-                最近一次迁移：
-                {codexHealth?.database_current_description ?? "暂无"}
-              </p>
-              {codexHealth?.database_path && (
-                <p className="break-all">数据库：{codexHealth.database_path}</p>
-              )}
-            </div>
-
-            <div className="mt-3 flex flex-wrap gap-2">
-              <Button
-                variant="outline"
-                onClick={() => void handleOpenDatabaseFolder()}
-                disabled={
-                  !isTauriRuntime ||
-                  !codexHealth?.database_path ||
-                  healthLoading ||
-                  databaseActionLoading !== null
-                }
-                title={openDatabaseFolderTitle}
-              >
-                {databaseActionLoading === "open-folder" ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <FolderOpen className="h-4 w-4" />
-                )}
-                打开文件夹
+              <Button onClick={() => void handleSaveSshConfig()} disabled={sshFormLoading !== null}>
+                {sshFormLoading === "save" ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                {editingSshConfigId ? "保存 SSH 配置" : "创建 SSH 配置"}
               </Button>
               <Button
                 variant="outline"
-                onClick={() => void handleBackupDatabase()}
-                disabled={!isTauriRuntime || healthLoading || databaseActionLoading !== null}
-                title={isTauriRuntime ? "导出 SQL 备份" : "仅桌面端支持导出 SQL 备份"}
+                onClick={() => void handleRunPasswordProbe()}
+                disabled={sshFormLoading !== null || !selectedSshConfigId || selectedSshConfig?.auth_type !== "password"}
               >
-                {databaseActionLoading === "backup" ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <Download className="h-4 w-4" />
-                )}
-                导出 SQL
+                {sshFormLoading === "probe" ? <Loader2 className="h-4 w-4 animate-spin" /> : <ServerCog className="h-4 w-4" />}
+                探测密码认证
               </Button>
               <Button
-                variant="outline"
-                onClick={() => void handleRestoreDatabase()}
-                disabled={!isTauriRuntime || healthLoading || databaseActionLoading !== null}
-                title={isTauriRuntime ? "导入 SQL 备份" : "仅桌面端支持导入 SQL 备份"}
+                variant="destructive"
+                onClick={() => void handleDeleteSshConfig()}
+                disabled={sshFormLoading !== null || !editingSshConfigId}
               >
-                {databaseActionLoading === "restore" ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <Upload className="h-4 w-4" />
-                )}
-                导入 SQL
+                {sshFormLoading === "delete" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+                删除配置
               </Button>
             </div>
 
-            {databaseActionMessage && (
-              <p className="mt-2 text-xs text-green-700">{databaseActionMessage}</p>
-            )}
-            {databaseActionError && (
-              <p className="mt-2 text-xs text-destructive">{databaseActionError}</p>
-            )}
-          </div>
-        </div>
-
-        <div className="border-t border-border pt-4">
-          <h3 className="mb-2 text-sm font-medium">键盘快捷键</h3>
-          <div className="space-y-1 text-xs text-muted-foreground">
-            <div className="flex justify-between">
-              <span>跳转到看板</span>
-              <kbd className="rounded bg-secondary px-1.5 py-0.5 text-[10px]">⌘N</kbd>
-            </div>
-            <div className="flex justify-between">
-              <span>跳转到员工</span>
-              <kbd className="rounded bg-secondary px-1.5 py-0.5 text-[10px]">⌘E</kbd>
-            </div>
-            <div className="flex justify-between">
-              <span>跳转到仪表盘</span>
-              <kbd className="rounded bg-secondary px-1.5 py-0.5 text-[10px]">⌘D</kbd>
-            </div>
-            <div className="flex justify-between">
-              <span>跳转到项目</span>
-              <kbd className="rounded bg-secondary px-1.5 py-0.5 text-[10px]">⌘P</kbd>
-            </div>
+            {sshFormMessage && <p className="text-xs text-green-700">{sshFormMessage}</p>}
+            {sshFormError && <p className="text-xs text-destructive">{sshFormError}</p>}
           </div>
         </div>
       </div>
 
-      <div className="rounded-lg border border-border bg-card p-4">
-        <h3 className="mb-2 text-sm font-medium">关于</h3>
-        <div className="space-y-1 text-xs text-muted-foreground">
-          <p>AI员工协作系统 v0.1.0</p>
-          <p>基于 Tauri 2.0 + React 19 + SQLite</p>
-          <p>技术栈：TypeScript, TailwindCSS, shadcn/ui, Zustand, @dnd-kit</p>
+      <div className="space-y-4 rounded-lg border border-border bg-card p-4">
+        <div>
+          <h3 className="text-sm font-medium">数据库维护</h3>
+          <p className="text-xs text-muted-foreground">
+            数据库仍保留在本地；SSH 模式只切换执行上下文，不切换数据库位置。
+          </p>
         </div>
+
+        <div className="grid gap-2 rounded-md border border-border px-3 py-3 text-xs text-muted-foreground">
+          <p className="break-all">数据库路径：{codexHealth?.database_path ?? "检测中"}</p>
+          <p>当前版本：{codexHealth?.database_current_version ?? "未知"}</p>
+          <p>最新版本：{codexHealth?.database_latest_version ?? "未知"}</p>
+          {codexHealth?.database_current_description && <p>{codexHealth.database_current_description}</p>}
+        </div>
+
+        <div className="flex flex-wrap gap-2">
+          <Button
+            variant="outline"
+            onClick={() => void handleBackupDatabase()}
+            disabled={databaseActionLoading !== null}
+          >
+            {databaseActionLoading === "backup" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+            导出 SQL
+          </Button>
+          <Button
+            variant="outline"
+            onClick={() => void handleRestoreDatabase()}
+            disabled={databaseActionLoading !== null}
+          >
+            {databaseActionLoading === "restore" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
+            导入 SQL
+          </Button>
+          <Button
+            variant="ghost"
+            onClick={() => void handleOpenDatabaseFolder()}
+            disabled={databaseActionLoading !== null || !isTauriRuntime || !codexHealth?.database_path}
+            title={openDatabaseFolderTitle}
+          >
+            {databaseActionLoading === "open-folder" ? <Loader2 className="h-4 w-4 animate-spin" /> : <FolderOpen className="h-4 w-4" />}
+            打开数据库目录
+          </Button>
+        </div>
+
+        {databaseActionMessage && <p className="text-xs text-green-700">{databaseActionMessage}</p>}
+        {databaseActionError && <p className="text-xs text-destructive">{databaseActionError}</p>}
       </div>
     </div>
   );

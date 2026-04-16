@@ -6,7 +6,7 @@ import { EditProjectDialog } from "./EditProjectDialog";
 import { DeleteProjectDialog } from "./DeleteProjectDialog";
 
 export function ProjectList() {
-  const { projects, fetchProjects, deleteProject } = useProjectStore();
+  const { projects, environmentMode, fetchProjects, deleteProject } = useProjectStore();
   const [filter, setFilter] = useState<string>("all");
   const [editingProject, setEditingProject] = useState<Project | null>(null);
   const [deletingProject, setDeletingProject] = useState<Project | null>(null);
@@ -67,7 +67,11 @@ export function ProjectList() {
 
       {filtered.length === 0 && (
         <div className="text-center py-12 text-muted-foreground text-sm">
-          {filter === "all" ? "暂无项目" : `没有${filter === "active" ? "活跃" : "归档"}项目`}
+          {filter === "all"
+            ? environmentMode === "ssh"
+              ? "当前 SSH 视图还没有项目，请先创建 SSH 项目。"
+              : "暂无项目"
+            : `没有${filter === "active" ? "活跃" : "归档"}项目`}
         </div>
       )}
 

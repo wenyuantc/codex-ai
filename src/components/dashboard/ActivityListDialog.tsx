@@ -12,6 +12,7 @@ import {
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { formatDate, getActivityActionLabel, getActivityDetailsLabel } from "@/lib/utils";
 import { ChevronLeft, ChevronRight } from "lucide-react";
+import type { EnvironmentMode } from "@/lib/types";
 
 const PAGE_SIZE = 20;
 
@@ -19,6 +20,7 @@ interface ActivityListDialogProps {
   open: boolean;
   projectId?: string;
   projectName?: string | null;
+  environmentMode: EnvironmentMode;
   onOpenChange: (open: boolean) => void;
 }
 
@@ -26,6 +28,7 @@ export function ActivityListDialog({
   open,
   projectId,
   projectName,
+  environmentMode,
   onOpenChange,
 }: ActivityListDialogProps) {
   const fetchActivitiesPage = useDashboardStore((state) => state.fetchActivitiesPage);
@@ -53,7 +56,7 @@ export function ActivityListDialog({
     let active = true;
     setLoading(true);
 
-    void fetchActivitiesPage(page, PAGE_SIZE, projectId)
+    void fetchActivitiesPage(environmentMode, page, PAGE_SIZE, projectId)
       .then((result) => {
         if (!active) {
           return;
@@ -85,7 +88,7 @@ export function ActivityListDialog({
     return () => {
       active = false;
     };
-  }, [fetchActivitiesPage, open, page, projectId]);
+  }, [environmentMode, fetchActivitiesPage, open, page, projectId]);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>

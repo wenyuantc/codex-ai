@@ -12,6 +12,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import type { CodexSessionListItem } from "@/lib/types";
+import { getProjectWorkingDir } from "@/lib/projects";
 import { useProjectStore } from "@/stores/projectStore";
 
 interface SessionContinueDialogProps {
@@ -71,14 +72,14 @@ export function SessionContinueDialog({
       scene: "session_continue",
       projectName: currentProject.name,
       projectDescription: currentProject.description,
-      projectRepoPath: currentProject.repo_path,
+      projectRepoPath: getProjectWorkingDir(currentProject),
       title: null,
       description: null,
       currentPrompt: prompt,
       taskTitle: session.task_title,
       sessionSummary: session.summary ?? session.content_preview ?? session.display_name,
       taskId: session.task_id,
-      workingDir: session.working_dir ?? currentProject.repo_path ?? null,
+      workingDir: session.working_dir ?? getProjectWorkingDir(currentProject),
     });
   };
 

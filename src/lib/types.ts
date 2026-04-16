@@ -1,9 +1,40 @@
+export type ProjectType = "local" | "ssh";
+export type EnvironmentMode = ProjectType;
+export type SshAuthType = "key" | "password";
+export type ArtifactCaptureMode = "local_full" | "ssh_git_status" | "ssh_none";
+export type SshPasswordProbeStatus = "unknown" | "supported" | "unsupported" | "failed";
+
 export interface Project {
   id: string;
   name: string;
   description: string | null;
   status: string;
   repo_path: string | null;
+  project_type: ProjectType;
+  ssh_config_id: string | null;
+  remote_repo_path: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SshConfig {
+  id: string;
+  name: string;
+  host: string;
+  port: number;
+  username: string;
+  auth_type: SshAuthType;
+  private_key_path: string | null;
+  known_hosts_mode: string;
+  password_configured: boolean;
+  passphrase_configured: boolean;
+  password_probe_status: SshPasswordProbeStatus | null;
+  password_probe_message: string | null;
+  password_execution_allowed: boolean;
+  password_auth_available?: boolean;
+  last_checked_at: string | null;
+  last_check_status: string | null;
+  last_check_message: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -112,6 +143,10 @@ export interface CodexSessionRecord {
   ended_at: string | null;
   exit_code: number | null;
   resume_session_id: string | null;
+  execution_target: EnvironmentMode;
+  ssh_config_id: string | null;
+  target_host_label: string | null;
+  artifact_capture_mode: ArtifactCaptureMode;
   created_at: string;
 }
 
@@ -197,6 +232,10 @@ export interface CodexSessionListItem {
   project_id: string | null;
   project_name: string | null;
   working_dir: string | null;
+  execution_target: EnvironmentMode;
+  ssh_config_id: string | null;
+  target_host_label: string | null;
+  artifact_capture_mode: ArtifactCaptureMode;
   resume_status: CodexSessionResumeStatus;
   resume_message: string | null;
   can_resume: boolean;
@@ -242,6 +281,13 @@ export interface CodexHealthCheck {
   database_latest_version: number;
   shell_available: boolean;
   last_session_error: string | null;
+  execution_target?: EnvironmentMode;
+  target_host_label?: string | null;
+  ssh_config_id?: string | null;
+  password_probe_status?: SshPasswordProbeStatus | null;
+  password_probe_message?: string | null;
+  password_execution_allowed?: boolean;
+  password_auth_available?: boolean;
   checked_at: string;
 }
 
@@ -263,12 +309,40 @@ export interface CodexSettings {
   one_shot_preferred_provider: string;
 }
 
+export type RemoteCodexSettings = CodexSettings;
+
+export interface SshPasswordProbeResult {
+  ssh_config_id: string;
+  target_host_label?: string | null;
+  auth_type?: SshAuthType;
+  status: SshPasswordProbeStatus;
+  execution_allowed: boolean;
+  supported?: boolean;
+  message: string;
+  checked_at: string;
+}
+
+export interface RemoteCodexHealthCheck extends CodexHealthCheck {
+  execution_target: "ssh";
+  ssh_config_id: string;
+  target_host_label: string | null;
+  password_probe_status: SshPasswordProbeStatus | null;
+  password_probe_message: string | null;
+  password_execution_allowed: boolean;
+}
+
 export interface CodexSdkInstallResult {
   sdk_installed: boolean;
   sdk_version: string | null;
   install_dir: string;
   node_version: string | null;
   message: string;
+}
+
+export interface RemoteCodexSdkInstallResult extends CodexSdkInstallResult {
+  execution_target: "ssh";
+  ssh_config_id: string;
+  target_host_label: string | null;
 }
 
 export interface DatabaseBackupResult {

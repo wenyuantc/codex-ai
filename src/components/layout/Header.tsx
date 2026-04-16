@@ -1,5 +1,5 @@
-import { useLocation } from "react-router-dom";
-import { Moon, Sun } from "lucide-react";
+import { useLocation, useNavigate } from "react-router-dom";
+import { Laptop, Moon, ServerCog, Sun } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useProjectStore } from "@/stores/projectStore";
 import {
@@ -16,6 +16,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Button } from "@/components/ui/button";
+import { getEnvironmentModeLabel } from "@/lib/projects";
 
 const ALL_PROJECTS_VALUE = "__all_projects__";
 
@@ -24,19 +26,31 @@ const pageTitles: Record<string, string> = {
   "/projects": "项目管理",
   "/kanban": "任务看板",
   "/employees": "员工管理",
+  "/sessions": "Session 管理",
   "/settings": "系统设置",
 };
 
 export function Header() {
   const location = useLocation();
+  const navigate = useNavigate();
   const title = pageTitles[location.pathname] || "AI员工协作系统";
-  const { projects, currentProject, setCurrentProject, fetchProjects } = useProjectStore();
+  const {
+    projects,
+    currentProject,
+    environmentMode,
+    sshConfigs,
+    setCurrentProject,
+    setEnvironmentMode,
+    fetchProjects,
+    fetchSshConfigs,
+  } = useProjectStore();
   const [themeMode, setThemeMode] = useState<ThemeMode>(getThemePreference);
   const dark = isDarkThemeMode(themeMode);
 
   useEffect(() => {
-    fetchProjects();
-  }, [fetchProjects]);
+    void fetchProjects();
+    void fetchSshConfigs();
+  }, [fetchProjects, fetchSshConfigs]);
 
   useEffect(() => {
     const nextMode = getThemePreference();
@@ -51,15 +65,55 @@ export function Header() {
     return () => window.removeEventListener(THEME_CHANGE_EVENT, handleThemeChange);
   }, []);
 
+  useEffect(() => {
+    if (environmentMode === "ssh" && sshConfigs.length === 0 && location.pathname !== "/settings") {
+      navigate("/settings");
+    }
+  }, [environmentMode, location.pathname, navigate, sshConfigs.length]);
+
   const toggleTheme = () => {
     const nextMode: ThemeMode = dark ? "light" : "dark";
     setThemeMode(nextMode);
     applyTheme(nextMode);
   };
 
+  const handleEnvironmentModeChange = async (nextMode: "local" | "ssh") => {
+    const result = await setEnvironmentMode(nextMode);
+    if (result.redirectToSettings) {
+      navigate("/settings");
+    }
+  };
+
   return (
     <header className="flex items-center justify-between h-14 px-6 border-b border-border bg-background">
-      <h1 className="text-lg font-semibold">{title}</h1>
+      <div className="flex flex-col gap-1">
+        <h1 className="text-lg font-semibold">{title}</h1>
+        <div className="flex items-center gap-2">
+          <span className="text-[11px] text-muted-foreground">{getEnvironmentModeLabel(environmentMode)}</span>
+          <div className="inline-flex rounded-md border border-border bg-muted/30 p-0.5">
+            <Button
+              type="button"
+              variant={environmentMode === "local" ? "default" : "ghost"}
+              size="sm"
+              className="h-7 gap-1.5 px-2 text-xs"
+              onClick={() => void handleEnvironmentModeChange("local")}
+            >
+              <Laptop className="h-3.5 w-3.5" />
+              本地
+            </Button>
+            <Button
+              type="button"
+              variant={environmentMode === "ssh" ? "default" : "ghost"}
+              size="sm"
+              className="h-7 gap-1.5 px-2 text-xs"
+              onClick={() => void handleEnvironmentModeChange("ssh")}
+            >
+              <ServerCog className="h-3.5 w-3.5" />
+              SSH
+            </Button>
+          </div>
+        </div>
+      </div>
 
       <div className="flex items-center gap-4">
         {projects.length > 0 && (

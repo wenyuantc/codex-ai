@@ -9,6 +9,8 @@ import { Plus } from "lucide-react";
 export function KanbanPage() {
   const { fetchTasks } = useTaskStore();
   const currentProjectId = useProjectStore((state) => state.currentProject?.id);
+  const projects = useProjectStore((state) => state.projects);
+  const environmentMode = useProjectStore((state) => state.environmentMode);
   const { fetchEmployees } = useEmployeeStore();
   const [showCreateDialog, setShowCreateDialog] = useState(false);
 
@@ -19,6 +21,8 @@ export function KanbanPage() {
   useEffect(() => {
     void fetchTasks(currentProjectId);
   }, [currentProjectId, fetchTasks]);
+
+  const hasProjects = projects.length > 0;
 
   return (
     <div className="h-full flex flex-col">
@@ -33,7 +37,15 @@ export function KanbanPage() {
         </button>
       </div>
       <div className="flex-1 overflow-hidden">
-        <KanbanBoard projectId={currentProjectId} />
+        {hasProjects ? (
+          <KanbanBoard projectId={currentProjectId} />
+        ) : (
+          <div className="flex h-full items-center justify-center rounded-lg border border-dashed border-border text-sm text-muted-foreground">
+            {environmentMode === "ssh"
+              ? "当前 SSH 视图还没有项目，请先到项目管理创建 SSH 项目。"
+              : "当前没有可展示的本地项目。"}
+          </div>
+        )}
       </div>
       {showCreateDialog && (
         <CreateTaskDialog

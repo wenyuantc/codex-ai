@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useProjectStore } from "@/stores/projectStore";
-import type { Project } from "@/lib/types";
+import type { Project, ProjectType } from "@/lib/types";
 import {
   Dialog,
   DialogContent,
@@ -26,33 +26,52 @@ interface EditProjectDialogProps {
 }
 
 export function EditProjectDialog({ open, onOpenChange, project }: EditProjectDialogProps) {
-  const { updateProject } = useProjectStore();
+  const { updateProject, sshConfigs, fetchSshConfigs } = useProjectStore();
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
+  const [projectType, setProjectType] = useState<ProjectType>("local");
   const [repoPath, setRepoPath] = useState("");
+  const [sshConfigId, setSshConfigId] = useState("");
+  const [remoteRepoPath, setRemoteRepoPath] = useState("");
   const [status, setStatus] = useState("active");
   const [saving, setSaving] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   useEffect(() => {
     if (open && project) {
+      void fetchSshConfigs();
       setName(project.name);
       setDescription(project.description ?? "");
+      setProjectType(project.project_type);
       setRepoPath(project.repo_path ?? "");
+      setSshConfigId(project.ssh_config_id ?? "");
+      setRemoteRepoPath(project.remote_repo_path ?? "");
       setStatus(project.status);
       setErrorMessage(null);
     }
-  }, [open, project]);
+  }, [fetchSshConfigs, open, project]);
 
   const handleSave = async () => {
     if (!name.trim() || !project) return;
+    if (projectType === "local" && !repoPath.trim()) {
+      setErrorMessage("本地项目必须填写本地仓库路径。");
+      return;
+    }
+    if (projectType === "ssh" && (!sshConfigId || !remoteRepoPath.trim())) {
+      setErrorMessage("SSH 项目必须选择 SSH 配置并填写远程仓库目录。");
+      return;
+    }
+
     setSaving(true);
     setErrorMessage(null);
     try {
       await updateProject(project.id, {
         name: name.trim(),
         description: description.trim() || null,
-        repo_path: repoPath.trim() || null,
+        project_type: projectType,
+        repo_path: projectType === "local" ? repoPath.trim() || null : null,
+        ssh_config_id: projectType === "ssh" ? sshConfigId : null,
+        remote_repo_path: projectType === "ssh" ? remoteRepoPath.trim() || null : null,
         status,
       });
       onOpenChange(false);
@@ -91,7 +110,64 @@ export function EditProjectDialog({ open, onOpenChange, project }: EditProjectDi
             />
           </div>
 
-          <RepoPathField value={repoPath} onChange={setRepoPath} />
+          <div>
+            <label className="text-xs font-medium text-muted-foreground">项目类型 *</label>
+            <Select
+              value={projectType}
+              onValueChange={(value) => {
+                setProjectType(value === "ssh" ? "ssh" : "local");
+                setErrorMessage(null);
+              }}
+            >
+              <SelectTrigger className="mt-1">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="local">本地项目</SelectItem>
+                <SelectItem value="ssh">SSH 项目</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          {projectType === "local" ? (
+            <RepoPathField value={repoPath} onChange={setRepoPath} />
+          ) : (
+            <>
+              <div>
+                <label className="text-xs font-medium text-muted-foreground">SSH 配置 *</label>
+                <Select
+                  value={sshConfigId || null}
+                  onValueChange={(value) => {
+                    setSshConfigId(value ?? "");
+                    setErrorMessage(null);
+                  }}
+                >
+                  <SelectTrigger className="mt-1 bg-background">
+                    <SelectValue placeholder="选择 SSH 配置">
+                      {(value) => sshConfigs.find((config) => config.id === value)?.name ?? "选择 SSH 配置"}
+                    </SelectValue>
+                  </SelectTrigger>
+                  <SelectContent>
+                    {sshConfigs.map((config) => (
+                      <SelectItem key={config.id} value={config.id}>
+                        {config.name} ({config.username}@{config.host})
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div>
+                <label className="text-xs font-medium text-muted-foreground">远程仓库目录 *</label>
+                <Input
+                  value={remoteRepoPath}
+                  onChange={(e) => setRemoteRepoPath(e.target.value)}
+                  placeholder="/srv/repos/my-project"
+                  className="mt-1"
+                />
+              </div>
+            </>
+          )}
 
           <div>
             <label className="text-xs font-medium text-muted-foreground">状态</label>
@@ -126,7 +202,11 @@ export function EditProjectDialog({ open, onOpenChange, project }: EditProjectDi
             </button>
             <button
               onClick={handleSave}
-              disabled={!name.trim() || saving}
+              disabled={
+                saving
+                || !name.trim()
+                || (projectType === "local" ? !repoPath.trim() : (!sshConfigId || !remoteRepoPath.trim()))
+              }
               className="px-3 py-1.5 text-sm bg-primary text-primary-foreground rounded-md hover:bg-primary/90 disabled:opacity-50"
             >
               {saving ? "保存中..." : "保存"}

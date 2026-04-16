@@ -4,6 +4,8 @@ import type { EmployeeMetric } from "@/lib/types";
 import { useProjectStore } from "@/stores/projectStore";
 import { Card } from "@/components/ui/card";
 import { BarChart3 } from "lucide-react";
+import { normalizeProject, projectMatchesEnvironment } from "@/lib/projects";
+import type { Project } from "@/lib/types";
 
 interface PerformanceRow {
   employee_id: string;
@@ -16,32 +18,44 @@ interface PerformanceRow {
 interface EmployeeLookup {
   id: string;
   name: string;
+  project_id: string | null;
 }
 
 export function EmployeePerformanceChart() {
   const [data, setData] = useState<PerformanceRow[]>([]);
   const [period, setPeriod] = useState<"7" | "30" | "90">("30");
   const currentProjectId = useProjectStore((state) => state.currentProject?.id);
+  const environmentMode = useProjectStore((state) => state.environmentMode);
 
   useEffect(() => {
-    void fetchData(period, currentProjectId);
-  }, [currentProjectId, period]);
+    void fetchData(period, currentProjectId, environmentMode);
+  }, [currentProjectId, environmentMode, period]);
 
-  const fetchData = async (days: string, projectId?: string) => {
+  const fetchData = async (days: string, projectId?: string, nextEnvironmentMode?: "local" | "ssh") => {
     try {
-      const metrics = await select<EmployeeMetric>(
-        `SELECT * FROM employee_metrics 
-         WHERE period_start >= datetime('now', '-${days} days') 
-         ORDER BY tasks_completed DESC`
+      const [metrics, employees, projects] = await Promise.all([
+        select<EmployeeMetric>(
+          `SELECT * FROM employee_metrics
+           WHERE period_start >= datetime('now', '-${days} days')
+           ORDER BY tasks_completed DESC`
+        ),
+        select<EmployeeLookup>("SELECT id, name, project_id FROM employees"),
+        select<Project>("SELECT * FROM projects"),
+      ]);
+      const visibleProjectIds = new Set(
+        projects
+          .map((project) => normalizeProject(project))
+          .filter((project) => projectMatchesEnvironment(project, nextEnvironmentMode ?? "local"))
+          .map((project) => project.id),
       );
-      const employees = projectId
-        ? await select<EmployeeLookup>(
-            "SELECT id, name FROM employees WHERE project_id = $1",
-            [projectId]
-          )
-        : await select<EmployeeLookup>("SELECT id, name FROM employees");
+      const filteredEmployees = employees.filter((employee) => {
+        if (!projectId) {
+          return employee.project_id ? visibleProjectIds.has(employee.project_id) : false;
+        }
+        return employee.project_id === projectId;
+      });
 
-      const empMap = new Map(employees.map((e) => [e.id, e.name]));
+      const empMap = new Map(filteredEmployees.map((e) => [e.id, e.name]));
 
       // Aggregate by employee
       const aggregated = new Map<string, PerformanceRow>();

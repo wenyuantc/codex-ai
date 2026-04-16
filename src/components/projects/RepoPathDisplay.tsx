@@ -1,12 +1,15 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Check, Copy, GitBranch, Link2Off } from "lucide-react";
+import { Check, Copy, GitBranch, Link2Off, ServerCog } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { normalizeProjectType } from "@/lib/projects";
+import type { ProjectType } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 interface RepoPathDisplayProps {
   repoPath?: string | null;
+  projectType?: ProjectType | null;
   compact?: boolean;
   showCopyAction?: boolean;
   className?: string;
@@ -14,6 +17,7 @@ interface RepoPathDisplayProps {
 
 export function RepoPathDisplay({
   repoPath,
+  projectType,
   compact = false,
   showCopyAction = false,
   className,
@@ -21,6 +25,9 @@ export function RepoPathDisplay({
   const [copied, setCopied] = useState(false);
   const resetTimerRef = useRef<number | null>(null);
   const fullPath = useMemo(() => repoPath?.trim() || "", [repoPath]);
+  const normalizedProjectType = normalizeProjectType(projectType);
+  const configuredLabel = normalizedProjectType === "ssh" ? "远程仓库" : "本地仓库";
+  const emptyLabel = normalizedProjectType === "ssh" ? "未配置远程仓库" : "未配置仓库路径";
   const canCopy =
     showCopyAction &&
     typeof navigator !== "undefined" &&
@@ -64,8 +71,8 @@ export function RepoPathDisplay({
         >
           {fullPath ? (
             <>
-              <GitBranch className="h-3 w-3" />
-              Git 仓库
+              {normalizedProjectType === "ssh" ? <ServerCog className="h-3 w-3" /> : <GitBranch className="h-3 w-3" />}
+              {configuredLabel}
             </>
           ) : (
             <>
@@ -77,9 +84,9 @@ export function RepoPathDisplay({
 
         <code
           className="mt-1 block min-w-0 truncate text-[11px] text-muted-foreground"
-          title={fullPath || "未配置仓库路径"}
+          title={fullPath || emptyLabel}
         >
-          {fullPath || "未配置仓库路径"}
+          {fullPath || emptyLabel}
         </code>
       </div>
     );
@@ -96,8 +103,8 @@ export function RepoPathDisplay({
       >
         {fullPath ? (
           <>
-            <GitBranch className="h-3 w-3" />
-            Git 仓库
+            {normalizedProjectType === "ssh" ? <ServerCog className="h-3 w-3" /> : <GitBranch className="h-3 w-3" />}
+            {configuredLabel}
           </>
         ) : (
           <>
@@ -112,9 +119,9 @@ export function RepoPathDisplay({
           "min-w-0 flex-1 truncate text-muted-foreground",
           "text-xs"
         )}
-        title={fullPath || "未配置仓库路径"}
+        title={fullPath || emptyLabel}
       >
-        {fullPath || "未配置仓库路径"}
+        {fullPath || emptyLabel}
       </code>
 
       {canCopy ? (
