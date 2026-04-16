@@ -21,8 +21,8 @@ use crate::db::models::{
     CodexHealthCheck, CodexRuntimeStatus, CodexSessionFileChange, CodexSessionFileChangeInput,
     CodexSessionListItem, CodexSessionLogLine, CodexSessionRecord, CodexSessionResumePreview,
     Comment, CreateComment, CreateEmployee, CreateProject, CreateSubtask, CreateTask,
-    DatabaseBackupResult, DatabaseRestoreResult, Employee, EmployeeMetric, Project, Subtask,
-    Task, TaskAttachment, TaskExecutionChangeHistoryItem, TaskLatestReview, UpdateEmployee,
+    DatabaseBackupResult, DatabaseRestoreResult, Employee, EmployeeMetric, Project, Subtask, Task,
+    TaskAttachment, TaskExecutionChangeHistoryItem, TaskLatestReview, UpdateEmployee,
     UpdateProject, UpdateTask,
 };
 
@@ -1167,10 +1167,8 @@ pub async fn get_codex_session_log_lines<R: Runtime>(
         .into_iter()
         .filter_map(|(event_id, event_type, message)| {
             message.and_then(|value| {
-                format_session_log_line(&event_type, &value).map(|line| CodexSessionLogLine {
-                    event_id,
-                    line,
-                })
+                format_session_log_line(&event_type, &value)
+                    .map(|line| CodexSessionLogLine { event_id, line })
             })
         })
         .collect())

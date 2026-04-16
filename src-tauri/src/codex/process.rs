@@ -1778,10 +1778,14 @@ pub async fn start_codex(
             } else {
                 "session_failed"
             };
-            session_event_id =
-                insert_codex_session_event_with_id(&pool, &session_record_id, event_type, Some(&message))
-                    .await
-                    .ok();
+            session_event_id = insert_codex_session_event_with_id(
+                &pool,
+                &session_record_id,
+                event_type,
+                Some(&message),
+            )
+            .await
+            .ok();
             if session_kind == CodexSessionKind::Review {
                 let raw_output = captured_output_for_exit
                     .as_ref()

@@ -3,6 +3,7 @@ mod codex;
 mod db;
 mod tray;
 mod window_event;
+mod window_state;
 
 use std::sync::{Arc, Mutex};
 
@@ -25,9 +26,13 @@ pub fn run() {
         .setup(|app| {
             tray::create_tray(app)?;
             app.manage(Arc::new(Mutex::new(CodexManager::new())));
+            let app_handle = app.handle().clone();
+            if let Err(error) = window_state::restore_main_window_size(&app_handle) {
+                eprintln!("恢复主窗口尺寸失败: {error}");
+            }
 
             if cfg!(debug_assertions) {
-                let app_handle = app.handle().clone();
+                let app_handle = app_handle.clone();
                 tauri::async_runtime::block_on(async move {
                     app::log_database_startup_status(&app_handle).await;
                 });
