@@ -4,6 +4,7 @@ import type { TaskLatestReview } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { CodexTerminal } from "@/components/codex/CodexTerminal";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { formatDate } from "@/lib/utils";
 import { getSessionStatusLabel } from "./taskDetailViewHelpers";
 
 interface TaskReviewPanelProps {
@@ -171,7 +172,7 @@ export function TaskReviewPanel({
         {latestReview && (
           <div className="text-[11px] text-muted-foreground">
             {latestReview.reviewer_name ?? "未知审查员"} ·{" "}
-            {new Date(latestReview.session.started_at).toLocaleString("zh-CN")}
+            {formatDate(latestReview.session.started_at)}
           </div>
         )}
       </div>

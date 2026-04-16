@@ -3,6 +3,7 @@ import { Eraser, Loader2, Play, Square } from "lucide-react";
 
 import type { CodexSessionFileChange, TaskExecutionChangeHistoryItem } from "@/lib/types";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { formatDate } from "@/lib/utils";
 import {
   getExecutionChangeCaptureModeDescription,
   getExecutionChangeCaptureModeLabel,
@@ -136,7 +137,7 @@ export function TaskExecutionPanel({
               <div key={item.session.id} className="rounded-md border border-border bg-background/70 p-3">
                 <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-muted-foreground">
                   <span>
-                    {new Date(item.session.started_at).toLocaleString("zh-CN")}
+                    {formatDate(item.session.started_at)}
                     {" · "}
                     {getSessionStatusLabel(item.session.status)}
                   </span>
