@@ -2678,6 +2678,88 @@ fn parse_ai_subtasks_response(raw: &str) -> Result<Vec<String>, String> {
     Err("AI response did not contain valid subtasks JSON".to_string())
 }
 
+fn normalize_ai_optimize_prompt_field(value: Option<&str>) -> String {
+    value
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("未填写")
+        .to_string()
+}
+
+fn resolve_ai_optimize_prompt_scene(
+    scene: &str,
+) -> Result<(&'static str, &'static str, &'static str), String> {
+    match scene.trim() {
+        "task_create" => Ok((
+            "新建任务",
+            "请输出一段适合作为任务详情的中文正文，帮助后续 AI / Codex 更准确地理解目标、范围、约束和预期产出。",
+            "可以补齐任务背景、目标、关键限制、验收期望，但不要伪造仓库细节或未提供的事实。",
+        )),
+        "task_continue" => Ok((
+            "任务继续对话",
+            "请输出一段适合作为续聊输入的中文正文，用于推动当前任务继续执行。",
+            "可以明确当前目标、下一步动作、需要重点检查的约束和期望反馈，让续聊内容更利于继续执行。",
+        )),
+        "session_continue" => Ok((
+            "Session 继续对话",
+            "请输出一段适合作为续聊输入的中文正文，用于在既有 Session 上继续推进工作。",
+            "可以结合 Session 摘要和关联任务，聚焦下一步动作、约束与期望结果，让续聊内容更便于延续上下文。",
+        )),
+        other => Err(format!("不支持的提示词优化场景: {}", other)),
+    }
+}
+
+fn build_ai_optimize_prompt_prompt(
+    scene: &str,
+    project_name: &str,
+    project_description: Option<&str>,
+    project_repo_path: Option<&str>,
+    title: Option<&str>,
+    description: Option<&str>,
+    current_prompt: Option<&str>,
+    task_title: Option<&str>,
+    session_summary: Option<&str>,
+) -> Result<String, String> {
+    let (scene_label, output_goal, scene_requirement) = resolve_ai_optimize_prompt_scene(scene)?;
+
+    Ok(format!(
+        "你是提示词优化助手。请基于给定的项目上下文和当前输入，直接输出一段已经优化好的中文提示词正文。\n\
+场景：{}\n\
+输出目标：{}\n\
+场景补充要求：{}\n\
+\n\
+统一要求：\n\
+- 只返回可直接使用的中文正文，不要 Markdown 代码块，不要解释，不要额外前后缀\n\
+- 项目上下文始终优先，输出需要贴合项目领域、已有任务信息和当前输入\n\
+- 可以补齐更利于执行的信息结构，但不要捏造未提供的事实、文件、接口或验证结果\n\
+- 如果当前输入为空或信息不足，也要输出一个可直接使用的项目导向默认草稿\n\
+- 保持语气明确、可执行、便于 AI / Codex 理解\n\
+\n\
+项目信息：\n\
+- 项目名称：{}\n\
+- 项目描述：{}\n\
+- 仓库路径：{}\n\
+\n\
+当前上下文：\n\
+- 标题：{}\n\
+- 描述：{}\n\
+- 当前续聊输入：{}\n\
+- 任务标题：{}\n\
+- Session 摘要：{}",
+        scene_label,
+        output_goal,
+        scene_requirement,
+        normalize_ai_optimize_prompt_field(Some(project_name)),
+        normalize_ai_optimize_prompt_field(project_description),
+        normalize_ai_optimize_prompt_field(project_repo_path),
+        normalize_ai_optimize_prompt_field(title),
+        normalize_ai_optimize_prompt_field(description),
+        normalize_ai_optimize_prompt_field(current_prompt),
+        normalize_ai_optimize_prompt_field(task_title),
+        normalize_ai_optimize_prompt_field(session_summary),
+    ))
+}
+
 fn build_ai_generate_plan_prompt(
     task_title: &str,
     task_description: &str,
@@ -2739,12 +2821,12 @@ mod tests {
 
     use super::{
         attach_session_file_change_details, build_ai_generate_plan_prompt,
-        build_one_shot_exec_args, build_session_exec_args, compose_codex_prompt,
-        compute_execution_session_file_changes_from_entries, extract_session_id_from_output,
-        format_session_prompt_log, hash_worktree_path, normalize_session_file_change_paths,
-        parse_ai_subtasks_response, parse_sdk_bridge_output, parse_sdk_file_change_event,
-        sdk_codex_path_override_allowed_for_os, CodexExecutionProvider, TextSnapshot,
-        WorkingTreeSnapshotEntry,
+        build_ai_optimize_prompt_prompt, build_one_shot_exec_args, build_session_exec_args,
+        compose_codex_prompt, compute_execution_session_file_changes_from_entries,
+        extract_session_id_from_output, format_session_prompt_log, hash_worktree_path,
+        normalize_session_file_change_paths, parse_ai_subtasks_response, parse_sdk_bridge_output,
+        parse_sdk_file_change_event, sdk_codex_path_override_allowed_for_os,
+        CodexExecutionProvider, TextSnapshot, WorkingTreeSnapshotEntry,
     };
     use crate::db::models::CodexSessionFileChangeInput;
 
@@ -3006,6 +3088,81 @@ mod tests {
         assert!(prompt.contains("2. 补前端预览"));
         assert!(prompt.contains("不要假装你已经读取仓库"));
         assert!(prompt.contains("如果本次输入附带任务图片"));
+    }
+
+    #[test]
+    fn builds_task_create_optimized_prompt_with_project_context() {
+        let prompt = build_ai_optimize_prompt_prompt(
+            "task_create",
+            "看板系统",
+            Some("桌面端任务协作应用"),
+            Some("/tmp/kanban"),
+            Some("新增 AI 优化提示词按钮"),
+            Some("在新建任务里生成更准确的详情提示词"),
+            None,
+            None,
+            None,
+        )
+        .expect("should build task_create prompt");
+
+        assert!(prompt.contains("场景：新建任务"));
+        assert!(prompt.contains("适合作为任务详情的中文正文"));
+        assert!(prompt.contains("项目名称：看板系统"));
+        assert!(prompt.contains("项目描述：桌面端任务协作应用"));
+        assert!(prompt.contains("仓库路径：/tmp/kanban"));
+        assert!(prompt.contains("标题：新增 AI 优化提示词按钮"));
+        assert!(prompt.contains("描述：在新建任务里生成更准确的详情提示词"));
+        assert!(prompt.contains("只返回可直接使用的中文正文"));
+        assert!(prompt.contains("不要 Markdown 代码块"));
+    }
+
+    #[test]
+    fn builds_task_continue_optimized_prompt_with_follow_up_context() {
+        let prompt = build_ai_optimize_prompt_prompt(
+            "task_continue",
+            "看板系统",
+            None,
+            None,
+            None,
+            Some("当前任务需要补充前端交互"),
+            Some("继续完成 AI 优化提示词能力，并补上错误提示"),
+            Some("看板新建任务支持 AI 优化提示词"),
+            None,
+        )
+        .expect("should build task_continue prompt");
+
+        assert!(prompt.contains("场景：任务继续对话"));
+        assert!(prompt.contains("适合作为续聊输入的中文正文"));
+        assert!(prompt.contains("项目描述：未填写"));
+        assert!(prompt.contains("仓库路径：未填写"));
+        assert!(prompt.contains("描述：当前任务需要补充前端交互"));
+        assert!(prompt.contains("当前续聊输入：继续完成 AI 优化提示词能力，并补上错误提示"));
+        assert!(prompt.contains("任务标题：看板新建任务支持 AI 优化提示词"));
+    }
+
+    #[test]
+    fn builds_session_continue_optimized_prompt_with_empty_placeholders() {
+        let prompt = build_ai_optimize_prompt_prompt(
+            "session_continue",
+            "看板系统",
+            None,
+            None,
+            None,
+            None,
+            None,
+            Some("继续对话优化"),
+            Some("最近一次处理了任务继续对话的续聊逻辑"),
+        )
+        .expect("should build session_continue prompt");
+
+        assert!(prompt.contains("场景：Session 继续对话"));
+        assert!(prompt.contains("适合作为续聊输入的中文正文"));
+        assert!(prompt.contains("标题：未填写"));
+        assert!(prompt.contains("描述：未填写"));
+        assert!(prompt.contains("当前续聊输入：未填写"));
+        assert!(prompt.contains("任务标题：继续对话优化"));
+        assert!(prompt.contains("Session 摘要：最近一次处理了任务继续对话的续聊逻辑"));
+        assert!(prompt.contains("如果当前输入为空或信息不足"));
     }
 
     #[test]
@@ -3368,6 +3525,36 @@ pub async fn ai_generate_plan(
         &subtasks,
     );
     run_ai_command(&app, prompt, image_paths, task_id, working_dir).await
+}
+
+#[tauri::command]
+pub async fn ai_optimize_prompt(
+    app: AppHandle,
+    scene: String,
+    project_name: String,
+    project_description: Option<String>,
+    project_repo_path: Option<String>,
+    title: Option<String>,
+    description: Option<String>,
+    current_prompt: Option<String>,
+    task_title: Option<String>,
+    session_summary: Option<String>,
+    task_id: Option<String>,
+    working_dir: Option<String>,
+) -> Result<String, String> {
+    let prompt = build_ai_optimize_prompt_prompt(
+        &scene,
+        &project_name,
+        project_description.as_deref(),
+        project_repo_path.as_deref(),
+        title.as_deref(),
+        description.as_deref(),
+        current_prompt.as_deref(),
+        task_title.as_deref(),
+        session_summary.as_deref(),
+    )?;
+
+    run_ai_command(&app, prompt, None, task_id, working_dir).await
 }
 
 #[tauri::command]

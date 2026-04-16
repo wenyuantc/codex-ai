@@ -45,6 +45,25 @@ interface AiExecutionContext {
   workingDir?: string;
 }
 
+export type AiOptimizePromptScene =
+  | "task_create"
+  | "task_continue"
+  | "session_continue";
+
+export interface AiOptimizePromptInput {
+  scene: AiOptimizePromptScene;
+  projectName: string;
+  projectDescription?: string | null;
+  projectRepoPath?: string | null;
+  title?: string | null;
+  description?: string | null;
+  currentPrompt?: string | null;
+  taskTitle?: string | null;
+  sessionSummary?: string | null;
+  taskId?: string | null;
+  workingDir?: string | null;
+}
+
 export async function startCodex(employeeId: string, taskDescription: string, options: StartCodexOptions = {}): Promise<void> {
   await invoke("start_codex", {
     employeeId,
@@ -174,5 +193,21 @@ export async function aiGeneratePlan(
     imagePaths: imagePaths ?? null,
     taskId: context.taskId ?? null,
     workingDir: context.workingDir ?? null,
+  });
+}
+
+export async function aiOptimizePrompt(input: AiOptimizePromptInput): Promise<string> {
+  return invoke<string>("ai_optimize_prompt", {
+    scene: input.scene,
+    projectName: input.projectName,
+    projectDescription: input.projectDescription ?? null,
+    projectRepoPath: input.projectRepoPath ?? null,
+    title: input.title ?? null,
+    description: input.description ?? null,
+    currentPrompt: input.currentPrompt ?? null,
+    taskTitle: input.taskTitle ?? null,
+    sessionSummary: input.sessionSummary ?? null,
+    taskId: input.taskId ?? null,
+    workingDir: input.workingDir ?? null,
   });
 }
