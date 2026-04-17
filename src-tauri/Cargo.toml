@@ -1,7 +1,7 @@
 [package]
 name = "codex-ai"
 version = "0.2.0"
-description = "AI Employee Collaboration System"
+description = "Codex AI System"
 authors = ["you"]
 edition = "2021"
 
