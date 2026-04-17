@@ -13,6 +13,7 @@ export function KanbanPage() {
   const environmentMode = useProjectStore((state) => state.environmentMode);
   const { fetchEmployees } = useEmployeeStore();
   const [showCreateDialog, setShowCreateDialog] = useState(false);
+  const visibleProjectIdsKey = projects.map((project) => project.id).join(",");
 
   useEffect(() => {
     void fetchEmployees();
@@ -20,7 +21,7 @@ export function KanbanPage() {
 
   useEffect(() => {
     void fetchTasks(currentProjectId);
-  }, [currentProjectId, fetchTasks]);
+  }, [currentProjectId, environmentMode, visibleProjectIdsKey, fetchTasks]);
 
   const hasProjects = projects.length > 0;
 
