@@ -15,6 +15,7 @@ const SSH_GLOBAL_ACTIVITY_ACTIONS = new Set([
   "remote_session_artifact_captured",
   "remote_session_artifact_limited",
   "remote_artifact_capture_limited",
+  "global_search_navigated",
 ]);
 
 interface DashboardStats {

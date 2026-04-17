@@ -11,6 +11,7 @@ interface KanbanColumnProps {
   label: string;
   color: string;
   tasks: Task[];
+  highlightedTaskId?: string | null;
   onOpenLog: (taskId: string, sessionKind?: CodexSessionKind) => void;
 }
 
@@ -19,6 +20,7 @@ export function KanbanColumn({
   label,
   color,
   tasks,
+  highlightedTaskId,
   onOpenLog,
 }: KanbanColumnProps) {
   const { setNodeRef, isOver } = useDroppable({
@@ -51,6 +53,7 @@ export function KanbanColumn({
               key={task.id}
               task={task}
               hideRunAction={status === "completed"}
+              highlighted={task.id === highlightedTaskId}
               onOpenLog={onOpenLog}
             />
           ))}

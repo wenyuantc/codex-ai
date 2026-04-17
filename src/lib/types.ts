@@ -261,6 +261,34 @@ export interface CodexSessionResumePreview {
   can_resume: boolean;
 }
 
+export type GlobalSearchItemType = "project" | "task" | "employee" | "session";
+export type GlobalSearchState = "ok" | "empty_query" | "query_too_short";
+
+export interface GlobalSearchItem {
+  item_type: GlobalSearchItemType;
+  item_id: string;
+  title: string;
+  subtitle: string | null;
+  summary: string | null;
+  navigation_path: string;
+  score: number;
+  updated_at: string | null;
+  project_id: string | null;
+  task_id: string | null;
+  employee_id: string | null;
+  session_id: string | null;
+}
+
+export interface GlobalSearchResponse {
+  query: string;
+  normalized_query: string;
+  state: GlobalSearchState;
+  message: string | null;
+  min_query_length: number;
+  total: number;
+  items: GlobalSearchItem[];
+}
+
 export interface CodexHealthCheck {
   codex_available: boolean;
   codex_version: string | null;

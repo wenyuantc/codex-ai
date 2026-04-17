@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { KanbanBoard } from "@/components/tasks/KanbanBoard";
 import { CreateTaskDialog } from "@/components/tasks/CreateTaskDialog";
 import { useTaskStore } from "@/stores/taskStore";
@@ -7,6 +8,7 @@ import { useEmployeeStore } from "@/stores/employeeStore";
 import { Plus } from "lucide-react";
 
 export function KanbanPage() {
+  const [searchParams, setSearchParams] = useSearchParams();
   const { fetchTasks } = useTaskStore();
   const currentProjectId = useProjectStore((state) => state.currentProject?.id);
   const projects = useProjectStore((state) => state.projects);
@@ -14,6 +16,7 @@ export function KanbanPage() {
   const { fetchEmployees } = useEmployeeStore();
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const visibleProjectIdsKey = projects.map((project) => project.id).join(",");
+  const targetTaskId = searchParams.get("taskId");
 
   useEffect(() => {
     void fetchEmployees();
@@ -39,7 +42,19 @@ export function KanbanPage() {
       </div>
       <div className="flex-1 overflow-hidden">
         {hasProjects ? (
-          <KanbanBoard projectId={currentProjectId} />
+          <KanbanBoard
+            projectId={currentProjectId}
+            targetTaskId={targetTaskId}
+            onClearTargetTask={() => {
+              if (!targetTaskId) {
+                return;
+              }
+
+              const nextSearchParams = new URLSearchParams(searchParams);
+              nextSearchParams.delete("taskId");
+              setSearchParams(nextSearchParams, { replace: true });
+            }}
+          />
         ) : (
           <div className="flex h-full items-center justify-center rounded-lg border border-dashed border-border text-sm text-muted-foreground">
             {environmentMode === "ssh"

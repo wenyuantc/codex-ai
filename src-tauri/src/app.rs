@@ -30,10 +30,11 @@ use crate::db::models::{
     CodexSessionListItem, CodexSessionLogLine, CodexSessionRecord, CodexSessionResumePreview,
     CodexSettings, Comment, CreateComment, CreateEmployee, CreateProject, CreateSshConfig,
     CreateSubtask, CreateTask, DatabaseBackupResult, DatabaseRestoreResult, Employee,
-    EmployeeMetric, PasswordAuthProbeResult, Project, ReviewVerdict, SetTaskAutomationModePayload,
-    SshConfig, SshConfigRecord, Subtask, Task, TaskAttachment, TaskAutomationState,
-    TaskAutomationStateRecord, TaskExecutionChangeHistoryItem, TaskLatestReview, UpdateEmployee,
-    UpdateProject, UpdateSshConfig, UpdateTask,
+    EmployeeMetric, GlobalSearchItem, GlobalSearchResponse, PasswordAuthProbeResult, Project,
+    ReviewVerdict, SearchGlobalPayload, SetTaskAutomationModePayload, SshConfig, SshConfigRecord,
+    Subtask, Task, TaskAttachment, TaskAutomationState, TaskAutomationStateRecord,
+    TaskExecutionChangeHistoryItem, TaskLatestReview, UpdateEmployee, UpdateProject,
+    UpdateSshConfig, UpdateTask,
 };
 use crate::process_spawn::configure_std_command;
 
@@ -62,6 +63,13 @@ pub(crate) const REVIEW_VERDICT_START_TAG: &str = "<review_verdict>";
 pub(crate) const REVIEW_VERDICT_END_TAG: &str = "</review_verdict>";
 const REVIEW_REPORT_START_TAG: &str = "<review_report>";
 const REVIEW_REPORT_END_TAG: &str = "</review_report>";
+const GLOBAL_SEARCH_MIN_QUERY_LENGTH: usize = 2;
+const GLOBAL_SEARCH_DEFAULT_LIMIT: usize = 24;
+const GLOBAL_SEARCH_MAX_LIMIT: usize = 50;
+const GLOBAL_SEARCH_TYPE_PROJECT: &str = "project";
+const GLOBAL_SEARCH_TYPE_TASK: &str = "task";
+const GLOBAL_SEARCH_TYPE_EMPLOYEE: &str = "employee";
+const GLOBAL_SEARCH_TYPE_SESSION: &str = "session";
 
 struct DatabaseMigrationStatus {
     applied_count: i64,
@@ -2979,6 +2987,562 @@ fn format_session_log_line(event_type: &str, message: &str) -> Option<String> {
         "review_report" => None,
         _ => Some(format!("[SYSTEM] {}", preserved.trim())),
     }
+}
+
+#[derive(Debug, Clone, sqlx::FromRow)]
+struct TaskSearchRow {
+    id: String,
+    title: String,
+    description: Option<String>,
+    status: String,
+    priority: String,
+    project_id: String,
+    project_name: String,
+    updated_at: String,
+}
+
+#[derive(Debug, Clone, sqlx::FromRow)]
+struct EmployeeSearchRow {
+    id: String,
+    name: String,
+    role: String,
+    specialization: Option<String>,
+    status: String,
+    project_id: Option<String>,
+    project_name: Option<String>,
+    updated_at: String,
+}
+
+fn normalize_search_query(value: &str) -> String {
+    value.trim().to_lowercase()
+}
+
+fn normalize_global_search_types(raw_types: Option<Vec<String>>) -> HashSet<String> {
+    let mut kinds = HashSet::new();
+
+    if let Some(raw_types) = raw_types {
+        for item in raw_types {
+            match item.trim().to_lowercase().as_str() {
+                GLOBAL_SEARCH_TYPE_PROJECT => {
+                    kinds.insert(GLOBAL_SEARCH_TYPE_PROJECT.to_string());
+                }
+                GLOBAL_SEARCH_TYPE_TASK => {
+                    kinds.insert(GLOBAL_SEARCH_TYPE_TASK.to_string());
+                }
+                GLOBAL_SEARCH_TYPE_EMPLOYEE => {
+                    kinds.insert(GLOBAL_SEARCH_TYPE_EMPLOYEE.to_string());
+                }
+                GLOBAL_SEARCH_TYPE_SESSION => {
+                    kinds.insert(GLOBAL_SEARCH_TYPE_SESSION.to_string());
+                }
+                _ => {}
+            }
+        }
+    }
+
+    if kinds.is_empty() {
+        kinds.extend([
+            GLOBAL_SEARCH_TYPE_PROJECT.to_string(),
+            GLOBAL_SEARCH_TYPE_TASK.to_string(),
+            GLOBAL_SEARCH_TYPE_EMPLOYEE.to_string(),
+            GLOBAL_SEARCH_TYPE_SESSION.to_string(),
+        ]);
+    }
+
+    kinds
+}
+
+fn text_match_score(
+    normalized_query: &str,
+    value: Option<&str>,
+    exact_score: i64,
+    prefix_score: i64,
+    contains_score: i64,
+) -> i64 {
+    let Some(value) = value.map(str::trim).filter(|value| !value.is_empty()) else {
+        return 0;
+    };
+    let normalized_value = value.to_lowercase();
+
+    if normalized_value == normalized_query {
+        exact_score
+    } else if normalized_value.starts_with(normalized_query) {
+        prefix_score
+    } else if normalized_value.contains(normalized_query) {
+        contains_score
+    } else {
+        0
+    }
+}
+
+fn best_match_score(
+    normalized_query: &str,
+    fields: &[Option<&str>],
+    exact_score: i64,
+    prefix_score: i64,
+    contains_score: i64,
+) -> i64 {
+    fields
+        .iter()
+        .map(|field| {
+            text_match_score(
+                normalized_query,
+                *field,
+                exact_score,
+                prefix_score,
+                contains_score,
+            )
+        })
+        .max()
+        .unwrap_or(0)
+}
+
+fn search_recency_bonus(value: Option<&str>) -> i64 {
+    let Some(value) = value else {
+        return 0;
+    };
+    let Some(updated_at) = parse_sqlite_datetime(value) else {
+        return 0;
+    };
+    let age = Utc::now().naive_utc() - updated_at;
+
+    if age <= Duration::days(3) {
+        40
+    } else if age <= Duration::days(14) {
+        24
+    } else if age <= Duration::days(30) {
+        12
+    } else {
+        0
+    }
+}
+
+fn compact_search_text(value: Option<&str>, max_chars: usize) -> Option<String> {
+    let normalized = value
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| value.replace('\r', " ").replace('\n', " "))?;
+
+    if normalized.chars().count() <= max_chars {
+        return Some(normalized);
+    }
+
+    Some(
+        normalized
+            .chars()
+            .take(max_chars)
+            .collect::<String>()
+            .trim_end()
+            .to_string()
+            + "…",
+    )
+}
+
+fn search_status_label(status: &str) -> &str {
+    match status {
+        "todo" => "待办",
+        "in_progress" => "进行中",
+        "review" => "审核中",
+        "completed" => "已完成",
+        "blocked" => "已阻塞",
+        "online" => "在线",
+        "busy" => "忙碌",
+        "offline" => "离线",
+        "error" => "错误",
+        "active" => "活跃",
+        "archived" => "已归档",
+        "pending" => "待启动",
+        "running" => "运行中",
+        "stopping" => "停止中",
+        "exited" => "已结束",
+        "failed" => "失败",
+        _ => status,
+    }
+}
+
+fn search_priority_label(priority: &str) -> &str {
+    match priority {
+        "low" => "低",
+        "medium" => "中",
+        "high" => "高",
+        "urgent" => "紧急",
+        _ => priority,
+    }
+}
+
+fn search_employee_role_label(role: &str) -> &str {
+    match role {
+        "developer" => "开发者",
+        "reviewer" => "审查员",
+        "tester" => "测试员",
+        "coordinator" => "协调员",
+        _ => role,
+    }
+}
+
+fn search_project_type_label(project_type: &str) -> &str {
+    if project_type == PROJECT_TYPE_SSH {
+        "SSH 项目"
+    } else {
+        "本地项目"
+    }
+}
+
+fn search_session_kind_label(session_kind: &str) -> &str {
+    if session_kind == "review" {
+        "审核会话"
+    } else {
+        "执行会话"
+    }
+}
+
+fn compare_global_search_items(left: &GlobalSearchItem, right: &GlobalSearchItem) -> std::cmp::Ordering {
+    right
+        .score
+        .cmp(&left.score)
+        .then_with(|| right.updated_at.cmp(&left.updated_at))
+        .then_with(|| left.title.cmp(&right.title))
+}
+
+fn build_project_search_item(project: Project, normalized_query: &str) -> Option<GlobalSearchItem> {
+    let primary_score = best_match_score(normalized_query, &[Some(project.name.as_str())], 1400, 1100, 860);
+    let secondary_score = best_match_score(
+        normalized_query,
+        &[
+            project.description.as_deref(),
+            project.repo_path.as_deref(),
+            project.remote_repo_path.as_deref(),
+        ],
+        720,
+        560,
+        320,
+    );
+    let score = primary_score.max(secondary_score) + search_recency_bonus(Some(project.updated_at.as_str()));
+
+    if score <= 0 {
+        return None;
+    }
+
+    Some(GlobalSearchItem {
+        item_type: GLOBAL_SEARCH_TYPE_PROJECT.to_string(),
+        item_id: project.id.clone(),
+        title: project.name.clone(),
+        subtitle: Some(format!(
+            "{} · {}",
+            search_project_type_label(&project.project_type),
+            search_status_label(&project.status)
+        )),
+        summary: compact_search_text(
+            project
+                .description
+                .as_deref()
+                .or(project.remote_repo_path.as_deref())
+                .or(project.repo_path.as_deref()),
+            96,
+        ),
+        navigation_path: format!("/projects/{}", project.id),
+        score,
+        updated_at: Some(project.updated_at.clone()),
+        project_id: Some(project.id.clone()),
+        task_id: None,
+        employee_id: None,
+        session_id: None,
+    })
+}
+
+fn build_task_search_item(task: TaskSearchRow, normalized_query: &str) -> Option<GlobalSearchItem> {
+    let primary_score = best_match_score(normalized_query, &[Some(task.title.as_str())], 1450, 1180, 900);
+    let alias_score = best_match_score(
+        normalized_query,
+        &[task.description.as_deref(), Some(task.project_name.as_str())],
+        760,
+        580,
+        340,
+    );
+    let score = primary_score.max(alias_score) + search_recency_bonus(Some(task.updated_at.as_str()));
+
+    if score <= 0 {
+        return None;
+    }
+
+    Some(GlobalSearchItem {
+        item_type: GLOBAL_SEARCH_TYPE_TASK.to_string(),
+        item_id: task.id.clone(),
+        title: task.title.clone(),
+        subtitle: Some(format!(
+            "{} · {} · {}",
+            task.project_name,
+            search_status_label(&task.status),
+            search_priority_label(&task.priority)
+        )),
+        summary: compact_search_text(task.description.as_deref(), 110),
+        navigation_path: format!("/kanban?taskId={}", task.id),
+        score,
+        updated_at: Some(task.updated_at.clone()),
+        project_id: Some(task.project_id.clone()),
+        task_id: Some(task.id.clone()),
+        employee_id: None,
+        session_id: None,
+    })
+}
+
+fn build_employee_search_item(
+    employee: EmployeeSearchRow,
+    normalized_query: &str,
+) -> Option<GlobalSearchItem> {
+    let primary_score = best_match_score(normalized_query, &[Some(employee.name.as_str())], 1380, 1080, 820);
+    let alias_score = best_match_score(
+        normalized_query,
+        &[
+            employee.specialization.as_deref(),
+            Some(employee.role.as_str()),
+            employee.project_name.as_deref(),
+        ],
+        700,
+        520,
+        300,
+    );
+    let score = primary_score.max(alias_score) + search_recency_bonus(Some(employee.updated_at.as_str()));
+
+    if score <= 0 {
+        return None;
+    }
+
+    let project_label = employee
+        .project_name
+        .clone()
+        .unwrap_or_else(|| "未分配项目".to_string());
+
+    Some(GlobalSearchItem {
+        item_type: GLOBAL_SEARCH_TYPE_EMPLOYEE.to_string(),
+        item_id: employee.id.clone(),
+        title: employee.name.clone(),
+        subtitle: Some(format!(
+            "{} · {} · {}",
+            search_employee_role_label(&employee.role),
+            project_label,
+            search_status_label(&employee.status)
+        )),
+        summary: compact_search_text(employee.specialization.as_deref(), 96),
+        navigation_path: format!("/employees?employeeId={}", employee.id),
+        score,
+        updated_at: Some(employee.updated_at.clone()),
+        project_id: employee.project_id.clone(),
+        task_id: None,
+        employee_id: Some(employee.id.clone()),
+        session_id: None,
+    })
+}
+
+fn build_session_search_item(
+    session: CodexSessionListItem,
+    normalized_query: &str,
+) -> Option<GlobalSearchItem> {
+    let primary_score = best_match_score(
+        normalized_query,
+        &[
+            Some(session.display_name.as_str()),
+            Some(session.session_id.as_str()),
+            session.cli_session_id.as_deref(),
+        ],
+        1500,
+        1200,
+        960,
+    );
+    let secondary_score = best_match_score(
+        normalized_query,
+        &[
+            session.summary.as_deref(),
+            session.content_preview.as_deref(),
+            session.task_title.as_deref(),
+            session.project_name.as_deref(),
+            session.employee_name.as_deref(),
+            session.working_dir.as_deref(),
+        ],
+        760,
+        600,
+        360,
+    );
+    let score = primary_score.max(secondary_score)
+        + search_recency_bonus(Some(session.last_updated_at.as_str()));
+
+    if score <= 0 {
+        return None;
+    }
+
+    Some(GlobalSearchItem {
+        item_type: GLOBAL_SEARCH_TYPE_SESSION.to_string(),
+        item_id: session.session_record_id.clone(),
+        title: session.display_name.clone(),
+        subtitle: Some(format!(
+            "{} · {} · {}",
+            search_session_kind_label(&session.session_kind),
+            search_status_label(&session.status),
+            session.project_name.clone().unwrap_or_else(|| "无关联项目".to_string()),
+        )),
+        summary: compact_search_text(
+            session
+                .content_preview
+                .as_deref()
+                .or(session.summary.as_deref())
+                .or(session.task_title.as_deref()),
+            110,
+        ),
+        navigation_path: format!("/sessions?sessionId={}", session.session_id),
+        score,
+        updated_at: Some(session.last_updated_at.clone()),
+        project_id: session.project_id.clone(),
+        task_id: session.task_id.clone(),
+        employee_id: session.employee_id.clone(),
+        session_id: Some(session.session_id.clone()),
+    })
+}
+
+#[tauri::command]
+pub async fn search_global<R: Runtime>(
+    app: AppHandle<R>,
+    payload: SearchGlobalPayload,
+) -> Result<GlobalSearchResponse, String> {
+    let normalized_query = normalize_search_query(&payload.query);
+    if normalized_query.is_empty() {
+        return Ok(GlobalSearchResponse {
+            query: payload.query,
+            normalized_query,
+            state: "empty_query".to_string(),
+            message: Some("输入关键词后开始搜索。".to_string()),
+            min_query_length: GLOBAL_SEARCH_MIN_QUERY_LENGTH,
+            total: 0,
+            items: Vec::new(),
+        });
+    }
+
+    if normalized_query.chars().count() < GLOBAL_SEARCH_MIN_QUERY_LENGTH {
+        return Ok(GlobalSearchResponse {
+            query: payload.query,
+            normalized_query,
+            state: "query_too_short".to_string(),
+            message: Some(format!(
+                "至少输入 {} 个字符后再搜索。",
+                GLOBAL_SEARCH_MIN_QUERY_LENGTH
+            )),
+            min_query_length: GLOBAL_SEARCH_MIN_QUERY_LENGTH,
+            total: 0,
+            items: Vec::new(),
+        });
+    }
+
+    let selected_types = normalize_global_search_types(payload.types);
+    let environment_mode = match payload.environment_mode.as_deref() {
+        Some(EXECUTION_TARGET_SSH) => PROJECT_TYPE_SSH,
+        _ => PROJECT_TYPE_LOCAL,
+    };
+    let limit = payload
+        .limit
+        .unwrap_or(GLOBAL_SEARCH_DEFAULT_LIMIT)
+        .clamp(1, GLOBAL_SEARCH_MAX_LIMIT);
+    let offset = payload.offset.unwrap_or(0);
+    let pool = sqlite_pool(&app).await?;
+    let mut items = Vec::new();
+
+    if selected_types.contains(GLOBAL_SEARCH_TYPE_PROJECT) {
+        let projects = sqlx::query_as::<_, Project>(
+            "SELECT * FROM projects WHERE project_type = $1 ORDER BY updated_at DESC, created_at DESC",
+        )
+        .bind(environment_mode)
+        .fetch_all(&pool)
+        .await
+        .map_err(|error| format!("Failed to fetch searchable projects: {}", error))?;
+
+        items.extend(
+            projects
+                .into_iter()
+                .filter_map(|project| build_project_search_item(project, &normalized_query)),
+        );
+    }
+
+    if selected_types.contains(GLOBAL_SEARCH_TYPE_TASK) {
+        let tasks = sqlx::query_as::<_, TaskSearchRow>(
+            r#"
+            SELECT
+                t.id AS id,
+                t.title AS title,
+                t.description AS description,
+                t.status AS status,
+                t.priority AS priority,
+                t.project_id AS project_id,
+                p.name AS project_name,
+                t.updated_at AS updated_at
+            FROM tasks t
+            INNER JOIN projects p ON p.id = t.project_id
+            WHERE p.project_type = $1
+            ORDER BY t.updated_at DESC, t.created_at DESC
+            "#,
+        )
+        .bind(environment_mode)
+        .fetch_all(&pool)
+        .await
+        .map_err(|error| format!("Failed to fetch searchable tasks: {}", error))?;
+
+        items.extend(
+            tasks
+                .into_iter()
+                .filter_map(|task| build_task_search_item(task, &normalized_query)),
+        );
+    }
+
+    if selected_types.contains(GLOBAL_SEARCH_TYPE_EMPLOYEE) {
+        let employees = sqlx::query_as::<_, EmployeeSearchRow>(
+            r#"
+            SELECT
+                e.id AS id,
+                e.name AS name,
+                e.role AS role,
+                e.specialization AS specialization,
+                e.status AS status,
+                e.project_id AS project_id,
+                p.name AS project_name,
+                e.updated_at AS updated_at
+            FROM employees e
+            LEFT JOIN projects p ON p.id = e.project_id
+            WHERE e.project_id IS NULL OR p.project_type = $1
+            ORDER BY e.updated_at DESC, e.created_at DESC
+            "#,
+        )
+        .bind(environment_mode)
+        .fetch_all(&pool)
+        .await
+        .map_err(|error| format!("Failed to fetch searchable employees: {}", error))?;
+
+        items.extend(
+            employees
+                .into_iter()
+                .filter_map(|employee| build_employee_search_item(employee, &normalized_query)),
+        );
+    }
+
+    if selected_types.contains(GLOBAL_SEARCH_TYPE_SESSION) {
+        let sessions = query_codex_session_list(&app).await?;
+        items.extend(
+            sessions
+                .into_iter()
+                .filter(|session| session.execution_target == environment_mode)
+                .filter_map(|session| build_session_search_item(session, &normalized_query)),
+        );
+    }
+
+    items.sort_by(compare_global_search_items);
+    let total = items.len();
+    let items = items.into_iter().skip(offset).take(limit).collect();
+
+    Ok(GlobalSearchResponse {
+        query: payload.query,
+        normalized_query,
+        state: "ok".to_string(),
+        message: None,
+        min_query_length: GLOBAL_SEARCH_MIN_QUERY_LENGTH,
+        total,
+        items,
+    })
 }
 
 async fn query_codex_session_list<R: Runtime>(

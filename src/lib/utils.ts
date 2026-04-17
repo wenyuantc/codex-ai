@@ -84,6 +84,7 @@ export function getActivityActionLabel(action: string): string {
     remote_session_artifact_captured: "远程会话变更明细已保存",
     remote_session_artifact_limited: "远程会话变更明细受限",
     remote_artifact_capture_limited: "远程会话变更明细受限",
+    global_search_navigated: "使用全局搜索跳转",
   };
   return labels[action] || action;
 }

@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useLocation, useSearchParams } from "react-router-dom";
 import { EmployeeList } from "@/components/employees/EmployeeList";
 import { CreateEmployeeDialog } from "@/components/employees/CreateEmployeeDialog";
 import { useProjectStore } from "@/stores/projectStore";
@@ -6,7 +7,13 @@ import { Plus } from "lucide-react";
 
 export function EmployeesPage() {
   const [showCreate, setShowCreate] = useState(false);
+  const location = useLocation();
+  const [searchParams] = useSearchParams();
   const currentProjectId = useProjectStore((state) => state.currentProject?.id);
+  const highlightedEmployeeId = searchParams.get("employeeId");
+  const highlightedEmployeeNonce = (
+    location.state as { globalSearchNonce?: number } | null
+  )?.globalSearchNonce ?? null;
 
   return (
     <div className="space-y-4">
@@ -21,7 +28,11 @@ export function EmployeesPage() {
         </button>
       </div>
 
-      <EmployeeList projectId={currentProjectId} />
+      <EmployeeList
+        projectId={currentProjectId}
+        highlightedEmployeeId={highlightedEmployeeId}
+        highlightedEmployeeNonce={highlightedEmployeeNonce}
+      />
       <CreateEmployeeDialog
         open={showCreate}
         onOpenChange={setShowCreate}

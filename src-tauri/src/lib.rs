@@ -51,6 +51,7 @@ pub fn run() {
             app::restore_database,
             app::open_database_folder,
             app::get_codex_session_status,
+            app::search_global,
             app::list_codex_sessions,
             app::prepare_codex_session_resume,
             app::get_codex_session_log_lines,

@@ -659,6 +659,42 @@ pub struct CreateComment {
     pub is_ai_generated: Option<bool>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SearchGlobalPayload {
+    pub query: String,
+    pub types: Option<Vec<String>>,
+    pub limit: Option<usize>,
+    pub offset: Option<usize>,
+    pub environment_mode: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GlobalSearchItem {
+    pub item_type: String,
+    pub item_id: String,
+    pub title: String,
+    pub subtitle: Option<String>,
+    pub summary: Option<String>,
+    pub navigation_path: String,
+    pub score: i64,
+    pub updated_at: Option<String>,
+    pub project_id: Option<String>,
+    pub task_id: Option<String>,
+    pub employee_id: Option<String>,
+    pub session_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GlobalSearchResponse {
+    pub query: String,
+    pub normalized_query: String,
+    pub state: String,
+    pub message: Option<String>,
+    pub min_query_length: usize,
+    pub total: usize,
+    pub items: Vec<GlobalSearchItem>,
+}
+
 // ========== Event Payloads ==========
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -4,9 +4,15 @@ import { EmployeeCard } from "./EmployeeCard";
 
 interface EmployeeListProps {
   projectId?: string;
+  highlightedEmployeeId?: string | null;
+  highlightedEmployeeNonce?: number | null;
 }
 
-export function EmployeeList({ projectId }: EmployeeListProps) {
+export function EmployeeList({
+  projectId,
+  highlightedEmployeeId,
+  highlightedEmployeeNonce,
+}: EmployeeListProps) {
   const { employees, fetchEmployees } = useEmployeeStore();
   const [filter, setFilter] = useState<string>("all");
 
@@ -20,6 +26,35 @@ export function EmployeeList({ projectId }: EmployeeListProps) {
   const filtered = filter === "all"
     ? projectEmployees
     : projectEmployees.filter((employee) => employee.status === filter);
+
+  useEffect(() => {
+    if (!highlightedEmployeeId || filter === "all") {
+      return;
+    }
+
+    const highlightedEmployee = projectEmployees.find((employee) => employee.id === highlightedEmployeeId);
+    if (!highlightedEmployee) {
+      return;
+    }
+
+    if (highlightedEmployee.status !== filter) {
+      setFilter("all");
+    }
+  }, [filter, highlightedEmployeeId, highlightedEmployeeNonce, projectEmployees]);
+
+  useEffect(() => {
+    if (!highlightedEmployeeId) {
+      return;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      document
+        .getElementById(`employee-card-${highlightedEmployeeId}`)
+        ?.scrollIntoView({ behavior: "smooth", block: "center" });
+    }, 80);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [filtered.length, highlightedEmployeeId, highlightedEmployeeNonce]);
 
   return (
     <div className="space-y-3">
@@ -46,7 +81,11 @@ export function EmployeeList({ projectId }: EmployeeListProps) {
       {/* Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {filtered.map((emp) => (
-          <EmployeeCard key={emp.id} employee={emp} />
+          <EmployeeCard
+            key={emp.id}
+            employee={emp}
+            highlighted={emp.id === highlightedEmployeeId}
+          />
         ))}
       </div>
 

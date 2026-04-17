@@ -33,10 +33,17 @@ interface TaskCardProps {
   task: Task;
   isOverlay?: boolean;
   hideRunAction?: boolean;
+  highlighted?: boolean;
   onOpenLog?: (taskId: string, sessionKind?: CodexSessionKind) => void;
 }
 
-export function TaskCard({ task, isOverlay, hideRunAction = false, onOpenLog }: TaskCardProps) {
+export function TaskCard({
+  task,
+  isOverlay,
+  hideRunAction = false,
+  highlighted = false,
+  onOpenLog,
+}: TaskCardProps) {
   const [showDetail, setShowDetail] = useState(false);
   const [showContinueDialog, setShowContinueDialog] = useState(false);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
@@ -263,9 +270,12 @@ export function TaskCard({ task, isOverlay, hideRunAction = false, onOpenLog }: 
   return (
     <>
       <div
+        id={`task-card-${task.id}`}
         ref={setNodeRef}
         style={style}
-        className={`bg-card rounded-md border border-border p-3 group ${
+        className={`group rounded-md border bg-card p-3 ${
+          highlighted ? "border-primary ring-2 ring-primary/20" : "border-border"
+        } ${
           isDragging
             ? "opacity-50 shadow-lg"
             : "hover:shadow-sm cursor-pointer"

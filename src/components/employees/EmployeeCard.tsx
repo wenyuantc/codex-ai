@@ -13,11 +13,12 @@ import { Trash2, Terminal, ChevronDown, Pencil } from "lucide-react";
 interface EmployeeCardProps {
   employee: Employee;
   taskCount?: number;
+  highlighted?: boolean;
 }
 
 const MAX_TASKS = 5;
 
-export function EmployeeCard({ employee, taskCount = 0 }: EmployeeCardProps) {
+export function EmployeeCard({ employee, taskCount = 0, highlighted = false }: EmployeeCardProps) {
   const deleteEmployee = useEmployeeStore((s) => s.deleteEmployee);
   const updateEmployeeStatus = useEmployeeStore((s) => s.updateEmployeeStatus);
   const clearCodexOutput = useEmployeeStore((s) => s.clearCodexOutput);
@@ -57,7 +58,12 @@ export function EmployeeCard({ employee, taskCount = 0 }: EmployeeCardProps) {
   const reasoningLabel = REASONING_EFFORT_OPTIONS.find((option) => option.value === employee.reasoning_effort)?.label ?? employee.reasoning_effort;
 
   return (
-    <div className="bg-card rounded-lg border border-border overflow-hidden">
+    <div
+      id={`employee-card-${employee.id}`}
+      className={`overflow-hidden rounded-lg border bg-card ${
+        highlighted ? "border-primary ring-2 ring-primary/20" : "border-border"
+      }`}
+    >
       {/* Header */}
       <div className="p-4">
         <div className="flex items-center gap-3">

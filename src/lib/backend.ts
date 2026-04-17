@@ -15,6 +15,8 @@ import type {
   Comment,
   Employee,
   EnvironmentMode,
+  GlobalSearchItemType,
+  GlobalSearchResponse,
   Project,
   RemoteCodexHealthCheck,
   RemoteCodexSdkInstallResult,
@@ -229,6 +231,14 @@ export interface SetTaskAutomationModeInput {
   automation_mode?: TaskAutomationMode | null;
 }
 
+export interface SearchGlobalInput {
+  query: string;
+  types?: GlobalSearchItemType[];
+  limit?: number;
+  offset?: number;
+  environment_mode?: EnvironmentMode;
+}
+
 export async function healthCheck(): Promise<CodexHealthCheck> {
   return normalizeHealthCheck(await invoke<CodexHealthCheck>("health_check"));
 }
@@ -270,6 +280,10 @@ export async function openTaskAttachment(path: string): Promise<void> {
 
 export async function getCodexSessionStatus(employeeId: string): Promise<CodexRuntimeStatus> {
   return invoke("get_codex_session_status", { employeeId });
+}
+
+export async function searchGlobal(input: SearchGlobalInput): Promise<GlobalSearchResponse> {
+  return invoke("search_global", { payload: input });
 }
 
 export async function listCodexSessions(): Promise<CodexSessionListItem[]> {

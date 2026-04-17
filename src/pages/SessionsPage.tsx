@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { ChevronLeft, ChevronRight, Loader2, RefreshCw } from "lucide-react";
+import { useLocation, useSearchParams } from "react-router-dom";
 
 import { SessionContinueDialog } from "@/components/sessions/SessionContinueDialog";
 import { SessionExecutionChangesDialog } from "@/components/sessions/SessionExecutionChangesDialog";
@@ -19,6 +20,19 @@ const PAGE_SIZE = 10;
 
 function normalizeSearchText(value: string | null | undefined) {
   return (value ?? "").toLocaleLowerCase().trim();
+}
+
+function matchesSessionIdentifier(session: CodexSessionListItem, query: string | null) {
+  if (!query) {
+    return false;
+  }
+
+  const normalizedQuery = normalizeSearchText(query);
+  return [
+    session.session_id,
+    session.session_record_id,
+    session.cli_session_id,
+  ].some((value) => normalizeSearchText(value) === normalizedQuery);
 }
 
 function formatSessionKind(kind: CodexSessionListItem["session_kind"]) {
@@ -101,6 +115,8 @@ function buildLogTarget(session: {
 }
 
 export function SessionsPage() {
+  const location = useLocation();
+  const [searchParams] = useSearchParams();
   const employees = useEmployeeStore((state) => state.employees);
   const fetchEmployees = useEmployeeStore((state) => state.fetchEmployees);
   const updateEmployeeStatus = useEmployeeStore((state) => state.updateEmployeeStatus);
@@ -124,6 +140,10 @@ export function SessionsPage() {
   const [contentQuery, setContentQuery] = useState("");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [infoMessage, setInfoMessage] = useState<string | null>(null);
+  const highlightedSessionId = searchParams.get("sessionId");
+  const highlightedSessionNonce = (
+    location.state as { globalSearchNonce?: number } | null
+  )?.globalSearchNonce ?? null;
 
   const filteredSessions = useMemo(() => {
     const normalizedSessionIdQuery = normalizeSearchText(sessionIdQuery);
@@ -180,6 +200,15 @@ export function SessionsPage() {
   }, [contentQuery, sessionIdQuery]);
 
   useEffect(() => {
+    if (!highlightedSessionId) {
+      return;
+    }
+
+    setSessionIdQuery(highlightedSessionId);
+    setContentQuery("");
+  }, [highlightedSessionId, highlightedSessionNonce]);
+
+  useEffect(() => {
     if (totalPages > 0 && page > totalPages) {
       setPage(totalPages);
     }
@@ -187,6 +216,45 @@ export function SessionsPage() {
       setPage(1);
     }
   }, [page, totalPages]);
+
+  useEffect(() => {
+    if (!highlightedSessionId || filteredSessions.length === 0) {
+      return;
+    }
+
+    const targetIndex = filteredSessions.findIndex((session) => (
+      matchesSessionIdentifier(session, highlightedSessionId)
+    ));
+    if (targetIndex < 0) {
+      return;
+    }
+
+    const targetPage = Math.floor(targetIndex / PAGE_SIZE) + 1;
+    if (targetPage !== page) {
+      setPage(targetPage);
+    }
+  }, [filteredSessions, highlightedSessionId, highlightedSessionNonce, page]);
+
+  useEffect(() => {
+    if (!highlightedSessionId) {
+      return;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      const matchedSession = pageSessions.find((session) => (
+        matchesSessionIdentifier(session, highlightedSessionId)
+      ));
+      if (!matchedSession) {
+        return;
+      }
+
+      document
+        .getElementById(`session-row-${matchedSession.session_record_id}`)
+        ?.scrollIntoView({ behavior: "smooth", block: "center" });
+    }, 80);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [highlightedSessionId, highlightedSessionNonce, pageSessions]);
 
   const loadSessions = async (silent = false): Promise<CodexSessionListItem[]> => {
     if (silent) {
@@ -385,7 +453,13 @@ export function SessionsPage() {
                     </thead>
                     <tbody>
                       {pageSessions.map((session) => (
-                        <tr key={session.session_record_id} className="border-b border-border/60 align-top last:border-b-0">
+                        <tr
+                          id={`session-row-${session.session_record_id}`}
+                          key={session.session_record_id}
+                          className={`border-b border-border/60 align-top last:border-b-0 ${
+                            matchesSessionIdentifier(session, highlightedSessionId) ? "bg-primary/5" : ""
+                          }`}
+                        >
                           <td className="px-4 py-3">
                             <div className="space-y-1">
                               <div className="font-medium">{session.display_name}</div>

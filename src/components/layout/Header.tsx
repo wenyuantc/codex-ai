@@ -18,6 +18,7 @@ import {
 } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { getEnvironmentModeLabel } from "@/lib/projects";
+import { GlobalSearchDialog } from "@/components/search/GlobalSearchDialog";
 
 const ALL_PROJECTS_VALUE = "__all_projects__";
 
@@ -91,6 +92,7 @@ export function Header() {
       </div>
 
       <div className="flex items-center gap-4">
+        <GlobalSearchDialog />
         <div className="flex items-center gap-2">
           <span className="text-[11px] text-muted-foreground">{getEnvironmentModeLabel(environmentMode)}</span>
           <div className="inline-flex rounded-md border border-border bg-muted/30 p-0.5">

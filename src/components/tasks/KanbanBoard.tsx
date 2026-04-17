@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   DndContext,
   DragEndEvent,
@@ -14,19 +14,29 @@ import { useEmployeeStore } from "@/stores/employeeStore";
 import { KanbanColumn } from "./KanbanColumn";
 import { TaskCard } from "./TaskCard";
 import { TaskLogDialog } from "./TaskLogDialog";
+import { TaskDetailDialog } from "./TaskDetailDialog";
+import { ErrorBoundary } from "@/components/ErrorBoundary";
 
 interface KanbanBoardProps {
   projectId?: string;
+  targetTaskId?: string | null;
+  onClearTargetTask?: () => void;
 }
 
-export function KanbanBoard({ projectId: _projectId }: KanbanBoardProps) {
+export function KanbanBoard({
+  projectId: _projectId,
+  targetTaskId,
+  onClearTargetTask,
+}: KanbanBoardProps) {
   const { tasks, moveTask, updateTaskStatus, fetchTasks } = useTaskStore();
   const employees = useEmployeeStore((s) => s.employees);
   const [activeTask, setActiveTask] = useState<Task | null>(null);
+  const [searchTaskOpen, setSearchTaskOpen] = useState(false);
   const [logRequest, setLogRequest] = useState<{
     taskId: string;
     sessionKind?: CodexSessionKind;
   } | null>(null);
+  const targetTask = targetTaskId ? tasks.find((task) => task.id === targetTaskId) ?? null : null;
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -92,6 +102,22 @@ export function KanbanBoard({ projectId: _projectId }: KanbanBoardProps) {
     ? employees.find((employee) => employee.id === logTask.assignee_id)?.name
     : undefined;
 
+  useEffect(() => {
+    if (!targetTaskId || !targetTask) {
+      return;
+    }
+
+    setSearchTaskOpen(true);
+
+    const timeoutId = window.setTimeout(() => {
+      document
+        .getElementById(`task-card-${targetTaskId}`)
+        ?.scrollIntoView({ behavior: "smooth", block: "center" });
+    }, 80);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [targetTask, targetTaskId]);
+
   return (
     <>
       <DndContext
@@ -109,6 +135,7 @@ export function KanbanBoard({ projectId: _projectId }: KanbanBoardProps) {
               label={status.label}
               color={status.color}
               tasks={getTasksByStatus(status.value)}
+              highlightedTaskId={targetTaskId}
               onOpenLog={(taskId, sessionKind) => setLogRequest({ taskId, sessionKind })}
             />
           ))}
@@ -134,6 +161,24 @@ export function KanbanBoard({ projectId: _projectId }: KanbanBoardProps) {
             }
           }}
         />
+      )}
+
+      {targetTask && (
+        <ErrorBoundary
+          fallbackTitle="任务详情渲染失败"
+          fallbackDescription="全局搜索定位到的任务详情弹窗出现运行时异常。"
+        >
+          <TaskDetailDialog
+            task={targetTask}
+            open={searchTaskOpen}
+            onOpenChange={(nextOpen) => {
+              setSearchTaskOpen(nextOpen);
+              if (!nextOpen) {
+                onClearTargetTask?.();
+              }
+            }}
+          />
+        </ErrorBoundary>
       )}
     </>
   );
