@@ -3,6 +3,23 @@ export type EnvironmentMode = ProjectType;
 export type SshAuthType = "key" | "password";
 export type ArtifactCaptureMode = "local_full" | "ssh_full" | "ssh_git_status" | "ssh_none";
 export type SshPasswordProbeStatus = "unknown" | "supported" | "unsupported" | "failed";
+export type TaskGitContextState =
+  | "provisioning"
+  | "ready"
+  | "running"
+  | "merge_ready"
+  | "action_pending"
+  | "completed"
+  | "failed"
+  | "drifted";
+export type GitActionType =
+  | "merge"
+  | "push"
+  | "rebase"
+  | "cherry_pick"
+  | "stash"
+  | "unstash"
+  | "cleanup_worktree";
 
 export interface Project {
   id: string;
@@ -135,6 +152,7 @@ export interface CodexSessionRecord {
   employee_id: string | null;
   task_id: string | null;
   project_id: string | null;
+  task_git_context_id: string | null;
   cli_session_id: string | null;
   working_dir: string | null;
   session_kind: CodexSessionKind;
@@ -227,6 +245,7 @@ export interface CodexSessionListItem {
   employee_id: string | null;
   employee_name: string | null;
   task_id: string | null;
+  task_git_context_id: string | null;
   task_title: string | null;
   task_status: string | null;
   project_id: string | null;
@@ -252,6 +271,7 @@ export interface CodexSessionResumePreview {
   employee_id: string | null;
   employee_name: string | null;
   task_id: string | null;
+  task_git_context_id: string | null;
   task_title: string | null;
   project_id: string | null;
   project_name: string | null;
@@ -287,6 +307,62 @@ export interface GlobalSearchResponse {
   min_query_length: number;
   total: number;
   items: GlobalSearchItem[];
+}
+
+export interface TaskGitContext {
+  id: string;
+  task_id: string;
+  project_id: string;
+  base_branch: string | null;
+  task_branch: string | null;
+  target_branch: string | null;
+  worktree_path: string | null;
+  repo_head_commit_at_prepare: string | null;
+  state: TaskGitContextState;
+  context_version: number;
+  pending_action_type: GitActionType | null;
+  pending_action_token_hash: string | null;
+  pending_action_payload_json: string | null;
+  pending_action_nonce: string | null;
+  pending_action_requested_at: string | null;
+  pending_action_expires_at: string | null;
+  pending_action_repo_revision: string | null;
+  pending_action_bound_context_version: number | null;
+  last_reconciled_at: string | null;
+  last_error: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ProjectGitCommit {
+  sha: string;
+  short_sha: string | null;
+  subject: string;
+  author_name: string | null;
+  authored_at: string;
+}
+
+export interface ProjectGitOverview {
+  project_id: string;
+  repo_path: string | null;
+  execution_target: EnvironmentMode;
+  default_branch: string | null;
+  current_branch: string | null;
+  head_commit_sha: string | null;
+  working_tree_summary: string | null;
+  refreshed_at: string;
+  recent_commits: ProjectGitCommit[];
+  active_contexts: TaskGitContext[];
+  pending_action_contexts: TaskGitContext[];
+}
+
+export interface PreparedTaskGitExecution {
+  task_git_context_id: string;
+  working_dir: string;
+  task_branch: string;
+  target_branch: string;
+  base_branch: string | null;
+  context_version: number;
 }
 
 export interface CodexHealthCheck {

@@ -35,6 +35,7 @@ interface StartCodexOptions {
   systemPrompt?: string | null;
   workingDir?: string;
   taskId?: string;
+  taskGitContextId?: string;
   resumeSessionId?: string;
   sessionKind?: CodexSessionKind;
   imagePaths?: string[];
@@ -73,6 +74,7 @@ export async function startCodex(employeeId: string, taskDescription: string, op
     systemPrompt: options.systemPrompt ?? null,
     workingDir: options.workingDir ?? null,
     taskId: options.taskId ?? null,
+    taskGitContextId: options.taskGitContextId ?? null,
     resumeSessionId: options.resumeSessionId ?? null,
     sessionKind: options.sessionKind ?? null,
     imagePaths: options.imagePaths ?? null,

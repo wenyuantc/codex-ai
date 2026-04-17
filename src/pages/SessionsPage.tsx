@@ -323,6 +323,7 @@ export function SessionsPage() {
         systemPrompt: employee?.system_prompt,
         workingDir: preview.working_dir ?? undefined,
         taskId: preview.task_id ?? undefined,
+        taskGitContextId: preview.task_git_context_id ?? undefined,
         resumeSessionId: preview.resolved_session_id,
         sessionKind: preview.session_kind ?? undefined,
       });

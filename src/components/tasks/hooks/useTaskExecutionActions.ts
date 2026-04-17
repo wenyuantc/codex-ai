@@ -1,7 +1,8 @@
 import { useState } from "react";
 
 import { startCodex, stopCodex } from "@/lib/codex";
-import type { Employee, Task } from "@/lib/types";
+import { prepareTaskGitExecution } from "@/lib/backend";
+import type { Employee, ProjectType, Task } from "@/lib/types";
 import { buildTaskLogKey, useEmployeeStore } from "@/stores/employeeStore";
 import { useTaskStore } from "@/stores/taskStore";
 
@@ -18,6 +19,7 @@ interface UseTaskExecutionActionsOptions {
   assigneeId?: string | null;
   assignee?: Employee;
   projectRepoPath?: string | null;
+  projectType?: ProjectType;
   prepareExecutionInput: (followUpPrompt?: string) => Promise<PreparedExecutionInput>;
   clearTaskOutputOnRun?: boolean;
   clearTaskOutputOnContinue?: boolean;
@@ -32,6 +34,7 @@ export function useTaskExecutionActions({
   assigneeId,
   assignee,
   projectRepoPath,
+  projectType = "local",
   prepareExecutionInput,
   clearTaskOutputOnRun = false,
   clearTaskOutputOnContinue = false,
@@ -85,6 +88,19 @@ export function useTaskExecutionActions({
       }
 
       const executionInput = await prepareExecutionInput(followUpPrompt);
+      let workingDir = projectRepoPath ?? undefined;
+      let taskGitContextId: string | undefined;
+
+      if (projectType === "local") {
+        const prepared = await prepareTaskGitExecution(task.id);
+        workingDir = prepared.working_dir;
+        taskGitContextId = prepared.task_git_context_id;
+      }
+
+      if (!workingDir) {
+        throw new Error("当前项目缺少可用工作目录，无法启动任务执行。");
+      }
+
       await updateEmployeeStatus(assigneeId, "busy");
       await updateTaskStatus(task.id, "in_progress");
       setCodexRunning(assigneeId, true, task.id);
@@ -92,8 +108,9 @@ export function useTaskExecutionActions({
         model: assignee?.model,
         reasoningEffort: assignee?.reasoning_effort,
         systemPrompt: assignee?.system_prompt,
-        workingDir: projectRepoPath ?? undefined,
+        workingDir,
         taskId: task.id,
+        taskGitContextId,
         resumeSessionId: executionInput.resumeSessionId,
         imagePaths: executionInput.imagePaths,
       });

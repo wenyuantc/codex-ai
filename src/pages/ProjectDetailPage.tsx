@@ -3,14 +3,15 @@ import { useParams, Link, useNavigate } from "react-router-dom";
 import { useProjectStore } from "@/stores/projectStore";
 import { useTaskStore } from "@/stores/taskStore";
 import { useEmployeeStore } from "@/stores/employeeStore";
-import type { Employee } from "@/lib/types";
+import { getProjectGitOverview } from "@/lib/backend";
+import type { Employee, ProjectGitOverview } from "@/lib/types";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { EditProjectDialog } from "@/components/projects/EditProjectDialog";
 import { DeleteProjectDialog } from "@/components/projects/DeleteProjectDialog";
 import { RepoPathDisplay } from "@/components/projects/RepoPathDisplay";
-import { ArrowLeft, Edit2, Trash2 } from "lucide-react";
+import { ArrowLeft, Edit2, GitBranch, Loader2, ShieldAlert, Trash2 } from "lucide-react";
 import { getStatusLabel, getStatusColor, getPriorityLabel, formatDate } from "@/lib/utils";
 import { getProjectWorkingDir, getProjectTypeLabel } from "@/lib/projects";
 
@@ -24,6 +25,9 @@ export function ProjectDetailPage() {
   const [showEdit, setShowEdit] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [gitOverview, setGitOverview] = useState<ProjectGitOverview | null>(null);
+  const [gitOverviewLoading, setGitOverviewLoading] = useState(false);
+  const [gitOverviewError, setGitOverviewError] = useState<string | null>(null);
 
   const project = projects.find((p) => p.id === id);
 
@@ -42,6 +46,43 @@ export function ProjectDetailPage() {
 
     setProjectEmployees(employees.filter((employee) => employee.project_id === id));
   }, [employees, id]);
+
+  useEffect(() => {
+    if (!project) {
+      setGitOverview(null);
+      setGitOverviewError(null);
+      setGitOverviewLoading(false);
+      return;
+    }
+
+    let active = true;
+    setGitOverviewLoading(true);
+    setGitOverviewError(null);
+
+    void getProjectGitOverview(project.id)
+      .then((overview) => {
+        if (!active) {
+          return;
+        }
+        setGitOverview(overview);
+      })
+      .catch((error) => {
+        if (!active) {
+          return;
+        }
+        setGitOverview(null);
+        setGitOverviewError(error instanceof Error ? error.message : String(error));
+      })
+      .finally(() => {
+        if (active) {
+          setGitOverviewLoading(false);
+        }
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [project]);
 
   if (!project) {
     return (
@@ -116,6 +157,153 @@ export function ProjectDetailPage() {
           projectType={project.project_type}
           showCopyAction
         />
+      </Card>
+
+      <Card className="p-4 space-y-4">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <div className="flex items-center gap-2">
+              <GitBranch className="h-4 w-4 text-muted-foreground" />
+              <h3 className="text-sm font-semibold">Git 工作流</h3>
+            </div>
+            <p className="mt-1 text-xs text-muted-foreground">
+              项目级 Git 概览、任务上下文与待确认操作入口。
+            </p>
+          </div>
+          {gitOverview?.refreshed_at && (
+            <span className="text-[11px] text-muted-foreground">
+              刷新于 {formatDate(gitOverview.refreshed_at)}
+            </span>
+          )}
+        </div>
+
+        {project.project_type === "ssh" && (
+          <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-900">
+            <div className="flex items-center gap-2 font-medium">
+              <ShieldAlert className="h-3.5 w-3.5" />
+              SSH v1 当前仅提供只读 Git 概览
+            </div>
+            <p className="mt-1 text-amber-900/80">
+              自动创建 branch/worktree、merge-ready 沉淀，以及 merge/push/rebase/cherry-pick/stash/unstash/清理工作树等高风险操作暂不可用。
+            </p>
+          </div>
+        )}
+
+        {gitOverviewLoading ? (
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            正在加载 Git 概览...
+          </div>
+        ) : gitOverviewError ? (
+          <div className="rounded-lg border border-dashed border-border px-3 py-3 text-sm text-muted-foreground">
+            Git 概览暂不可用：{gitOverviewError}
+          </div>
+        ) : gitOverview ? (
+          <>
+            <div className="grid gap-3 md:grid-cols-4">
+              <div className="rounded-lg border border-border/60 px-3 py-2">
+                <div className="text-[11px] text-muted-foreground">默认分支</div>
+                <div className="mt-1 text-sm font-medium">{gitOverview.default_branch ?? "未知"}</div>
+              </div>
+              <div className="rounded-lg border border-border/60 px-3 py-2">
+                <div className="text-[11px] text-muted-foreground">当前分支</div>
+                <div className="mt-1 text-sm font-medium">{gitOverview.current_branch ?? "未知"}</div>
+              </div>
+              <div className="rounded-lg border border-border/60 px-3 py-2">
+                <div className="text-[11px] text-muted-foreground">HEAD</div>
+                <div className="mt-1 text-sm font-medium break-all">{gitOverview.head_commit_sha ?? "未知"}</div>
+              </div>
+              <div className="rounded-lg border border-border/60 px-3 py-2">
+                <div className="text-[11px] text-muted-foreground">工作区摘要</div>
+                <div className="mt-1 text-sm font-medium">{gitOverview.working_tree_summary ?? "工作区干净"}</div>
+              </div>
+            </div>
+
+            <div className="grid gap-3 md:grid-cols-2">
+              <div className="rounded-lg border border-border/60 p-3">
+                <div className="mb-2 flex items-center justify-between">
+                  <h4 className="text-sm font-medium">活动任务上下文</h4>
+                  <span className="text-xs text-muted-foreground">{gitOverview.active_contexts.length} 条</span>
+                </div>
+                {gitOverview.active_contexts.length === 0 ? (
+                  <p className="text-xs text-muted-foreground">当前暂无活动中的 Git 执行上下文。</p>
+                ) : (
+                  <div className="space-y-2">
+                    {gitOverview.active_contexts.slice(0, 3).map((context) => (
+                      <div key={context.id} className="rounded-md bg-secondary/40 px-2.5 py-2 text-xs">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="font-medium">{context.task_branch ?? "未命名分支"}</span>
+                          <Badge variant="outline">{context.state}</Badge>
+                        </div>
+                        <div className="mt-1 text-muted-foreground">
+                          目标分支：{context.target_branch ?? "未设置"}
+                        </div>
+                        <div className="mt-1 text-muted-foreground">
+                          更新时间：{formatDate(context.updated_at)}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div className="rounded-lg border border-border/60 p-3">
+                <div className="mb-2 flex items-center justify-between">
+                  <h4 className="text-sm font-medium">待确认操作</h4>
+                  <span className="text-xs text-muted-foreground">{gitOverview.pending_action_contexts.length} 条</span>
+                </div>
+                {gitOverview.pending_action_contexts.length === 0 ? (
+                  <p className="text-xs text-muted-foreground">当前没有待确认的高风险 Git 操作。</p>
+                ) : (
+                  <div className="space-y-2">
+                    {gitOverview.pending_action_contexts.slice(0, 3).map((context) => (
+                      <div key={context.id} className="rounded-md bg-secondary/40 px-2.5 py-2 text-xs">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="font-medium">{context.pending_action_type ?? "待确认操作"}</span>
+                          <Badge variant="outline">{context.state}</Badge>
+                        </div>
+                        <div className="mt-1 text-muted-foreground">
+                          请求时间：{context.pending_action_requested_at ? formatDate(context.pending_action_requested_at) : "未知"}
+                        </div>
+                        <div className="mt-1 text-muted-foreground">
+                          过期时间：{context.pending_action_expires_at ? formatDate(context.pending_action_expires_at) : "未知"}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="rounded-lg border border-border/60 p-3">
+              <div className="mb-2 flex items-center justify-between">
+                <h4 className="text-sm font-medium">最近提交</h4>
+                <span className="text-xs text-muted-foreground">{gitOverview.recent_commits.length} 条</span>
+              </div>
+              {gitOverview.recent_commits.length === 0 ? (
+                <p className="text-xs text-muted-foreground">暂无最近提交记录。</p>
+              ) : (
+                <div className="space-y-2">
+                  {gitOverview.recent_commits.slice(0, 5).map((commit) => (
+                    <div key={commit.sha} className="rounded-md bg-secondary/30 px-2.5 py-2 text-xs">
+                      <div className="flex items-center justify-between gap-3">
+                        <span className="font-medium">{commit.subject}</span>
+                        <span className="text-muted-foreground">{commit.short_sha ?? commit.sha.slice(0, 7)}</span>
+                      </div>
+                      <div className="mt-1 text-muted-foreground">
+                        {commit.author_name ?? "未知作者"} · {formatDate(commit.authored_at)}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </>
+        ) : (
+          <div className="rounded-lg border border-dashed border-border px-3 py-3 text-sm text-muted-foreground">
+            暂无 Git 概览数据。
+          </div>
+        )}
       </Card>
 
       {/* Task Stats */}

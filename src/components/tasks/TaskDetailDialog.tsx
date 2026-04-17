@@ -11,6 +11,7 @@ import type {
   TaskStatus,
 } from "@/lib/types";
 import {
+  prepareTaskGitExecution,
   getCodexSessionFileChangeDetail,
   getTaskExecutionChangeHistory,
   getTaskLatestReview,
@@ -92,7 +93,8 @@ export function TaskDetailDialog({
   const projects = useProjectStore((s) => s.projects);
   const attachmentMap = useTaskStore((state) => state.attachments);
   const attachments = attachmentMap[task.id] ?? EMPTY_ATTACHMENTS;
-  const projectRepoPath = getProjectWorkingDir(projects.find((p) => p.id === task.project_id));
+  const project = projects.find((p) => p.id === task.project_id);
+  const projectRepoPath = getProjectWorkingDir(project);
   const [title, setTitle] = useState(task.title);
   const [description, setDescription] = useState(task.description ?? "");
   const [priority, setPriority] = useState(task.priority);
@@ -131,6 +133,7 @@ export function TaskDetailDialog({
     assigneeId,
     assignee,
     projectRepoPath,
+    projectType: project?.project_type,
     prepareExecutionInput: async () => {
       await Promise.all([fetchSubtasks(task.id), fetchAttachments(task.id)]);
       const executionInput = buildTaskExecutionInput({
@@ -524,12 +527,26 @@ export function TaskDetailDialog({
         title: createdTask.title,
         description: createdTask.description,
       });
+      let workingDir = projectRepoPath ?? undefined;
+      let taskGitContextId: string | undefined;
+
+      if (project?.project_type !== "ssh") {
+        const prepared = await prepareTaskGitExecution(createdTask.id);
+        workingDir = prepared.working_dir;
+        taskGitContextId = prepared.task_git_context_id;
+      }
+
+      if (!workingDir) {
+        throw new Error("当前项目缺少可用工作目录，无法启动修复任务。");
+      }
+
       await startCodex(assigneeId, executionInput.prompt, {
         model: assignee?.model,
         reasoningEffort: assignee?.reasoning_effort,
         systemPrompt: assignee?.system_prompt,
-        workingDir: projectRepoPath,
+        workingDir,
         taskId: createdTask.id,
+        taskGitContextId,
         imagePaths: executionInput.imagePaths,
       });
 

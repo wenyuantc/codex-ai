@@ -11,10 +11,18 @@ export function cn(...inputs: ClassValue[]) {
 }
 
 export function formatDate(dateStr: string): string {
-  // SQLite datetime('now') returns UTC without timezone suffix (e.g. "2025-04-12 06:30:00").
-  // Append "Z" so JS Date parses it as UTC, then toLocaleString converts to local timezone.
-  const utc = dateStr.endsWith("Z") ? dateStr : dateStr + "Z";
-  return new Date(utc).toLocaleString("zh-CN");
+  const trimmed = dateStr.trim();
+  if (!trimmed) {
+    return dateStr;
+  }
+
+  const normalized = trimmed.includes("T") ? trimmed : trimmed.replace(" ", "T");
+  const withTimezone = /(?:Z|[+-]\d{2}:\d{2})$/i.test(normalized)
+    ? normalized
+    : `${normalized}Z`;
+  const parsed = new Date(withTimezone);
+
+  return Number.isNaN(parsed.getTime()) ? dateStr : parsed.toLocaleString("zh-CN");
 }
 
 export function getStatusColor(status: string): string {
@@ -72,7 +80,18 @@ export function getActivityActionLabel(action: string): string {
     task_review_started: "开始代码审核",
     task_review_completed: "代码审核完成",
     task_review_failed: "代码审核失败",
+    task_git_context_prepared: "Git 执行上下文已准备",
+    task_git_context_prepare_failed: "Git 执行上下文准备失败",
+    task_git_context_drift_detected: "Git 执行上下文发生漂移",
+    task_git_context_reconciled: "Git 执行上下文已修复",
+    git_action_requested: "Git 高风险操作待确认",
+    git_action_confirmed: "Git 高风险操作已执行",
+    git_action_cancelled: "Git 高风险操作已取消",
+    git_action_rejected: "Git 高风险操作已拒绝",
+    task_merge_ready: "任务变更已进入待合并",
+    task_worktree_cleanup_completed: "任务工作树清理完成",
     environment_mode_switched: "切换SSH模式",
+    employee_project_membership_conflict_migrated: "员工项目归属冲突已迁移",
     ssh_config_created: "新增SSH配置",
     ssh_config_updated: "更新SSH配置",
     ssh_config_deleted: "删除SSH配置",

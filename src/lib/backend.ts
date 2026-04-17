@@ -17,7 +17,10 @@ import type {
   EnvironmentMode,
   GlobalSearchItemType,
   GlobalSearchResponse,
+  GitActionType,
+  PreparedTaskGitExecution,
   Project,
+  ProjectGitOverview,
   RemoteCodexHealthCheck,
   RemoteCodexSdkInstallResult,
   RemoteCodexSettings,
@@ -28,6 +31,7 @@ import type {
   TaskAutomationMode,
   TaskAutomationState,
   TaskAttachment,
+  TaskGitContext,
   TaskExecutionChangeHistoryItem,
   TaskLatestReview,
 } from "./types";
@@ -299,6 +303,47 @@ export async function prepareCodexSessionResume(
 
 export async function getCodexSessionLogLines(sessionId: string): Promise<CodexSessionLogLine[]> {
   return invoke("get_codex_session_log_lines", { sessionId });
+}
+
+export async function getProjectGitOverview(projectId: string): Promise<ProjectGitOverview> {
+  return invoke("get_project_git_overview", { projectId });
+}
+
+export async function listTaskGitContexts(projectId: string): Promise<TaskGitContext[]> {
+  return invoke("list_task_git_contexts", { projectId });
+}
+
+export async function prepareTaskGitExecution(
+  taskId: string,
+  preferredTargetBranch?: string,
+): Promise<PreparedTaskGitExecution> {
+  return invoke("prepare_task_git_execution", {
+    taskId,
+    preferredTargetBranch: preferredTargetBranch ?? null,
+  });
+}
+
+export async function requestGitAction(
+  taskGitContextId: string,
+  actionType: GitActionType,
+  payload: Record<string, unknown>,
+): Promise<{ token: string; expires_at: string; context_version: number }> {
+  return invoke("request_git_action", {
+    taskGitContextId,
+    actionType,
+    payload,
+  });
+}
+
+export async function confirmGitAction(taskGitContextId: string, token: string): Promise<void> {
+  return invoke("confirm_git_action", { taskGitContextId, token });
+}
+
+export async function cancelGitAction(taskGitContextId: string, token?: string): Promise<void> {
+  return invoke("cancel_git_action", {
+    taskGitContextId,
+    token: token ?? null,
+  });
 }
 
 export async function getTaskLatestReview(taskId: string): Promise<TaskLatestReview | null> {

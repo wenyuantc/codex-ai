@@ -71,6 +71,7 @@ export function TaskCard({
     assigneeId: task.assignee_id,
     assignee,
     projectRepoPath,
+    projectType: project?.project_type,
     prepareExecutionInput: async (followUpPrompt) => {
       await Promise.all([fetchSubtasks(task.id), fetchAttachments(task.id)]);
       const executionInput = buildTaskExecutionInput({
