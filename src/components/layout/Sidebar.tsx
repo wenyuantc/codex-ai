@@ -16,7 +16,7 @@ import { cn } from "@/lib/utils";
 const navItems = [
   { to: "/", icon: LayoutDashboard, label: "仪表盘" },
   { to: "/projects", icon: FolderKanban, label: "项目管理" },
-  { to: "/kanban", icon: Columns3, label: "看板" },
+  { to: "/kanban", icon: Columns3, label: "看板管理" },
   { to: "/sessions", icon: MessagesSquare, label: "Session 管理" },
   { to: "/employees", icon: Users, label: "员工管理" },
   { to: "/settings", icon: Settings, label: "设置" },

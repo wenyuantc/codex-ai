@@ -18,7 +18,7 @@ export function EmployeesPage() {
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <h2 className="text-lg font-semibold">员工管理</h2>
+        <h2 className="text-lg font-semibold">员工列表</h2>
         <button
           onClick={() => setShowCreate(true)}
           className="flex items-center gap-1 px-3 py-1.5 text-sm bg-primary text-primary-foreground rounded-md hover:bg-primary/90"

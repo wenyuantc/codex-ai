@@ -362,7 +362,7 @@ export function SessionsPage() {
       <div className="space-y-4">
         <div className="flex items-center justify-between gap-3">
           <div>
-            <h2 className="text-lg font-semibold">Session 管理</h2>
+            <h2 className="text-lg font-semibold">Session列表</h2>
             <p className="text-sm text-muted-foreground">
               当前仅展示{environmentMode === "ssh" ? " SSH " : "本地 "}执行链路下的 Session。
             </p>
@@ -398,10 +398,10 @@ export function SessionsPage() {
         )}
 
         <Card>
-          <CardHeader>
+          {/* <CardHeader>
             <CardTitle>Session 列表</CardTitle>
             <CardDescription>按最近更新时间倒序排列，支持 `session id` 搜索、内容搜索、分页查看与直接操作。</CardDescription>
-          </CardHeader>
+          </CardHeader> */}
           <CardContent className="space-y-4">
             <div className="grid gap-3 md:grid-cols-2">
               <div className="space-y-2">

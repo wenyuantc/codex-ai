@@ -25,7 +25,7 @@ const ALL_PROJECTS_VALUE = "__all_projects__";
 const pageTitles: Record<string, string> = {
   "/": "仪表盘",
   "/projects": "项目管理",
-  "/kanban": "任务看板",
+  "/kanban": "看板管理",
   "/employees": "员工管理",
   "/sessions": "Session 管理",
   "/settings": "系统设置",
