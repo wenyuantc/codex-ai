@@ -1,0 +1,111 @@
+name: build-desktop-installers
+
+# 仅在手动触发、主分支提交或主分支 PR 时构建桌面端安装包。
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - "src/**"
+      - "src-tauri/**"
+      - "public/**"
+      - "index.html"
+      - "vite.config.ts"
+      - "package.json"
+      - "package-lock.json"
+      - "components.json"
+      - "tsconfig.json"
+      - "tsconfig.node.json"
+      - ".github/workflows/build.yml"
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "src/**"
+      - "src-tauri/**"
+      - "public/**"
+      - "index.html"
+      - "vite.config.ts"
+      - "package.json"
+      - "package-lock.json"
+      - "components.json"
+      - "tsconfig.json"
+      - "tsconfig.node.json"
+      - ".github/workflows/build.yml"
+
+jobs:
+  build-installers:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            platform_name: Windows
+            build_script: npm run tauri:windows:msi
+            artifact_name: windows-msi
+            artifact_path: src-tauri/target/release/bundle/msi/*.msi
+          - os: ubuntu-24.04
+            platform_name: Linux
+            build_script: npm run tauri:linux
+            artifact_name: linux-bundles
+            artifact_path: |
+              src-tauri/target/release/bundle/appimage/*.AppImage
+              src-tauri/target/release/bundle/deb/*.deb
+              src-tauri/target/release/bundle/rpm/*.rpm
+          - os: macos-latest
+            platform_name: macOS
+            build_script: npm run tauri:dmg:no-sign
+            artifact_name: macos-dmg
+            artifact_path: src-tauri/target/release/bundle/dmg/*.dmg
+
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 安装 Linux 系统依赖
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            build-essential \
+            curl \
+            wget \
+            file \
+            libxdo-dev \
+            libssl-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev
+
+      - name: 安装 Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: 安装 Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: 缓存 Rust 构建产物
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: ./src-tauri -> target
+
+      - name: 安装前端与 Tauri 依赖
+        # 安装前端与 Tauri 依赖。
+        run: npm install
+
+      - name: 构建 ${{ matrix.platform_name }} 安装包
+        # 复用 package.json 里的脚本，确保和本地打包命令保持一致。
+        run: ${{ matrix.build_script }}
+
+      - name: 上传 ${{ matrix.platform_name }} 安装包
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: ${{ matrix.artifact_path }}
+          if-no-files-found: error
