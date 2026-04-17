@@ -1,4 +1,8 @@
-import type { Task, TaskAutomationState as PersistedTaskAutomationState } from "./types"
+import type {
+  ArtifactCaptureMode,
+  Task,
+  TaskAutomationState as PersistedTaskAutomationState,
+} from "./types"
 import { clsx, type ClassValue } from "clsx"
 import { twMerge } from "tailwind-merge"
 
@@ -77,10 +81,15 @@ export function getActivityActionLabel(action: string): string {
     remote_codex_verified: "远程校验Codex",
     remote_task_attachments_synced: "同步远程图片附件",
     remote_task_session_started: "启动远程任务会话",
+    remote_session_artifact_captured: "远程会话变更明细已保存",
     remote_session_artifact_limited: "远程会话变更明细受限",
     remote_artifact_capture_limited: "远程会话变更明细受限",
   };
   return labels[action] || action;
+}
+
+export function isArtifactCaptureLimited(mode: ArtifactCaptureMode): boolean {
+  return mode === "ssh_git_status" || mode === "ssh_none";
 }
 
 export function getActivityDetailsLabel(action: string, details: string | null | undefined): string | null {

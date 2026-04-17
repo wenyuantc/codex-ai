@@ -43,6 +43,7 @@ pub(crate) const PROJECT_TYPE_SSH: &str = "ssh";
 pub(crate) const EXECUTION_TARGET_LOCAL: &str = "local";
 pub(crate) const EXECUTION_TARGET_SSH: &str = "ssh";
 pub(crate) const ARTIFACT_CAPTURE_MODE_LOCAL_FULL: &str = "local_full";
+pub(crate) const ARTIFACT_CAPTURE_MODE_SSH_FULL: &str = "ssh_full";
 pub(crate) const ARTIFACT_CAPTURE_MODE_SSH_GIT_STATUS: &str = "ssh_git_status";
 pub(crate) const ARTIFACT_CAPTURE_MODE_SSH_NONE: &str = "ssh_none";
 const DB_FILE_NAME: &str = "codex-ai.db";

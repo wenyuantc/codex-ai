@@ -10,7 +10,7 @@ import type {
   CodexSessionListItem,
   TaskExecutionChangeHistoryItem,
 } from "@/lib/types";
-import { formatDate } from "@/lib/utils";
+import { formatDate, isArtifactCaptureLimited } from "@/lib/utils";
 import { TaskExecutionChangeDetailDialog } from "@/components/tasks/detail/TaskExecutionChangeDetailDialog";
 import { TaskFileChangeHistoryPanel } from "@/components/tasks/detail/TaskFileChangeHistoryPanel";
 import {
@@ -171,7 +171,7 @@ export function SessionExecutionChangesDialog({
                   <div className="mt-1 break-all font-mono">{session.working_dir}</div>
                 </div>
               )}
-              {session.artifact_capture_mode !== "local_full" && (
+              {isArtifactCaptureLimited(session.artifact_capture_mode) && (
                 <div className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-amber-800 md:col-span-2">
                   远程变更明细受限：SSH v1 只保证远程执行与会话元数据，不承诺本地级 diff 和文件快照。
                 </div>
@@ -187,7 +187,9 @@ export function SessionExecutionChangesDialog({
             title="执行会话改动文件"
             description={session?.artifact_capture_mode === "local_full"
               ? "SDK 会话按 Codex 事件精确记录；CLI 会话仅在缺少结构化事件时回退为 Git 快照估算。"
-              : "当前是远程 Session，变更采集能力受限，仅展示 SSH v1 可提供的记录。"}
+              : session?.artifact_capture_mode === "ssh_full"
+                ? "当前远程 Session 已保存文件级明细；SDK 会话优先使用 Codex 事件，CLI 会话按远程 Git 快照估算。"
+                : "当前是远程 Session，变更采集能力受限，仅展示 SSH v1 可提供的记录。"}
             history={history ? [history] : []}
             loading={historyLoading}
             error={historyError}

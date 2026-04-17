@@ -1,7 +1,7 @@
 export type ProjectType = "local" | "ssh";
 export type EnvironmentMode = ProjectType;
 export type SshAuthType = "key" | "password";
-export type ArtifactCaptureMode = "local_full" | "ssh_git_status" | "ssh_none";
+export type ArtifactCaptureMode = "local_full" | "ssh_full" | "ssh_git_status" | "ssh_none";
 export type SshPasswordProbeStatus = "unknown" | "supported" | "unsupported" | "failed";
 
 export interface Project {

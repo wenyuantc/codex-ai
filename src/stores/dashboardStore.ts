@@ -12,6 +12,7 @@ const SSH_GLOBAL_ACTIVITY_ACTIONS = new Set([
   "remote_codex_validated",
   "remote_codex_verified",
   "remote_sdk_installed",
+  "remote_session_artifact_captured",
   "remote_session_artifact_limited",
   "remote_artifact_capture_limited",
 ]);

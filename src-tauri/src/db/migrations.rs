@@ -488,6 +488,95 @@ pub fn get_all_migrations() -> Vec<Migration> {
             "#,
             kind: tauri_plugin_sql::MigrationKind::Up,
         },
+        Migration {
+            version: 24,
+            description: "allow full ssh artifact capture mode for codex sessions",
+            sql: r#"
+                PRAGMA foreign_keys=OFF;
+
+                CREATE TABLE codex_sessions_new (
+                    id TEXT PRIMARY KEY,
+                    employee_id TEXT REFERENCES employees(id) ON DELETE SET NULL,
+                    task_id TEXT REFERENCES tasks(id) ON DELETE SET NULL,
+                    project_id TEXT REFERENCES projects(id) ON DELETE SET NULL,
+                    cli_session_id TEXT,
+                    working_dir TEXT,
+                    status TEXT NOT NULL DEFAULT 'pending',
+                    started_at TEXT NOT NULL DEFAULT (datetime('now')),
+                    ended_at TEXT,
+                    exit_code INTEGER,
+                    resume_session_id TEXT,
+                    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                    session_kind TEXT NOT NULL DEFAULT 'execution',
+                    execution_target TEXT NOT NULL DEFAULT 'local'
+                        CHECK (execution_target IN ('local', 'ssh')),
+                    ssh_config_id TEXT REFERENCES ssh_configs(id) ON DELETE SET NULL,
+                    target_host_label TEXT,
+                    artifact_capture_mode TEXT NOT NULL DEFAULT 'local_full'
+                        CHECK (artifact_capture_mode IN ('local_full', 'ssh_full', 'ssh_git_status', 'ssh_none'))
+                );
+
+                INSERT INTO codex_sessions_new (
+                    id,
+                    employee_id,
+                    task_id,
+                    project_id,
+                    cli_session_id,
+                    working_dir,
+                    status,
+                    started_at,
+                    ended_at,
+                    exit_code,
+                    resume_session_id,
+                    created_at,
+                    session_kind,
+                    execution_target,
+                    ssh_config_id,
+                    target_host_label,
+                    artifact_capture_mode
+                )
+                SELECT
+                    id,
+                    employee_id,
+                    task_id,
+                    project_id,
+                    cli_session_id,
+                    working_dir,
+                    status,
+                    started_at,
+                    ended_at,
+                    exit_code,
+                    resume_session_id,
+                    created_at,
+                    session_kind,
+                    execution_target,
+                    ssh_config_id,
+                    target_host_label,
+                    CASE
+                        WHEN artifact_capture_mode IN ('local_full', 'ssh_git_status', 'ssh_none')
+                            THEN artifact_capture_mode
+                        ELSE 'local_full'
+                    END
+                FROM codex_sessions;
+
+                DROP TABLE codex_sessions;
+                ALTER TABLE codex_sessions_new RENAME TO codex_sessions;
+
+                CREATE INDEX idx_codex_sessions_employee_started
+                    ON codex_sessions(employee_id, started_at DESC);
+                CREATE INDEX idx_codex_sessions_status
+                    ON codex_sessions(status);
+                CREATE INDEX idx_codex_sessions_task_kind_started
+                    ON codex_sessions(task_id, session_kind, started_at DESC);
+                CREATE INDEX idx_codex_sessions_execution_target_started
+                    ON codex_sessions(execution_target, started_at DESC);
+                CREATE INDEX idx_codex_sessions_ssh_config_id
+                    ON codex_sessions(ssh_config_id, started_at DESC);
+
+                PRAGMA foreign_keys=ON;
+            "#,
+            kind: tauri_plugin_sql::MigrationKind::Up,
+        },
     ]
 }
 

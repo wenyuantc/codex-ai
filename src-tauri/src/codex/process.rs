@@ -20,7 +20,7 @@ use crate::app::{
     now_sqlite, parse_review_verdict_json, path_to_runtime_string, remote_sdk_bridge_path,
     remote_shell_path_expression, replace_codex_session_file_changes, sqlite_pool,
     sync_task_attachments_to_remote, update_codex_session_record, validate_project_repo_path,
-    validate_runtime_working_dir, ARTIFACT_CAPTURE_MODE_LOCAL_FULL,
+    validate_runtime_working_dir, ARTIFACT_CAPTURE_MODE_LOCAL_FULL, ARTIFACT_CAPTURE_MODE_SSH_FULL,
     ARTIFACT_CAPTURE_MODE_SSH_GIT_STATUS, ARTIFACT_CAPTURE_MODE_SSH_NONE, EXECUTION_TARGET_LOCAL,
     EXECUTION_TARGET_SSH,
 };
@@ -31,7 +31,7 @@ use crate::codex::{
 };
 use crate::db::models::{
     CodexExit, CodexOutput, CodexSession, CodexSessionFileChangeDetailInput,
-    CodexSessionFileChangeInput,
+    CodexSessionFileChangeInput, SshConfigRecord,
 };
 use crate::process_spawn::configure_std_command;
 use crate::task_automation;
@@ -47,6 +47,8 @@ const REVIEW_REPORT_END_TAG: &str = "</review_report>";
 const STOP_WAIT_POLL_MS: u64 = 50;
 const STOP_WAIT_MAX_ATTEMPTS: usize = 600;
 const FILE_CHANGE_TEXT_SNAPSHOT_BYTE_LIMIT: u64 = 256 * 1024;
+const REMOTE_SNAPSHOT_MISSING_EXIT_CODE: i32 = 3;
+const REMOTE_SNAPSHOT_UNAVAILABLE_EXIT_CODE: i32 = 4;
 
 #[derive(Debug, Deserialize)]
 struct AiSubtasksPayload {
@@ -165,6 +167,8 @@ fn normalize_reasoning_effort(reasoning_effort: Option<&str>) -> &'static str {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ExecutionChangeBaseline {
     repo_path: String,
+    execution_target: String,
+    ssh_config_id: Option<String>,
     entries: HashMap<String, WorkingTreeSnapshotEntry>,
 }
 
@@ -181,6 +185,14 @@ impl TextSnapshot {
     fn missing() -> Self {
         Self {
             status: TextSnapshotStatus::Missing,
+            text: None,
+            truncated: false,
+        }
+    }
+
+    fn unavailable() -> Self {
+        Self {
+            status: TextSnapshotStatus::Unavailable,
             text: None,
             truncated: false,
         }
@@ -470,15 +482,17 @@ fn entries_have_same_change_identity(
 fn capture_execution_change_baseline(repo_path: &str) -> Result<ExecutionChangeBaseline, String> {
     Ok(ExecutionChangeBaseline {
         repo_path: repo_path.to_string(),
+        execution_target: EXECUTION_TARGET_LOCAL.to_string(),
+        ssh_config_id: None,
         entries: collect_working_tree_snapshot_entries(repo_path, true)?,
     })
 }
 
 fn should_capture_execution_change_baseline(
     session_kind: CodexSessionKind,
-    execution_target: &str,
+    _execution_target: &str,
 ) -> bool {
-    session_kind == CodexSessionKind::Execution && execution_target == EXECUTION_TARGET_LOCAL
+    session_kind == CodexSessionKind::Execution
 }
 
 fn collect_working_tree_snapshot_entries(
@@ -665,21 +679,289 @@ fn parse_git_status_stdout_to_session_changes(
     Ok(changes)
 }
 
-async fn capture_remote_git_status_changes(
+fn is_remote_absolute_path(value: &str) -> bool {
+    let normalized = normalize_runtime_path_string(value);
+    let trimmed = normalized.trim();
+    Path::new(trimmed).is_absolute()
+        || trimmed == "~"
+        || trimmed.starts_with("~/")
+        || trimmed.starts_with("$HOME/")
+        || trimmed.starts_with("${HOME}/")
+}
+
+async fn run_remote_shell_output(
     app: &AppHandle,
-    ssh_config_id: &str,
+    ssh_config: &SshConfigRecord,
+    script: &str,
+) -> Result<std::process::Output, String> {
+    execute_ssh_command(
+        app,
+        ssh_config,
+        &build_remote_shell_command(script, None),
+        true,
+    )
+    .await
+}
+
+async fn resolve_remote_working_dir(
+    app: &AppHandle,
+    ssh_config: &SshConfigRecord,
     working_dir: &str,
-) -> Result<Vec<CodexSessionFileChangeInput>, String> {
-    let pool = sqlite_pool(app).await?;
-    let ssh_config = fetch_ssh_config_record_by_id(&pool, ssh_config_id).await?;
-    let remote_command = build_remote_shell_command(
+) -> Result<String, String> {
+    let output = run_remote_shell_output(
+        app,
+        ssh_config,
+        &format!("cd {} && pwd", remote_shell_path_expression(working_dir)),
+    )
+    .await?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        return Err(if stderr.is_empty() {
+            format!("解析远程工作目录失败：{working_dir}")
+        } else {
+            format!("解析远程工作目录失败：{stderr}")
+        });
+    }
+
+    let resolved = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if resolved.is_empty() {
+        Err("解析远程工作目录失败：命令未返回路径".to_string())
+    } else {
+        Ok(normalize_runtime_path_string(&resolved))
+    }
+}
+
+async fn hash_remote_worktree_path(
+    app: &AppHandle,
+    ssh_config: &SshConfigRecord,
+    working_dir: &str,
+    path: &str,
+) -> Result<Option<String>, String> {
+    let normalized_path = normalize_runtime_path_string(path);
+    let is_absolute = is_remote_absolute_path(&normalized_path);
+    let path_expr = if is_absolute {
+        remote_shell_path_expression(&normalized_path)
+    } else {
+        shell_escape_arg(&normalized_path)
+    };
+    let command = if is_absolute {
+        format!(
+            "if [ ! -e {path_expr} ]; then exit {missing}; fi; git hash-object --no-filters -- {path_expr}",
+            missing = REMOTE_SNAPSHOT_MISSING_EXIT_CODE,
+        )
+    } else {
+        format!(
+            "cd {working_dir} && if [ ! -e {path_expr} ]; then exit {missing}; fi; git hash-object --no-filters -- {path_expr}",
+            working_dir = remote_shell_path_expression(working_dir),
+            missing = REMOTE_SNAPSHOT_MISSING_EXIT_CODE,
+        )
+    };
+
+    let output = run_remote_shell_output(app, ssh_config, &command).await?;
+    if output.status.success() {
+        let hash = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        if hash.is_empty() {
+            Err(format!("远程文件哈希为空：{path}"))
+        } else {
+            Ok(Some(hash))
+        }
+    } else if output.status.code() == Some(REMOTE_SNAPSHOT_MISSING_EXIT_CODE) {
+        Ok(None)
+    } else {
+        Err(String::from_utf8_lossy(&output.stderr).trim().to_string())
+    }
+}
+
+async fn capture_remote_worktree_text_snapshot(
+    app: &AppHandle,
+    ssh_config: &SshConfigRecord,
+    working_dir: &str,
+    path: &str,
+) -> TextSnapshot {
+    let normalized_path = normalize_runtime_path_string(path);
+    let is_absolute = is_remote_absolute_path(&normalized_path);
+    let path_expr = if is_absolute {
+        remote_shell_path_expression(&normalized_path)
+    } else {
+        shell_escape_arg(&normalized_path)
+    };
+    let command = if is_absolute {
+        format!(
+            "if [ ! -e {path_expr} ]; then exit {missing}; fi; if [ ! -f {path_expr} ]; then exit {unavailable}; fi; head -c {limit} < {path_expr}",
+            missing = REMOTE_SNAPSHOT_MISSING_EXIT_CODE,
+            unavailable = REMOTE_SNAPSHOT_UNAVAILABLE_EXIT_CODE,
+            limit = FILE_CHANGE_TEXT_SNAPSHOT_BYTE_LIMIT.saturating_add(4),
+        )
+    } else {
+        format!(
+            "cd {working_dir} && if [ ! -e {path_expr} ]; then exit {missing}; fi; if [ ! -f {path_expr} ]; then exit {unavailable}; fi; head -c {limit} < {path_expr}",
+            working_dir = remote_shell_path_expression(working_dir),
+            missing = REMOTE_SNAPSHOT_MISSING_EXIT_CODE,
+            unavailable = REMOTE_SNAPSHOT_UNAVAILABLE_EXIT_CODE,
+            limit = FILE_CHANGE_TEXT_SNAPSHOT_BYTE_LIMIT.saturating_add(4),
+        )
+    };
+
+    let output = match run_remote_shell_output(app, ssh_config, &command).await {
+        Ok(output) => output,
+        Err(_) => return TextSnapshot::unavailable(),
+    };
+    if output.status.success() {
+        capture_text_snapshot_from_bytes(
+            &output.stdout,
+            output.stdout.len() as u64 > FILE_CHANGE_TEXT_SNAPSHOT_BYTE_LIMIT,
+        )
+    } else if output.status.code() == Some(REMOTE_SNAPSHOT_MISSING_EXIT_CODE) {
+        TextSnapshot::missing()
+    } else {
+        TextSnapshot::unavailable()
+    }
+}
+
+async fn capture_remote_git_head_text_snapshot(
+    app: &AppHandle,
+    ssh_config: &SshConfigRecord,
+    working_dir: &str,
+    path: &str,
+) -> TextSnapshot {
+    let normalized_path = normalize_runtime_path_string(path);
+    if is_remote_absolute_path(&normalized_path) {
+        return TextSnapshot::missing();
+    }
+
+    let object_expr = shell_escape_arg(&format!("HEAD:{normalized_path}"));
+    let command = format!(
+        "cd {working_dir} && git cat-file -e {object_expr} >/dev/null 2>&1 || exit {missing}; git cat-file -p {object_expr} 2>/dev/null | head -c {limit}",
+        working_dir = remote_shell_path_expression(working_dir),
+        missing = REMOTE_SNAPSHOT_MISSING_EXIT_CODE,
+        limit = FILE_CHANGE_TEXT_SNAPSHOT_BYTE_LIMIT.saturating_add(4),
+    );
+    let output = match run_remote_shell_output(app, ssh_config, &command).await {
+        Ok(output) => output,
+        Err(_) => return TextSnapshot::missing(),
+    };
+    if output.status.success() {
+        capture_text_snapshot_from_bytes(
+            &output.stdout,
+            output.stdout.len() as u64 > FILE_CHANGE_TEXT_SNAPSHOT_BYTE_LIMIT,
+        )
+    } else {
+        TextSnapshot::missing()
+    }
+}
+
+async fn collect_remote_working_tree_snapshot_entries(
+    app: &AppHandle,
+    ssh_config: &SshConfigRecord,
+    working_dir: &str,
+    capture_text_snapshots: bool,
+) -> Result<HashMap<String, WorkingTreeSnapshotEntry>, String> {
+    let output = run_remote_shell_output(
+        app,
+        ssh_config,
         &format!(
             "git -C {} status --porcelain=v1 -z --untracked-files=all",
-            shell_escape_arg(working_dir)
+            remote_shell_path_expression(working_dir)
         ),
-        None,
-    );
-    let output = execute_ssh_command(app, &ssh_config, &remote_command, true).await?;
+    )
+    .await?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        return Err(if stderr.is_empty() {
+            "远程 git status 采集失败".to_string()
+        } else {
+            format!("远程 git status 采集失败：{stderr}")
+        });
+    }
+
+    let parts = output.stdout.split(|byte| *byte == 0).collect::<Vec<_>>();
+    let mut entries = HashMap::new();
+    let mut index = 0usize;
+
+    while index < parts.len() {
+        let segment = parts[index];
+        index += 1;
+
+        if segment.is_empty() {
+            continue;
+        }
+
+        if segment.len() < 4 {
+            return Err(format!(
+                "无法解析远程 git status 输出片段: {:?}",
+                String::from_utf8_lossy(segment)
+            ));
+        }
+
+        let status_x = segment[0] as char;
+        let status_y = segment[1] as char;
+        let path = String::from_utf8_lossy(&segment[3..]).to_string();
+        let previous_path = if should_read_previous_path(status_x, status_y) {
+            let original_segment = parts
+                .get(index)
+                .ok_or_else(|| format!("远程 git status 缺少重命名原路径: {}", path))?;
+            index += 1;
+            Some(String::from_utf8_lossy(original_segment).to_string())
+        } else {
+            None
+        };
+        let content_hash = hash_remote_worktree_path(app, ssh_config, working_dir, &path).await?;
+        let text_snapshot = if capture_text_snapshots {
+            capture_remote_worktree_text_snapshot(app, ssh_config, working_dir, &path).await
+        } else {
+            TextSnapshot::missing()
+        };
+
+        entries.insert(
+            path.clone(),
+            WorkingTreeSnapshotEntry {
+                path,
+                previous_path,
+                status_x,
+                status_y,
+                content_hash,
+                text_snapshot,
+            },
+        );
+    }
+
+    Ok(entries)
+}
+
+async fn capture_remote_execution_change_baseline(
+    app: &AppHandle,
+    ssh_config: &SshConfigRecord,
+    working_dir: &str,
+) -> Result<ExecutionChangeBaseline, String> {
+    let resolved_working_dir = resolve_remote_working_dir(app, ssh_config, working_dir).await?;
+    Ok(ExecutionChangeBaseline {
+        repo_path: resolved_working_dir.clone(),
+        execution_target: EXECUTION_TARGET_SSH.to_string(),
+        ssh_config_id: Some(ssh_config.id.clone()),
+        entries: collect_remote_working_tree_snapshot_entries(
+            app,
+            ssh_config,
+            &resolved_working_dir,
+            true,
+        )
+        .await?,
+    })
+}
+
+async fn capture_remote_git_status_changes(
+    app: &AppHandle,
+    ssh_config: &SshConfigRecord,
+    working_dir: &str,
+) -> Result<Vec<CodexSessionFileChangeInput>, String> {
+    let output = run_remote_shell_output(
+        app,
+        ssh_config,
+        &format!(
+            "git -C {} status --porcelain=v1 -z --untracked-files=all",
+            remote_shell_path_expression(working_dir)
+        ),
+    )
+    .await?;
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
         return Err(if stderr.is_empty() {
@@ -693,6 +975,183 @@ async fn capture_remote_git_status_changes(
         &output.stdout,
         ARTIFACT_CAPTURE_MODE_SSH_GIT_STATUS,
     )
+}
+
+async fn build_remote_session_file_change_detail(
+    app: &AppHandle,
+    ssh_config: &SshConfigRecord,
+    working_dir: &str,
+    baseline_entries: &HashMap<String, WorkingTreeSnapshotEntry>,
+    change_kind: SessionFileChangeKind,
+    path: &str,
+    previous_path: Option<&str>,
+) -> CodexSessionFileChangeDetailInput {
+    let before_path = previous_path.unwrap_or(path);
+    let before_snapshot = if change_kind == SessionFileChangeKind::Added {
+        TextSnapshot::missing()
+    } else if let Some(entry) = baseline_entries.get(before_path) {
+        entry.text_snapshot.clone()
+    } else {
+        capture_remote_git_head_text_snapshot(app, ssh_config, working_dir, before_path).await
+    };
+
+    let after_snapshot = if change_kind == SessionFileChangeKind::Deleted {
+        TextSnapshot::missing()
+    } else {
+        capture_remote_worktree_text_snapshot(app, ssh_config, working_dir, path).await
+    };
+
+    CodexSessionFileChangeDetailInput {
+        absolute_path: Some(path_to_runtime_string(&Path::new(working_dir).join(path))),
+        previous_absolute_path: previous_path
+            .map(|value| path_to_runtime_string(&Path::new(working_dir).join(value))),
+        before_status: before_snapshot.status.as_str().to_string(),
+        before_text: before_snapshot.text,
+        before_truncated: before_snapshot.truncated,
+        after_status: after_snapshot.status.as_str().to_string(),
+        after_text: after_snapshot.text,
+        after_truncated: after_snapshot.truncated,
+    }
+}
+
+async fn attach_remote_session_file_change_details(
+    app: &AppHandle,
+    ssh_config: &SshConfigRecord,
+    working_dir: &str,
+    baseline_entries: &HashMap<String, WorkingTreeSnapshotEntry>,
+    changes: Vec<CodexSessionFileChangeInput>,
+) -> Vec<CodexSessionFileChangeInput> {
+    let mut detailed_changes = Vec::with_capacity(changes.len());
+
+    for change in changes {
+        let mut change = normalize_session_file_change_paths(working_dir, change);
+        let change_kind = normalize_session_file_change_kind(Some(change.change_type.as_str()))
+            .unwrap_or(SessionFileChangeKind::Modified);
+        change.detail = Some(
+            build_remote_session_file_change_detail(
+                app,
+                ssh_config,
+                working_dir,
+                baseline_entries,
+                change_kind,
+                &change.path,
+                change.previous_path.as_deref(),
+            )
+            .await,
+        );
+        detailed_changes.push(change);
+    }
+
+    detailed_changes
+}
+
+async fn compute_remote_execution_session_file_changes(
+    app: &AppHandle,
+    ssh_config: &SshConfigRecord,
+    baseline: &ExecutionChangeBaseline,
+) -> Result<Vec<CodexSessionFileChangeInput>, String> {
+    let end_entries =
+        collect_remote_working_tree_snapshot_entries(app, ssh_config, &baseline.repo_path, false)
+            .await?;
+    let rename_sources = end_entries
+        .values()
+        .filter(|entry| entry_is_renamed(entry))
+        .filter_map(|entry| entry.previous_path.clone())
+        .collect::<HashSet<_>>();
+    let mut consumed_baseline = HashSet::new();
+    let mut changes = Vec::new();
+
+    let mut end_paths = end_entries.keys().cloned().collect::<Vec<_>>();
+    end_paths.sort();
+
+    for path in end_paths {
+        let entry = end_entries
+            .get(&path)
+            .expect("end entry should exist for collected key");
+
+        match baseline.entries.get(&path) {
+            None => {
+                if let Some(previous_path) = entry.previous_path.as_ref() {
+                    consumed_baseline.insert(previous_path.clone());
+                }
+                changes.push(build_session_file_change(
+                    path,
+                    classify_new_entry_change_kind(entry),
+                    CodexExecutionProvider::Cli.capture_mode(),
+                    entry
+                        .previous_path
+                        .clone()
+                        .filter(|_| entry_is_renamed(entry)),
+                ));
+            }
+            Some(baseline_entry) => {
+                consumed_baseline.insert(path.clone());
+                if entries_have_same_change_identity(baseline_entry, entry) {
+                    continue;
+                }
+
+                let change_kind = if entry_is_renamed(entry)
+                    && baseline_entry.previous_path != entry.previous_path
+                {
+                    SessionFileChangeKind::Renamed
+                } else if entry_is_deleted(entry) {
+                    SessionFileChangeKind::Deleted
+                } else {
+                    SessionFileChangeKind::Modified
+                };
+
+                changes.push(build_session_file_change(
+                    path,
+                    change_kind,
+                    CodexExecutionProvider::Cli.capture_mode(),
+                    entry
+                        .previous_path
+                        .clone()
+                        .filter(|_| change_kind == SessionFileChangeKind::Renamed),
+                ));
+            }
+        }
+    }
+
+    let mut baseline_paths = baseline.entries.keys().cloned().collect::<Vec<_>>();
+    baseline_paths.sort();
+
+    for path in baseline_paths {
+        if consumed_baseline.contains(&path) || rename_sources.contains(&path) {
+            continue;
+        }
+
+        let baseline_entry = baseline
+            .entries
+            .get(&path)
+            .expect("baseline entry should exist for collected key");
+        let current_hash =
+            hash_remote_worktree_path(app, ssh_config, &baseline.repo_path, &path).await?;
+        if current_hash == baseline_entry.content_hash {
+            continue;
+        }
+
+        let change_kind = if current_hash.is_none() {
+            SessionFileChangeKind::Deleted
+        } else {
+            SessionFileChangeKind::Modified
+        };
+        changes.push(build_session_file_change(
+            path,
+            change_kind,
+            CodexExecutionProvider::Cli.capture_mode(),
+            None,
+        ));
+    }
+
+    Ok(attach_remote_session_file_change_details(
+        app,
+        ssh_config,
+        &baseline.repo_path,
+        &baseline.entries,
+        changes,
+    )
+    .await)
 }
 
 fn build_session_file_change_detail(
@@ -1378,9 +1837,137 @@ async fn persist_execution_change_history(
                 session.working_dir.as_deref(),
             ) {
                 (Some(ssh_config_id), Some(working_dir)) => {
-                    match capture_remote_git_status_changes(app, ssh_config_id, working_dir).await {
-                        Ok(changes) => (changes, ARTIFACT_CAPTURE_MODE_SSH_GIT_STATUS.to_string()),
-                        Err(_) => (Vec::new(), ARTIFACT_CAPTURE_MODE_SSH_NONE.to_string()),
+                    let pool = sqlite_pool(app).await?;
+                    let ssh_config = fetch_ssh_config_record_by_id(&pool, ssh_config_id).await?;
+                    let remote_baseline = execution_change_baseline
+                        .filter(|baseline| baseline.execution_target == EXECUTION_TARGET_SSH);
+                    let resolved_working_dir = match remote_baseline {
+                        Some(baseline) => baseline.repo_path.clone(),
+                        None => resolve_remote_working_dir(app, &ssh_config, working_dir).await?,
+                    };
+
+                    match provider {
+                        CodexExecutionProvider::Sdk => {
+                            let empty_entries = HashMap::<String, WorkingTreeSnapshotEntry>::new();
+                            let baseline_entries = remote_baseline
+                                .map(|baseline| &baseline.entries)
+                                .unwrap_or(&empty_entries);
+                            let sdk_changes = sdk_file_change_store
+                                .map(|store| {
+                                    let guard = store.lock().unwrap();
+                                    let mut values = guard.values().cloned().collect::<Vec<_>>();
+                                    values.sort_by(|left, right| left.path.cmp(&right.path));
+                                    values
+                                })
+                                .unwrap_or_default();
+
+                            if !sdk_changes.is_empty() {
+                                let detailed_changes = attach_remote_session_file_change_details(
+                                    app,
+                                    &ssh_config,
+                                    &resolved_working_dir,
+                                    baseline_entries,
+                                    sdk_changes,
+                                )
+                                .await;
+                                (detailed_changes, ARTIFACT_CAPTURE_MODE_SSH_FULL.to_string())
+                            } else if let Some(remote_baseline) = remote_baseline {
+                                match compute_remote_execution_session_file_changes(
+                                    app,
+                                    &ssh_config,
+                                    remote_baseline,
+                                )
+                                .await
+                                {
+                                    Ok(detailed_changes) => (
+                                        detailed_changes,
+                                        ARTIFACT_CAPTURE_MODE_SSH_FULL.to_string(),
+                                    ),
+                                    Err(_) => {
+                                        match capture_remote_git_status_changes(
+                                            app,
+                                            &ssh_config,
+                                            &resolved_working_dir,
+                                        )
+                                        .await
+                                        {
+                                            Ok(changes) => (
+                                                changes,
+                                                ARTIFACT_CAPTURE_MODE_SSH_GIT_STATUS.to_string(),
+                                            ),
+                                            Err(_) => (
+                                                Vec::new(),
+                                                ARTIFACT_CAPTURE_MODE_SSH_NONE.to_string(),
+                                            ),
+                                        }
+                                    }
+                                }
+                            } else {
+                                match capture_remote_git_status_changes(
+                                    app,
+                                    &ssh_config,
+                                    &resolved_working_dir,
+                                )
+                                .await
+                                {
+                                    Ok(changes) => {
+                                        (changes, ARTIFACT_CAPTURE_MODE_SSH_GIT_STATUS.to_string())
+                                    }
+                                    Err(_) => {
+                                        (Vec::new(), ARTIFACT_CAPTURE_MODE_SSH_NONE.to_string())
+                                    }
+                                }
+                            }
+                        }
+                        CodexExecutionProvider::Cli => {
+                            if let Some(remote_baseline) = remote_baseline {
+                                match compute_remote_execution_session_file_changes(
+                                    app,
+                                    &ssh_config,
+                                    remote_baseline,
+                                )
+                                .await
+                                {
+                                    Ok(detailed_changes) => (
+                                        detailed_changes,
+                                        ARTIFACT_CAPTURE_MODE_SSH_FULL.to_string(),
+                                    ),
+                                    Err(_) => {
+                                        match capture_remote_git_status_changes(
+                                            app,
+                                            &ssh_config,
+                                            &resolved_working_dir,
+                                        )
+                                        .await
+                                        {
+                                            Ok(changes) => (
+                                                changes,
+                                                ARTIFACT_CAPTURE_MODE_SSH_GIT_STATUS.to_string(),
+                                            ),
+                                            Err(_) => (
+                                                Vec::new(),
+                                                ARTIFACT_CAPTURE_MODE_SSH_NONE.to_string(),
+                                            ),
+                                        }
+                                    }
+                                }
+                            } else {
+                                match capture_remote_git_status_changes(
+                                    app,
+                                    &ssh_config,
+                                    &resolved_working_dir,
+                                )
+                                .await
+                                {
+                                    Ok(changes) => {
+                                        (changes, ARTIFACT_CAPTURE_MODE_SSH_GIT_STATUS.to_string())
+                                    }
+                                    Err(_) => {
+                                        (Vec::new(), ARTIFACT_CAPTURE_MODE_SSH_NONE.to_string())
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
                 _ => (Vec::new(), ARTIFACT_CAPTURE_MODE_SSH_NONE.to_string()),
@@ -1413,26 +2000,58 @@ async fn persist_execution_change_history(
             (changes, ARTIFACT_CAPTURE_MODE_LOCAL_FULL.to_string())
         };
 
-        if session.execution_target == EXECUTION_TARGET_SSH
-            && artifact_capture_mode == ARTIFACT_CAPTURE_MODE_SSH_NONE
-        {
+        if session.execution_target == EXECUTION_TARGET_SSH {
             if let Ok(pool) = sqlite_pool(app).await {
-                let _ = insert_codex_session_event(
-                    &pool,
-                    session_record_id,
-                    "remote_artifact_capture_limited",
-                    Some("远程会话变更明细受限，未采集到 git status 摘要"),
-                )
-                .await;
-                let _ = insert_activity_log(
-                    &pool,
-                    "remote_session_artifact_limited",
-                    "远程会话变更明细受限",
-                    session.employee_id.as_deref(),
-                    session.task_id.as_deref(),
-                    session.project_id.as_deref(),
-                )
-                .await;
+                match artifact_capture_mode.as_str() {
+                    ARTIFACT_CAPTURE_MODE_SSH_FULL => {
+                        let _ = insert_activity_log(
+                            &pool,
+                            "remote_session_artifact_captured",
+                            "远程会话变更明细已保存",
+                            session.employee_id.as_deref(),
+                            session.task_id.as_deref(),
+                            session.project_id.as_deref(),
+                        )
+                        .await;
+                    }
+                    ARTIFACT_CAPTURE_MODE_SSH_GIT_STATUS => {
+                        let _ = insert_codex_session_event(
+                            &pool,
+                            session_record_id,
+                            "remote_artifact_capture_limited",
+                            Some("远程会话变更明细受限，仅采集到 git status 摘要"),
+                        )
+                        .await;
+                        let _ = insert_activity_log(
+                            &pool,
+                            "remote_session_artifact_limited",
+                            "远程会话变更明细受限，仅采集到文件摘要",
+                            session.employee_id.as_deref(),
+                            session.task_id.as_deref(),
+                            session.project_id.as_deref(),
+                        )
+                        .await;
+                    }
+                    ARTIFACT_CAPTURE_MODE_SSH_NONE => {
+                        let _ = insert_codex_session_event(
+                            &pool,
+                            session_record_id,
+                            "remote_artifact_capture_limited",
+                            Some("远程会话变更明细受限，未采集到 git status 摘要"),
+                        )
+                        .await;
+                        let _ = insert_activity_log(
+                            &pool,
+                            "remote_session_artifact_limited",
+                            "远程会话变更明细受限",
+                            session.employee_id.as_deref(),
+                            session.task_id.as_deref(),
+                            session.project_id.as_deref(),
+                        )
+                        .await;
+                    }
+                    _ => {}
+                }
             }
         }
 
@@ -1910,6 +2529,7 @@ pub async fn start_codex_with_manager(
     let mut session_lookup_started_at = None;
     let mut ssh_config_name: Option<String> = None;
     let mut ssh_host: Option<String> = None;
+    let mut ssh_config_for_artifact_capture: Option<SshConfigRecord> = None;
     let mut remote_sdk_fallback_error: Option<String> = None;
 
     let command_result: Result<(tokio::process::Command, Vec<PathBuf>), String> =
@@ -1920,6 +2540,7 @@ pub async fn start_codex_with_manager(
                 .ok_or_else(|| "SSH 项目缺少 ssh_config_id，无法启动 Codex。".to_string())?;
             let ssh_config =
                 fetch_ssh_config_record_by_id(&sqlite_pool(&app).await?, ssh_config_id).await?;
+            ssh_config_for_artifact_capture = Some(ssh_config.clone());
             let remote_settings = load_remote_codex_settings(&app, ssh_config_id).ok();
             ssh_config_name = Some(ssh_config.name.clone());
             ssh_host = Some(format!("{}:{}", ssh_config.host, ssh_config.port));
@@ -2175,7 +2796,21 @@ pub async fn start_codex_with_manager(
         session_kind,
         &execution_context.execution_target,
     ) {
-        match capture_execution_change_baseline(&run_cwd) {
+        let baseline_result = if execution_context.execution_target == EXECUTION_TARGET_SSH {
+            let ssh_config = ssh_config_for_artifact_capture
+                .as_ref()
+                .ok_or_else(|| "SSH 会话缺少 SSH 配置，无法采集远程文件基线".to_string());
+            match ssh_config {
+                Ok(ssh_config) => {
+                    capture_remote_execution_change_baseline(&app, ssh_config, &run_cwd).await
+                }
+                Err(error) => Err(error),
+            }
+        } else {
+            capture_execution_change_baseline(&run_cwd)
+        };
+
+        match baseline_result {
             Ok(baseline) => Some(baseline),
             Err(error) => {
                 insert_codex_session_event(
@@ -4048,12 +4683,12 @@ mod tests {
     }
 
     #[test]
-    fn execution_change_baseline_only_captures_for_local_execution_sessions() {
+    fn execution_change_baseline_captures_for_all_execution_sessions() {
         assert!(should_capture_execution_change_baseline(
             CodexSessionKind::Execution,
             EXECUTION_TARGET_LOCAL
         ));
-        assert!(!should_capture_execution_change_baseline(
+        assert!(should_capture_execution_change_baseline(
             CodexSessionKind::Execution,
             EXECUTION_TARGET_SSH
         ));

@@ -11,7 +11,7 @@ import { Input } from "@/components/ui/input";
 import { listCodexSessions, prepareCodexSessionResume } from "@/lib/backend";
 import { startCodex } from "@/lib/codex";
 import type { CodexSessionListItem, CodexSessionResumeStatus } from "@/lib/types";
-import { formatDate } from "@/lib/utils";
+import { formatDate, isArtifactCaptureLimited } from "@/lib/utils";
 import { useEmployeeStore } from "@/stores/employeeStore";
 import { useProjectStore } from "@/stores/projectStore";
 
@@ -430,7 +430,7 @@ export function SessionsPage() {
                               {session.working_dir && (
                                 <div className="max-w-56 break-all text-muted-foreground">{session.working_dir}</div>
                               )}
-                              {session.artifact_capture_mode !== "local_full" && (
+                              {isArtifactCaptureLimited(session.artifact_capture_mode) && (
                                 <div className="rounded border border-amber-500/30 bg-amber-500/10 px-2 py-1 text-[11px] text-amber-800">
                                   远程变更明细受限
                                 </div>

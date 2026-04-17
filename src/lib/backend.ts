@@ -53,6 +53,7 @@ function normalizeExecutionTarget(value: string | null | undefined): Environment
 
 function normalizeArtifactCaptureMode(value: string | null | undefined): ArtifactCaptureMode {
   switch (value) {
+    case "ssh_full":
     case "ssh_git_status":
     case "ssh_none":
       return value;
