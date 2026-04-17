@@ -24,3 +24,7 @@ TypeScript 使用 2 空格缩进，Rust 使用默认 `rustfmt` 格式化。React
 
 ## 提交与 Pull Request 规范
 近期提交历史使用简洁的 Conventional Commit 前缀，例如 `feat:` 和 `fix(codex):`；请保持这一模式，并让提交主题聚焦于“为什么改”。Pull Request 应总结用户可见的行为变化，列出验证步骤，并关联对应的 issue 或任务。涉及 UI 改动时附上截图或短录屏；涉及数据库、能力边界或进程管理的改动时要明确说明。
+
+## 版本号修改
+
+更新版本号命令 npm run bump-version -- 0.2.0  

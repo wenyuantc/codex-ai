@@ -1,38 +1,11 @@
 name: build-desktop-installers
 
-# 仅在手动触发、主分支提交或主分支 PR 时构建桌面端安装包。
+# 仅在手动触发或推送新标签时构建桌面端安装包。
 on:
   workflow_dispatch:
   push:
-    branches:
-      - main
-    paths:
-      - "src/**"
-      - "src-tauri/**"
-      - "public/**"
-      - "index.html"
-      - "vite.config.ts"
-      - "package.json"
-      - "package-lock.json"
-      - "components.json"
-      - "tsconfig.json"
-      - "tsconfig.node.json"
-      - ".github/workflows/build.yml"
-  pull_request:
-    branches:
-      - main
-    paths:
-      - "src/**"
-      - "src-tauri/**"
-      - "public/**"
-      - "index.html"
-      - "vite.config.ts"
-      - "package.json"
-      - "package-lock.json"
-      - "components.json"
-      - "tsconfig.json"
-      - "tsconfig.node.json"
-      - ".github/workflows/build.yml"
+    tags:
+      - "*"
 
 jobs:
   build-installers:
