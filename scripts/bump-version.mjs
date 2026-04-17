@@ -1,21 +1,17 @@
 import fs from "node:fs";
 import path from "node:path";
+import readline from "node:readline/promises";
 import { fileURLToPath } from "node:url";
-
-const nextVersion = process.argv[2];
-
-if (!nextVersion) {
-  console.error("用法: npm run bump-version -- <version>");
-  process.exit(1);
-}
-
-if (!/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/.test(nextVersion)) {
-  console.error(`无效版本号: ${nextVersion}`);
-  process.exit(1);
-}
 
 const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const updatedFiles = [];
+const currentVersion = readCurrentVersion();
+const nextVersion = await resolveNextVersion();
+
+if (!isValidVersion(nextVersion)) {
+  console.error(`无效版本号: ${nextVersion}`);
+  process.exit(1);
+}
 
 function replaceInFile(relativePath, replacer) {
   const filePath = path.join(rootDir, relativePath);
@@ -98,4 +94,48 @@ function replaceLine(content, pattern, replacement) {
   }
 
   return content.replace(pattern, replacement);
+}
+
+async function resolveNextVersion() {
+  const cliVersion = process.argv[2]?.trim();
+
+  if (cliVersion) {
+    return cliVersion;
+  }
+
+  if (!process.stdin.isTTY || !process.stdout.isTTY) {
+    console.error("用法: npm run bump-version -- <version>");
+    process.exit(1);
+  }
+
+  const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout,
+  });
+
+  try {
+    const answer = await rl.question(`请输入新版本号（当前 ${currentVersion}）: `);
+    const version = answer.trim();
+
+    if (!version) {
+      console.error("未输入版本号，已取消");
+      process.exit(1);
+    }
+
+    return version;
+  } finally {
+    rl.close();
+  }
+}
+
+function readCurrentVersion() {
+  const packageJsonPath = path.join(rootDir, "package.json");
+  const content = fs.readFileSync(packageJsonPath, "utf8");
+  const match = content.match(/^  "version": "([^"]+)",$/m);
+
+  return match?.[1] ?? "未知";
+}
+
+function isValidVersion(version) {
+  return /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/.test(version);
 }
