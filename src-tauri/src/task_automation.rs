@@ -589,6 +589,7 @@ async fn start_automation_fix_round(
         Some(working_dir),
         Some(task.id.clone()),
         None,
+        None,
         Some(execution_input.image_paths),
         Some("execution".to_string()),
     )

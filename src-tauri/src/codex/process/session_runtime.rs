@@ -10,6 +10,7 @@ use tokio::process::{ChildStderr, ChildStdout};
 use tokio::time::{sleep, Duration};
 
 use super::*;
+use crate::git_workflow::mark_task_git_context_session_finished;
 
 fn push_captured_line(captured: &Arc<Mutex<Vec<String>>>, line: String) {
     let mut captured = captured.lock().unwrap();
@@ -384,6 +385,22 @@ fn spawn_exit_watcher(
             Some(Some(ended_at.as_str())),
         )
         .await;
+        if session_kind == CodexSessionKind::Execution {
+            if let Ok(session) = fetch_codex_session_by_id(&app, &session_record_id).await {
+                if let Some(task_git_context_id) = session.task_git_context_id.as_deref() {
+                    let success = final_status == "exited" && exit_code == Some(0);
+                    let failure_message = (!success)
+                        .then(|| format!("进程退出，exit_code={}", exit_code.unwrap_or_default()));
+                    let _ = mark_task_git_context_session_finished(
+                        &pool,
+                        task_git_context_id,
+                        success,
+                        failure_message.as_deref(),
+                    )
+                    .await;
+                }
+            }
+        }
         persist_execution_change_history(
             &app,
             &session_record_id,

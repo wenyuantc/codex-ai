@@ -208,6 +208,7 @@ pub struct CodexSessionRecord {
     pub employee_id: Option<String>,
     pub task_id: Option<String>,
     pub project_id: Option<String>,
+    pub task_git_context_id: Option<String>,
     pub cli_session_id: Option<String>,
     pub working_dir: Option<String>,
     pub execution_target: String,
@@ -221,6 +222,78 @@ pub struct CodexSessionRecord {
     pub exit_code: Option<i32>,
     pub resume_session_id: Option<String>,
     pub created_at: String,
+}
+
+pub const TASK_GIT_CONTEXT_STATE_PROVISIONING: &str = "provisioning";
+pub const TASK_GIT_CONTEXT_STATE_READY: &str = "ready";
+pub const TASK_GIT_CONTEXT_STATE_RUNNING: &str = "running";
+pub const TASK_GIT_CONTEXT_STATE_MERGE_READY: &str = "merge_ready";
+pub const TASK_GIT_CONTEXT_STATE_ACTION_PENDING: &str = "action_pending";
+pub const TASK_GIT_CONTEXT_STATE_COMPLETED: &str = "completed";
+pub const TASK_GIT_CONTEXT_STATE_FAILED: &str = "failed";
+pub const TASK_GIT_CONTEXT_STATE_DRIFTED: &str = "drifted";
+
+pub const TASK_GIT_CONTEXT_STATES: &[&str] = &[
+    TASK_GIT_CONTEXT_STATE_PROVISIONING,
+    TASK_GIT_CONTEXT_STATE_READY,
+    TASK_GIT_CONTEXT_STATE_RUNNING,
+    TASK_GIT_CONTEXT_STATE_MERGE_READY,
+    TASK_GIT_CONTEXT_STATE_ACTION_PENDING,
+    TASK_GIT_CONTEXT_STATE_COMPLETED,
+    TASK_GIT_CONTEXT_STATE_FAILED,
+    TASK_GIT_CONTEXT_STATE_DRIFTED,
+];
+
+pub const TASK_GIT_ACTION_MERGE: &str = "merge";
+pub const TASK_GIT_ACTION_PUSH: &str = "push";
+pub const TASK_GIT_ACTION_REBASE: &str = "rebase";
+pub const TASK_GIT_ACTION_CHERRY_PICK: &str = "cherry_pick";
+pub const TASK_GIT_ACTION_STASH: &str = "stash";
+pub const TASK_GIT_ACTION_UNSTASH: &str = "unstash";
+pub const TASK_GIT_ACTION_CLEANUP_WORKTREE: &str = "cleanup_worktree";
+
+pub const TASK_GIT_ACTION_TYPES: &[&str] = &[
+    TASK_GIT_ACTION_MERGE,
+    TASK_GIT_ACTION_PUSH,
+    TASK_GIT_ACTION_REBASE,
+    TASK_GIT_ACTION_CHERRY_PICK,
+    TASK_GIT_ACTION_STASH,
+    TASK_GIT_ACTION_UNSTASH,
+    TASK_GIT_ACTION_CLEANUP_WORKTREE,
+];
+
+pub fn is_valid_task_git_context_state(value: &str) -> bool {
+    TASK_GIT_CONTEXT_STATES.contains(&value)
+}
+
+pub fn is_valid_task_git_action_type(value: &str) -> bool {
+    TASK_GIT_ACTION_TYPES.contains(&value)
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+pub struct TaskGitContext {
+    pub id: String,
+    pub task_id: String,
+    pub project_id: String,
+    pub base_branch: Option<String>,
+    pub task_branch: Option<String>,
+    pub target_branch: Option<String>,
+    pub worktree_path: Option<String>,
+    pub repo_head_commit_at_prepare: Option<String>,
+    pub state: String,
+    pub context_version: i32,
+    pub pending_action_type: Option<String>,
+    pub pending_action_token_hash: Option<String>,
+    pub pending_action_payload_json: Option<String>,
+    pub pending_action_nonce: Option<String>,
+    pub pending_action_requested_at: Option<String>,
+    pub pending_action_expires_at: Option<String>,
+    pub pending_action_repo_revision: Option<String>,
+    pub pending_action_bound_context_version: Option<i32>,
+    pub last_reconciled_at: Option<String>,
+    pub last_error: Option<String>,
+    pub created_at: String,
+    pub updated_at: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
@@ -730,7 +803,9 @@ pub struct CodexSession {
 #[cfg(test)]
 mod tests {
     use super::{
-        CreateTask, ReviewVerdict, UpdateEmployee, UpdateProject, UpdateSshConfig, UpdateTask,
+        is_valid_task_git_action_type, is_valid_task_git_context_state, CreateTask, ReviewVerdict,
+        TaskGitContext, UpdateEmployee, UpdateProject, UpdateSshConfig, UpdateTask,
+        TASK_GIT_ACTION_TYPES, TASK_GIT_CONTEXT_STATES,
     };
 
     #[test]
@@ -835,5 +910,73 @@ mod tests {
         assert_eq!(payload.private_key_path, Some(None));
         assert_eq!(payload.password, Some(Some("secret".to_string())));
         assert_eq!(payload.passphrase, Some(None));
+    }
+
+    #[test]
+    fn task_git_context_serializes_with_version_and_pending_payload() {
+        let record = TaskGitContext {
+            id: "ctx-1".to_string(),
+            task_id: "task-1".to_string(),
+            project_id: "proj-1".to_string(),
+            base_branch: Some("main".to_string()),
+            task_branch: Some("task/task-1".to_string()),
+            target_branch: Some("main".to_string()),
+            worktree_path: Some("/tmp/task-1".to_string()),
+            repo_head_commit_at_prepare: Some("abc123".to_string()),
+            state: "ready".to_string(),
+            context_version: 1,
+            pending_action_type: Some("merge".to_string()),
+            pending_action_token_hash: Some("sha256:deadbeef".to_string()),
+            pending_action_payload_json: Some(
+                r#"{"allow_ff":true,"strategy":"squash","target_branch":"main"}"#.to_string(),
+            ),
+            pending_action_nonce: Some("nonce-1".to_string()),
+            pending_action_requested_at: Some("2026-04-17 15:00:00".to_string()),
+            pending_action_expires_at: Some("2026-04-17 15:05:00".to_string()),
+            pending_action_repo_revision: Some("abc123".to_string()),
+            pending_action_bound_context_version: Some(1),
+            last_reconciled_at: Some("2026-04-17 15:01:00".to_string()),
+            last_error: None,
+            created_at: "2026-04-17 15:00:00".to_string(),
+            updated_at: "2026-04-17 15:01:00".to_string(),
+        };
+
+        let json = serde_json::to_value(&record).expect("serialize task git context");
+        assert_eq!(
+            json.get("context_version").and_then(|value| value.as_i64()),
+            Some(1)
+        );
+        assert_eq!(
+            json.get("pending_action_payload_json")
+                .and_then(|value| value.as_str()),
+            Some(r#"{"allow_ff":true,"strategy":"squash","target_branch":"main"}"#)
+        );
+        assert_eq!(
+            json.get("pending_action_token_hash")
+                .and_then(|value| value.as_str()),
+            Some("sha256:deadbeef")
+        );
+    }
+
+    #[test]
+    fn task_git_context_states_match_prd_contract() {
+        for state in TASK_GIT_CONTEXT_STATES {
+            assert!(
+                is_valid_task_git_context_state(state),
+                "missing state {state}"
+            );
+        }
+        assert!(!is_valid_task_git_context_state("unknown"));
+    }
+
+    #[test]
+    fn task_git_action_types_match_confirmation_gate_contract() {
+        for action in TASK_GIT_ACTION_TYPES {
+            assert!(
+                is_valid_task_git_action_type(action),
+                "missing action {action}"
+            );
+        }
+        assert!(!is_valid_task_git_action_type("checkout"));
     }
 }

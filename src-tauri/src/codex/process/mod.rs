@@ -35,6 +35,7 @@ use crate::db::models::{
 };
 use crate::process_spawn::configure_std_command;
 use crate::task_automation;
+use crate::git_workflow::{mark_task_git_context_running, validate_task_git_context_launch};
 
 mod ai_commands;
 mod changes;
@@ -574,6 +575,7 @@ pub async fn start_codex(
     system_prompt: Option<String>,
     working_dir: Option<String>,
     task_id: Option<String>,
+    task_git_context_id: Option<String>,
     resume_session_id: Option<String>,
     image_paths: Option<Vec<String>>,
     session_kind: Option<String>,
@@ -588,6 +590,7 @@ pub async fn start_codex(
         system_prompt,
         working_dir,
         task_id,
+        task_git_context_id,
         resume_session_id,
         image_paths,
         session_kind,
@@ -605,6 +608,7 @@ pub async fn start_codex_with_manager(
     system_prompt: Option<String>,
     working_dir: Option<String>,
     task_id: Option<String>,
+    task_git_context_id: Option<String>,
     resume_session_id: Option<String>,
     image_paths: Option<Vec<String>>,
     session_kind: Option<String>,
@@ -639,6 +643,24 @@ pub async fn start_codex_with_manager(
             }
         };
 
+    if let (Some(task_id), Some(task_git_context_id)) =
+        (task_id.as_deref(), task_git_context_id.as_deref())
+    {
+        let validated_worktree = validate_task_git_context_launch(
+            &app,
+            task_id,
+            task_git_context_id,
+            execution_context.working_dir.as_deref(),
+        )
+        .await?;
+        if execution_context.execution_target != EXECUTION_TARGET_LOCAL {
+            return Err("task git context 仅支持本地执行目标".to_string());
+        }
+        if execution_context.working_dir.as_deref() != Some(validated_worktree.as_str()) {
+            return Err("task git context 与 working_dir 不一致".to_string());
+        }
+    }
+
     let run_cwd = if execution_context.execution_target == EXECUTION_TARGET_LOCAL {
         match validate_runtime_working_dir(execution_context.working_dir.as_deref()) {
             Ok(path) => path,
@@ -667,6 +689,7 @@ pub async fn start_codex_with_manager(
         &app,
         Some(&employee_id),
         task_id.as_deref(),
+        task_git_context_id.as_deref(),
         Some(&run_cwd),
         resume_session_id.as_deref(),
         session_kind.as_str(),
@@ -678,6 +701,9 @@ pub async fn start_codex_with_manager(
     )
     .await?;
     let pool = sqlite_pool(&app).await?;
+    if let Some(task_git_context_id) = task_git_context_id.as_deref() {
+        mark_task_git_context_running(&pool, task_git_context_id).await?;
+    }
     insert_codex_session_event(
         &pool,
         &session_record.id,
@@ -1015,6 +1041,7 @@ pub async fn restart_codex(
     reasoning_effort: Option<String>,
     system_prompt: Option<String>,
     working_dir: Option<String>,
+    task_git_context_id: Option<String>,
 ) -> Result<(), String> {
     let is_running = get_live_managed_process(&app, &state, &employee_id)
         .await?
@@ -1041,6 +1068,7 @@ pub async fn restart_codex(
         system_prompt,
         working_dir,
         None,
+        task_git_context_id,
         None,
         None,
         None,

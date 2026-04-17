@@ -577,6 +577,80 @@ pub fn get_all_migrations() -> Vec<Migration> {
             "#,
             kind: tauri_plugin_sql::MigrationKind::Up,
         },
+        Migration {
+            version: 25,
+            description: "create task git contexts and link codex sessions",
+            sql: r#"
+                CREATE TABLE task_git_contexts (
+                    id TEXT PRIMARY KEY,
+                    task_id TEXT NOT NULL UNIQUE REFERENCES tasks(id) ON DELETE CASCADE,
+                    project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+                    base_branch TEXT,
+                    task_branch TEXT,
+                    target_branch TEXT,
+                    worktree_path TEXT,
+                    repo_head_commit_at_prepare TEXT,
+                    state TEXT NOT NULL DEFAULT 'provisioning'
+                        CHECK (state IN (
+                            'provisioning',
+                            'ready',
+                            'running',
+                            'merge_ready',
+                            'action_pending',
+                            'completed',
+                            'failed',
+                            'drifted'
+                        )),
+                    context_version INTEGER NOT NULL DEFAULT 1
+                        CHECK (context_version >= 1),
+                    pending_action_type TEXT
+                        CHECK (
+                            pending_action_type IS NULL
+                            OR pending_action_type IN (
+                                'merge',
+                                'push',
+                                'rebase',
+                                'cherry_pick',
+                                'stash',
+                                'unstash',
+                                'cleanup_worktree'
+                            )
+                        ),
+                    pending_action_token_hash TEXT,
+                    pending_action_payload_json TEXT,
+                    pending_action_nonce TEXT,
+                    pending_action_requested_at TEXT,
+                    pending_action_expires_at TEXT,
+                    pending_action_repo_revision TEXT,
+                    pending_action_bound_context_version INTEGER
+                        CHECK (
+                            pending_action_bound_context_version IS NULL
+                            OR pending_action_bound_context_version >= 1
+                        ),
+                    last_reconciled_at TEXT,
+                    last_error TEXT,
+                    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+                );
+
+                CREATE INDEX idx_task_git_contexts_project_updated
+                    ON task_git_contexts(project_id, updated_at DESC);
+                CREATE INDEX idx_task_git_contexts_state_updated
+                    ON task_git_contexts(state, updated_at DESC);
+                CREATE INDEX idx_task_git_contexts_pending_expires
+                    ON task_git_contexts(pending_action_expires_at);
+
+                CREATE TRIGGER update_task_git_contexts_updated_at AFTER UPDATE ON task_git_contexts
+                    FOR EACH ROW BEGIN UPDATE task_git_contexts SET updated_at = datetime('now') WHERE id = NEW.id; END;
+
+                ALTER TABLE codex_sessions
+                    ADD COLUMN task_git_context_id TEXT REFERENCES task_git_contexts(id) ON DELETE SET NULL;
+
+                CREATE INDEX idx_codex_sessions_task_git_context_started
+                    ON codex_sessions(task_git_context_id, started_at DESC);
+            "#,
+            kind: tauri_plugin_sql::MigrationKind::Up,
+        },
     ]
 }
 
@@ -585,4 +659,92 @@ pub fn latest_migration_version() -> i64 {
         .last()
         .map(|migration| migration.version)
         .unwrap_or_default()
+}
+
+#[cfg(test)]
+mod tests {
+    use sqlx::{Row, SqlitePool};
+
+    use super::{get_all_migrations, latest_migration_version};
+
+    async fn setup_test_pool() -> SqlitePool {
+        let pool = SqlitePool::connect("sqlite::memory:")
+            .await
+            .expect("create sqlite memory pool");
+
+        for migration in get_all_migrations() {
+            sqlx::raw_sql(migration.sql)
+                .execute(&pool)
+                .await
+                .unwrap_or_else(|error| panic!("run migration {}: {}", migration.version, error));
+        }
+
+        pool
+    }
+
+    #[test]
+    fn latest_migration_version_includes_task_git_contexts() {
+        assert_eq!(latest_migration_version(), 25);
+    }
+
+    #[test]
+    fn migration_creates_task_git_context_schema() {
+        tauri::async_runtime::block_on(async {
+            let pool = setup_test_pool().await;
+
+            let table = sqlx::query_scalar::<_, String>(
+                "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'task_git_contexts'",
+            )
+            .fetch_one(&pool)
+            .await
+            .expect("task_git_contexts table exists");
+            assert_eq!(table, "task_git_contexts");
+
+            let columns = sqlx::query("PRAGMA table_info(task_git_contexts)")
+                .fetch_all(&pool)
+                .await
+                .expect("fetch task_git_contexts columns");
+            let column_names = columns
+                .iter()
+                .map(|row| row.get::<String, _>("name"))
+                .collect::<Vec<_>>();
+
+            assert!(column_names.contains(&"context_version".to_string()));
+            assert!(column_names.contains(&"pending_action_type".to_string()));
+            assert!(column_names.contains(&"pending_action_payload_json".to_string()));
+            assert!(column_names.contains(&"pending_action_bound_context_version".to_string()));
+
+            let session_columns = sqlx::query("PRAGMA table_info(codex_sessions)")
+                .fetch_all(&pool)
+                .await
+                .expect("fetch codex_sessions columns");
+            let session_column_names = session_columns
+                .iter()
+                .map(|row| row.get::<String, _>("name"))
+                .collect::<Vec<_>>();
+            assert!(session_column_names.contains(&"task_git_context_id".to_string()));
+
+            let foreign_keys = sqlx::query("PRAGMA foreign_key_list(codex_sessions)")
+                .fetch_all(&pool)
+                .await
+                .expect("fetch codex_sessions foreign keys");
+            assert!(foreign_keys.iter().any(|row| {
+                row.get::<String, _>("table") == "task_git_contexts"
+                    && row.get::<String, _>("from") == "task_git_context_id"
+            }));
+
+            let index_names = sqlx::query(
+                "SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 'task_git_contexts'",
+            )
+            .fetch_all(&pool)
+            .await
+            .expect("fetch task_git_contexts indexes")
+            .into_iter()
+            .map(|row| row.get::<String, _>("name"))
+            .collect::<Vec<_>>();
+
+            assert!(index_names.contains(&"idx_task_git_contexts_project_updated".to_string()));
+            assert!(index_names.contains(&"idx_task_git_contexts_state_updated".to_string()));
+        });
+    }
 }

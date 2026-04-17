@@ -220,7 +220,7 @@ fn append_sql_statement(script: &mut String, sql: &str) {
     }
 }
 
-fn build_current_migrator() -> Migrator {
+pub(crate) fn build_current_migrator() -> Migrator {
     let migrations = crate::db::migrations::get_all_migrations()
         .into_iter()
         .filter_map(|migration| match migration.kind {
@@ -2195,6 +2195,7 @@ pub(crate) async fn insert_codex_session_record<R: Runtime>(
     app: &AppHandle<R>,
     employee_id: Option<&str>,
     task_id: Option<&str>,
+    task_git_context_id: Option<&str>,
     working_dir: Option<&str>,
     resume_session_id: Option<&str>,
     session_kind: &str,
@@ -2222,6 +2223,7 @@ pub(crate) async fn insert_codex_session_record<R: Runtime>(
         employee_id: employee_id.map(ToOwned::to_owned),
         task_id: task_id.map(ToOwned::to_owned),
         project_id,
+        task_git_context_id: task_git_context_id.map(ToOwned::to_owned),
         cli_session_id: None,
         working_dir: working_dir.map(ToOwned::to_owned),
         execution_target: execution_target.to_string(),
@@ -2238,12 +2240,13 @@ pub(crate) async fn insert_codex_session_record<R: Runtime>(
     };
 
     sqlx::query(
-        "INSERT INTO codex_sessions (id, employee_id, task_id, project_id, cli_session_id, working_dir, execution_target, ssh_config_id, target_host_label, artifact_capture_mode, session_kind, status, started_at, ended_at, exit_code, resume_session_id, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)",
+        "INSERT INTO codex_sessions (id, employee_id, task_id, project_id, task_git_context_id, cli_session_id, working_dir, execution_target, ssh_config_id, target_host_label, artifact_capture_mode, session_kind, status, started_at, ended_at, exit_code, resume_session_id, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)",
     )
     .bind(&record.id)
     .bind(&record.employee_id)
     .bind(&record.task_id)
     .bind(&record.project_id)
+    .bind(&record.task_git_context_id)
     .bind(&record.cli_session_id)
     .bind(&record.working_dir)
     .bind(&record.execution_target)
@@ -3196,7 +3199,10 @@ fn search_session_kind_label(session_kind: &str) -> &str {
     }
 }
 
-fn compare_global_search_items(left: &GlobalSearchItem, right: &GlobalSearchItem) -> std::cmp::Ordering {
+fn compare_global_search_items(
+    left: &GlobalSearchItem,
+    right: &GlobalSearchItem,
+) -> std::cmp::Ordering {
     right
         .score
         .cmp(&left.score)
@@ -3205,7 +3211,13 @@ fn compare_global_search_items(left: &GlobalSearchItem, right: &GlobalSearchItem
 }
 
 fn build_project_search_item(project: Project, normalized_query: &str) -> Option<GlobalSearchItem> {
-    let primary_score = best_match_score(normalized_query, &[Some(project.name.as_str())], 1400, 1100, 860);
+    let primary_score = best_match_score(
+        normalized_query,
+        &[Some(project.name.as_str())],
+        1400,
+        1100,
+        860,
+    );
     let secondary_score = best_match_score(
         normalized_query,
         &[
@@ -3217,7 +3229,8 @@ fn build_project_search_item(project: Project, normalized_query: &str) -> Option
         560,
         320,
     );
-    let score = primary_score.max(secondary_score) + search_recency_bonus(Some(project.updated_at.as_str()));
+    let score = primary_score.max(secondary_score)
+        + search_recency_bonus(Some(project.updated_at.as_str()));
 
     if score <= 0 {
         return None;
@@ -3251,15 +3264,25 @@ fn build_project_search_item(project: Project, normalized_query: &str) -> Option
 }
 
 fn build_task_search_item(task: TaskSearchRow, normalized_query: &str) -> Option<GlobalSearchItem> {
-    let primary_score = best_match_score(normalized_query, &[Some(task.title.as_str())], 1450, 1180, 900);
+    let primary_score = best_match_score(
+        normalized_query,
+        &[Some(task.title.as_str())],
+        1450,
+        1180,
+        900,
+    );
     let alias_score = best_match_score(
         normalized_query,
-        &[task.description.as_deref(), Some(task.project_name.as_str())],
+        &[
+            task.description.as_deref(),
+            Some(task.project_name.as_str()),
+        ],
         760,
         580,
         340,
     );
-    let score = primary_score.max(alias_score) + search_recency_bonus(Some(task.updated_at.as_str()));
+    let score =
+        primary_score.max(alias_score) + search_recency_bonus(Some(task.updated_at.as_str()));
 
     if score <= 0 {
         return None;
@@ -3290,7 +3313,13 @@ fn build_employee_search_item(
     employee: EmployeeSearchRow,
     normalized_query: &str,
 ) -> Option<GlobalSearchItem> {
-    let primary_score = best_match_score(normalized_query, &[Some(employee.name.as_str())], 1380, 1080, 820);
+    let primary_score = best_match_score(
+        normalized_query,
+        &[Some(employee.name.as_str())],
+        1380,
+        1080,
+        820,
+    );
     let alias_score = best_match_score(
         normalized_query,
         &[
@@ -3302,7 +3331,8 @@ fn build_employee_search_item(
         520,
         300,
     );
-    let score = primary_score.max(alias_score) + search_recency_bonus(Some(employee.updated_at.as_str()));
+    let score =
+        primary_score.max(alias_score) + search_recency_bonus(Some(employee.updated_at.as_str()));
 
     if score <= 0 {
         return None;
@@ -3378,7 +3408,10 @@ fn build_session_search_item(
             "{} · {} · {}",
             search_session_kind_label(&session.session_kind),
             search_status_label(&session.status),
-            session.project_name.clone().unwrap_or_else(|| "无关联项目".to_string()),
+            session
+                .project_name
+                .clone()
+                .unwrap_or_else(|| "无关联项目".to_string()),
         )),
         summary: compact_search_text(
             session
@@ -4188,6 +4221,7 @@ pub(crate) async fn start_task_code_review_internal(
         reviewer.system_prompt.clone(),
         Some(review_working_dir),
         Some(task.id.clone()),
+        None,
         None,
         None,
         Some("review".to_string()),

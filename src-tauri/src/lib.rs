@@ -1,6 +1,7 @@
 mod app;
 mod codex;
 mod db;
+mod git_workflow;
 mod process_spawn;
 mod task_automation;
 mod tray;
@@ -59,6 +60,14 @@ pub fn run() {
             app::get_task_execution_change_history,
             app::get_codex_session_execution_change_history,
             app::get_codex_session_file_change_detail,
+            git_workflow::list_task_git_contexts,
+            git_workflow::get_task_git_context,
+            git_workflow::prepare_task_git_execution,
+            git_workflow::refresh_task_git_context,
+            git_workflow::reconcile_task_git_context,
+            git_workflow::request_git_action,
+            git_workflow::confirm_git_action,
+            git_workflow::cancel_git_action,
             app::start_task_code_review,
             app::set_task_automation_mode,
             app::get_task_automation_state,

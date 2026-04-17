@@ -7,7 +7,7 @@ import { SessionExecutionChangesDialog } from "@/components/sessions/SessionExec
 import { SessionLogDialog, type SessionLogTarget } from "@/components/sessions/SessionLogDialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { listCodexSessions, prepareCodexSessionResume } from "@/lib/backend";
 import { startCodex } from "@/lib/codex";

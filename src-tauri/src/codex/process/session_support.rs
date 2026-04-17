@@ -13,6 +13,7 @@ pub(super) async fn record_failed_session(
         app,
         Some(employee_id),
         task_id,
+        None,
         working_dir,
         resume_session_id,
         session_kind.as_str(),
