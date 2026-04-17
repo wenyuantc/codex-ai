@@ -11,7 +11,7 @@ use sqlx::{
     migrate::{Migration as SqlxMigration, MigrationType as SqlxMigrationType, Migrator},
     QueryBuilder, Sqlite, SqlitePool,
 };
-use tauri::{AppHandle, Manager, Runtime, State};
+use tauri::{AppHandle, Emitter, Manager, Runtime, State};
 use tauri_plugin_opener::OpenerExt;
 use tauri_plugin_sql::{DbInstances, DbPool};
 use tokio::io::AsyncWriteExt;
@@ -25,15 +25,15 @@ use crate::codex::{
     CodexManager,
 };
 use crate::db::models::{
-    CodexHealthCheck, CodexRuntimeStatus, CodexSessionFileChange, CodexSessionFileChangeDetail,
-    CodexSessionFileChangeDetailRecord, CodexSessionFileChangeInput, CodexSessionListItem,
-    CodexSessionLogLine, CodexSessionRecord, CodexSessionResumePreview, CodexSettings, Comment,
-    CreateComment, CreateEmployee, CreateProject, CreateSshConfig, CreateSubtask, CreateTask,
-    DatabaseBackupResult, DatabaseRestoreResult, Employee, EmployeeMetric, PasswordAuthProbeResult,
-    Project, ReviewVerdict, SetTaskAutomationModePayload, SshConfig, SshConfigRecord, Subtask,
-    Task, TaskAttachment, TaskAutomationState, TaskAutomationStateRecord,
-    TaskExecutionChangeHistoryItem, TaskLatestReview, UpdateEmployee, UpdateProject,
-    UpdateSshConfig, UpdateTask,
+    CodexHealthCheck, CodexOutput, CodexRuntimeStatus, CodexSessionFileChange,
+    CodexSessionFileChangeDetail, CodexSessionFileChangeDetailRecord, CodexSessionFileChangeInput,
+    CodexSessionListItem, CodexSessionLogLine, CodexSessionRecord, CodexSessionResumePreview,
+    CodexSettings, Comment, CreateComment, CreateEmployee, CreateProject, CreateSshConfig,
+    CreateSubtask, CreateTask, DatabaseBackupResult, DatabaseRestoreResult, Employee,
+    EmployeeMetric, PasswordAuthProbeResult, Project, ReviewVerdict, SetTaskAutomationModePayload,
+    SshConfig, SshConfigRecord, Subtask, Task, TaskAttachment, TaskAutomationState,
+    TaskAutomationStateRecord, TaskExecutionChangeHistoryItem, TaskLatestReview, UpdateEmployee,
+    UpdateProject, UpdateSshConfig, UpdateTask,
 };
 use crate::process_spawn::configure_std_command;
 
@@ -2057,6 +2057,26 @@ pub(crate) async fn insert_codex_session_event(
         .map(|_| ())
 }
 
+fn emit_task_preflight_log<R: Runtime>(
+    app: &AppHandle<R>,
+    employee_id: &str,
+    task_id: &str,
+    session_kind: &str,
+    line: impl Into<String>,
+) {
+    let _ = app.emit(
+        "codex-stdout",
+        CodexOutput {
+            employee_id: employee_id.to_string(),
+            task_id: Some(task_id.to_string()),
+            session_kind: session_kind.to_string(),
+            session_record_id: format!("preflight:{}:{}", session_kind, task_id),
+            session_event_id: None,
+            line: line.into(),
+        },
+    );
+}
+
 #[tauri::command]
 pub async fn get_codex_session_log_lines<R: Runtime>(
     app: AppHandle<R>,
@@ -3545,8 +3565,43 @@ pub(crate) async fn start_task_code_review_internal(
             .remote_repo_path
             .as_deref()
             .ok_or_else(|| "当前 SSH 项目未配置远程仓库目录，无法审核代码".to_string())?;
+        let ssh_config = fetch_ssh_config_record_by_id(&pool, ssh_config_id).await?;
+        emit_task_preflight_log(
+            &app,
+            &reviewer.id,
+            &task.id,
+            "review",
+            format!(
+                "[SSH] 正在连接 {}（{}@{}:{}）...",
+                ssh_config.name, ssh_config.username, ssh_config.host, ssh_config.port
+            ),
+        );
+        emit_task_preflight_log(
+            &app,
+            &reviewer.id,
+            &task.id,
+            "review",
+            format!(
+                "[SSH] 正在准备远程审核上下文，仓库目录：{}",
+                remote_repo_path
+            ),
+        );
+        emit_task_preflight_log(
+            &app,
+            &reviewer.id,
+            &task.id,
+            "review",
+            "[SSH] 正在通过 SSH 采集远程 git status / diff，用于生成审核上下文...".to_string(),
+        );
         let review_context =
             collect_remote_task_review_context(&app, ssh_config_id, remote_repo_path).await?;
+        emit_task_preflight_log(
+            &app,
+            &reviewer.id,
+            &task.id,
+            "review",
+            "[SSH] 远程审核上下文采集完成，正在启动审核会话...".to_string(),
+        );
         (remote_repo_path.to_string(), review_context)
     } else {
         let repo_path = project

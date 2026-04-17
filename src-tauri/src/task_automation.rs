@@ -9,12 +9,14 @@ use tauri::{AppHandle, Manager};
 use crate::app::{
     fetch_employee_by_id, fetch_project_by_id, fetch_task_automation_state_record,
     fetch_task_by_id, insert_activity_log, now_sqlite, parse_review_verdict_json,
-    record_completion_metric, sqlite_pool, start_task_code_review_internal,
+    record_completion_metric, sqlite_pool, start_task_code_review_internal, PROJECT_TYPE_SSH,
 };
 use crate::codex::{
     load_codex_settings, start_codex_with_manager, stop_codex_for_automation_restart, CodexManager,
 };
-use crate::db::models::{ReviewVerdict, Subtask, Task, TaskAttachment, TaskAutomationStateRecord};
+use crate::db::models::{
+    Project, ReviewVerdict, Subtask, Task, TaskAttachment, TaskAutomationStateRecord,
+};
 
 const AUTOMATION_MODE_REVIEW_FIX_LOOP_V1: &str = "review_fix_loop_v1";
 const DEFAULT_MAX_FIX_ROUNDS: i32 = 3;
@@ -562,10 +564,7 @@ async fn start_automation_fix_round(
         .ok_or_else(|| "自动修复要求任务已指派开发负责人".to_string())?;
     let assignee = fetch_employee_by_id(pool, assignee_id).await?;
     let project = fetch_project_by_id(pool, &task.project_id).await?;
-    let repo_path = project
-        .repo_path
-        .clone()
-        .ok_or_else(|| "当前项目未配置仓库路径，无法自动修复".to_string())?;
+    let working_dir = resolve_automation_working_dir(&project)?;
     let attachments = fetch_task_attachments(pool, &task.id).await?;
     let subtasks = fetch_task_subtasks(pool, &task.id).await?;
     let execution_input =
@@ -587,13 +586,27 @@ async fn start_automation_fix_round(
         Some(assignee.model.clone()),
         Some(assignee.reasoning_effort.clone()),
         assignee.system_prompt.clone(),
-        Some(repo_path),
+        Some(working_dir),
         Some(task.id.clone()),
         None,
         Some(execution_input.image_paths),
         Some("execution".to_string()),
     )
     .await
+}
+
+fn resolve_automation_working_dir(project: &Project) -> Result<String, String> {
+    if project.project_type == PROJECT_TYPE_SSH {
+        project
+            .remote_repo_path
+            .clone()
+            .ok_or_else(|| "当前 SSH 项目未配置远程仓库目录，无法自动修复".to_string())
+    } else {
+        project
+            .repo_path
+            .clone()
+            .ok_or_else(|| "当前项目未配置仓库路径，无法自动修复".to_string())
+    }
 }
 
 async fn mark_launch_failure(
@@ -1054,6 +1067,52 @@ pub async fn restart_task_automation_internal(
 #[tauri::command]
 pub async fn restart_task_automation(app: AppHandle, task_id: String) -> Result<(), String> {
     restart_task_automation_internal(&app, &task_id).await
+}
+
+#[cfg(test)]
+mod automation_working_dir_tests {
+    use super::resolve_automation_working_dir;
+    use crate::app::{PROJECT_TYPE_LOCAL, PROJECT_TYPE_SSH};
+    use crate::db::models::Project;
+
+    fn build_project(
+        project_type: &str,
+        repo_path: Option<&str>,
+        remote_repo_path: Option<&str>,
+    ) -> Project {
+        Project {
+            id: "project-1".to_string(),
+            name: "demo".to_string(),
+            description: None,
+            status: "active".to_string(),
+            repo_path: repo_path.map(str::to_string),
+            project_type: project_type.to_string(),
+            ssh_config_id: Some("ssh-1".to_string()),
+            remote_repo_path: remote_repo_path.map(str::to_string),
+            created_at: "2026-04-17 00:00:00".to_string(),
+            updated_at: "2026-04-17 00:00:00".to_string(),
+        }
+    }
+
+    #[test]
+    fn resolves_local_repo_path_for_local_project() {
+        let project = build_project(PROJECT_TYPE_LOCAL, Some("/tmp/demo"), None);
+
+        let working_dir =
+            resolve_automation_working_dir(&project).expect("resolve local repo path");
+
+        assert_eq!(working_dir, "/tmp/demo");
+    }
+
+    #[test]
+    fn resolves_remote_repo_path_for_ssh_project() {
+        let project = build_project(PROJECT_TYPE_SSH, None, Some("/srv/demo"));
+
+        let working_dir =
+            resolve_automation_working_dir(&project).expect("resolve remote repo path");
+
+        assert_eq!(working_dir, "/srv/demo");
+    }
 }
 
 async fn fetch_task_session_ids(

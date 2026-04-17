@@ -7,6 +7,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime};
 
 use serde::Deserialize;
+use sqlx::SqlitePool;
 use tauri::{AppHandle, Emitter, Manager, State};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::Child;
@@ -1434,6 +1435,44 @@ fn format_session_prompt_log(
     )
 }
 
+async fn emit_session_terminal_line(
+    app: &AppHandle,
+    pool: &SqlitePool,
+    session_record_id: &str,
+    employee_id: &str,
+    task_id: Option<&str>,
+    session_kind: CodexSessionKind,
+    line: String,
+) {
+    let session_event_id =
+        match insert_codex_session_event_with_id(pool, session_record_id, "stdout", Some(&line))
+            .await
+        {
+            Ok(event_id) => Some(event_id),
+            Err(error) => {
+                eprintln!(
+                    "[codex-session] 写入会话日志失败(session={}, kind={}): {}",
+                    session_record_id,
+                    session_kind.as_str(),
+                    error
+                );
+                None
+            }
+        };
+
+    let _ = app.emit(
+        "codex-stdout",
+        CodexOutput {
+            employee_id: employee_id.to_string(),
+            task_id: task_id.map(ToOwned::to_owned),
+            session_kind: session_kind.as_str().to_string(),
+            session_record_id: session_record_id.to_string(),
+            session_event_id,
+            line,
+        },
+    );
+}
+
 fn collect_available_image_paths(image_paths: Option<Vec<String>>) -> (Vec<String>, Vec<String>) {
     let mut seen = HashSet::new();
     let mut available = Vec::new();
@@ -2488,6 +2527,25 @@ pub async fn start_codex_with_manager(
         Some("Codex 会话创建成功，准备启动运行时"),
     )
     .await?;
+    if execution_context.execution_target == EXECUTION_TARGET_SSH {
+        emit_session_terminal_line(
+            &app,
+            &pool,
+            &session_record.id,
+            &employee_id,
+            task_id.as_deref(),
+            session_kind,
+            format!(
+                "[SSH] 正在准备远程会话，目标 {}，工作目录 {}",
+                execution_context
+                    .target_host_label
+                    .as_deref()
+                    .unwrap_or("未知登录目标"),
+                run_cwd
+            ),
+        )
+        .await;
+    }
 
     let model = normalize_model(model.as_deref());
     let reasoning_effort = normalize_reasoning_effort(reasoning_effort.as_deref());
@@ -2531,6 +2589,7 @@ pub async fn start_codex_with_manager(
     let mut ssh_host: Option<String> = None;
     let mut ssh_config_for_artifact_capture: Option<SshConfigRecord> = None;
     let mut remote_sdk_fallback_error: Option<String> = None;
+    let mut remote_sdk_fallback_logged = false;
 
     let command_result: Result<(tokio::process::Command, Vec<PathBuf>), String> =
         if execution_context.execution_target == EXECUTION_TARGET_SSH {
@@ -2544,6 +2603,19 @@ pub async fn start_codex_with_manager(
             let remote_settings = load_remote_codex_settings(&app, ssh_config_id).ok();
             ssh_config_name = Some(ssh_config.name.clone());
             ssh_host = Some(format!("{}:{}", ssh_config.host, ssh_config.port));
+            emit_session_terminal_line(
+                &app,
+                &pool,
+                &session_record.id,
+                &employee_id,
+                task_id.as_deref(),
+                session_kind,
+                format!(
+                    "[SSH] 正在连接 {}（{}@{}:{}）...",
+                    ssh_config.name, ssh_config.username, ssh_config.host, ssh_config.port
+                ),
+            )
+            .await;
             session_lookup_started_at = None;
             let use_remote_sdk = remote_settings
                 .as_ref()
@@ -2551,10 +2623,51 @@ pub async fn start_codex_with_manager(
                 .unwrap_or(false);
             if use_remote_sdk {
                 if let Some(remote_settings) = remote_settings.as_ref() {
+                    emit_session_terminal_line(
+                        &app,
+                        &pool,
+                        &session_record.id,
+                        &employee_id,
+                        task_id.as_deref(),
+                        session_kind,
+                        "[SSH] 正在检查远程 Codex / Node / SDK 运行环境...".to_string(),
+                    )
+                    .await;
                     match inspect_remote_codex_runtime(&app, &ssh_config, remote_settings).await {
                         Ok(runtime) if runtime.task_execution_effective_provider == "sdk" => {
+                            emit_session_terminal_line(
+                                &app,
+                                &pool,
+                                &session_record.id,
+                                &employee_id,
+                                task_id.as_deref(),
+                                session_kind,
+                                format!("[SSH] {}", runtime.status_message),
+                            )
+                            .await;
+                            emit_session_terminal_line(
+                                &app,
+                                &pool,
+                                &session_record.id,
+                                &employee_id,
+                                task_id.as_deref(),
+                                session_kind,
+                                "[SSH] 正在准备远程 SDK 运行目录与 bridge...".to_string(),
+                            )
+                            .await;
                             match ensure_remote_sdk_runtime_layout(&app, ssh_config_id).await {
                                 Ok(remote_runtime_settings) => {
+                                    emit_session_terminal_line(
+                                        &app,
+                                        &pool,
+                                        &session_record.id,
+                                        &employee_id,
+                                        task_id.as_deref(),
+                                        session_kind,
+                                        "[SSH] 远程 SDK 运行目录已就绪，正在建立远程会话..."
+                                            .to_string(),
+                                    )
+                                    .await;
                                     let remote_command = build_remote_sdk_bridge_command(
                                         &remote_runtime_settings.sdk_install_dir,
                                         remote_runtime_settings.node_path_override.as_deref(),
@@ -2577,7 +2690,32 @@ pub async fn start_codex_with_manager(
                                             Ok((command, askpass_path.into_iter().collect()))
                                         }
                                         Err(error) => {
-                                            remote_sdk_fallback_error = Some(error);
+                                            remote_sdk_fallback_error = Some(error.clone());
+                                            remote_sdk_fallback_logged = true;
+                                            emit_session_terminal_line(
+                                                &app,
+                                                &pool,
+                                                &session_record.id,
+                                                &employee_id,
+                                                task_id.as_deref(),
+                                                session_kind,
+                                                format!(
+                                                    "[WARN] [SSH] 远程 SDK 启动失败，已回退到远程 codex exec：{}",
+                                                    error
+                                                ),
+                                            )
+                                            .await;
+                                            emit_session_terminal_line(
+                                                &app,
+                                                &pool,
+                                                &session_record.id,
+                                                &employee_id,
+                                                task_id.as_deref(),
+                                                session_kind,
+                                                "[SSH] 正在改用远程 codex exec 建立会话..."
+                                                    .to_string(),
+                                            )
+                                            .await;
                                             let remote_command = build_remote_codex_session_command(
                                                 model,
                                                 reasoning_effort,
@@ -2603,7 +2741,31 @@ pub async fn start_codex_with_manager(
                                     }
                                 }
                                 Err(error) => {
-                                    remote_sdk_fallback_error = Some(error);
+                                    remote_sdk_fallback_error = Some(error.clone());
+                                    remote_sdk_fallback_logged = true;
+                                    emit_session_terminal_line(
+                                        &app,
+                                        &pool,
+                                        &session_record.id,
+                                        &employee_id,
+                                        task_id.as_deref(),
+                                        session_kind,
+                                        format!(
+                                            "[WARN] [SSH] 远程 SDK 准备失败，已回退到远程 codex exec：{}",
+                                            error
+                                        ),
+                                    )
+                                    .await;
+                                    emit_session_terminal_line(
+                                        &app,
+                                        &pool,
+                                        &session_record.id,
+                                        &employee_id,
+                                        task_id.as_deref(),
+                                        session_kind,
+                                        "[SSH] 正在改用远程 codex exec 建立会话...".to_string(),
+                                    )
+                                    .await;
                                     let remote_command = build_remote_codex_session_command(
                                         model,
                                         reasoning_effort,
@@ -2629,7 +2791,28 @@ pub async fn start_codex_with_manager(
                             }
                         }
                         Ok(runtime) => {
-                            remote_sdk_fallback_error = Some(runtime.status_message);
+                            remote_sdk_fallback_error = Some(runtime.status_message.clone());
+                            remote_sdk_fallback_logged = true;
+                            emit_session_terminal_line(
+                                &app,
+                                &pool,
+                                &session_record.id,
+                                &employee_id,
+                                task_id.as_deref(),
+                                session_kind,
+                                format!("[WARN] [SSH] {}", runtime.status_message),
+                            )
+                            .await;
+                            emit_session_terminal_line(
+                                &app,
+                                &pool,
+                                &session_record.id,
+                                &employee_id,
+                                task_id.as_deref(),
+                                session_kind,
+                                "[SSH] 正在改用远程 codex exec 建立会话...".to_string(),
+                            )
+                            .await;
                             let remote_command = build_remote_codex_session_command(
                                 model,
                                 reasoning_effort,
@@ -2653,7 +2836,31 @@ pub async fn start_codex_with_manager(
                             Ok((command, askpass_path.into_iter().collect()))
                         }
                         Err(error) => {
-                            remote_sdk_fallback_error = Some(error);
+                            remote_sdk_fallback_error = Some(error.clone());
+                            remote_sdk_fallback_logged = true;
+                            emit_session_terminal_line(
+                                &app,
+                                &pool,
+                                &session_record.id,
+                                &employee_id,
+                                task_id.as_deref(),
+                                session_kind,
+                                format!(
+                                    "[WARN] [SSH] 远程运行环境检查失败，已回退到远程 codex exec：{}",
+                                    error
+                                ),
+                            )
+                            .await;
+                            emit_session_terminal_line(
+                                &app,
+                                &pool,
+                                &session_record.id,
+                                &employee_id,
+                                task_id.as_deref(),
+                                session_kind,
+                                "[SSH] 正在改用远程 codex exec 建立会话...".to_string(),
+                            )
+                            .await;
                             let remote_command = build_remote_codex_session_command(
                                 model,
                                 reasoning_effort,
@@ -2678,6 +2885,17 @@ pub async fn start_codex_with_manager(
                         }
                     }
                 } else {
+                    emit_session_terminal_line(
+                        &app,
+                        &pool,
+                        &session_record.id,
+                        &employee_id,
+                        task_id.as_deref(),
+                        session_kind,
+                        "[SSH] 当前远程任务执行未启用 SDK，正在通过远程 codex exec 建立会话..."
+                            .to_string(),
+                    )
+                    .await;
                     let remote_command = build_remote_codex_session_command(
                         model,
                         reasoning_effort,
@@ -2696,6 +2914,17 @@ pub async fn start_codex_with_manager(
                     Ok((command, askpass_path.into_iter().collect()))
                 }
             } else {
+                emit_session_terminal_line(
+                    &app,
+                    &pool,
+                    &session_record.id,
+                    &employee_id,
+                    task_id.as_deref(),
+                    session_kind,
+                    "[SSH] 当前远程任务执行未启用 SDK，正在通过远程 codex exec 建立会话..."
+                        .to_string(),
+                )
+                .await;
                 let remote_command = build_remote_codex_session_command(
                     model,
                     reasoning_effort,
@@ -2796,6 +3025,18 @@ pub async fn start_codex_with_manager(
         session_kind,
         &execution_context.execution_target,
     ) {
+        if execution_context.execution_target == EXECUTION_TARGET_SSH {
+            emit_session_terminal_line(
+                &app,
+                &pool,
+                &session_record.id,
+                &employee_id,
+                task_id.as_deref(),
+                session_kind,
+                "[SSH] 正在采集远程仓库基线，用于展示本次会话改动...".to_string(),
+            )
+            .await;
+        }
         let baseline_result = if execution_context.execution_target == EXECUTION_TARGET_SSH {
             let ssh_config = ssh_config_for_artifact_capture
                 .as_ref()
@@ -2811,7 +3052,21 @@ pub async fn start_codex_with_manager(
         };
 
         match baseline_result {
-            Ok(baseline) => Some(baseline),
+            Ok(baseline) => {
+                if execution_context.execution_target == EXECUTION_TARGET_SSH {
+                    emit_session_terminal_line(
+                        &app,
+                        &pool,
+                        &session_record.id,
+                        &employee_id,
+                        task_id.as_deref(),
+                        session_kind,
+                        "[SSH] 远程仓库基线采集完成。".to_string(),
+                    )
+                    .await;
+                }
+                Some(baseline)
+            }
             Err(error) => {
                 insert_codex_session_event(
                     &pool,
@@ -2886,7 +3141,10 @@ pub async fn start_codex_with_manager(
         );
     }
 
-    if let Some(error) = remote_sdk_fallback_error.as_deref() {
+    if let Some(error) = remote_sdk_fallback_error
+        .as_deref()
+        .filter(|_| !remote_sdk_fallback_logged)
+    {
         let _ = app.emit(
             "codex-stdout",
             CodexOutput {
@@ -2898,6 +3156,19 @@ pub async fn start_codex_with_manager(
                 line: format!("[WARN] 远程 SDK 启动失败，已回退到远程 codex exec: {error}"),
             },
         );
+    }
+
+    if execution_context.execution_target == EXECUTION_TARGET_SSH {
+        emit_session_terminal_line(
+            &app,
+            &pool,
+            &session_record.id,
+            &employee_id,
+            task_id.as_deref(),
+            session_kind,
+            "[SSH] 远程命令已准备完成，正在启动 Codex 会话...".to_string(),
+        )
+        .await;
     }
 
     let _ = app.emit(
