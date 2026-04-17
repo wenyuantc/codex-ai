@@ -50,6 +50,9 @@ const STOP_WAIT_MAX_ATTEMPTS: usize = 600;
 const FILE_CHANGE_TEXT_SNAPSHOT_BYTE_LIMIT: u64 = 256 * 1024;
 const REMOTE_SNAPSHOT_MISSING_EXIT_CODE: i32 = 3;
 const REMOTE_SNAPSHOT_UNAVAILABLE_EXIT_CODE: i32 = 4;
+// 远程 codex exec 需要和本地 exec 一样走非 TTY 管道，否则 SSH PTY 容易把输出变成
+// 终端刷新流，导致前端按行读取时拿不到实时日志。
+const REMOTE_EXEC_SSH_ALLOCATE_TTY: bool = false;
 
 #[derive(Debug, Deserialize)]
 struct AiSubtasksPayload {
@@ -100,6 +103,35 @@ impl CodexExecutionProvider {
         match self {
             CodexExecutionProvider::Cli => "git_fallback",
             CodexExecutionProvider::Sdk => "sdk_event",
+        }
+    }
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+struct CliJsonStreamState {
+    command_outputs: HashMap<String, String>,
+    agent_messages: HashMap<String, String>,
+    reasoning_messages: HashMap<String, String>,
+    last_todo_summary: Option<String>,
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+struct CliJsonParsedEvent {
+    session_id: Option<String>,
+    lines: Vec<String>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum CliJsonOutputFlag {
+    Json,
+    ExperimentalJson,
+}
+
+impl CliJsonOutputFlag {
+    fn as_arg(self) -> &'static str {
+        match self {
+            CliJsonOutputFlag::Json => "--json",
+            CliJsonOutputFlag::ExperimentalJson => "--experimental-json",
         }
     }
 }
@@ -281,6 +313,253 @@ fn normalize_session_file_change_kind(value: Option<&str>) -> Option<SessionFile
 fn parse_sdk_file_change_event(line: &str) -> Option<SdkFileChangeEvent> {
     let payload = line.strip_prefix(SDK_FILE_CHANGE_EVENT_PREFIX)?;
     serde_json::from_str::<SdkFileChangeEvent>(payload.trim()).ok()
+}
+
+fn detect_exec_json_output_flag(help_output: &str) -> Option<CliJsonOutputFlag> {
+    if help_output.contains("--json") {
+        Some(CliJsonOutputFlag::Json)
+    } else if help_output.contains("--experimental-json") {
+        Some(CliJsonOutputFlag::ExperimentalJson)
+    } else {
+        None
+    }
+}
+
+fn json_string_field_raw<'a>(value: &'a serde_json::Value, key: &str) -> Option<&'a str> {
+    value.get(key)?.as_str()
+}
+
+fn json_first_string_field_raw<'a>(
+    value: &'a serde_json::Value,
+    candidates: &[&str],
+) -> Option<&'a str> {
+    candidates.iter().find_map(|candidate| {
+        json_string_field_raw(value, candidate).filter(|item| !item.trim().is_empty())
+    })
+}
+
+fn json_string_field<'a>(value: &'a serde_json::Value, key: &str) -> Option<&'a str> {
+    json_string_field_raw(value, key)
+        .map(str::trim)
+        .filter(|item| !item.is_empty())
+}
+
+fn json_first_string_field<'a>(
+    value: &'a serde_json::Value,
+    candidates: &[&str],
+) -> Option<&'a str> {
+    candidates
+        .iter()
+        .find_map(|candidate| json_string_field(value, candidate))
+}
+
+fn cli_json_delta(previous: &str, next: &str) -> String {
+    if next.starts_with(previous) {
+        next[previous.len()..].to_string()
+    } else {
+        next.to_string()
+    }
+}
+
+fn cli_json_multiline(text: &str) -> Vec<String> {
+    text.replace('\r', "")
+        .lines()
+        .map(str::trim_end)
+        .filter(|line| !line.trim().is_empty())
+        .map(ToOwned::to_owned)
+        .collect()
+}
+
+fn summarize_cli_json_file_change(item: &serde_json::Value) -> Option<String> {
+    let changes = item.get("changes")?.as_array()?;
+    let files = changes
+        .iter()
+        .filter_map(|change| {
+            let path = json_first_string_field(
+                change,
+                &["path", "file_path", "filePath", "new_path", "newPath"],
+            )?;
+            let kind = normalize_session_file_change_kind(json_first_string_field(
+                change,
+                &["kind", "type", "action"],
+            ))?;
+            Some(format!("{}:{}", kind.as_str(), path))
+        })
+        .take(5)
+        .collect::<Vec<_>>();
+
+    if files.is_empty() {
+        None
+    } else {
+        Some(format!(
+            "[文件变更] {}{}",
+            files.join(", "),
+            if changes.len() > 5 { " ..." } else { "" }
+        ))
+    }
+}
+
+fn summarize_cli_json_todo_list(item: &serde_json::Value) -> Option<String> {
+    let items = item.get("items").and_then(|value| value.as_array());
+    let entries = items
+        .into_iter()
+        .flatten()
+        .filter_map(|entry| {
+            let text = json_first_string_field(entry, &["text", "title", "content"])?;
+            let completed = entry
+                .get("completed")
+                .and_then(|value| value.as_bool())
+                .unwrap_or(false);
+            Some(format!(
+                "{} {}",
+                if completed { "[x]" } else { "[ ]" },
+                text
+            ))
+        })
+        .collect::<Vec<_>>();
+
+    if !entries.is_empty() {
+        return Some(format!("[计划] {}", entries.join(" | ")));
+    }
+
+    json_first_string_field(item, &["summary", "text"]).map(|summary| format!("[计划] {summary}"))
+}
+
+fn parse_cli_json_event_line(
+    line: &str,
+    state: &mut CliJsonStreamState,
+) -> Option<CliJsonParsedEvent> {
+    let value = serde_json::from_str::<serde_json::Value>(line).ok()?;
+    let event_type = json_string_field(&value, "type")?;
+    let mut parsed = CliJsonParsedEvent::default();
+
+    match event_type {
+        "thread.started" => {
+            parsed.session_id = json_first_string_field(&value, &["thread_id", "session_id"])
+                .map(ToOwned::to_owned);
+        }
+        "turn.failed" => {
+            parsed
+                .lines
+                .push("[ERROR] Codex 执行失败，请查看后续退出信息。".to_string());
+        }
+        "error" => {
+            if let Some(message) = json_first_string_field(&value, &["message"]) {
+                parsed.lines.push(format!("[ERROR] {message}"));
+            } else if let Some(message) = value
+                .get("error")
+                .and_then(|item| json_first_string_field(item, &["message"]))
+            {
+                parsed.lines.push(format!("[ERROR] {message}"));
+            }
+        }
+        item_event if item_event.starts_with("item.") => {
+            let item = value.get("item")?;
+            let item_type = json_string_field(item, "type")?;
+            let item_id = json_string_field(item, "id").unwrap_or(item_type);
+
+            match item_type {
+                "command_execution" => {
+                    if item_event == "item.started" {
+                        if let Some(command) = json_first_string_field(item, &["command"]) {
+                            parsed.lines.push(format!("[命令] {command}"));
+                        }
+                    }
+
+                    let next = json_first_string_field_raw(
+                        item,
+                        &["aggregated_output", "aggregatedOutput", "output"],
+                    )
+                    .unwrap_or("");
+                    let previous = state
+                        .command_outputs
+                        .get(item_id)
+                        .cloned()
+                        .unwrap_or_default();
+                    let delta = cli_json_delta(&previous, next);
+                    state
+                        .command_outputs
+                        .insert(item_id.to_string(), next.to_string());
+                    parsed.lines.extend(cli_json_multiline(&delta));
+
+                    if json_string_field(item, "status") == Some("failed") {
+                        if let Some(code) = item
+                            .get("exit_code")
+                            .or_else(|| item.get("exitCode"))
+                            .and_then(|value| value.as_i64())
+                        {
+                            parsed.lines.push(format!("[ERROR] 命令退出，code={code}"));
+                        }
+                    }
+                }
+                "agent_message" => {
+                    let next = json_first_string_field_raw(item, &["text"]).unwrap_or("");
+                    let previous = state
+                        .agent_messages
+                        .get(item_id)
+                        .cloned()
+                        .unwrap_or_default();
+                    let delta = cli_json_delta(&previous, next);
+                    state
+                        .agent_messages
+                        .insert(item_id.to_string(), next.to_string());
+                    parsed.lines.extend(cli_json_multiline(&delta));
+                }
+                "reasoning" => {
+                    if let Some(text) = json_first_string_field_raw(item, &["text"]) {
+                        let previous = state
+                            .reasoning_messages
+                            .get(item_id)
+                            .cloned()
+                            .unwrap_or_default();
+                        if previous.is_empty() {
+                            parsed.lines.push(format!("[思考] {text}"));
+                        }
+                        state
+                            .reasoning_messages
+                            .insert(item_id.to_string(), text.to_string());
+                    }
+                }
+                "file_change" => {
+                    if let Some(summary) = summarize_cli_json_file_change(item) {
+                        parsed.lines.push(summary);
+                    }
+                }
+                "error" => {
+                    if let Some(message) = json_first_string_field(item, &["message"]) {
+                        parsed.lines.push(format!("[ERROR] {message}"));
+                    }
+                }
+                "todo_list" | "task_plan" | "plan_update" => {
+                    if let Some(summary) = summarize_cli_json_todo_list(item) {
+                        if state.last_todo_summary.as_deref() != Some(summary.as_str()) {
+                            state.last_todo_summary = Some(summary.clone());
+                            parsed.lines.push(summary);
+                        }
+                    }
+                }
+                "mcp_tool_call" => {
+                    if item_event == "item.started" {
+                        let server =
+                            json_first_string_field(item, &["server"]).unwrap_or("unknown");
+                        let tool = json_first_string_field(item, &["tool"]).unwrap_or("unknown");
+                        parsed.lines.push(format!("[MCP] {server}/{tool}"));
+                    }
+                }
+                "web_search" => {
+                    if item_event == "item.started" {
+                        if let Some(query) = json_first_string_field(item, &["query"]) {
+                            parsed.lines.push(format!("[搜索] {query}"));
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+        _ => {}
+    }
+
+    Some(parsed)
 }
 
 fn upsert_sdk_file_change_event(store: &SdkFileChangeStore, event: SdkFileChangeEvent) {
@@ -2590,6 +2869,7 @@ pub async fn start_codex_with_manager(
     let mut ssh_config_for_artifact_capture: Option<SshConfigRecord> = None;
     let mut remote_sdk_fallback_error: Option<String> = None;
     let mut remote_sdk_fallback_logged = false;
+    let mut cli_json_output_flag = None;
 
     let command_result: Result<(tokio::process::Command, Vec<PathBuf>), String> =
         if execution_context.execution_target == EXECUTION_TARGET_SSH {
@@ -2601,6 +2881,21 @@ pub async fn start_codex_with_manager(
                 fetch_ssh_config_record_by_id(&sqlite_pool(&app).await?, ssh_config_id).await?;
             ssh_config_for_artifact_capture = Some(ssh_config.clone());
             let remote_settings = load_remote_codex_settings(&app, ssh_config_id).ok();
+            let remote_exec_json_flag = match probe_remote_exec_json_support(
+                &app,
+                &ssh_config,
+                remote_settings
+                    .as_ref()
+                    .and_then(|settings| settings.node_path_override.as_deref()),
+            )
+            .await
+            {
+                Ok(flag) => flag,
+                Err(error) => {
+                    eprintln!("[codex-cli] 探测远程 codex exec --json 支持失败: {error}");
+                    None
+                }
+            };
             ssh_config_name = Some(ssh_config.name.clone());
             ssh_host = Some(format!("{}:{}", ssh_config.host, ssh_config.port));
             emit_session_terminal_line(
@@ -2722,14 +3017,16 @@ pub async fn start_codex_with_manager(
                                                 &run_cwd,
                                                 &image_paths,
                                                 resume_session_id.as_deref(),
+                                                remote_exec_json_flag,
                                                 remote_settings.node_path_override.as_deref(),
                                             );
+                                            cli_json_output_flag = remote_exec_json_flag;
                                             let (mut command, askpass_path) = build_ssh_command(
                                                 &app,
                                                 &ssh_config,
                                                 Some(&remote_command),
                                                 true,
-                                                true,
+                                                REMOTE_EXEC_SSH_ALLOCATE_TTY,
                                             )
                                             .await?;
                                             command
@@ -2772,14 +3069,16 @@ pub async fn start_codex_with_manager(
                                         &run_cwd,
                                         &image_paths,
                                         resume_session_id.as_deref(),
+                                        remote_exec_json_flag,
                                         remote_settings.node_path_override.as_deref(),
                                     );
+                                    cli_json_output_flag = remote_exec_json_flag;
                                     let (mut command, askpass_path) = build_ssh_command(
                                         &app,
                                         &ssh_config,
                                         Some(&remote_command),
                                         true,
-                                        true,
+                                        REMOTE_EXEC_SSH_ALLOCATE_TTY,
                                     )
                                     .await?;
                                     command
@@ -2819,14 +3118,16 @@ pub async fn start_codex_with_manager(
                                 &run_cwd,
                                 &image_paths,
                                 resume_session_id.as_deref(),
+                                remote_exec_json_flag,
                                 remote_settings.node_path_override.as_deref(),
                             );
+                            cli_json_output_flag = remote_exec_json_flag;
                             let (mut command, askpass_path) = build_ssh_command(
                                 &app,
                                 &ssh_config,
                                 Some(&remote_command),
                                 true,
-                                true,
+                                REMOTE_EXEC_SSH_ALLOCATE_TTY,
                             )
                             .await?;
                             command
@@ -2867,14 +3168,16 @@ pub async fn start_codex_with_manager(
                                 &run_cwd,
                                 &image_paths,
                                 resume_session_id.as_deref(),
+                                remote_exec_json_flag,
                                 remote_settings.node_path_override.as_deref(),
                             );
+                            cli_json_output_flag = remote_exec_json_flag;
                             let (mut command, askpass_path) = build_ssh_command(
                                 &app,
                                 &ssh_config,
                                 Some(&remote_command),
                                 true,
-                                true,
+                                REMOTE_EXEC_SSH_ALLOCATE_TTY,
                             )
                             .await?;
                             command
@@ -2902,11 +3205,18 @@ pub async fn start_codex_with_manager(
                         &run_cwd,
                         &image_paths,
                         resume_session_id.as_deref(),
+                        remote_exec_json_flag,
                         None,
                     );
-                    let (mut command, askpass_path) =
-                        build_ssh_command(&app, &ssh_config, Some(&remote_command), true, true)
-                            .await?;
+                    cli_json_output_flag = remote_exec_json_flag;
+                    let (mut command, askpass_path) = build_ssh_command(
+                        &app,
+                        &ssh_config,
+                        Some(&remote_command),
+                        true,
+                        REMOTE_EXEC_SSH_ALLOCATE_TTY,
+                    )
+                    .await?;
                     command
                         .stdin(std::process::Stdio::piped())
                         .stdout(std::process::Stdio::piped())
@@ -2931,12 +3241,20 @@ pub async fn start_codex_with_manager(
                     &run_cwd,
                     &image_paths,
                     resume_session_id.as_deref(),
+                    remote_exec_json_flag,
                     remote_settings
                         .as_ref()
                         .and_then(|settings| settings.node_path_override.as_deref()),
                 );
-                let (mut command, askpass_path) =
-                    build_ssh_command(&app, &ssh_config, Some(&remote_command), true, true).await?;
+                cli_json_output_flag = remote_exec_json_flag;
+                let (mut command, askpass_path) = build_ssh_command(
+                    &app,
+                    &ssh_config,
+                    Some(&remote_command),
+                    true,
+                    REMOTE_EXEC_SSH_ALLOCATE_TTY,
+                )
+                .await?;
                 command
                     .stdin(std::process::Stdio::piped())
                     .stdout(std::process::Stdio::piped())
@@ -2952,6 +3270,8 @@ pub async fn start_codex_with_manager(
                         let command = new_codex_command()
                             .await
                             .map_err(|cli_error| format!("Failed to spawn codex: {cli_error}"))?;
+                        cli_json_output_flag =
+                            probe_local_exec_json_support().await.unwrap_or(None);
                         session_lookup_started_at = Some(SystemTime::now());
                         Ok((command, Vec::new()))
                     } else {
@@ -2980,6 +3300,8 @@ pub async fn start_codex_with_manager(
                                 let command = new_codex_command().await.map_err(|cli_error| {
                                     format!("Failed to spawn codex: {cli_error}")
                                 })?;
+                                cli_json_output_flag =
+                                    probe_local_exec_json_support().await.unwrap_or(None);
                                 session_lookup_started_at = Some(SystemTime::now());
                                 Ok((command, Vec::new()))
                             }
@@ -2991,6 +3313,7 @@ pub async fn start_codex_with_manager(
                     let command = new_codex_command()
                         .await
                         .map_err(|cli_error| format!("Failed to spawn codex: {cli_error}"))?;
+                    cli_json_output_flag = probe_local_exec_json_support().await.unwrap_or(None);
                     session_lookup_started_at = Some(SystemTime::now());
                     Ok((command, Vec::new()))
                 }
@@ -2999,6 +3322,7 @@ pub async fn start_codex_with_manager(
             let command = new_codex_command()
                 .await
                 .map_err(|error| format!("Failed to spawn codex: {error}"))?;
+            cli_json_output_flag = probe_local_exec_json_support().await.unwrap_or(None);
             session_lookup_started_at = Some(SystemTime::now());
             Ok((command, Vec::new()))
         };
@@ -3104,6 +3428,7 @@ pub async fn start_codex_with_manager(
             &run_cwd,
             &image_paths,
             resume_session_id.as_deref(),
+            cli_json_output_flag,
         ))
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
@@ -3159,6 +3484,23 @@ pub async fn start_codex_with_manager(
     }
 
     if execution_context.execution_target == EXECUTION_TARGET_SSH {
+        if provider == CodexExecutionProvider::Cli {
+            emit_session_terminal_line(
+                &app,
+                &pool,
+                &session_record.id,
+                &employee_id,
+                task_id.as_deref(),
+                session_kind,
+                if cli_json_output_flag.is_some() {
+                    "[SSH] 远程 codex exec 已启用 JSON 事件流，将实时回传执行日志。"
+                        .to_string()
+                } else {
+                    "[WARN] [SSH] 远程 codex exec 不支持 JSON 事件流，终端可能只能显示最终输出；建议升级远程 Codex CLI 或启用远程 SDK。".to_string()
+                },
+            )
+            .await;
+        }
         emit_session_terminal_line(
             &app,
             &pool,
@@ -3325,15 +3667,14 @@ pub async fn start_codex_with_manager(
             session_id,
         )
         .await;
-    } else if provider == CodexExecutionProvider::Cli {
+    } else if provider == CodexExecutionProvider::Cli && session_lookup_started_at.is_some() {
         let app_clone = app.clone();
         let eid = employee_id.clone();
         let task_id_clone = task_id.clone();
         let run_cwd_clone = run_cwd.clone();
         let session_emitted_clone = session_emitted.clone();
         let session_record_id = session_record.id.clone();
-        let session_lookup_started_at =
-            session_lookup_started_at.expect("cli session lookup start time");
+        let session_lookup_started_at = session_lookup_started_at.unwrap_or(SystemTime::now());
         tauri::async_runtime::spawn(async move {
             if let Some(session_id) =
                 wait_for_exec_session_id(&run_cwd_clone, session_lookup_started_at).await
@@ -3353,9 +3694,13 @@ pub async fn start_codex_with_manager(
         });
     }
 
-    // Use a shared dedup set: codex exec writes the same lines to both
-    // stdout and stderr. We track recently emitted lines and skip duplicates.
-    let seen = Arc::new(Mutex::new(std::collections::HashSet::<String>::new()));
+    // 只有传统文本模式的 codex exec 会把相同内容同时写到 stdout/stderr。
+    // JSON 事件流与 SDK 流都不需要做跨流去重，否则会误吞掉合法的重复输出。
+    let seen = (provider == CodexExecutionProvider::Cli && cli_json_output_flag.is_none())
+        .then(|| Arc::new(Mutex::new(HashSet::<String>::new())));
+    let cli_json_stream_state = (provider == CodexExecutionProvider::Cli
+        && cli_json_output_flag.is_some())
+    .then(|| Arc::new(Mutex::new(CliJsonStreamState::default())));
     let captured_output = (session_kind == CodexSessionKind::Review)
         .then(|| Arc::new(Mutex::new(Vec::<String>::new())));
 
@@ -3365,6 +3710,7 @@ pub async fn start_codex_with_manager(
     let task_id_for_stdout = task_id.clone();
     let pool_for_stdout = pool.clone();
     let seen_stdout = seen.clone();
+    let cli_json_state_for_stdout = cli_json_stream_state.clone();
     let session_emitted_clone = session_emitted.clone();
     let session_record_id = session_record.id.clone();
     let captured_stdout = captured_output.clone();
@@ -3407,6 +3753,53 @@ pub async fn start_codex_with_manager(
                 continue;
             }
 
+            if let Some(cli_json_state) = cli_json_state_for_stdout.as_ref() {
+                if let Some(parsed) = {
+                    let mut state = cli_json_state.lock().unwrap();
+                    parse_cli_json_event_line(&line, &mut state)
+                } {
+                    if !session_emitted_clone.load(Ordering::Relaxed) {
+                        if let Some(session_id) = parsed.session_id {
+                            if !session_emitted_clone.swap(true, Ordering::Relaxed) {
+                                bind_cli_session_id(
+                                    &app_clone,
+                                    &eid,
+                                    task_id_for_stdout.as_ref(),
+                                    &session_record_id,
+                                    session_kind,
+                                    session_id,
+                                )
+                                .await;
+                            }
+                        }
+                    }
+
+                    for emitted_line in parsed.lines {
+                        if let Some(captured_stdout) = captured_stdout.as_ref() {
+                            let mut captured = captured_stdout.lock().unwrap();
+                            captured.push(emitted_line.clone());
+                            if captured.len() > 2000 {
+                                let drain_to = captured.len().saturating_sub(2000);
+                                if drain_to > 0 {
+                                    captured.drain(0..drain_to);
+                                }
+                            }
+                        }
+                        emit_session_terminal_line(
+                            &app_clone,
+                            &pool_for_stdout,
+                            &session_record_id,
+                            &eid,
+                            task_id_for_stdout.as_deref(),
+                            session_kind,
+                            emitted_line,
+                        )
+                        .await;
+                    }
+                    continue;
+                }
+            }
+
             if !session_emitted_clone.load(Ordering::Relaxed) {
                 if let Some(session_id) = extract_session_id_from_output(&line) {
                     if !session_emitted_clone.swap(true, Ordering::Relaxed) {
@@ -3423,19 +3816,18 @@ pub async fn start_codex_with_manager(
                 }
             }
 
-            let is_dup = {
+            let is_dup = seen_stdout.as_ref().is_some_and(|seen_stdout| {
                 let mut s = seen_stdout.lock().unwrap();
                 if s.contains(&line) {
                     true
                 } else {
                     s.insert(line.clone());
-                    // Keep set bounded — remove entries older than 200 lines
                     if s.len() > 200 {
                         s.clear();
                     }
                     false
                 }
-            };
+            });
             if !is_dup {
                 if let Some(captured_stdout) = captured_stdout.as_ref() {
                     let mut captured = captured_stdout.lock().unwrap();
@@ -3517,7 +3909,7 @@ pub async fn start_codex_with_manager(
                 continue;
             }
 
-            let is_dup = {
+            let is_dup = seen_stderr.as_ref().is_some_and(|seen_stderr| {
                 let mut s = seen_stderr.lock().unwrap();
                 if s.contains(&line) {
                     true
@@ -3528,7 +3920,7 @@ pub async fn start_codex_with_manager(
                     }
                     false
                 }
-            };
+            });
             if !is_dup {
                 if let Some(captured_stderr) = captured_stderr.as_ref() {
                     let mut captured = captured_stderr.lock().unwrap();
@@ -3661,10 +4053,11 @@ pub async fn start_codex_with_manager(
 
         if provider_for_exit == CodexExecutionProvider::Cli
             && !session_emitted_clone.load(Ordering::Relaxed)
+            && session_lookup_started_at.is_some()
         {
             if let Some(session_id) = find_latest_exec_session_id(
                 &run_cwd_clone,
-                session_lookup_started_at.expect("cli session lookup start time"),
+                session_lookup_started_at.unwrap_or(SystemTime::now()),
             ) {
                 bind_cli_session_id(
                     &app_clone,
@@ -3981,12 +4374,52 @@ pub async fn send_codex_input(
 }
 
 /// Run a one-shot AI command using `codex exec`.
+async fn probe_local_exec_json_support() -> Result<Option<CliJsonOutputFlag>, String> {
+    let mut command = new_codex_command().await?;
+    let output = command
+        .arg("exec")
+        .arg("--help")
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .output()
+        .await
+        .map_err(|error| format!("Failed to probe local codex exec --json support: {error}"))?;
+
+    let combined = format!(
+        "{}\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    Ok(detect_exec_json_output_flag(&combined))
+}
+
+async fn probe_remote_exec_json_support<R: tauri::Runtime>(
+    app: &AppHandle<R>,
+    ssh_config: &SshConfigRecord,
+    node_path_override: Option<&str>,
+) -> Result<Option<CliJsonOutputFlag>, String> {
+    let output = execute_ssh_command(
+        app,
+        ssh_config,
+        &build_remote_shell_command("codex exec --help 2>/dev/null || true", node_path_override),
+        true,
+    )
+    .await?;
+    let combined = format!(
+        "{}\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    Ok(detect_exec_json_output_flag(&combined))
+}
+
 fn build_session_exec_args(
     model: &str,
     reasoning_effort: &str,
     run_cwd: &str,
     image_paths: &[String],
     resume_session_id: Option<&str>,
+    json_output_flag: Option<CliJsonOutputFlag>,
 ) -> Vec<String> {
     let mut args = vec![
         "exec".to_string(),
@@ -3997,6 +4430,9 @@ fn build_session_exec_args(
         "-C".to_string(),
         run_cwd.to_string(),
     ];
+    if let Some(json_output_flag) = json_output_flag {
+        args.push(json_output_flag.as_arg().to_string());
+    }
     if let Some(session_id) = resume_session_id {
         args.push("resume".to_string());
         args.push(session_id.to_string());
@@ -4019,6 +4455,7 @@ fn build_remote_codex_session_command(
     run_cwd: &str,
     image_paths: &[String],
     resume_session_id: Option<&str>,
+    json_output_flag: Option<CliJsonOutputFlag>,
     node_path_override: Option<&str>,
 ) -> String {
     let args = build_session_exec_args(
@@ -4027,6 +4464,7 @@ fn build_remote_codex_session_command(
         run_cwd,
         image_paths,
         resume_session_id,
+        json_output_flag,
     )
     .into_iter()
     .map(|value| shell_escape_arg(&value))
@@ -4729,12 +5167,13 @@ mod tests {
         build_ai_optimize_prompt_prompt, build_one_shot_exec_args,
         build_remote_codex_session_command, build_remote_sdk_bridge_command,
         build_session_exec_args, compose_codex_prompt,
-        compute_execution_session_file_changes_from_entries, extract_session_id_from_output,
-        format_session_prompt_log, hash_worktree_path, normalize_session_file_change_paths,
-        parse_ai_subtasks_response, parse_sdk_bridge_output, parse_sdk_file_change_event,
+        compute_execution_session_file_changes_from_entries, detect_exec_json_output_flag,
+        extract_session_id_from_output, format_session_prompt_log, hash_worktree_path,
+        normalize_session_file_change_paths, parse_ai_subtasks_response, parse_cli_json_event_line,
+        parse_sdk_bridge_output, parse_sdk_file_change_event,
         sdk_codex_path_override_allowed_for_os, should_capture_execution_change_baseline,
-        CodexExecutionProvider, CodexSessionKind, TextSnapshot, WorkingTreeSnapshotEntry,
-        EXECUTION_TARGET_LOCAL, EXECUTION_TARGET_SSH,
+        CliJsonOutputFlag, CliJsonStreamState, CodexExecutionProvider, CodexSessionKind,
+        TextSnapshot, WorkingTreeSnapshotEntry, EXECUTION_TARGET_LOCAL, EXECUTION_TARGET_SSH,
     };
     use crate::db::models::CodexSessionFileChangeInput;
 
@@ -4777,6 +5216,7 @@ mod tests {
             r"D:\repo\demo",
             &["D:\\repo\\demo\\ui.png".to_string()],
             Some("session-123"),
+            Some(CliJsonOutputFlag::Json),
         );
 
         assert_eq!(
@@ -4789,12 +5229,82 @@ mod tests {
                 "model_reasoning_effort=\"high\"".to_string(),
                 "-C".to_string(),
                 r"D:\repo\demo".to_string(),
+                "--json".to_string(),
                 "resume".to_string(),
                 "session-123".to_string(),
                 "--image".to_string(),
                 r"D:\repo\demo\ui.png".to_string(),
                 "-".to_string(),
             ]
+        );
+    }
+
+    #[test]
+    fn detects_exec_json_output_flag_by_supported_option() {
+        assert_eq!(
+            detect_exec_json_output_flag("  --json  Print events to stdout as JSONL"),
+            Some(CliJsonOutputFlag::Json)
+        );
+        assert_eq!(
+            detect_exec_json_output_flag("  --experimental-json  Print events"),
+            Some(CliJsonOutputFlag::ExperimentalJson)
+        );
+        assert_eq!(detect_exec_json_output_flag("  --help  Print help"), None);
+    }
+
+    #[test]
+    fn cli_json_parser_extracts_session_id_and_command_output_delta() {
+        let mut state = CliJsonStreamState::default();
+
+        let session_started = parse_cli_json_event_line(
+            r#"{"type":"thread.started","thread_id":"session-xyz"}"#,
+            &mut state,
+        )
+        .expect("parse thread.started");
+        assert_eq!(session_started.session_id.as_deref(), Some("session-xyz"));
+        assert!(session_started.lines.is_empty());
+
+        let command_started = parse_cli_json_event_line(
+            r#"{"type":"item.started","item":{"id":"cmd-1","type":"command_execution","command":"bash -lc ls","status":"in_progress"}}"#,
+            &mut state,
+        )
+        .expect("parse item.started");
+        assert_eq!(command_started.lines, vec!["[命令] bash -lc ls"]);
+
+        let command_updated = parse_cli_json_event_line(
+            r#"{"type":"item.updated","item":{"id":"cmd-1","type":"command_execution","aggregated_output":"line1\nline2\n","status":"in_progress"}}"#,
+            &mut state,
+        )
+        .expect("parse item.updated");
+        assert_eq!(command_updated.lines, vec!["line1", "line2"]);
+
+        let command_updated_again = parse_cli_json_event_line(
+            r#"{"type":"item.updated","item":{"id":"cmd-1","type":"command_execution","aggregated_output":"line1\nline2\nline3\n","status":"in_progress"}}"#,
+            &mut state,
+        )
+        .expect("parse item.updated delta");
+        assert_eq!(command_updated_again.lines, vec!["line3"]);
+    }
+
+    #[test]
+    fn cli_json_parser_streams_agent_message_and_plan_summary() {
+        let mut state = CliJsonStreamState::default();
+
+        let message = parse_cli_json_event_line(
+            r#"{"type":"item.completed","item":{"id":"msg-1","type":"agent_message","text":"第一行\n第二行"}}"#,
+            &mut state,
+        )
+        .expect("parse agent message");
+        assert_eq!(message.lines, vec!["第一行", "第二行"]);
+
+        let plan = parse_cli_json_event_line(
+            r#"{"type":"item.updated","item":{"id":"plan-1","type":"todo_list","items":[{"text":"检查 SSH 日志链路","completed":true},{"text":"切换 exec JSON 事件流","completed":false}]}}"#,
+            &mut state,
+        )
+        .expect("parse todo list");
+        assert_eq!(
+            plan.lines,
+            vec!["[计划] [x] 检查 SSH 日志链路 | [ ] 切换 exec JSON 事件流"]
         );
     }
 
@@ -4945,10 +5455,12 @@ mod tests {
             "/srv/repo",
             &["/home/demo/.codex-ai/img/task-1/att-1.png".to_string()],
             Some("session-123"),
+            Some(CliJsonOutputFlag::Json),
             None,
         );
 
         assert!(command.contains("exec codex"));
+        assert!(command.contains("'--json'"));
         assert!(command.contains("'--image'"));
         assert!(command.contains("'/home/demo/.codex-ai/img/task-1/att-1.png'"));
     }

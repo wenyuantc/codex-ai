@@ -1,0 +1,74 @@
+name: build-windows-msi
+
+# 仅在手动触发、主分支提交或主分支 PR 时构建 Windows MSI。
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - "src/**"
+      - "src-tauri/**"
+      - "public/**"
+      - "index.html"
+      - "vite.config.ts"
+      - "package.json"
+      - "package-lock.json"
+      - "components.json"
+      - "tsconfig.json"
+      - "tsconfig.node.json"
+      - ".github/workflows/build-windows-msi.yml"
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "src/**"
+      - "src-tauri/**"
+      - "public/**"
+      - "index.html"
+      - "vite.config.ts"
+      - "package.json"
+      - "package-lock.json"
+      - "components.json"
+      - "tsconfig.json"
+      - "tsconfig.node.json"
+      - ".github/workflows/build-windows-msi.yml"
+
+jobs:
+  build-msi:
+    # Tauri 的 MSI 需要在 Windows Runner 上产出。
+    runs-on: windows-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 安装 Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: 安装 Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: 缓存 Rust 构建产物
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: ./src-tauri -> target
+
+      - name: 安装前端与 Tauri 依赖
+        # 安装前端与 Tauri 依赖。
+        run: npm install
+
+      - name: 构建 Windows MSI
+        # 复用 package.json 里的脚本，确保和本地打包命令保持一致。
+        run: npm run tauri:windows:msi
+
+      - name: 上传 MSI 安装包
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-msi
+          path: src-tauri/target/release/bundle/msi/*.msi
+          if-no-files-found: error
