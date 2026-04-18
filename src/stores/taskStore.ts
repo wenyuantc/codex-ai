@@ -196,22 +196,27 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
   },
 
   setTaskLastSessionId: async (taskId, sessionId, sessionKind) => {
+    const nextStatus = sessionKind === "review" ? "review" : "in_progress";
+
     set((state) => ({
       tasks: state.tasks.map((task) => (
         task.id === taskId
           ? sessionKind === "review"
-            ? { ...task, last_review_session_id: sessionId }
-            : { ...task, last_codex_session_id: sessionId }
+            ? { ...task, status: nextStatus, last_review_session_id: sessionId }
+            : { ...task, status: nextStatus, last_codex_session_id: sessionId }
           : task
       )),
     }));
     try {
-      const task = await updateTaskCommand(
-        taskId,
-        sessionKind === "review"
-          ? { last_review_session_id: sessionId }
-          : { last_codex_session_id: sessionId },
-      );
+      const [task] = await Promise.all([
+        updateTaskCommand(
+          taskId,
+          sessionKind === "review"
+            ? { last_review_session_id: sessionId }
+            : { last_codex_session_id: sessionId },
+        ),
+        get().fetchTaskAutomationState(taskId),
+      ]);
       set((state) => ({
         tasks: state.tasks.map((current) => (current.id === taskId ? task : current)),
       }));

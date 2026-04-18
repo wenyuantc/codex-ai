@@ -3,7 +3,14 @@ import { createPortal } from "react-dom";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import type { CodexSessionKind, Task, TaskGitContext } from "@/lib/types";
-import { formatDate, getPriorityColor, getPriorityLabel, getTaskAutomationDisplayState, getTaskAutomationStatusLabel } from "@/lib/utils";
+import {
+  formatDate,
+  getPriorityColor,
+  getPriorityLabel,
+  getTaskActionRuntimeState,
+  getTaskAutomationDisplayState,
+  getTaskAutomationStatusLabel,
+} from "@/lib/utils";
 import { buildTaskExecutionInput } from "@/lib/taskPrompt";
 import {
   Bot,
@@ -145,9 +152,15 @@ export function TaskCard({
     reviewerId: task.reviewer_id,
     status: task.status,
   });
-  const isRunning = executionActions.isRunning;
-  const isReviewRunning = reviewActions.isRunning;
-  const isReviewTask = task.status === "review";
+  const runtimeState = getTaskActionRuntimeState({
+    automationState,
+    isExecutionRunning: executionActions.isRunning,
+    isReviewRunning: reviewActions.isRunning,
+  });
+  const isRunning = runtimeState.executionActive;
+  const isReviewRunning = runtimeState.reviewActive;
+  const isReviewTask = task.status === "review" || isReviewRunning;
+  const hasActiveSession = isRunning || isReviewRunning;
   const isActionLoading = executionActions.loading !== null || reviewActions.loading || automationSubmitting || automationRestarting;
   const shouldShowActionBar = !isOverlay && (isRunning || isReviewTask || !hideRunAction);
   const shouldShowPrimaryMenuAction = isRunning || isReviewTask || !hideRunAction;
@@ -248,7 +261,7 @@ export function TaskCard({
   const handleReviewCode = async (e?: React.MouseEvent) => {
     e?.stopPropagation();
 
-    if (task.status !== "review" || !task.reviewer_id) return;
+    if (task.status !== "review" || !task.reviewer_id || isReviewRunning) return;
 
     setContextMenu(null);
     onOpenLog?.(task.id, "review");
@@ -266,14 +279,14 @@ export function TaskCard({
   };
 
   const openDeleteDialog = () => {
-    if (isRunning) return;
+    if (hasActiveSession) return;
     setContextMenu(null);
     setShowDeleteDialog(true);
   };
 
   const openLogDialog = () => {
     setContextMenu(null);
-    onOpenLog?.(task.id, task.status === "review" ? "review" : "execution");
+    onOpenLog?.(task.id, isReviewTask ? "review" : "execution");
   };
 
   const openContinueDialog = () => {
@@ -435,18 +448,29 @@ export function TaskCard({
         {shouldShowActionBar && (
           <div className="flex items-center gap-1 mt-2 pt-2 border-t border-border/50">
             {isRunning ? (
-              <button
-                onClick={handleStop}
-                disabled={isActionLoading}
-                className="flex items-center gap-1 px-2 py-0.5 text-xs bg-red-600 text-white rounded hover:bg-red-700 transition-colors disabled:opacity-50"
-              >
-                {executionActions.loading === "stop" ? (
-                  <Square className="h-3 w-3" />
-                ) : (
-                  <span className="inline-block w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
-                )}
-                停止
-              </button>
+              executionActions.isRunning ? (
+                <button
+                  onClick={handleStop}
+                  disabled={isActionLoading}
+                  className="flex items-center gap-1 px-2 py-0.5 text-xs bg-red-600 text-white rounded hover:bg-red-700 transition-colors disabled:opacity-50"
+                >
+                  {executionActions.loading === "stop" ? (
+                    <Square className="h-3 w-3" />
+                  ) : (
+                    <span className="inline-block w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
+                  )}
+                  停止
+                </button>
+              ) : (
+                <button
+                  disabled
+                  className="flex items-center gap-1 px-2 py-0.5 text-xs bg-green-600 text-white rounded opacity-50"
+                  title="自动修复正在启动或运行中"
+                >
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                  运行中
+                </button>
+              )
             ) : isReviewTask ? (
               task.reviewer_id ? (
                 <button
@@ -514,16 +538,29 @@ export function TaskCard({
             onClick={(e) => e.stopPropagation()}
           >
             {shouldShowPrimaryMenuAction && (isRunning ? (
-              <button
-                type="button"
-                role="menuitem"
-                onClick={() => void handleStop()}
-                disabled={isActionLoading}
-                className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-left hover:bg-accent hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-50"
-              >
-                <Square className="h-4 w-4" />
-                停止
-              </button>
+              executionActions.isRunning ? (
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => void handleStop()}
+                  disabled={isActionLoading}
+                  className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-left hover:bg-accent hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-50"
+                >
+                  <Square className="h-4 w-4" />
+                  停止
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  role="menuitem"
+                  disabled
+                  className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-left disabled:pointer-events-none disabled:opacity-50"
+                  title="自动修复正在启动或运行中"
+                >
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  运行中
+                </button>
+              )
             ) : isReviewTask ? (
               <button
                 type="button"
@@ -625,8 +662,8 @@ export function TaskCard({
               type="button"
               role="menuitem"
               onClick={openDeleteDialog}
-              disabled={isRunning || deleting}
-              title={isRunning ? "运行中的任务不能删除，请先停止" : "删除任务"}
+              disabled={hasActiveSession || deleting}
+              title={hasActiveSession ? "任务有进行中的执行或审核，请先停止" : "删除任务"}
               className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-left text-destructive hover:bg-destructive/10 disabled:pointer-events-none disabled:opacity-50"
             >
               <Trash2 className="h-4 w-4" />

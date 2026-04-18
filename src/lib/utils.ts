@@ -212,6 +212,52 @@ export function getTaskAutomationStatusLabel(status: string): string {
   return labels[status] || status
 }
 
+const ACTIVE_REVIEW_AUTOMATION_PHASES = new Set([
+  "launching_review",
+  "waiting_review",
+])
+
+const ACTIVE_EXECUTION_AUTOMATION_PHASES = new Set([
+  "launching_fix",
+  "waiting_execution",
+])
+
+export function isTaskAutomationReviewActive(
+  automationState?: Pick<TaskAutomationDisplayState, "enabled" | "status"> | null,
+): boolean {
+  return Boolean(
+    automationState?.enabled
+    && ACTIVE_REVIEW_AUTOMATION_PHASES.has(automationState.status),
+  )
+}
+
+export function isTaskAutomationExecutionActive(
+  automationState?: Pick<TaskAutomationDisplayState, "enabled" | "status"> | null,
+): boolean {
+  return Boolean(
+    automationState?.enabled
+    && ACTIVE_EXECUTION_AUTOMATION_PHASES.has(automationState.status),
+  )
+}
+
+export interface TaskActionRuntimeState {
+  reviewActive: boolean
+  executionActive: boolean
+}
+
+export function getTaskActionRuntimeState(params: {
+  automationState?: Pick<TaskAutomationDisplayState, "enabled" | "status"> | null
+  isReviewRunning: boolean
+  isExecutionRunning: boolean
+}): TaskActionRuntimeState {
+  return {
+    reviewActive:
+      params.isReviewRunning || isTaskAutomationReviewActive(params.automationState),
+    executionActive:
+      params.isExecutionRunning || isTaskAutomationExecutionActive(params.automationState),
+  }
+}
+
 export function getTaskAutomationDisplayState(
   task: Task,
   automationState?: PersistedTaskAutomationState | null,

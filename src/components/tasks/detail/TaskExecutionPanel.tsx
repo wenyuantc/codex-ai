@@ -11,6 +11,7 @@ import { TaskFileChangeHistoryPanel } from "./TaskFileChangeHistoryPanel";
 interface TaskExecutionPanelProps {
   assigneeId: string;
   isRunning: boolean;
+  isExecutionActive: boolean;
   codexLoading: boolean;
   output: string[];
   terminalRef: RefObject<HTMLDivElement | null>;
@@ -27,6 +28,7 @@ interface TaskExecutionPanelProps {
 export function TaskExecutionPanel({
   assigneeId,
   isRunning,
+  isExecutionActive,
   codexLoading,
   output,
   terminalRef,
@@ -52,6 +54,15 @@ export function TaskExecutionPanel({
               {codexLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : <Square className="h-3 w-3" />}
               停止运行
             </button>
+          ) : isExecutionActive ? (
+            <button
+              disabled
+              className="flex items-center gap-1 px-2 py-1 text-xs bg-green-600 text-white rounded opacity-50"
+              title="自动修复正在启动或运行中"
+            >
+              <Loader2 className="h-3 w-3 animate-spin" />
+              运行中
+            </button>
           ) : (
             <button
               onClick={onRun}
@@ -65,7 +76,7 @@ export function TaskExecutionPanel({
         ) : (
           <span className="text-xs text-muted-foreground">请先指派员工以运行 Codex</span>
         )}
-        {isRunning && (
+        {isExecutionActive && (
           <span className="flex items-center gap-1 text-xs text-green-500">
             <span className="inline-block w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
             运行中
@@ -73,7 +84,7 @@ export function TaskExecutionPanel({
         )}
       </div>
 
-      {(isRunning || output.length > 0) && assigneeId && (
+      {(isExecutionActive || output.length > 0) && assigneeId && (
         <div>
           <div className="flex items-center justify-between px-2 py-1 bg-black/80 rounded-t border-b border-zinc-800">
             <span className="text-xs text-zinc-500 font-mono">Codex 终端</span>

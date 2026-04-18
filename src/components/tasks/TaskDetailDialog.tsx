@@ -38,7 +38,12 @@ import {
 import { startCodex } from "@/lib/codex";
 import { getProjectWorkingDir } from "@/lib/projects";
 import type { TaskAutomationDisplayState } from "@/lib/utils";
-import { formatDate, getTaskAutomationStatusLabel } from "@/lib/utils";
+import {
+  formatDate,
+  getTaskActionRuntimeState,
+  getTaskAutomationDisplayState,
+  getTaskAutomationStatusLabel,
+} from "@/lib/utils";
 import { DeleteTaskDialog } from "./DeleteTaskDialog";
 import { InsertPlanConfirmDialog } from "./InsertPlanConfirmDialog";
 import { ReviewFixConfirmDialog } from "./ReviewFixConfirmDialog";
@@ -79,6 +84,7 @@ export function TaskDetailDialog({
     addSubtasks,
     createTask,
   } = useTaskStore();
+  const persistedAutomationState = useTaskStore((state) => state.automationStates[task.id]);
   const {
     employees,
     fetchEmployees,
@@ -168,6 +174,12 @@ export function TaskDetailDialog({
       setReviewError(message);
     },
   });
+  const resolvedAutomationState = automationState ?? getTaskAutomationDisplayState(task, persistedAutomationState ?? null);
+  const runtimeState = getTaskActionRuntimeState({
+    automationState: resolvedAutomationState,
+    isExecutionRunning: executionActions.isRunning,
+    isReviewRunning: reviewActions.isRunning,
+  });
   const aiActions = useTaskAiActions({
     task,
     open,
@@ -184,8 +196,9 @@ export function TaskDetailDialog({
     addSubtasks,
     onDescriptionChange: setDescription,
   });
-  const isRunning = executionActions.isRunning;
-  const isReviewRunning = reviewActions.isRunning;
+  const isRunning = runtimeState.executionActive;
+  const isReviewRunning = runtimeState.reviewActive;
+  const isExecutionProcessRunning = executionActions.isRunning;
   const output = executionActions.output;
   const reviewOutput = reviewActions.output;
   const codexLoading = executionActions.loading !== null;
@@ -589,31 +602,31 @@ export function TaskDetailDialog({
                 </div>
                 <div
                   className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium ${
-                    automationState?.enabled
+                    resolvedAutomationState.enabled
                       ? "bg-emerald-500/10 text-emerald-700"
                       : "bg-muted text-muted-foreground"
                   }`}
                 >
-                  {automationState?.enabled ? "已开启" : "未开启"}
+                  {resolvedAutomationState.enabled ? "已开启" : "未开启"}
                 </div>
               </div>
 
               <div className="grid gap-2 text-xs text-muted-foreground md:grid-cols-4">
                 <div className="rounded-md border border-border bg-background/70 px-3 py-2">
                   <span className="font-medium text-foreground">闭环阶段：</span>
-                  {getTaskAutomationStatusLabel(automationState?.status ?? "disabled")}
+                  {getTaskAutomationStatusLabel(resolvedAutomationState.status)}
                 </div>
                 <div className="rounded-md border border-border bg-background/70 px-3 py-2">
                   <span className="font-medium text-foreground">自动修复轮次：</span>
-                  {automationState?.roundCount ?? 0}
+                  {resolvedAutomationState.roundCount ?? 0}
                 </div>
                 <div className="rounded-md border border-border bg-background/70 px-3 py-2">
                   <span className="font-medium text-foreground">最近更新时间：</span>
-                  {automationState?.updatedAt ? formatDate(automationState.updatedAt) : "暂无"}
+                  {resolvedAutomationState.updatedAt ? formatDate(resolvedAutomationState.updatedAt) : "暂无"}
                 </div>
                 <div className="rounded-md border border-border bg-background/70 px-3 py-2">
                   <span className="font-medium text-foreground">状态来源：</span>
-                  {automationState?.source === "automation_state" ? "自动化状态" : "任务配置"}
+                  {resolvedAutomationState.source === "automation_state" ? "自动化状态" : "任务配置"}
                 </div>
               </div>
 
@@ -621,10 +634,10 @@ export function TaskDetailDialog({
                 自动质控不会替代现有“审核结果 → 修复”手动路径。手动修复仍然通过创建新任务推进；自动质控接线后则在原任务内完成审核与修复闭环。
               </div>
 
-              {automationState?.note && (
+              {resolvedAutomationState.note && (
                 <div className="flex items-start gap-2 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-800">
                   <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-                  <span>{automationState.note}</span>
+                  <span>{resolvedAutomationState.note}</span>
                 </div>
               )}
             </section>
@@ -650,7 +663,7 @@ export function TaskDetailDialog({
                 employees={employees}
                 reviewerCandidates={reviewerCandidates}
                 saveError={saveError}
-                isRunning={isRunning}
+                isRunning={isRunning || isReviewRunning}
                 deletingTask={deletingTask}
                 onTitleChange={setTitle}
                 onTitleBlur={() => void handleSave("title", title)}
@@ -679,7 +692,8 @@ export function TaskDetailDialog({
             <TabsContent value="execution">
               <TaskExecutionPanel
                 assigneeId={assigneeId}
-                isRunning={isRunning}
+                isRunning={isExecutionProcessRunning}
+                isExecutionActive={isRunning}
                 codexLoading={codexLoading}
                 output={output}
                 terminalRef={terminalRef}
@@ -700,7 +714,7 @@ export function TaskDetailDialog({
                 status={status}
                 reviewerId={reviewerId}
                 reviewerName={reviewer?.name}
-                isReviewRunning={isReviewRunning}
+                isReviewActive={isReviewRunning}
                 reviewLoading={reviewLoading}
                 reviewError={reviewError}
                 reviewNotice={reviewNotice}

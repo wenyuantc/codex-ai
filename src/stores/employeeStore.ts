@@ -14,7 +14,13 @@ import type {
   Employee,
   ReasoningEffort,
 } from "@/lib/types";
-import { onCodexOutput, onCodexExit, type CodexOutput } from "@/lib/codex";
+import {
+  onCodexOutput,
+  onCodexExit,
+  onCodexSession,
+  type CodexOutput,
+  type CodexSession,
+} from "@/lib/codex";
 
 interface CodexProcessState {
   output: string[];
@@ -316,6 +322,23 @@ export const useEmployeeStore = create<EmployeeStore>((set, get) => ({
             output.session_record_id,
             output.session_event_id,
           );
+        }),
+        onCodexSession((session: CodexSession) => {
+          set((state) => ({
+            employees: state.employees.map((employee) => (
+              employee.id === session.employee_id
+                ? { ...employee, status: "busy" }
+                : employee
+            )),
+            codexProcesses: {
+              ...state.codexProcesses,
+              [session.employee_id]: {
+                output: state.codexProcesses[session.employee_id]?.output ?? [],
+                running: true,
+                activeTaskId: session.task_id ?? null,
+              },
+            },
+          }));
         }),
         onCodexExit((exit) => {
           if (exit.line) {

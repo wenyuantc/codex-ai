@@ -13,7 +13,7 @@ interface TaskReviewPanelProps {
   status: string;
   reviewerId: string;
   reviewerName?: string;
-  isReviewRunning: boolean;
+  isReviewActive: boolean;
   reviewLoading: boolean;
   reviewError: string | null;
   reviewNotice: string | null;
@@ -38,7 +38,7 @@ export function TaskReviewPanel({
   status,
   reviewerId,
   reviewerName,
-  isReviewRunning,
+  isReviewActive,
   reviewLoading,
   reviewError,
   reviewNotice,
@@ -70,18 +70,20 @@ export function TaskReviewPanel({
           <button
             type="button"
             onClick={onStartReview}
-            disabled={reviewLoading || status !== "review" || !reviewerId}
+            disabled={reviewLoading || isReviewActive || status !== "review" || !reviewerId}
             className="flex items-center gap-1 rounded-md bg-amber-500 px-2.5 py-1.5 text-xs font-medium text-black transition-colors hover:bg-amber-400 disabled:opacity-50"
             title={
-              status !== "review"
+              isReviewActive
+                ? "审核进行中"
+                : status !== "review"
                 ? "仅“审核中”任务支持代码审核"
                 : !reviewerId
                   ? "请先指定审查员"
                   : "启动代码审核"
             }
           >
-            {reviewLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />}
-            审核代码
+            {reviewLoading || isReviewActive ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />}
+            {isReviewActive ? "审核中" : "审核代码"}
           </button>
         </div>
 
@@ -104,7 +106,7 @@ export function TaskReviewPanel({
           </div>
           <div className="rounded-md border border-border bg-background/70 px-3 py-2">
             <span className="font-medium text-foreground">当前状态：</span>
-            {getSessionStatusLabel(isReviewRunning ? "running" : latestReview?.session.status)}
+            {getSessionStatusLabel(isReviewActive ? "running" : latestReview?.session.status)}
           </div>
           <div className="rounded-md border border-border bg-background/70 px-3 py-2">
             <span className="font-medium text-foreground">最近会话：</span>
@@ -112,12 +114,12 @@ export function TaskReviewPanel({
           </div>
         </div>
 
-        {(isReviewRunning || hasReviewOutput) && reviewerId && (
+        {(isReviewActive || hasReviewOutput) && reviewerId && (
           <div className="space-y-2">
             <div className="flex items-center justify-between">
               <p className="text-xs font-medium text-muted-foreground">审核会话日志</p>
               <span className="text-[11px] text-muted-foreground">
-                {isReviewRunning ? "运行中" : "最近一次审核输出"}
+                {isReviewActive ? "运行中" : "最近一次审核输出"}
               </span>
             </div>
             <CodexTerminal taskId={taskId} sessionKind="review" />
@@ -145,7 +147,7 @@ export function TaskReviewPanel({
               variant="outline"
               size="xs"
               onClick={onCopyReview}
-              disabled={!latestReview?.report?.trim() || reviewLoading || isReviewRunning}
+              disabled={!latestReview?.report?.trim() || reviewLoading || isReviewActive}
             >
               <Copy className="h-3 w-3" />
               复制
@@ -156,7 +158,7 @@ export function TaskReviewPanel({
               size="xs"
               onClick={onOpenReviewFix}
               disabled={
-                !latestReview?.report?.trim() || !assigneeId || reviewFixSubmitting || reviewLoading || isReviewRunning
+                !latestReview?.report?.trim() || !assigneeId || reviewFixSubmitting || reviewLoading || isReviewActive
               }
               title={!assigneeId ? "原任务未指派开发负责人" : "手动修复会新建一个修复任务并立即运行"}
             >
