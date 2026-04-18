@@ -25,7 +25,16 @@ const DEFAULT_ONE_SHOT_MODEL: &str = "gpt-5.4";
 const DEFAULT_ONE_SHOT_REASONING_EFFORT: &str = "high";
 const DEFAULT_TASK_AUTOMATION_MAX_FIX_ROUNDS: i32 = 3;
 const DEFAULT_TASK_AUTOMATION_FAILURE_STRATEGY: &str = "blocked";
-const SUPPORTED_MODELS: &[&str] = &["gpt-5.4", "gpt-5.4-mini", "gpt-5.3-codex", "gpt-5.2"];
+const SUPPORTED_MODELS: &[&str] = &[
+    "gpt-5.4",
+    "gpt-5.2-codex",
+    "gpt-5.1-codex-max",
+    "gpt-5.4-mini",
+    "gpt-5.3-codex",
+    "gpt-5.3-codex-spark",
+    "gpt-5.2",
+    "gpt-5.1-codex-mini",
+];
 const SUPPORTED_REASONING_EFFORTS: &[&str] = &["low", "medium", "high", "xhigh"];
 const SUPPORTED_TASK_AUTOMATION_FAILURE_STRATEGIES: &[&str] = &["blocked", "manual_control"];
 
@@ -958,6 +967,22 @@ mod tests {
 
         assert_eq!(normalized.one_shot_model, "gpt-5.4");
         assert_eq!(normalized.one_shot_reasoning_effort, "high");
+
+        fs::remove_dir_all(base).expect("remove temp dir");
+    }
+
+    #[test]
+    fn supported_new_one_shot_models_are_preserved() {
+        let base = create_temp_dir();
+        let normalized = normalize_raw_settings(
+            RawCodexSettings {
+                one_shot_model: Some("gpt-5.3-codex-spark".to_string()),
+                ..RawCodexSettings::default()
+            },
+            base.to_string_lossy().as_ref(),
+        );
+
+        assert_eq!(normalized.one_shot_model, "gpt-5.3-codex-spark");
 
         fs::remove_dir_all(base).expect("remove temp dir");
     }

@@ -59,7 +59,16 @@ use self::{
     session_launch::*, session_runtime::*, session_support::*, stream::*,
 };
 
-const SUPPORTED_MODELS: &[&str] = &["gpt-5.4", "gpt-5.4-mini", "gpt-5.3-codex", "gpt-5.2"];
+const SUPPORTED_MODELS: &[&str] = &[
+    "gpt-5.4",
+    "gpt-5.2-codex",
+    "gpt-5.1-codex-max",
+    "gpt-5.4-mini",
+    "gpt-5.3-codex",
+    "gpt-5.3-codex-spark",
+    "gpt-5.2",
+    "gpt-5.1-codex-mini",
+];
 const SUPPORTED_REASONING_EFFORTS: &[&str] = &["low", "medium", "high", "xhigh"];
 const SESSION_ID_PREFIX: &str = "session id:";
 const SDK_FILE_CHANGE_EVENT_PREFIX: &str = "[CODEX_FILE_CHANGE]";
@@ -192,9 +201,13 @@ fn normalize_model(model: Option<&str>) -> &'static str {
     match model {
         Some(value) if SUPPORTED_MODELS.contains(&value) => match value {
             "gpt-5.4" => "gpt-5.4",
+            "gpt-5.2-codex" => "gpt-5.2-codex",
+            "gpt-5.1-codex-max" => "gpt-5.1-codex-max",
             "gpt-5.4-mini" => "gpt-5.4-mini",
             "gpt-5.3-codex" => "gpt-5.3-codex",
+            "gpt-5.3-codex-spark" => "gpt-5.3-codex-spark",
             "gpt-5.2" => "gpt-5.2",
+            "gpt-5.1-codex-mini" => "gpt-5.1-codex-mini",
             _ => "gpt-5.4",
         },
         _ => "gpt-5.4",

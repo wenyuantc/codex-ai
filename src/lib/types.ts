@@ -511,7 +511,15 @@ export type CodexSessionResumeStatus =
   | "missing_cli_session"
   | "stopping"
   | "invalid";
-export type CodexModelId = "gpt-5.4" | "gpt-5.4-mini" | "gpt-5.3-codex" | "gpt-5.2";
+export type CodexModelId =
+  | "gpt-5.4"
+  | "gpt-5.2-codex"
+  | "gpt-5.1-codex-max"
+  | "gpt-5.4-mini"
+  | "gpt-5.3-codex"
+  | "gpt-5.3-codex-spark"
+  | "gpt-5.2"
+  | "gpt-5.1-codex-mini";
 export type ReasoningEffort = "low" | "medium" | "high" | "xhigh";
 export type TaskStatus = "todo" | "in_progress" | "review" | "completed" | "blocked";
 export type TaskAutomationMode = "review_fix_loop_v1";
@@ -553,9 +561,13 @@ export function normalizeTaskAutomationFailureStrategy(
 
 export const CODEX_MODEL_OPTIONS: { value: CodexModelId; label: string }[] = [
   { value: "gpt-5.4", label: "GPT-5.4" },
+  { value: "gpt-5.2-codex", label: "GPT-5.2-Codex" },
+  { value: "gpt-5.1-codex-max", label: "GPT-5.1-Codex-Max" },
   { value: "gpt-5.4-mini", label: "GPT-5.4-Mini" },
   { value: "gpt-5.3-codex", label: "GPT-5.3-Codex" },
+  { value: "gpt-5.3-codex-spark", label: "GPT-5.3-Codex-Spark" },
   { value: "gpt-5.2", label: "GPT-5.2" },
+  { value: "gpt-5.1-codex-mini", label: "GPT-5.1-Codex-Mini" },
 ];
 
 export const REASONING_EFFORT_OPTIONS: { value: ReasoningEffort; label: string }[] = [

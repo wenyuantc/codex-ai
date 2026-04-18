@@ -5,13 +5,13 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use super::{
     attach_session_file_change_details, build_ai_generate_commit_message_prompt,
-    build_ai_generate_plan_prompt,
-    build_ai_optimize_prompt_prompt, build_one_shot_exec_args, build_remote_codex_session_command,
-    build_remote_sdk_bridge_command, build_session_exec_args, compose_codex_prompt,
-    compute_execution_session_file_changes_from_entries, detect_exec_json_output_flag,
-    extract_session_id_from_output, format_session_prompt_log, hash_worktree_path,
-    normalize_session_file_change_paths, parse_ai_subtasks_response, parse_cli_json_event_line,
-    parse_sdk_bridge_output, parse_sdk_file_change_event, sdk_codex_path_override_allowed_for_os,
+    build_ai_generate_plan_prompt, build_ai_optimize_prompt_prompt, build_one_shot_exec_args,
+    build_remote_codex_session_command, build_remote_sdk_bridge_command, build_session_exec_args,
+    compose_codex_prompt, compute_execution_session_file_changes_from_entries,
+    detect_exec_json_output_flag, extract_session_id_from_output, format_session_prompt_log,
+    hash_worktree_path, normalize_model, normalize_session_file_change_paths,
+    parse_ai_subtasks_response, parse_cli_json_event_line, parse_sdk_bridge_output,
+    parse_sdk_file_change_event, sdk_codex_path_override_allowed_for_os,
     should_capture_execution_change_baseline, CliJsonOutputFlag, CliJsonStreamState,
     CodexExecutionProvider, CodexSessionKind, TextSnapshot, WorkingTreeSnapshotEntry,
     EXECUTION_TARGET_LOCAL, EXECUTION_TARGET_SSH,
@@ -266,6 +266,23 @@ fn one_shot_exec_args_include_images_before_prompt() {
             "--image".to_string(),
             "/tmp/demo/b.jpg".to_string(),
         ]
+    );
+}
+
+#[test]
+fn normalize_model_accepts_new_codex_variants() {
+    assert_eq!(normalize_model(Some("gpt-5.2-codex")), "gpt-5.2-codex");
+    assert_eq!(
+        normalize_model(Some("gpt-5.1-codex-max")),
+        "gpt-5.1-codex-max"
+    );
+    assert_eq!(
+        normalize_model(Some("gpt-5.3-codex-spark")),
+        "gpt-5.3-codex-spark"
+    );
+    assert_eq!(
+        normalize_model(Some("gpt-5.1-codex-mini")),
+        "gpt-5.1-codex-mini"
     );
 }
 

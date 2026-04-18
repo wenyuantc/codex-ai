@@ -651,6 +651,26 @@ pub fn get_all_migrations() -> Vec<Migration> {
             "#,
             kind: tauri_plugin_sql::MigrationKind::Up,
         },
+        Migration {
+            version: 26,
+            description: "normalize employee models to latest supported codex list",
+            sql: r#"
+                UPDATE employees
+                SET model = 'gpt-5.4'
+                WHERE model IS NULL
+                   OR model NOT IN (
+                     'gpt-5.4',
+                     'gpt-5.2-codex',
+                     'gpt-5.1-codex-max',
+                     'gpt-5.4-mini',
+                     'gpt-5.3-codex',
+                     'gpt-5.3-codex-spark',
+                     'gpt-5.2',
+                     'gpt-5.1-codex-mini'
+                   );
+            "#,
+            kind: tauri_plugin_sql::MigrationKind::Up,
+        },
     ]
 }
 
@@ -683,8 +703,8 @@ mod tests {
     }
 
     #[test]
-    fn latest_migration_version_includes_task_git_contexts() {
-        assert_eq!(latest_migration_version(), 25);
+    fn latest_migration_version_includes_employee_model_normalization() {
+        assert_eq!(latest_migration_version(), 26);
     }
 
     #[test]
