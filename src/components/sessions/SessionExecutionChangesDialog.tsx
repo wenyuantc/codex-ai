@@ -60,7 +60,7 @@ export function SessionExecutionChangesDialog({
         return;
       }
       setHistory(null);
-      setHistoryError(error instanceof Error ? error.message : "读取 Session 文件改动失败");
+      setHistoryError(error instanceof Error ? error.message : "读取对话文件改动失败");
     } finally {
       if (historyRequestIdRef.current === requestId) {
         setHistoryLoading(false);
@@ -138,21 +138,21 @@ export function SessionExecutionChangesDialog({
           showCloseButton
         >
           <DialogHeader>
-            <DialogTitle>Session 改动文件</DialogTitle>
+            <DialogTitle>对话改动文件</DialogTitle>
             <DialogDescription>
               {session
-                ? `查看执行会话“${session.display_name}”保存下来的改动文件记录，并继续点进文件级 diff。`
-                : "查看执行会话的改动文件记录"}
+                ? `查看执行对话“${session.display_name}”保存下来的改动文件记录，并继续点进文件级 diff。`
+                : "查看执行对话的改动文件记录"}
             </DialogDescription>
           </DialogHeader>
 
           {session ? (
             <div className="grid gap-2 text-xs md:grid-cols-2">
               <div className="rounded-md border border-border/70 bg-muted/20 px-3 py-2">
-                <div className="font-medium text-foreground">Session</div>
+                <div className="font-medium text-foreground">对话</div>
                 <div className="mt-1 font-mono text-muted-foreground">{session.session_id}</div>
                 <div className="mt-1 font-mono text-muted-foreground">
-                  record id: {session.session_record_id}
+                  记录 ID: {session.session_record_id}
                 </div>
               </div>
               <div className="rounded-md border border-border/70 bg-muted/20 px-3 py-2">
@@ -173,28 +173,28 @@ export function SessionExecutionChangesDialog({
               )}
               {isArtifactCaptureLimited(session.artifact_capture_mode) && (
                 <div className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-amber-800 md:col-span-2">
-                  远程变更明细受限：SSH v1 只保证远程执行与会话元数据，不承诺本地级 diff 和文件快照。
+                  远程变更明细受限：SSH v1 只保证远程执行与对话元数据，不承诺本地级 diff 和文件快照。
                 </div>
               )}
             </div>
           ) : (
             <div className="rounded-md border border-dashed border-border px-3 py-6 text-center text-sm text-muted-foreground">
-              当前没有可查看的 Session。
+              当前没有可查看的对话。
             </div>
           )}
 
           <TaskFileChangeHistoryPanel
-            title="执行会话改动文件"
+            title="执行对话改动文件"
             description={session?.artifact_capture_mode === "local_full"
-              ? "SDK 会话按 Codex 事件精确记录；CLI 会话仅在缺少结构化事件时回退为 Git 快照估算。"
+              ? "SDK 对话按 Codex 事件精确记录；CLI 对话仅在缺少结构化事件时回退为 Git 快照估算。"
               : session?.artifact_capture_mode === "ssh_full"
-                ? "当前远程 Session 已保存文件级明细；SDK 会话优先使用 Codex 事件，CLI 会话按远程 Git 快照估算。"
-                : "当前是远程 Session，变更采集能力受限，仅展示 SSH v1 可提供的记录。"}
+                ? "当前远程对话已保存文件级明细；SDK 对话优先使用 Codex 事件，CLI 对话按远程 Git 快照估算。"
+                : "当前是远程对话，变更采集能力受限，仅展示 SSH v1 可提供的记录。"}
             history={history ? [history] : []}
             loading={historyLoading}
             error={historyError}
-            emptyText="该 execution 会话还没有文件改动记录。"
-            loadingText="正在加载该 Session 的文件改动..."
+            emptyText="该执行对话还没有文件改动记录。"
+            loadingText="正在加载该对话的文件改动..."
             onRefresh={() => {
               if (session) {
                 void loadHistory(session);

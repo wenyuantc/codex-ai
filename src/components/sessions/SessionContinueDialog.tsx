@@ -53,7 +53,7 @@ export function SessionContinueDialog({
 
   const handleGenerateOptimizedPrompt = async () => {
     if (!session?.project_id) {
-      optimizePrompt.showError("当前 Session 未关联项目，无法生成优化提示词。");
+      optimizePrompt.showError("当前对话未关联项目，无法生成优化提示词。");
       return;
     }
 
@@ -64,7 +64,7 @@ export function SessionContinueDialog({
     }
 
     if (!currentProject) {
-      optimizePrompt.showError("当前 Session 未关联项目，无法生成优化提示词。");
+      optimizePrompt.showError("当前对话未关联项目，无法生成优化提示词。");
       return;
     }
 
@@ -98,13 +98,13 @@ export function SessionContinueDialog({
         <DialogHeader>
           <DialogTitle>继续对话</DialogTitle>
           <DialogDescription>
-            向 Session “{session?.display_name ?? "未命名会话"}” 发送新的续聊内容。
+            向对话“{session?.display_name ?? "未命名对话"}”发送新的续聊内容。
           </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-2">
           <div className="rounded-lg border border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
-            <div className="font-mono">session id: {session?.session_id ?? "暂无"}</div>
+            <div className="font-mono">对话 ID: {session?.session_id ?? "暂无"}</div>
             <div className="mt-1">关联任务：{session?.task_title ?? "无关联任务"}</div>
           </div>
           <div className="flex items-center justify-between gap-3">

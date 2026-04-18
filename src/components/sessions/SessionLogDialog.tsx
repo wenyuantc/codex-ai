@@ -64,7 +64,7 @@ export function SessionLogDialog({
         if (!active) {
           return;
         }
-        setHistoryError(error instanceof Error ? error.message : "读取 Session 日志失败");
+        setHistoryError(error instanceof Error ? error.message : "读取对话日志失败");
       })
       .finally(() => {
         if (active) {
@@ -96,15 +96,15 @@ export function SessionLogDialog({
           <DialogTitle>终端日志</DialogTitle>
           <DialogDescription>
             {session
-              ? `查看 Session “${session.displayName}” 的实时终端输出。`
-              : "查看 Session 终端输出"}
+              ? `查看对话“${session.displayName}”的实时终端输出。`
+              : "查看对话终端输出"}
           </DialogDescription>
         </DialogHeader>
 
         {session && (
           <div className="rounded-lg border border-border bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
-            <div className="font-mono">session record id: {session.sessionRecordId ?? "暂无"}</div>
-            <div className="font-mono">session id: {session.sessionId}</div>
+            <div className="font-mono">对话记录 ID: {session.sessionRecordId ?? "暂无"}</div>
+            <div className="font-mono">对话 ID: {session.sessionId}</div>
             <div className="mt-1">员工：{session.employeeName ?? session.employeeId ?? "未绑定"}</div>
             <div className="mt-1">任务：{session.taskTitle ?? "无关联任务"}</div>
           </div>
@@ -118,7 +118,7 @@ export function SessionLogDialog({
 
         {loadingHistory && (
           <div className="rounded-lg border border-border bg-muted/20 px-3 py-2 text-sm text-muted-foreground">
-            正在加载 Session 历史日志...
+            正在加载对话历史日志...
           </div>
         )}
 

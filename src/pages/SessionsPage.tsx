@@ -105,7 +105,7 @@ function buildLogTarget(session: {
   return {
     sessionRecordId: session.session_record_id ?? null,
     sessionId: session.resolved_session_id ?? session.session_id ?? "未知",
-    displayName: session.display_name ?? "未命名会话",
+    displayName: session.display_name ?? "未命名对话",
     employeeId: session.employee_id ?? null,
     employeeName: session.employee_name ?? null,
     taskId: session.task_id ?? null,
@@ -269,7 +269,7 @@ export function SessionsPage() {
       setSessions(sessionItems);
       return sessionItems;
     } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : "读取 Session 列表失败");
+      setErrorMessage(error instanceof Error ? error.message : "读取对话列表失败");
       return [];
     } finally {
       setLoading(false);
@@ -310,7 +310,7 @@ export function SessionsPage() {
     try {
       const preview = await prepareCodexSessionResume(continueSession.session_record_id);
       if (!preview.can_resume || !preview.resolved_session_id || !preview.employee_id) {
-        setErrorMessage(preview.resume_message ?? "该 Session 当前不可继续对话");
+        setErrorMessage(preview.resume_message ?? "该对话当前不可继续");
         return;
       }
 
@@ -342,7 +342,7 @@ export function SessionsPage() {
             sessionRecordId: null,
           };
       setActiveSession(nextLogTarget);
-      setInfoMessage(`消息已发送到 Session ${preview.resolved_session_id}。`);
+      setInfoMessage(`消息已发送到对话 ${preview.resolved_session_id}。`);
       setContinueDialogOpen(false);
       setContinueSession(null);
       setLogTarget(nextLogTarget);
@@ -363,9 +363,9 @@ export function SessionsPage() {
       <div className="space-y-4">
         <div className="flex items-center justify-between gap-3">
           <div>
-            <h2 className="text-lg font-semibold">Session列表</h2>
+            <h2 className="text-lg font-semibold">对话列表</h2>
             <p className="text-sm text-muted-foreground">
-              当前仅展示{environmentMode === "ssh" ? " SSH " : "本地 "}执行链路下的 Session。
+              当前仅展示{environmentMode === "ssh" ? " SSH " : "本地 "}执行链路下的对话。
             </p>
           </div>
           <Button
@@ -381,7 +381,7 @@ export function SessionsPage() {
 
         {activeSession && (
           <div className="rounded-lg border border-primary/20 bg-primary/5 px-3 py-2 text-sm text-primary">
-            当前最近一次续聊绑定到 Session <span className="font-mono">{activeSession.sessionId}</span>
+            当前最近一次续聊绑定到对话 <span className="font-mono">{activeSession.sessionId}</span>
             ，执行后会自动弹出终端日志。
           </div>
         )}
@@ -400,20 +400,20 @@ export function SessionsPage() {
 
         <Card>
           {/* <CardHeader>
-            <CardTitle>Session 列表</CardTitle>
-            <CardDescription>按最近更新时间倒序排列，支持 `session id` 搜索、内容搜索、分页查看与直接操作。</CardDescription>
+            <CardTitle>对话列表</CardTitle>
+            <CardDescription>按最近更新时间倒序排列，支持 `对话 ID` 搜索、内容搜索、分页查看与直接操作。</CardDescription>
           </CardHeader> */}
           <CardContent className="space-y-4">
             <div className="grid gap-3 md:grid-cols-2">
               <div className="space-y-2">
                 <label className="text-sm font-medium text-foreground" htmlFor="session-id-search">
-                  SessionId 搜索
+                  对话 ID 搜索
                 </label>
                 <Input
                   id="session-id-search"
                   value={sessionIdQuery}
                   onChange={(event) => setSessionIdQuery(event.target.value)}
-                  placeholder="输入 session id、session record id 或 CLI session id"
+                  placeholder="输入对话 ID、记录 ID 或 CLI 对话 ID"
                 />
               </div>
               <div className="space-y-2">
@@ -424,7 +424,7 @@ export function SessionsPage() {
                   id="session-content-search"
                   value={contentQuery}
                   onChange={(event) => setContentQuery(event.target.value)}
-                  placeholder="搜索会话名称、摘要、最近事件内容、任务、项目、员工"
+                  placeholder="搜索对话名称、摘要、最近事件内容、任务、项目、员工"
                 />
               </div>
             </div>
@@ -433,18 +433,18 @@ export function SessionsPage() {
               {loading ? (
                 <div className="flex h-[28rem] items-center justify-center text-sm text-muted-foreground">
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  正在加载 Session...
+                  正在加载对话...
                 </div>
               ) : filteredSessions.length === 0 ? (
                 <div className="flex h-[28rem] items-center justify-center text-sm text-muted-foreground">
-                  没有符合当前搜索条件的 Session
+                  没有符合当前搜索条件的对话
                 </div>
               ) : (
                 <div className="overflow-x-auto">
                   <table className="min-w-full text-sm">
                     <thead className="bg-muted/40 text-left">
                       <tr className="border-b border-border">
-                        <th className="px-4 py-3 font-medium">Session</th>
+                        <th className="px-4 py-3 font-medium">对话</th>
                         <th className="px-4 py-3 font-medium">状态</th>
                         <th className="px-4 py-3 font-medium">最近更新时间</th>
                         <th className="px-4 py-3 font-medium">关联任务</th>

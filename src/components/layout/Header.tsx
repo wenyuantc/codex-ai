@@ -27,7 +27,7 @@ const pageTitles: Record<string, string> = {
   "/projects": "项目管理",
   "/kanban": "看板管理",
   "/employees": "员工管理",
-  "/sessions": "Session 管理",
+  "/sessions": "对话管理",
   "/settings": "系统设置",
 };
 
