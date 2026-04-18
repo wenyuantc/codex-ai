@@ -122,6 +122,7 @@ interface ProjectStore {
   selectedSshConfigId: string | null;
   loading: boolean;
   sshConfigsLoading: boolean;
+  sshConfigsInitialized: boolean;
   fetchProjects: () => Promise<void>;
   fetchSshConfigs: () => Promise<void>;
   setCurrentProject: (project: Project | null) => void;
@@ -145,6 +146,7 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
   selectedSshConfigId: readStoredSshConfigId(),
   loading: false,
   sshConfigsLoading: false,
+  sshConfigsInitialized: false,
 
   fetchProjects: async () => {
     set({ loading: true });
@@ -209,11 +211,17 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
           currentProject,
           selectedSshConfigId,
           sshConfigsLoading: false,
+          sshConfigsInitialized: true,
         };
       });
     } catch (error) {
       console.error("Failed to fetch SSH configs:", error);
-      set({ sshConfigs: [], selectedSshConfigId: null, sshConfigsLoading: false });
+      set({
+        sshConfigs: [],
+        selectedSshConfigId: null,
+        sshConfigsLoading: false,
+        sshConfigsInitialized: true,
+      });
       persistSshConfigId(null);
     }
   },

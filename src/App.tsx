@@ -1,4 +1,4 @@
-import { BrowserRouter, Routes, Route, useNavigate } from "react-router-dom";
+import { BrowserRouter, Routes, Route, useLocation, useNavigate } from "react-router-dom";
 import { MainLayout } from "@/components/layout/MainLayout";
 import { DashboardPage } from "@/pages/DashboardPage";
 import { ProjectsPage } from "@/pages/ProjectsPage";
@@ -8,7 +8,30 @@ import { EmployeesPage } from "@/pages/EmployeesPage";
 import { SessionsPage } from "@/pages/SessionsPage";
 import { SettingsPage } from "@/pages/SettingsPage";
 import "@/index.css";
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
+
+const LAST_ROUTE_STORAGE_KEY = "codex-ai:last-route";
+
+function readStoredRoute() {
+  if (typeof window === "undefined") {
+    return null;
+  }
+
+  const route = window.localStorage.getItem(LAST_ROUTE_STORAGE_KEY);
+  if (!route || !route.startsWith("/")) {
+    return null;
+  }
+
+  return route;
+}
+
+function persistCurrentRoute(route: string) {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  window.localStorage.setItem(LAST_ROUTE_STORAGE_KEY, route);
+}
 
 function KeyboardShortcuts() {
   const navigate = useNavigate();
@@ -43,10 +66,48 @@ function KeyboardShortcuts() {
   return null;
 }
 
+function RoutePersistence() {
+  const location = useLocation();
+  const navigate = useNavigate();
+  const restoredRef = useRef(false);
+  const skipPersistRef = useRef(false);
+
+  useEffect(() => {
+    if (restoredRef.current) {
+      return;
+    }
+
+    restoredRef.current = true;
+    const currentRoute = `${location.pathname}${location.search}`;
+
+    if (location.pathname !== "/" || location.search) {
+      return;
+    }
+
+    const storedRoute = readStoredRoute();
+    if (storedRoute && storedRoute !== currentRoute) {
+      skipPersistRef.current = true;
+      navigate(storedRoute, { replace: true });
+    }
+  }, [location.pathname, location.search, navigate]);
+
+  useEffect(() => {
+    if (skipPersistRef.current) {
+      skipPersistRef.current = false;
+      return;
+    }
+
+    persistCurrentRoute(`${location.pathname}${location.search}`);
+  }, [location.pathname, location.search]);
+
+  return null;
+}
+
 function App() {
   return (
     <BrowserRouter>
       <KeyboardShortcuts />
+      <RoutePersistence />
       <Routes>
         <Route element={<MainLayout />}>
           <Route path="/" element={<DashboardPage />} />

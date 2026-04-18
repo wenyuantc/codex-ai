@@ -40,6 +40,7 @@ export function Header() {
     currentProject,
     environmentMode,
     sshConfigs,
+    sshConfigsInitialized,
     selectedSshConfigId,
     setCurrentProject,
     setEnvironmentMode,
@@ -69,10 +70,15 @@ export function Header() {
   }, []);
 
   useEffect(() => {
-    if (environmentMode === "ssh" && sshConfigs.length === 0 && location.pathname !== "/settings") {
+    if (
+      environmentMode === "ssh"
+      && sshConfigsInitialized
+      && sshConfigs.length === 0
+      && location.pathname !== "/settings"
+    ) {
       navigate("/settings");
     }
-  }, [environmentMode, location.pathname, navigate, sshConfigs.length]);
+  }, [environmentMode, location.pathname, navigate, sshConfigs.length, sshConfigsInitialized]);
 
   const toggleTheme = () => {
     const nextMode: ThemeMode = dark ? "light" : "dark";
