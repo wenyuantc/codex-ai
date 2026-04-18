@@ -31,7 +31,7 @@ import { DeleteTaskGitContextDialog } from "@/components/projects/DeleteTaskGitC
 import { ProjectGitActionDialog } from "@/components/projects/ProjectGitActionDialog";
 import { ProjectGitRepoActionDialog } from "@/components/projects/ProjectGitRepoActionDialog";
 import { RepoPathDisplay } from "@/components/projects/RepoPathDisplay";
-import { ArrowLeft, Edit2, GitBranch, Loader2, RefreshCw, ShieldAlert, Trash2 } from "lucide-react";
+import { ArrowDown, ArrowLeft, ArrowUp, Edit2, GitBranch, Loader2, RefreshCw, ShieldAlert, Trash2 } from "lucide-react";
 import { getStatusLabel, getStatusColor, getPriorityLabel, formatDate } from "@/lib/utils";
 import { getProjectWorkingDir, getProjectTypeLabel } from "@/lib/projects";
 
@@ -467,6 +467,8 @@ export function ProjectDetailPage() {
       || change.stage_status === "partially_staged",
   ).length ?? 0;
   const gitRuntimeReady = gitOverview?.git_runtime_status === "ready";
+  const aheadCommits = gitOverview?.ahead_commits ?? 0;
+  const behindCommits = gitOverview?.behind_commits ?? 0;
 
   return (
     <div className="space-y-6">
@@ -611,19 +613,31 @@ export function ProjectDetailPage() {
                     type="button"
                     variant="outline"
                     size="sm"
-                    disabled={!gitRuntimeReady || !gitOverview.current_branch}
+                    disabled={!gitRuntimeReady || !gitOverview.current_branch || aheadCommits === 0}
                     onClick={() => setSelectedRepoAction("push")}
                   >
-                    推送
+                    <span className="inline-flex items-center gap-1">
+                      推送
+                      <span className="inline-flex items-center gap-0.5 text-sky-600">
+                        <ArrowUp className="h-3.5 w-3.5" />
+                        {aheadCommits}
+                      </span>
+                    </span>
                   </Button>
                   <Button
                     type="button"
                     variant="outline"
                     size="sm"
-                    disabled={!gitRuntimeReady || !gitOverview.current_branch}
+                    disabled={!gitRuntimeReady || !gitOverview.current_branch || behindCommits === 0}
                     onClick={() => setSelectedRepoAction("pull")}
                   >
-                    拉取
+                    <span className="inline-flex items-center gap-1">
+                      拉取
+                      <span className="inline-flex items-center gap-0.5 text-amber-600">
+                        <ArrowDown className="h-3.5 w-3.5" />
+                        {behindCommits}
+                      </span>
+                    </span>
                   </Button>
                 </div>
               </div>
