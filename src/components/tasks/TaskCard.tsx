@@ -2,13 +2,14 @@ import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import type { CodexSessionKind, Task } from "@/lib/types";
+import type { CodexSessionKind, Task, TaskGitContext } from "@/lib/types";
 import { formatDate, getPriorityColor, getPriorityLabel, getTaskAutomationDisplayState, getTaskAutomationStatusLabel } from "@/lib/utils";
 import { buildTaskExecutionInput } from "@/lib/taskPrompt";
 import {
   Bot,
   Clock,
   FolderKanban,
+  GitBranch,
   GripVertical,
   Loader2,
   MessageSquarePlus,
@@ -22,6 +23,7 @@ import { ContinueConversationDialog } from "./ContinueConversationDialog";
 import { TaskDetailDialog } from "./TaskDetailDialog";
 import { DeleteTaskDialog } from "./DeleteTaskDialog";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
+import { ProjectGitActionDialog } from "@/components/projects/ProjectGitActionDialog";
 import { useProjectStore } from "@/stores/projectStore";
 import { useEmployeeStore } from "@/stores/employeeStore";
 import { useTaskStore } from "@/stores/taskStore";
@@ -34,7 +36,46 @@ interface TaskCardProps {
   isOverlay?: boolean;
   hideRunAction?: boolean;
   highlighted?: boolean;
+  gitContext?: TaskGitContext | null;
+  projectBranches?: string[];
   onOpenLog?: (taskId: string, sessionKind?: CodexSessionKind) => void;
+  onGitActionCompleted?: (projectId: string, message: string) => Promise<void> | void;
+}
+
+function getGitContextBadge(context: TaskGitContext | null): {
+  label: string;
+  className: string;
+  title: string;
+} | null {
+  if (!context) {
+    return null;
+  }
+
+  if (context.state === "completed") {
+    return {
+      label: "已合并",
+      className: "bg-emerald-500/10 text-emerald-700",
+      title: `任务分支 ${context.task_branch ?? "未命名分支"} 已合并到 ${context.target_branch ?? "目标分支"}`,
+    };
+  }
+
+  if (context.state === "failed") {
+    return {
+      label: "失败",
+      className: "bg-rose-500/10 text-rose-700",
+      title: context.last_error ?? "任务 Git 上下文执行失败",
+    };
+  }
+
+  if (context.last_error) {
+    return {
+      label: "合并失败",
+      className: "bg-rose-500/10 text-rose-700",
+      title: context.last_error,
+    };
+  }
+
+  return null;
 }
 
 export function TaskCard({
@@ -42,11 +83,15 @@ export function TaskCard({
   isOverlay,
   hideRunAction = false,
   highlighted = false,
+  gitContext = null,
+  projectBranches = [],
   onOpenLog,
+  onGitActionCompleted,
 }: TaskCardProps) {
   const [showDetail, setShowDetail] = useState(false);
   const [showContinueDialog, setShowContinueDialog] = useState(false);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const [showGitActionDialog, setShowGitActionDialog] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [automationSubmitting, setAutomationSubmitting] = useState(false);
   const [automationRestarting, setAutomationRestarting] = useState(false);
@@ -106,7 +151,16 @@ export function TaskCard({
   const isActionLoading = executionActions.loading !== null || reviewActions.loading || automationSubmitting || automationRestarting;
   const shouldShowActionBar = !isOverlay && (isRunning || isReviewTask || !hideRunAction);
   const shouldShowPrimaryMenuAction = isRunning || isReviewTask || !hideRunAction;
-  const hasPreLogActions = shouldShowPrimaryMenuAction || Boolean(task.last_codex_session_id);
+  const isWorktreeMode = Boolean(gitContext?.worktree_path) && !gitContext?.worktree_missing;
+  const gitContextBadge = getGitContextBadge(gitContext);
+  const canTriggerMergeAction = Boolean(
+    gitContext
+    && !gitContext.worktree_missing
+    && gitContext.state !== "failed"
+    && gitContext.state !== "completed"
+    && gitContext.state !== "drifted",
+  );
+  const hasPreLogActions = shouldShowPrimaryMenuAction || Boolean(task.last_codex_session_id) || canTriggerMergeAction;
   const canRestartAutomation = automationState.enabled && [
     "launching_review",
     "waiting_review",
@@ -248,6 +302,14 @@ export function TaskCard({
     await executionActions.continueTask(prompt);
   };
 
+  const openMergeDialog = () => {
+    if (!canTriggerMergeAction) {
+      return;
+    }
+    setContextMenu(null);
+    setShowGitActionDialog(true);
+  };
+
   const handleRestartAutomation = async () => {
     if (!canRestartAutomation) return;
     setContextMenu(null);
@@ -324,6 +386,24 @@ export function TaskCard({
                 <Bot className="h-3 w-3" />
                 自动质控·{getTaskAutomationStatusLabel(automationState.status)}
               </span>
+              {isWorktreeMode && (
+                <span
+                  className="inline-flex items-center gap-1 rounded-full bg-sky-500/10 px-2 py-0.5 text-[11px] text-sky-700"
+                  title={`任务已绑定 worktree：${gitContext?.task_branch ?? "未命名分支"} · ${gitContext?.target_branch ?? "未设置目标分支"}`}
+                >
+                  <GitBranch className="h-3 w-3" />
+                  Worktree 模式
+                </span>
+              )}
+              {gitContextBadge && (
+                <span
+                  className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] ${gitContextBadge.className}`}
+                  title={gitContextBadge.title}
+                >
+                  <GitBranch className="h-3 w-3" />
+                  {gitContextBadge.label}
+                </span>
+              )}
             </div>
             <div className="flex items-center justify-between mt-1.5 text-xs text-muted-foreground">
               <div className="flex flex-col gap-0.5">
@@ -478,6 +558,18 @@ export function TaskCard({
                 </button>
               </>
             )}
+            {canTriggerMergeAction && (
+              <button
+                type="button"
+                role="menuitem"
+                onClick={openMergeDialog}
+                disabled={isActionLoading}
+                className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-left hover:bg-accent hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-50"
+              >
+                <GitBranch className="h-4 w-4" />
+                合并到目标分支
+              </button>
+            )}
             {hasPreLogActions && <div className="my-1 h-px bg-border" />}
             <button
               type="button"
@@ -555,6 +647,22 @@ export function TaskCard({
           deleting={deleting}
           onOpenChange={setShowDeleteDialog}
           onConfirm={handleDelete}
+        />
+      )}
+      {!isOverlay && gitContext && (
+        <ProjectGitActionDialog
+          open={showGitActionDialog}
+          onOpenChange={setShowGitActionDialog}
+          context={gitContext}
+          projectBranches={projectBranches}
+          preferredAction="merge"
+          lockActionSelection
+          onActionStateChanged={async () => {
+            await onGitActionCompleted?.(task.project_id, "");
+          }}
+          onActionCompleted={async (message) => {
+            await onGitActionCompleted?.(task.project_id, message);
+          }}
         />
       )}
     </>

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   DndContext,
   DragEndEvent,
@@ -8,9 +8,12 @@ import {
   useSensors,
   closestCorners,
 } from "@dnd-kit/core";
-import { TASK_STATUSES, type CodexSessionKind, type Task, type TaskStatus } from "@/lib/types";
+import { getProjectGitOverview, listTaskGitContexts } from "@/lib/backend";
+import { onCodexExit } from "@/lib/codex";
+import { TASK_STATUSES, type CodexSessionKind, type ProjectGitOverview, type Task, type TaskGitContext, type TaskStatus } from "@/lib/types";
 import { useTaskStore } from "@/stores/taskStore";
 import { useEmployeeStore } from "@/stores/employeeStore";
+import { useProjectStore } from "@/stores/projectStore";
 import { KanbanColumn } from "./KanbanColumn";
 import { TaskCard } from "./TaskCard";
 import { TaskLogDialog } from "./TaskLogDialog";
@@ -30,13 +33,137 @@ export function KanbanBoard({
 }: KanbanBoardProps) {
   const { tasks, moveTask, updateTaskStatus, fetchTasks } = useTaskStore();
   const employees = useEmployeeStore((s) => s.employees);
+  const projects = useProjectStore((s) => s.projects);
   const [activeTask, setActiveTask] = useState<Task | null>(null);
   const [searchTaskOpen, setSearchTaskOpen] = useState(false);
+  const [gitOverviewByProjectId, setGitOverviewByProjectId] = useState<Record<string, ProjectGitOverview>>({});
+  const [taskGitContextsByProjectId, setTaskGitContextsByProjectId] = useState<Record<string, TaskGitContext[]>>({});
   const [logRequest, setLogRequest] = useState<{
     taskId: string;
     sessionKind?: CodexSessionKind;
   } | null>(null);
   const targetTask = targetTaskId ? tasks.find((task) => task.id === targetTaskId) ?? null : null;
+  const projectMap = useMemo(
+    () => new Map(projects.map((project) => [project.id, project])),
+    [projects],
+  );
+  const localProjectIds = useMemo(() => {
+    const ids = new Set<string>();
+    tasks.forEach((task) => {
+      if (projectMap.get(task.project_id)?.project_type === "local") {
+        ids.add(task.project_id);
+      }
+    });
+    return Array.from(ids).sort();
+  }, [projectMap, tasks]);
+  const localProjectIdsKey = localProjectIds.join(",");
+  const gitContextRefreshKey = useMemo(
+    () =>
+      tasks
+        .map((task) => `${task.id}:${task.status}:${task.last_codex_session_id ?? ""}:${task.updated_at}`)
+        .sort()
+        .join("|"),
+    [tasks],
+  );
+  const taskProjectMap = useMemo(
+    () => Object.fromEntries(tasks.map((task) => [task.id, task.project_id])),
+    [tasks],
+  );
+  const taskGitContextMap = useMemo(
+    () => {
+      const entries: Array<[string, TaskGitContext]> = [];
+
+      Object.values(taskGitContextsByProjectId).forEach((contexts) => {
+        const seenTaskIds = new Set<string>();
+        contexts.forEach((context) => {
+          if (seenTaskIds.has(context.task_id)) {
+            return;
+          }
+          seenTaskIds.add(context.task_id);
+          entries.push([context.task_id, context]);
+        });
+      });
+
+      return Object.fromEntries(entries);
+    },
+    [taskGitContextsByProjectId],
+  );
+  const projectGitBranchMap = useMemo(
+    () =>
+      Object.fromEntries(
+        Object.entries(gitOverviewByProjectId).map(([projectId, overview]) => [
+          projectId,
+          overview.project_branches,
+        ]),
+      ),
+    [gitOverviewByProjectId],
+  );
+
+  const refreshGitOverviews = async (projectIds: string[]) => {
+    if (projectIds.length === 0) {
+      setGitOverviewByProjectId({});
+      setTaskGitContextsByProjectId({});
+      return;
+    }
+
+    const results = await Promise.all(
+      projectIds.map(async (projectId) => {
+        try {
+          const [overview, contexts] = await Promise.all([
+            getProjectGitOverview(projectId),
+            listTaskGitContexts(projectId),
+          ]);
+          return [projectId, overview, contexts] as const;
+        } catch (error) {
+          console.error(`Failed to fetch git overview for project ${projectId}:`, error);
+          return null;
+        }
+      }),
+    );
+
+    setGitOverviewByProjectId((current) => {
+      const next: Record<string, ProjectGitOverview> = {};
+
+      projectIds.forEach((projectId) => {
+        if (current[projectId]) {
+          next[projectId] = current[projectId];
+        }
+      });
+
+      results.forEach((entry) => {
+        if (!entry) {
+          return;
+        }
+        const [projectId, overview] = entry;
+        next[projectId] = overview;
+      });
+
+      return next;
+    });
+    setTaskGitContextsByProjectId((current) => {
+      const next: Record<string, TaskGitContext[]> = {};
+
+      projectIds.forEach((projectId) => {
+        if (current[projectId]) {
+          next[projectId] = current[projectId];
+        }
+      });
+
+      results.forEach((entry) => {
+        if (!entry) {
+          return;
+        }
+        const [projectId, , contexts] = entry;
+        next[projectId] = contexts;
+      });
+
+      return next;
+    });
+  };
+
+  const handleGitActionCompleted = async (projectId: string) => {
+    await refreshGitOverviews([projectId]);
+  };
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -118,6 +245,104 @@ export function KanbanBoard({
     return () => window.clearTimeout(timeoutId);
   }, [targetTask, targetTaskId]);
 
+  useEffect(() => {
+    let active = true;
+
+    void (async () => {
+      if (localProjectIds.length === 0) {
+        if (active) {
+          setGitOverviewByProjectId({});
+          setTaskGitContextsByProjectId({});
+        }
+        return;
+      }
+
+      const results = await Promise.all(
+        localProjectIds.map(async (projectId) => {
+          try {
+            const [overview, contexts] = await Promise.all([
+              getProjectGitOverview(projectId),
+              listTaskGitContexts(projectId),
+            ]);
+            return [projectId, overview, contexts] as const;
+          } catch (error) {
+            console.error(`Failed to fetch git overview for project ${projectId}:`, error);
+            return null;
+          }
+        }),
+      );
+
+      if (!active) {
+        return;
+      }
+
+      const next: Record<string, ProjectGitOverview> = {};
+      const nextContexts: Record<string, TaskGitContext[]> = {};
+      results.forEach((entry) => {
+        if (!entry) {
+          return;
+        }
+        const [projectId, overview, contexts] = entry;
+        next[projectId] = overview;
+        nextContexts[projectId] = contexts;
+      });
+      setGitOverviewByProjectId(next);
+      setTaskGitContextsByProjectId(nextContexts);
+    })();
+
+    return () => {
+      active = false;
+    };
+  }, [gitContextRefreshKey, localProjectIdsKey]);
+
+  useEffect(() => {
+    if (localProjectIds.length === 0) {
+      return;
+    }
+
+    const handleWindowFocus = () => {
+      void refreshGitOverviews(localProjectIds);
+    };
+
+    window.addEventListener("focus", handleWindowFocus);
+    return () => {
+      window.removeEventListener("focus", handleWindowFocus);
+    };
+  }, [localProjectIdsKey]);
+
+  useEffect(() => {
+    let active = true;
+    let cleanup: (() => void) | null = null;
+
+    void onCodexExit((exit) => {
+      if (!exit.task_id) {
+        return;
+      }
+
+      const projectId = taskProjectMap[exit.task_id];
+      if (!projectId || !localProjectIds.includes(projectId)) {
+        return;
+      }
+
+      void refreshGitOverviews([projectId]);
+    })
+      .then((unlisten) => {
+        if (!active) {
+          unlisten();
+          return;
+        }
+        cleanup = unlisten;
+      })
+      .catch((error) => {
+        console.error("Failed to listen codex exit events for kanban git refresh:", error);
+      });
+
+    return () => {
+      active = false;
+      cleanup?.();
+    };
+  }, [localProjectIdsKey, taskProjectMap]);
+
   return (
     <>
       <DndContext
@@ -136,14 +361,22 @@ export function KanbanBoard({
               color={status.color}
               tasks={getTasksByStatus(status.value)}
               highlightedTaskId={targetTaskId}
+              taskGitContextMap={taskGitContextMap}
+              projectGitBranchMap={projectGitBranchMap}
               onOpenLog={(taskId, sessionKind) => setLogRequest({ taskId, sessionKind })}
+              onGitActionCompleted={handleGitActionCompleted}
             />
           ))}
         </div>
         <DragOverlay>
           {activeTask ? (
             <div className="w-72 rotate-2 opacity-90">
-              <TaskCard task={activeTask} isOverlay />
+              <TaskCard
+                task={activeTask}
+                isOverlay
+                gitContext={taskGitContextMap[activeTask.id] ?? null}
+                projectBranches={projectGitBranchMap[activeTask.project_id] ?? []}
+              />
             </div>
           ) : null}
         </DragOverlay>

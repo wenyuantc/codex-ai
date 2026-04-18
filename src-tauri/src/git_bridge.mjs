@@ -2,6 +2,7 @@ import fs from "node:fs";
 import fsp from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { spawn } from "node:child_process";
 import { stdin, stdout, stderr, exit } from "node:process";
 
 import { simpleGit } from "simple-git";
@@ -88,9 +89,52 @@ async function gitRaw(repoPath, args) {
   return buildGit(repoPath).raw(args);
 }
 
+async function gitCli(repoPath, args) {
+  return await new Promise((resolve, reject) => {
+    const child = spawn("git", args, {
+      cwd: repoPath,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    let stdoutBuffer = "";
+    let stderrBuffer = "";
+
+    child.stdout.on("data", (chunk) => {
+      stdoutBuffer += chunk.toString();
+    });
+    child.stderr.on("data", (chunk) => {
+      stderrBuffer += chunk.toString();
+    });
+    child.on("error", (error) => {
+      reject(error);
+    });
+    child.on("close", (code) => {
+      if (code === 0) {
+        resolve(stdoutBuffer);
+        return;
+      }
+      const message = stderrBuffer.trim() || stdoutBuffer.trim() || `git ${args.join(" ")} 执行失败`;
+      reject(new Error(message));
+    });
+  });
+}
+
+function optionalText(value) {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function requiredText(input, keys, label) {
+  for (const key of keys) {
+    const normalized = optionalText(input?.[key]);
+    if (normalized) {
+      return normalized;
+    }
+  }
+  throw new Error(`${label} 不能为空`);
+}
+
 async function gitRefExists(repoPath, fullRef) {
   try {
-    await gitRaw(repoPath, ["show-ref", "--verify", "--quiet", fullRef]);
+    await gitCli(repoPath, ["show-ref", "--verify", "--quiet", fullRef]);
     return true;
   } catch {
     return false;
@@ -648,14 +692,27 @@ async function collectReviewContext(repoPath) {
 }
 
 async function ensureTaskBranch(repoPath, taskBranch, targetBranch) {
-  if (await gitRefExists(repoPath, `refs/heads/${taskBranch}`)) {
+  const normalizedTaskBranch = optionalText(taskBranch);
+  const normalizedTargetBranch = optionalText(targetBranch);
+  if (!normalizedTaskBranch) {
+    throw new Error("taskBranch 不能为空");
+  }
+  if (!normalizedTargetBranch) {
+    throw new Error("targetBranch 不能为空");
+  }
+  if (await gitRefExists(repoPath, `refs/heads/${normalizedTaskBranch}`)) {
     return;
   }
-  await gitRaw(repoPath, ["branch", taskBranch, targetBranch]);
+  await gitCli(repoPath, ["branch", normalizedTaskBranch, normalizedTargetBranch]);
 }
 
-async function ensureTaskWorktree(repoPath, worktreePath, taskBranch) {
+async function ensureTaskWorktree(repoPath, worktreePath, taskBranch, targetBranch) {
   const resolvedWorktreePath = resolveTargetPath(repoPath, worktreePath);
+  const normalizedTaskBranch = optionalText(taskBranch);
+  const normalizedTargetBranch = optionalText(targetBranch);
+  if (!normalizedTaskBranch) {
+    throw new Error("taskBranch 不能为空");
+  }
   if (fs.existsSync(path.join(resolvedWorktreePath, ".git"))) {
     return;
   }
@@ -669,7 +726,21 @@ async function ensureTaskWorktree(repoPath, worktreePath, taskBranch) {
     await fsp.mkdir(path.dirname(resolvedWorktreePath), { recursive: true });
   }
 
-  await gitRaw(repoPath, ["worktree", "add", resolvedWorktreePath, taskBranch]);
+  if (await gitRefExists(repoPath, `refs/heads/${normalizedTaskBranch}`)) {
+    await gitCli(repoPath, ["worktree", "add", resolvedWorktreePath, normalizedTaskBranch]);
+    return;
+  }
+  if (!normalizedTargetBranch) {
+    throw new Error("targetBranch 不能为空");
+  }
+  await gitCli(repoPath, [
+    "worktree",
+    "add",
+    "-b",
+    normalizedTaskBranch,
+    resolvedWorktreePath,
+    normalizedTargetBranch,
+  ]);
 }
 
 async function executeAction(repoPath, worktreePath, taskBranch, actionType, payload) {
@@ -809,10 +880,19 @@ async function executeCommand(input) {
         ),
       };
     case "ensure_task_branch":
-      await ensureTaskBranch(repoPath, input.taskBranch, input.targetBranch);
+      await ensureTaskBranch(
+        repoPath,
+        requiredText(input, ["taskBranch", "task_branch"], "taskBranch"),
+        requiredText(input, ["targetBranch", "target_branch"], "targetBranch"),
+      );
       return { ok: true };
     case "ensure_task_worktree":
-      await ensureTaskWorktree(repoPath, input.worktreePath, input.taskBranch);
+      await ensureTaskWorktree(
+        repoPath,
+        requiredText(input, ["worktreePath", "worktree_path"], "worktreePath"),
+        requiredText(input, ["taskBranch", "task_branch"], "taskBranch"),
+        optionalText(input.targetBranch) ?? optionalText(input.target_branch),
+      );
       return { ok: true };
     case "rev_parse":
       return { sha: await headCommit(repoPath, input.revision || "HEAD") };

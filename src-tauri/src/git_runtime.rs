@@ -697,6 +697,7 @@ pub(crate) async fn ensure_task_worktree<R: Runtime>(
     repo_path: &str,
     worktree_path: &str,
     task_branch: &str,
+    target_branch: &str,
 ) -> Result<(), String> {
     let _: serde_json::Value = call_bridge(
         app,
@@ -707,6 +708,7 @@ pub(crate) async fn ensure_task_worktree<R: Runtime>(
             "repoPath": repo_path,
             "worktreePath": worktree_path,
             "taskBranch": task_branch,
+            "targetBranch": target_branch,
         }),
     )
     .await?;

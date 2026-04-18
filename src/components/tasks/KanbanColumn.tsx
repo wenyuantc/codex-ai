@@ -3,7 +3,7 @@ import {
   SortableContext,
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
-import type { CodexSessionKind, Task, TaskStatus } from "@/lib/types";
+import type { CodexSessionKind, Task, TaskGitContext, TaskStatus } from "@/lib/types";
 import { TaskCard } from "./TaskCard";
 
 interface KanbanColumnProps {
@@ -12,7 +12,10 @@ interface KanbanColumnProps {
   color: string;
   tasks: Task[];
   highlightedTaskId?: string | null;
+  taskGitContextMap: Record<string, TaskGitContext | null>;
+  projectGitBranchMap: Record<string, string[]>;
   onOpenLog: (taskId: string, sessionKind?: CodexSessionKind) => void;
+  onGitActionCompleted: (projectId: string, message: string) => Promise<void> | void;
 }
 
 export function KanbanColumn({
@@ -21,7 +24,10 @@ export function KanbanColumn({
   color,
   tasks,
   highlightedTaskId,
+  taskGitContextMap,
+  projectGitBranchMap,
   onOpenLog,
+  onGitActionCompleted,
 }: KanbanColumnProps) {
   const { setNodeRef, isOver } = useDroppable({
     id: status,
@@ -54,7 +60,10 @@ export function KanbanColumn({
               task={task}
               hideRunAction={status === "completed"}
               highlighted={task.id === highlightedTaskId}
+              gitContext={taskGitContextMap[task.id] ?? null}
+              projectBranches={projectGitBranchMap[task.project_id] ?? []}
               onOpenLog={onOpenLog}
+              onGitActionCompleted={onGitActionCompleted}
             />
           ))}
           {tasks.length === 0 && (

@@ -31,6 +31,8 @@ interface ProjectGitActionDialogProps {
   context: TaskGitContext | null;
   projectBranches: string[];
   preferredAction?: GitActionType | null;
+  lockActionSelection?: boolean;
+  onActionStateChanged?: () => Promise<void> | void;
   onActionCompleted?: (message: string) => Promise<void> | void;
 }
 
@@ -197,6 +199,8 @@ export function ProjectGitActionDialog({
   context,
   projectBranches,
   preferredAction,
+  lockActionSelection = false,
+  onActionStateChanged,
   onActionCompleted,
 }: ProjectGitActionDialogProps) {
   const [selectedAction, setSelectedAction] = useState<GitActionType>("merge");
@@ -319,6 +323,7 @@ export function ProjectGitActionDialog({
       onOpenChange(false);
     } catch (confirmError) {
       setError(confirmError instanceof Error ? confirmError.message : String(confirmError));
+      await onActionStateChanged?.();
     } finally {
       setConfirming(false);
     }
@@ -333,6 +338,7 @@ export function ProjectGitActionDialog({
     setError(null);
     try {
       await cancelGitAction(context.id, pendingToken ?? undefined);
+      await onActionStateChanged?.();
       await onActionCompleted?.(
         pendingToken
           ? `已取消“${getGitActionLabel(selectedAction)}”确认门。`
@@ -609,13 +615,13 @@ export function ProjectGitActionDialog({
                       setSelectedAction(value);
                     }
                   }}
-                  disabled={formLocked}
-              >
-                <SelectTrigger className="bg-background">
-                  <SelectValue>{getGitActionLabel(selectedAction)}</SelectValue>
-                </SelectTrigger>
-                <SelectContent>
-                  {GIT_ACTION_OPTIONS.map((option) => (
+                  disabled={formLocked || lockActionSelection}
+                >
+                  <SelectTrigger className="bg-background">
+                    <SelectValue>{getGitActionLabel(selectedAction)}</SelectValue>
+                  </SelectTrigger>
+                  <SelectContent>
+                    {GIT_ACTION_OPTIONS.map((option) => (
                       <SelectItem key={option.value} value={option.value}>
                         {option.label}
                       </SelectItem>
@@ -623,6 +629,11 @@ export function ProjectGitActionDialog({
                   </SelectContent>
                 </Select>
               </label>
+              {lockActionSelection && preferredAction ? (
+                <div className="rounded-lg border border-border/60 bg-secondary/20 px-3 py-2 text-xs text-muted-foreground">
+                  当前入口已锁定为“{getGitActionLabel(preferredAction)}”，如需其他 Git 动作，请从项目详情页进入通用 Git 动作面板。
+                </div>
+              ) : null}
 
               {renderActionFields()}
             </div>

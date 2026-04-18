@@ -505,6 +505,7 @@ async fn ensure_task_worktree_for_runtime<R: Runtime>(
     runtime: &GitProjectRuntimeContext,
     worktree_path: &str,
     task_branch: &str,
+    target_branch: &str,
 ) -> Result<(), String> {
     #[cfg(test)]
     {
@@ -525,9 +526,23 @@ async fn ensure_task_worktree_for_runtime<R: Runtime>(
                 fs::create_dir_all(parent)
                     .map_err(|error| format!("创建 worktree 父目录失败: {}", error))?;
             }
+            let full_ref = format!("refs/heads/{task_branch}");
+            if git_ref_exists_local(&runtime.repo_path, &full_ref) {
+                return run_git_command(
+                    &runtime.repo_path,
+                    &["worktree", "add", worktree_path, task_branch],
+                );
+            }
             return run_git_command(
                 &runtime.repo_path,
-                &["worktree", "add", worktree_path, task_branch],
+                &[
+                    "worktree",
+                    "add",
+                    "-b",
+                    task_branch,
+                    worktree_path,
+                    target_branch,
+                ],
             );
         }
     }
@@ -539,6 +554,7 @@ async fn ensure_task_worktree_for_runtime<R: Runtime>(
         &runtime.repo_path,
         worktree_path,
         task_branch,
+        target_branch,
     )
     .await
 }
@@ -1120,6 +1136,7 @@ async fn update_context_after_prepare<R: Runtime>(
             &runtime,
             &existing.worktree_path,
             &existing.task_branch,
+            &existing.target_branch,
         )
         .await?;
         existing.base_branch = existing.target_branch.clone();
@@ -1144,7 +1161,8 @@ async fn update_context_after_prepare<R: Runtime>(
     }
 
     ensure_task_branch_for_runtime(app, &runtime, &task_branch, &target_branch).await?;
-    ensure_task_worktree_for_runtime(app, &runtime, &worktree_path, &task_branch).await?;
+    ensure_task_worktree_for_runtime(app, &runtime, &worktree_path, &task_branch, &target_branch)
+        .await?;
 
     let now = now_sqlite();
     let record = TaskGitContextRecord {
