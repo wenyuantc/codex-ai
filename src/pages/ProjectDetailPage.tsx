@@ -66,7 +66,7 @@ function getTaskGitContextStateLabel(state: string) {
 function getGitActionTypeLabel(actionType: string | null | undefined) {
   switch (actionType) {
     case "merge":
-      return "合并目标分支";
+      return "将任务分支合并到目标分支";
     case "push":
       return "推送分支";
     case "rebase":

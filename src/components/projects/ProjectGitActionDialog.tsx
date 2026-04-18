@@ -55,7 +55,7 @@ interface GitActionFormState {
 }
 
 const GIT_ACTION_OPTIONS: Array<{ value: GitActionType; label: string }> = [
-  { value: "merge", label: "合并目标分支" },
+  { value: "merge", label: "将任务分支合并到目标分支" },
   { value: "push", label: "推送分支" },
   { value: "rebase", label: "变基到目标分支" },
   { value: "cherry_pick", label: "挑拣提交（Cherry-pick）" },

@@ -174,6 +174,31 @@ async function currentBranch(repoPath) {
   return value;
 }
 
+async function isWorkingTreeClean(repoPath) {
+  return (await gitRaw(repoPath, ["status", "--porcelain"])).trim().length === 0;
+}
+
+async function mergeTaskBranchIntoTarget(repoPath, taskBranch, targetBranch, strategy, allowFF) {
+  const branch = await currentBranch(repoPath);
+  if (branch !== targetBranch) {
+    if (!(await isWorkingTreeClean(repoPath))) {
+      throw new Error(
+        `项目主工作区当前在 ${branch ?? "detached HEAD"}，且存在未提交改动，无法切换到目标分支 ${targetBranch} 执行合并`,
+      );
+    }
+    await gitCli(repoPath, ["checkout", targetBranch]);
+  }
+
+  const args = ["merge"];
+  if (allowFF === false) {
+    args.push("--no-ff");
+  }
+  args.push(`--strategy=${strategy ?? "ort"}`);
+  args.push(taskBranch);
+  await gitCli(repoPath, args);
+  return `已将任务分支 ${taskBranch} 合并到目标分支 ${targetBranch}`;
+}
+
 async function resolveSyncTargetRef(repoPath, branchName) {
   if (!branchName) {
     return null;
@@ -755,14 +780,17 @@ async function executeAction(repoPath, worktreePath, taskBranch, actionType, pay
 
   switch (actionType) {
     case "merge": {
-      const args = ["merge"];
-      if (payload.allow_ff === false) {
-        args.push("--no-ff");
+      const targetBranch = optionalText(payload.target_branch) ?? optionalText(payload.targetBranch);
+      if (!targetBranch) {
+        throw new Error("merge 缺少 target_branch");
       }
-      args.push(`--strategy=${payload.strategy ?? "ort"}`);
-      args.push(payload.target_branch);
-      await getWorktreeGit().raw(args);
-      return `已在任务分支合并目标分支 ${payload.target_branch}`;
+      return mergeTaskBranchIntoTarget(
+        repoPath,
+        taskBranch,
+        targetBranch,
+        payload.strategy ?? "ort",
+        payload.allow_ff,
+      );
     }
     case "push": {
       const args = ["push"];

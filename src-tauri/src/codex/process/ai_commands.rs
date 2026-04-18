@@ -2,8 +2,7 @@ use tauri::AppHandle;
 
 use super::{
     build_ai_generate_commit_message_prompt, build_ai_generate_plan_prompt,
-    build_ai_optimize_prompt_prompt, parse_ai_subtasks_response,
-    run_ai_command,
+    build_ai_optimize_prompt_prompt, parse_ai_subtasks_response, run_ai_command,
 };
 use crate::app::{fetch_project_by_id, insert_activity_log, sqlite_pool};
 

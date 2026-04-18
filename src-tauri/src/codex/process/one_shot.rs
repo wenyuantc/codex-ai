@@ -245,7 +245,10 @@ pub(super) async fn run_ai_command(
     project_id: Option<String>,
     working_dir: Option<String>,
 ) -> Result<String, String> {
-    let execution_context = match task_id.as_deref().map(str::trim).filter(|value| !value.is_empty())
+    let execution_context = match task_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
     {
         Some(task_id) => resolve_task_project_execution_context(app, task_id).await?,
         None => match project_id
@@ -274,14 +277,13 @@ pub(super) async fn run_ai_command(
         eprintln!("[codex-sdk] one-shot 附件图片不存在，已跳过: {missing_path}");
     }
 
-    let working_dir =
-        resolve_one_shot_working_dir(
-            app,
-            task_id.as_deref(),
-            project_id.as_deref(),
-            working_dir.as_deref(),
-        )
-        .await?;
+    let working_dir = resolve_one_shot_working_dir(
+        app,
+        task_id.as_deref(),
+        project_id.as_deref(),
+        working_dir.as_deref(),
+    )
+    .await?;
 
     let settings = if execution_context.execution_target == EXECUTION_TARGET_SSH {
         execution_context

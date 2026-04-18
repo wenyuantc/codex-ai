@@ -168,7 +168,7 @@ pub struct ProjectGitFilePreview {
     pub after_text: Option<String>,
     pub after_truncated: bool,
     pub message: Option<String>,
- }
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProjectGitOverview {
@@ -283,6 +283,52 @@ fn run_git_command(repo_path: &str, args: &[&str]) -> Result<(), String> {
         });
     }
     Ok(())
+}
+
+#[cfg(test)]
+fn git_working_tree_is_clean(repo_path: &str) -> Result<bool, String> {
+    Ok(run_git_text(repo_path, &["status", "--porcelain"])?
+        .trim()
+        .is_empty())
+}
+
+#[cfg(test)]
+fn merge_task_branch_into_target_local(
+    repo_path: &str,
+    context: &TaskGitContextRecord,
+    target_branch: &str,
+    strategy: &str,
+    allow_ff: bool,
+) -> Result<String, String> {
+    let current_branch = run_git_text(repo_path, &["rev-parse", "--abbrev-ref", "HEAD"])?;
+    if current_branch != target_branch {
+        if !git_working_tree_is_clean(repo_path)? {
+            let branch_label = if current_branch == "HEAD" {
+                "detached HEAD"
+            } else {
+                current_branch.as_str()
+            };
+            return Err(format!(
+                "项目主工作区当前在 {}，且存在未提交改动，无法切换到目标分支 {} 执行合并",
+                branch_label, target_branch
+            ));
+        }
+        run_git_command(repo_path, &["checkout", target_branch])?;
+    }
+
+    let mut args = vec!["merge"];
+    if !allow_ff {
+        args.push("--no-ff");
+    }
+    let strategy_arg = format!("--strategy={strategy}");
+    args.push(strategy_arg.as_str());
+    args.push(context.task_branch.as_str());
+    run_git_command(repo_path, &args)?;
+
+    Ok(format!(
+        "已将任务分支 {} 合并到目标分支 {}",
+        context.task_branch, target_branch
+    ))
 }
 
 #[cfg(test)]
@@ -972,15 +1018,13 @@ async fn execute_normalized_action<R: Runtime>(
                     let strategy =
                         payload_string(map, "strategy").unwrap_or_else(|| "ort".to_string());
                     let allow_ff = payload_bool(map, "allow_ff", true);
-                    let mut args = vec!["merge"];
-                    if !allow_ff {
-                        args.push("--no-ff");
-                    }
-                    let strategy_arg = format!("--strategy={strategy}");
-                    args.push(strategy_arg.as_str());
-                    args.push(target_branch.as_str());
-                    run_git_command(&context.worktree_path, &args)?;
-                    Ok(format!("已在任务分支合并目标分支 {}", target_branch))
+                    merge_task_branch_into_target_local(
+                        repo_path,
+                        context,
+                        target_branch.as_str(),
+                        strategy.as_str(),
+                        allow_ff,
+                    )
                 }
                 "push" => {
                     let remote_name = payload_string(map, "remote_name")
@@ -1661,9 +1705,7 @@ pub async fn get_project_git_file_preview<R: Runtime>(
         .unwrap_or_else(|| "modified".to_string());
 
     let before_path = if normalized_change_type == "renamed" {
-        normalized_previous_path
-            .as_deref()
-            .unwrap_or(trimmed)
+        normalized_previous_path.as_deref().unwrap_or(trimmed)
     } else {
         trimmed
     };
@@ -1700,7 +1742,12 @@ pub async fn get_project_git_file_preview<R: Runtime>(
         .await?
     };
 
-    let absolute_path = Some(Path::new(&runtime.repo_path).join(trimmed).to_string_lossy().to_string());
+    let absolute_path = Some(
+        Path::new(&runtime.repo_path)
+            .join(trimmed)
+            .to_string_lossy()
+            .to_string(),
+    );
     let previous_absolute_path = normalized_previous_path.as_ref().map(|path| {
         Path::new(&runtime.repo_path)
             .join(path)
@@ -1763,7 +1810,8 @@ async fn mutate_project_git_stage<R: Runtime>(
     target_path: Option<&str>,
     stage: bool,
 ) -> Result<String, String> {
-    let (pool, project, runtime) = resolve_project_runtime_for_git_overview(app, project_id).await?;
+    let (pool, project, runtime) =
+        resolve_project_runtime_for_git_overview(app, project_id).await?;
     let message = match (stage, target_path) {
         (true, Some(path)) => {
             git_runtime::stage_path(
@@ -1775,7 +1823,15 @@ async fn mutate_project_git_stage<R: Runtime>(
             )
             .await?;
             let details = format!("已暂存工作区文件：{}", path);
-            insert_activity_log(&pool, "project_git_file_staged", &details, None, None, Some(&project.id)).await?;
+            insert_activity_log(
+                &pool,
+                "project_git_file_staged",
+                &details,
+                None,
+                None,
+                Some(&project.id),
+            )
+            .await?;
             details
         }
         (false, Some(path)) => {
@@ -1788,7 +1844,15 @@ async fn mutate_project_git_stage<R: Runtime>(
             )
             .await?;
             let details = format!("已取消暂存工作区文件：{}", path);
-            insert_activity_log(&pool, "project_git_file_unstaged", &details, None, None, Some(&project.id)).await?;
+            insert_activity_log(
+                &pool,
+                "project_git_file_unstaged",
+                &details,
+                None,
+                None,
+                Some(&project.id),
+            )
+            .await?;
             details
         }
         (true, None) => {
@@ -1800,7 +1864,15 @@ async fn mutate_project_git_stage<R: Runtime>(
             )
             .await?;
             let details = "已暂存当前项目全部工作区变更".to_string();
-            insert_activity_log(&pool, "project_git_stage_all", &details, None, None, Some(&project.id)).await?;
+            insert_activity_log(
+                &pool,
+                "project_git_stage_all",
+                &details,
+                None,
+                None,
+                Some(&project.id),
+            )
+            .await?;
             details
         }
         (false, None) => {
@@ -1812,7 +1884,15 @@ async fn mutate_project_git_stage<R: Runtime>(
             )
             .await?;
             let details = "已取消暂存当前项目全部工作区变更".to_string();
-            insert_activity_log(&pool, "project_git_unstage_all", &details, None, None, Some(&project.id)).await?;
+            insert_activity_log(
+                &pool,
+                "project_git_unstage_all",
+                &details,
+                None,
+                None,
+                Some(&project.id),
+            )
+            .await?;
             details
         }
     };
@@ -1889,7 +1969,8 @@ pub async fn commit_project_git_changes<R: Runtime>(
         return Err("提交说明不能为空".to_string());
     }
 
-    let (pool, project, runtime) = resolve_project_runtime_for_git_overview(&app, &project_id).await?;
+    let (pool, project, runtime) =
+        resolve_project_runtime_for_git_overview(&app, &project_id).await?;
     let result = git_runtime::commit_changes(
         &app,
         &runtime.execution_target,
@@ -1923,7 +2004,8 @@ pub async fn push_project_git_branch<R: Runtime>(
     let remote_name = trim_optional(remote_name).unwrap_or_else(|| "origin".to_string());
     let branch_name = trim_optional(branch_name).unwrap_or_default();
     let force_mode = normalize_project_git_push_force_mode(force_mode)?;
-    let (pool, project, runtime) = resolve_project_runtime_for_git_overview(&app, &project_id).await?;
+    let (pool, project, runtime) =
+        resolve_project_runtime_for_git_overview(&app, &project_id).await?;
 
     let result = git_runtime::push_branch(
         &app,
@@ -1962,7 +2044,8 @@ pub async fn pull_project_git_branch<R: Runtime>(
     let branch_name = trim_optional(branch_name).unwrap_or_default();
     let pull_mode = normalize_project_git_pull_mode(mode)?;
     let auto_stash = auto_stash.unwrap_or(false);
-    let (pool, project, runtime) = resolve_project_runtime_for_git_overview(&app, &project_id).await?;
+    let (pool, project, runtime) =
+        resolve_project_runtime_for_git_overview(&app, &project_id).await?;
 
     let result = git_runtime::pull_branch(
         &app,
@@ -2723,6 +2806,70 @@ mod tests {
 
             assert_eq!(cancelled.pending_action_type, None);
             assert_eq!(cancelled.state, TASK_GIT_STATE_MERGE_READY);
+
+            let _ = fs::remove_dir_all(PathBuf::from(&repo_path));
+            let _ = fs::remove_dir_all(
+                PathBuf::from(&context.worktree_path)
+                    .parent()
+                    .unwrap_or(Path::new("")),
+            );
+            pool.close().await;
+        });
+    }
+
+    #[test]
+    fn merge_action_merges_task_branch_into_target_branch() {
+        tauri::async_runtime::block_on(async {
+            let pool = setup_test_pool().await;
+            let repo_path = init_git_repo();
+            let repo_root = PathBuf::from(&repo_path);
+            let (project, task) = insert_project_and_task(&pool, &repo_path).await;
+            let context = update_context_after_prepare_for_test(&pool, &task, &project, None)
+                .await
+                .expect("prepare context");
+
+            fs::write(repo_root.join("README.md"), "# demo repo\n").expect("write repo file");
+            run_git_command(&repo_path, &["add", "README.md"]).expect("stage repo file");
+            run_git_command(&repo_path, &["commit", "-q", "-m", "repo baseline"])
+                .expect("commit repo baseline");
+            run_git_command(&context.worktree_path, &["rebase", "main"]).expect("sync worktree");
+
+            fs::write(
+                PathBuf::from(&context.worktree_path).join("src/main.ts"),
+                "console.log('merged from task branch');\n",
+            )
+            .expect("write worktree file");
+            run_git_command(&context.worktree_path, &["add", "src/main.ts"])
+                .expect("stage worktree change");
+            run_git_command(
+                &context.worktree_path,
+                &["commit", "-q", "-m", "task change"],
+            )
+            .expect("commit worktree change");
+
+            let main_before =
+                run_git_text(&repo_path, &["rev-parse", "main"]).expect("main before");
+            let task_head =
+                run_git_text(&context.worktree_path, &["rev-parse", "HEAD"]).expect("task head");
+
+            let message =
+                merge_task_branch_into_target_local(&repo_path, &context, "main", "ort", true)
+                    .expect("merge task branch");
+
+            let main_after = run_git_text(&repo_path, &["rev-parse", "main"]).expect("main after");
+            let current_branch =
+                run_git_text(&repo_path, &["rev-parse", "--abbrev-ref", "HEAD"]).expect("branch");
+            let merged_source =
+                fs::read_to_string(repo_root.join("src/main.ts")).expect("read merged file");
+
+            assert_eq!(
+                message,
+                format!("已将任务分支 {} 合并到目标分支 main", context.task_branch)
+            );
+            assert_ne!(main_before, main_after);
+            assert_eq!(main_after, task_head);
+            assert_eq!(current_branch, "main");
+            assert!(merged_source.contains("merged from task branch"));
 
             let _ = fs::remove_dir_all(PathBuf::from(&repo_path));
             let _ = fs::remove_dir_all(
