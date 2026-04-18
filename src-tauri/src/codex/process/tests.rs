@@ -443,6 +443,8 @@ fn builds_commit_message_prompt_with_staged_changes() {
     assert!(prompt.contains("- 新增 src/components/projects/ProjectGitRepoActionDialog.tsx"));
     assert!(prompt.contains("只返回最终 commit message"));
     assert!(prompt.contains("Conventional Commits 风格"));
+    assert!(prompt.contains("第一行是 Conventional Commits 标题"));
+    assert!(prompt.contains("补充 2 到 4 行正文"));
 }
 
 #[test]

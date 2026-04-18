@@ -103,16 +103,27 @@ pub async fn ai_generate_commit_message(
         &normalized_staged_changes,
     );
     let result = run_ai_command(&app, prompt, None, None, Some(project.id.clone()), None).await?;
-    let normalized = result
-        .lines()
-        .map(str::trim)
-        .filter(|line| !line.is_empty() && *line != "```")
-        .collect::<Vec<_>>()
-        .join("\n")
-        .trim()
-        .trim_matches('`')
-        .trim()
-        .to_string();
+    let mut normalized_lines = Vec::new();
+    let mut previous_blank = true;
+    for raw_line in result.lines() {
+        let trimmed = raw_line.trim();
+        if trimmed == "```" || trimmed.starts_with("```") {
+            continue;
+        }
+        if trimmed.is_empty() {
+            if !previous_blank && !normalized_lines.is_empty() {
+                normalized_lines.push(String::new());
+                previous_blank = true;
+            }
+            continue;
+        }
+        normalized_lines.push(trimmed.trim_matches('`').trim().to_string());
+        previous_blank = false;
+    }
+    while matches!(normalized_lines.last(), Some(line) if line.is_empty()) {
+        normalized_lines.pop();
+    }
+    let normalized = normalized_lines.join("\n").trim().to_string();
 
     if normalized.is_empty() {
         return Err("AI 没有返回可用的提交信息".to_string());

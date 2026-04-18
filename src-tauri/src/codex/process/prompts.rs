@@ -252,12 +252,16 @@ pub(super) fn build_ai_generate_commit_message_prompt(
         "你是 Git commit message 助手。请基于项目上下文和当前已暂存改动，生成一条可直接使用的 commit message。\n\
 要求：\n\
 - 只返回最终 commit message，不要 Markdown，不要代码块，不要解释，不要前后缀\n\
-- 优先使用 Conventional Commits 风格：<type>(<scope>): <description>\n\
+- 输出默认采用两段结构：第一行是 Conventional Commits 标题，空一行后补充 2 到 4 行正文\n\
+- 标题优先使用 Conventional Commits 风格：<type>(<scope>): <description>\n\
 - type 仅可从 feat、fix、refactor、chore、docs、test、style、perf、build、ci 中选择\n\
 - 如果 scope 不明确，可以省略 scope，仅输出 type: description\n\
-- description 使用中文，简洁明确，聚焦这批已暂存改动的共同目的\n\
-- 不要虚构未给出的实现细节，不要逐条复述文件列表，不要输出多种候选\n\
+- 标题里的 description 使用中文，明确说明这批改动的共同目的，不要过短，不要只写“更新”“调整”\n\
+- 正文需要补充说明核心改动点、影响范围或交互变化，让 commit message 比单行标题更完整\n\
+- 正文可以写完整句子，也可以写简短条目，但不要逐条机械复述文件列表\n\
+- 不要虚构未给出的实现细节，不要输出多种候选\n\
 - 新功能优先用 feat，缺陷修复优先用 fix，结构整理优先用 refactor，杂项维护优先用 chore\n\
+- 如果改动确实很小，也仍然优先输出“标题 + 至少 1 行正文”，不要只返回单行\n\
 \n\
 项目信息：\n\
 - 项目名称：{}\n\
