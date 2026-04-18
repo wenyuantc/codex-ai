@@ -326,6 +326,56 @@ export async function getProjectGitFilePreview(
   });
 }
 
+export async function stageProjectGitFile(projectId: string, relativePath: string): Promise<string> {
+  return invoke("stage_project_git_file", { projectId, relativePath });
+}
+
+export async function unstageProjectGitFile(projectId: string, relativePath: string): Promise<string> {
+  return invoke("unstage_project_git_file", { projectId, relativePath });
+}
+
+export async function stageAllProjectGitFiles(projectId: string): Promise<string> {
+  return invoke("stage_all_project_git_files", { projectId });
+}
+
+export async function unstageAllProjectGitFiles(projectId: string): Promise<string> {
+  return invoke("unstage_all_project_git_files", { projectId });
+}
+
+export async function commitProjectGitChanges(projectId: string, message: string): Promise<string> {
+  return invoke("commit_project_git_changes", { projectId, message });
+}
+
+export async function pushProjectGitBranch(
+  projectId: string,
+  remoteName?: string | null,
+  branchName?: string | null,
+  forceMode?: "none" | "force" | "force_with_lease" | null,
+): Promise<string> {
+  return invoke("push_project_git_branch", {
+    projectId,
+    remoteName: remoteName ?? null,
+    branchName: branchName ?? null,
+    forceMode: forceMode ?? null,
+  });
+}
+
+export async function pullProjectGitBranch(
+  projectId: string,
+  remoteName?: string | null,
+  branchName?: string | null,
+  mode?: "ff_only" | "rebase" | null,
+  autoStash?: boolean | null,
+): Promise<string> {
+  return invoke("pull_project_git_branch", {
+    projectId,
+    remoteName: remoteName ?? null,
+    branchName: branchName ?? null,
+    mode: mode ?? null,
+    autoStash: autoStash ?? null,
+  });
+}
+
 export async function listTaskGitContexts(projectId: string): Promise<TaskGitContext[]> {
   return invoke("list_task_git_contexts", { projectId });
 }

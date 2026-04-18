@@ -20,6 +20,7 @@ export type GitActionType =
   | "stash"
   | "unstash"
   | "cleanup_worktree";
+export type ProjectGitRepoActionType = "commit" | "push" | "pull";
 
 export interface Project {
   id: string;
@@ -347,6 +348,7 @@ export interface ProjectGitWorkingTreeChange {
   path: string;
   previous_path: string | null;
   change_type: "added" | "modified" | "deleted" | "renamed";
+  stage_status: "staged" | "unstaged" | "partially_staged" | "untracked";
   can_open_file: boolean;
 }
 
@@ -379,6 +381,8 @@ export interface ProjectGitOverview {
   project_branches: string[];
   head_commit_sha: string | null;
   working_tree_summary: string | null;
+  ahead_commits: number | null;
+  behind_commits: number | null;
   working_tree_changes: ProjectGitWorkingTreeChange[];
   refreshed_at: string;
   recent_commits: ProjectGitCommit[];

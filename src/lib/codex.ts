@@ -198,6 +198,20 @@ export async function aiGeneratePlan(
   });
 }
 
+export async function aiGenerateCommitMessage(
+  projectId: string,
+  currentBranch: string | null,
+  workingTreeSummary: string | null,
+  stagedChanges: string[],
+): Promise<string> {
+  return invoke<string>("ai_generate_commit_message", {
+    projectId,
+    currentBranch,
+    workingTreeSummary,
+    stagedChanges,
+  });
+}
+
 export async function aiOptimizePrompt(input: AiOptimizePromptInput): Promise<string> {
   return invoke<string>("ai_optimize_prompt", {
     scene: input.scene,

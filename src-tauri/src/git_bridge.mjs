@@ -130,6 +130,50 @@ async function currentBranch(repoPath) {
   return value;
 }
 
+async function resolveSyncTargetRef(repoPath, branchName) {
+  if (!branchName) {
+    return null;
+  }
+
+  try {
+    const upstream = (
+      await gitRaw(repoPath, ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"])
+    ).trim();
+    if (upstream) {
+      return upstream;
+    }
+  } catch {}
+
+  const originRef = `origin/${branchName}`;
+  if (await gitRefExists(repoPath, `refs/remotes/${originRef}`)) {
+    return originRef;
+  }
+
+  return null;
+}
+
+async function branchSyncCounts(repoPath, branchName) {
+  const syncTargetRef = await resolveSyncTargetRef(repoPath, branchName);
+  if (!syncTargetRef) {
+    return {
+      ahead_commits: null,
+      behind_commits: null,
+    };
+  }
+
+  const output = (
+    await gitRaw(repoPath, ["rev-list", "--left-right", "--count", `${syncTargetRef}...HEAD`])
+  ).trim();
+  const [behindRaw = "", aheadRaw = ""] = output.split(/\s+/);
+  const behindCommits = Number.parseInt(behindRaw, 10);
+  const aheadCommits = Number.parseInt(aheadRaw, 10);
+
+  return {
+    ahead_commits: Number.isFinite(aheadCommits) ? aheadCommits : null,
+    behind_commits: Number.isFinite(behindCommits) ? behindCommits : null,
+  };
+}
+
 async function listBranches(repoPath) {
   const summary = await buildGit(repoPath).branchLocal();
   return [...summary.all].sort((left, right) => left.localeCompare(right));
@@ -327,6 +371,135 @@ function classifyStatusEntry(entry) {
     return "added";
   }
   return "modified";
+}
+
+function deriveStageStatus(entry) {
+  const { status_x: statusX, status_y: statusY } = entry;
+  if (statusX === "?" && statusY === "?") {
+    return "untracked";
+  }
+  const staged = statusX !== " " && statusX !== "?";
+  const unstaged = statusY !== " " && statusY !== "?";
+  if (staged && unstaged) {
+    return "partially_staged";
+  }
+  if (staged) {
+    return "staged";
+  }
+  if (unstaged) {
+    return "unstaged";
+  }
+  return "unstaged";
+}
+
+function normalizeGitPathArg(repoPath, candidatePath) {
+  const resolved = resolveTargetPath(repoPath, candidatePath);
+  const relative = path.relative(repoPath, resolved);
+  return relative || ".";
+}
+
+async function hasHeadCommit(repoPath) {
+  try {
+    await gitRaw(repoPath, ["rev-parse", "--verify", "HEAD"]);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function stagePath(repoPath, targetPath) {
+  await gitRaw(repoPath, ["add", "--", normalizeGitPathArg(repoPath, targetPath)]);
+}
+
+async function stageAll(repoPath) {
+  await gitRaw(repoPath, ["add", "-A"]);
+}
+
+async function unstagePath(repoPath, targetPath) {
+  const normalizedPath = normalizeGitPathArg(repoPath, targetPath);
+  if (await hasHeadCommit(repoPath)) {
+    try {
+      await gitRaw(repoPath, ["reset", "HEAD", "--", normalizedPath]);
+      return;
+    } catch {
+      // unborn HEAD 或 reset 不可用时继续 fallback
+    }
+  }
+  await gitRaw(repoPath, ["rm", "--cached", "-r", "--ignore-unmatch", "--", normalizedPath]);
+}
+
+async function unstageAll(repoPath) {
+  if (await hasHeadCommit(repoPath)) {
+    try {
+      await gitRaw(repoPath, ["reset", "HEAD", "--", "."]);
+      return;
+    } catch {
+      // unborn HEAD 或 reset 不可用时继续 fallback
+    }
+  }
+  await gitRaw(repoPath, ["rm", "--cached", "-r", "--ignore-unmatch", "--", "."]);
+}
+
+async function hasStagedChanges(repoPath) {
+  const statusOutput = await gitRaw(repoPath, ["status", "--porcelain=v1", "-z", "--untracked-files=all"]);
+  return parseStatusEntries(statusOutput).some((entry) => {
+    const stageStatus = deriveStageStatus(entry);
+    return stageStatus === "staged" || stageStatus === "partially_staged";
+  });
+}
+
+async function commitChanges(repoPath, message) {
+  const trimmed = typeof message === "string" ? message.trim() : "";
+  if (!trimmed) {
+    throw new Error("提交说明不能为空");
+  }
+  if (!(await hasStagedChanges(repoPath))) {
+    throw new Error("当前没有已暂存的改动，无法创建提交");
+  }
+  await gitRaw(repoPath, ["commit", "-m", trimmed]);
+  const head = (await gitRaw(repoPath, ["log", "-1", "--format=%h %s"])).trim();
+  return head ? `已创建提交 ${head}` : "已创建提交";
+}
+
+async function pushBranch(repoPath, remoteName, branchName, forceMode) {
+  const remote = typeof remoteName === "string" && remoteName.trim() ? remoteName.trim() : "origin";
+  const branch = typeof branchName === "string" && branchName.trim() ? branchName.trim() : await currentBranch(repoPath);
+  if (!branch) {
+    throw new Error("无法解析当前分支，不能推送");
+  }
+
+  const args = ["push"];
+  if (forceMode === "force") {
+    args.push("--force");
+  } else if (forceMode === "force_with_lease") {
+    args.push("--force-with-lease");
+  }
+  args.push(remote, branch);
+  await gitRaw(repoPath, args);
+  return `已推送 ${branch} 到 ${remote}`;
+}
+
+async function pullBranch(repoPath, remoteName, branchName, mode, autoStash) {
+  const remote = typeof remoteName === "string" && remoteName.trim() ? remoteName.trim() : "origin";
+  const branch = typeof branchName === "string" && branchName.trim() ? branchName.trim() : await currentBranch(repoPath);
+  if (!branch) {
+    throw new Error("无法解析当前分支，不能拉取");
+  }
+
+  const args = ["pull"];
+  if (mode === "rebase" && autoStash) {
+    args.push("--autostash");
+  }
+  if (mode === "rebase") {
+    args.push("--rebase");
+  } else {
+    args.push("--ff-only");
+  }
+  args.push(remote, branch);
+  await gitRaw(repoPath, args);
+  return mode === "rebase"
+    ? `已通过 rebase 拉取 ${remote}/${branch}`
+    : `已拉取 ${remote}/${branch}`;
 }
 
 async function hashWorktreePath(repoPath, relativePath) {
@@ -590,12 +763,16 @@ async function executeCommand(input) {
   switch (input.command) {
     case "overview": {
       const statusOutput = await gitRaw(repoPath, ["status", "--short"]);
+      const branchName = await currentBranch(repoPath);
+      const syncCounts = await branchSyncCounts(repoPath, branchName);
       return {
         default_branch: await determineDefaultBranch(repoPath),
-        current_branch: await currentBranch(repoPath),
+        current_branch: branchName,
         project_branches: await listBranches(repoPath),
         head_commit_sha: await headCommit(repoPath, "HEAD"),
         working_tree_summary: summarizeWorkingTreeFromStatus(statusOutput),
+        ahead_commits: syncCounts.ahead_commits,
+        behind_commits: syncCounts.behind_commits,
         recent_commits: await recentCommits(repoPath, Number(input.recentCommitLimit ?? 5)),
       };
     }
@@ -603,6 +780,34 @@ async function executeCommand(input) {
       return { exists: fs.existsSync(resolveTargetPath(repoPath, input.targetPath)) };
     case "ref_exists":
       return { exists: await gitRefExists(repoPath, input.fullRef) };
+    case "stage_path":
+      await stagePath(repoPath, input.targetPath);
+      return { message: "已暂存文件" };
+    case "unstage_path":
+      await unstagePath(repoPath, input.targetPath);
+      return { message: "已取消暂存文件" };
+    case "stage_all":
+      await stageAll(repoPath);
+      return { message: "已暂存全部文件" };
+    case "unstage_all":
+      await unstageAll(repoPath);
+      return { message: "已取消暂存全部文件" };
+    case "commit_changes":
+      return { message: await commitChanges(repoPath, input.message) };
+    case "push_branch":
+      return {
+        message: await pushBranch(repoPath, input.remoteName, input.branchName, input.forceMode),
+      };
+    case "pull_branch":
+      return {
+        message: await pullBranch(
+          repoPath,
+          input.remoteName,
+          input.branchName,
+          input.mode,
+          Boolean(input.autoStash),
+        ),
+      };
     case "ensure_task_branch":
       await ensureTaskBranch(repoPath, input.taskBranch, input.targetBranch);
       return { ok: true };
@@ -630,6 +835,7 @@ async function executeCommand(input) {
           path: entry.path,
           previous_path: entry.previous_path,
           change_type: classifyStatusEntry(entry),
+          stage_status: deriveStageStatus(entry),
         })),
       };
     }

@@ -1,10 +1,27 @@
-import { Suspense, lazy, useEffect, useState } from "react";
+import { Suspense, lazy, startTransition, useEffect, useState } from "react";
 import { useParams, Link, useNavigate } from "react-router-dom";
 import { useProjectStore } from "@/stores/projectStore";
 import { useTaskStore } from "@/stores/taskStore";
 import { useEmployeeStore } from "@/stores/employeeStore";
-import { deleteTaskGitContextRecord, getProjectGitFilePreview, getProjectGitOverview, reconcileTaskGitContext } from "@/lib/backend";
-import type { Employee, GitActionType, ProjectGitFilePreview, ProjectGitOverview, ProjectGitWorkingTreeChange, TaskGitContext } from "@/lib/types";
+import {
+  deleteTaskGitContextRecord,
+  getProjectGitFilePreview,
+  getProjectGitOverview,
+  reconcileTaskGitContext,
+  stageAllProjectGitFiles,
+  stageProjectGitFile,
+  unstageAllProjectGitFiles,
+  unstageProjectGitFile,
+} from "@/lib/backend";
+import type {
+  Employee,
+  GitActionType,
+  ProjectGitFilePreview,
+  ProjectGitOverview,
+  ProjectGitRepoActionType,
+  ProjectGitWorkingTreeChange,
+  TaskGitContext,
+} from "@/lib/types";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -12,6 +29,7 @@ import { EditProjectDialog } from "@/components/projects/EditProjectDialog";
 import { DeleteProjectDialog } from "@/components/projects/DeleteProjectDialog";
 import { DeleteTaskGitContextDialog } from "@/components/projects/DeleteTaskGitContextDialog";
 import { ProjectGitActionDialog } from "@/components/projects/ProjectGitActionDialog";
+import { ProjectGitRepoActionDialog } from "@/components/projects/ProjectGitRepoActionDialog";
 import { RepoPathDisplay } from "@/components/projects/RepoPathDisplay";
 import { ArrowLeft, Edit2, GitBranch, Loader2, RefreshCw, ShieldAlert, Trash2 } from "lucide-react";
 import { getStatusLabel, getStatusColor, getPriorityLabel, formatDate } from "@/lib/utils";
@@ -109,6 +127,35 @@ function getWorkingTreeChangeClassName(changeType: ProjectGitWorkingTreeChange["
   }
 }
 
+function getWorkingTreeStageStatusLabel(stageStatus: ProjectGitWorkingTreeChange["stage_status"]) {
+  switch (stageStatus) {
+    case "staged":
+      return "已暂存";
+    case "unstaged":
+      return "未暂存";
+    case "partially_staged":
+      return "部分暂存";
+    case "untracked":
+      return "未跟踪";
+    default:
+      return stageStatus;
+  }
+}
+
+function getWorkingTreeStageStatusClassName(stageStatus: ProjectGitWorkingTreeChange["stage_status"]) {
+  switch (stageStatus) {
+    case "staged":
+      return "border-emerald-500/30 bg-emerald-500/10 text-emerald-700";
+    case "partially_staged":
+      return "border-amber-500/30 bg-amber-500/10 text-amber-700";
+    case "untracked":
+      return "border-violet-500/30 bg-violet-500/10 text-violet-700";
+    case "unstaged":
+    default:
+      return "border-border/60 bg-secondary/40 text-foreground";
+  }
+}
+
 export function ProjectDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -128,10 +175,13 @@ export function ProjectDetailPage() {
   const [workingTreePreview, setWorkingTreePreview] = useState<ProjectGitFilePreview | null>(null);
   const [workingTreePreviewLoading, setWorkingTreePreviewLoading] = useState(false);
   const [workingTreePreviewError, setWorkingTreePreviewError] = useState<string | null>(null);
+  const [stagingFilePath, setStagingFilePath] = useState<string | null>(null);
+  const [bulkStageAction, setBulkStageAction] = useState<"stage_all" | "unstage_all" | null>(null);
   const [gitActionNotice, setGitActionNotice] = useState<{
     tone: "success" | "error";
     message: string;
   } | null>(null);
+  const [selectedRepoAction, setSelectedRepoAction] = useState<ProjectGitRepoActionType | null>(null);
   const [reconcilingContextId, setReconcilingContextId] = useState<string | null>(null);
   const [deletingContextId, setDeletingContextId] = useState<string | null>(null);
   const [pendingDeleteContext, setPendingDeleteContext] = useState<TaskGitContext | null>(null);
@@ -250,6 +300,12 @@ export function ProjectDetailPage() {
     }
   };
 
+  const handleRepoActionCompleted = async (message: string) => {
+    setGitActionNotice({ tone: "success", message });
+    setGitOverviewReloadNonce((value) => value + 1);
+    setSelectedRepoAction(null);
+  };
+
   const openGitActionDialog = (context: TaskGitContext, preferredAction?: GitActionType) => {
     setSelectedGitContext(context);
     setSelectedGitAction(preferredAction ?? null);
@@ -276,6 +332,88 @@ export function ProjectDetailPage() {
       setWorkingTreePreviewError(error instanceof Error ? error.message : String(error));
     } finally {
       setWorkingTreePreviewLoading(false);
+    }
+  };
+
+  const updateWorkingTreeStageStatuses = (
+    updater: (change: ProjectGitWorkingTreeChange) => ProjectGitWorkingTreeChange,
+  ) => {
+    startTransition(() => {
+      setGitOverview((current) => {
+        if (!current) {
+          return current;
+        }
+        return {
+          ...current,
+          working_tree_changes: current.working_tree_changes.map(updater),
+        };
+      });
+      setSelectedWorkingTreeChange((current) => (current ? updater(current) : current));
+    });
+  };
+
+  const handleToggleStageFile = async (change: ProjectGitWorkingTreeChange) => {
+    if (!project) {
+      return;
+    }
+
+    setStagingFilePath(change.path);
+    setGitActionNotice(null);
+    try {
+      const nextStageStatus: ProjectGitWorkingTreeChange["stage_status"] =
+        change.stage_status === "staged" || change.stage_status === "partially_staged"
+          ? (change.change_type === "added" && !change.previous_path ? "untracked" : "unstaged")
+          : "staged";
+      const message =
+        change.stage_status === "staged" || change.stage_status === "partially_staged"
+          ? await unstageProjectGitFile(project.id, change.path)
+          : await stageProjectGitFile(project.id, change.path);
+      updateWorkingTreeStageStatuses((item) =>
+        item.path === change.path
+          ? {
+              ...item,
+              stage_status: nextStageStatus,
+            }
+          : item,
+      );
+      setGitActionNotice({ tone: "success", message });
+    } catch (error) {
+      setGitActionNotice({
+        tone: "error",
+        message: error instanceof Error ? error.message : String(error),
+      });
+    } finally {
+      setStagingFilePath(null);
+    }
+  };
+
+  const handleBulkStageAction = async (action: "stage_all" | "unstage_all") => {
+    if (!project) {
+      return;
+    }
+
+    setBulkStageAction(action);
+    setGitActionNotice(null);
+    try {
+      const message =
+        action === "stage_all"
+          ? await stageAllProjectGitFiles(project.id)
+          : await unstageAllProjectGitFiles(project.id);
+      updateWorkingTreeStageStatuses((change) => ({
+        ...change,
+        stage_status:
+          action === "stage_all"
+            ? "staged"
+            : (change.change_type === "added" && !change.previous_path ? "untracked" : "unstaged"),
+      }));
+      setGitActionNotice({ tone: "success", message });
+    } catch (error) {
+      setGitActionNotice({
+        tone: "error",
+        message: error instanceof Error ? error.message : String(error),
+      });
+    } finally {
+      setBulkStageAction(null);
     }
   };
 
@@ -308,6 +446,27 @@ export function ProjectDetailPage() {
     completed: tasks.filter((t) => t.status === "completed"),
     blocked: tasks.filter((t) => t.status === "blocked"),
   };
+  const hasStageableFiles = Boolean(
+    gitOverview?.working_tree_changes.some(
+      (change) =>
+        change.stage_status === "unstaged"
+        || change.stage_status === "untracked"
+        || change.stage_status === "partially_staged",
+    ),
+  );
+  const hasStagedFiles = Boolean(
+    gitOverview?.working_tree_changes.some(
+      (change) =>
+        change.stage_status === "staged"
+        || change.stage_status === "partially_staged",
+    ),
+  );
+  const stagedFileCount = gitOverview?.working_tree_changes.filter(
+    (change) =>
+      change.stage_status === "staged"
+      || change.stage_status === "partially_staged",
+  ).length ?? 0;
+  const gitRuntimeReady = gitOverview?.git_runtime_status === "ready";
 
   return (
     <div className="space-y-6">
@@ -431,6 +590,44 @@ export function ProjectDetailPage() {
             </div>
 
             <div className="rounded-lg border border-border/60 p-3">
+              <div className="mb-3 flex flex-wrap items-start justify-between gap-3 rounded-lg border border-border/60 bg-secondary/20 px-3 py-3">
+                <div>
+                  <h4 className="text-sm font-medium">仓库操作</h4>
+                  <p className="mt-1 text-[11px] text-muted-foreground">
+                    直接基于当前项目仓库执行提交、推送和拉取，默认使用当前分支。
+                  </p>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={!gitRuntimeReady || !hasStagedFiles}
+                    onClick={() => setSelectedRepoAction("commit")}
+                  >
+                    提交
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={!gitRuntimeReady || !gitOverview.current_branch}
+                    onClick={() => setSelectedRepoAction("push")}
+                  >
+                    推送
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={!gitRuntimeReady || !gitOverview.current_branch}
+                    onClick={() => setSelectedRepoAction("pull")}
+                  >
+                    拉取
+                  </Button>
+                </div>
+              </div>
+
               <div className="mb-2 flex items-center justify-between">
                 <div>
                   <h4 className="text-sm font-medium">工作区文件</h4>
@@ -438,7 +635,31 @@ export function ProjectDetailPage() {
                     当前仓库实时变更文件列表，可直接在应用内预览文件内容。
                   </p>
                 </div>
-                <span className="text-xs text-muted-foreground">{gitOverview.working_tree_changes.length} 条</span>
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-xs text-muted-foreground">{gitOverview.working_tree_changes.length} 条</span>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={!hasStageableFiles || bulkStageAction !== null}
+                    onClick={() => {
+                      void handleBulkStageAction("stage_all");
+                    }}
+                  >
+                    {bulkStageAction === "stage_all" ? "暂存中..." : "全部暂存"}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={!hasStagedFiles || bulkStageAction !== null}
+                    onClick={() => {
+                      void handleBulkStageAction("unstage_all");
+                    }}
+                  >
+                    {bulkStageAction === "unstage_all" ? "取消中..." : "全部取消暂存"}
+                  </Button>
+                </div>
               </div>
               {gitOverview.working_tree_changes.length === 0 ? (
                 <div className="rounded-md border border-dashed border-border px-3 py-4 text-center text-xs text-muted-foreground">
@@ -449,7 +670,23 @@ export function ProjectDetailPage() {
                   {gitOverview.working_tree_changes.slice(0, 20).map((change) => (
                     <div
                       key={`${change.change_type}:${change.previous_path ?? ""}:${change.path}`}
-                      className="rounded-md border border-border/60 bg-secondary/20 px-3 py-2 text-xs"
+                      className={`rounded-md border border-border/60 bg-secondary/20 px-3 py-2 text-xs ${change.can_open_file ? "cursor-pointer transition-colors hover:border-primary/40 hover:bg-secondary/30" : ""}`}
+                      role={change.can_open_file ? "button" : undefined}
+                      tabIndex={change.can_open_file ? 0 : undefined}
+                      onClick={() => {
+                        if (change.can_open_file) {
+                          void handleOpenProjectGitFile(change);
+                        }
+                      }}
+                      onKeyDown={(event) => {
+                        if (!change.can_open_file) {
+                          return;
+                        }
+                        if (event.key === "Enter" || event.key === " ") {
+                          event.preventDefault();
+                          void handleOpenProjectGitFile(change);
+                        }
+                      }}
                     >
                       <div className="flex flex-wrap items-center justify-between gap-2">
                         <div className="flex min-w-0 flex-wrap items-center gap-2">
@@ -458,26 +695,52 @@ export function ProjectDetailPage() {
                           >
                             {getWorkingTreeChangeLabel(change.change_type)}
                           </span>
+                          <span
+                            className={`rounded-md border px-1.5 py-0.5 text-[11px] font-medium ${getWorkingTreeStageStatusClassName(change.stage_status)}`}
+                          >
+                            {getWorkingTreeStageStatusLabel(change.stage_status)}
+                          </span>
                           <span className="break-all font-mono text-foreground">{change.path}</span>
                         </div>
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          onClick={() => {
-                            void handleOpenProjectGitFile(change);
-                          }}
-                          disabled={!change.can_open_file}
-                          title={
-                            change.can_open_file
-                              ? "使用内置代码预览浏览当前文件"
-                              : change.change_type === "deleted"
-                                  ? "已删除文件无法直接浏览"
-                                  : "当前文件暂不可浏览"
-                          }
-                        >
-                          浏览文件
-                        </Button>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              void handleOpenProjectGitFile(change);
+                            }}
+                            disabled={!change.can_open_file}
+                            title={
+                              change.can_open_file
+                                ? "使用内置代码预览浏览当前文件"
+                                : change.change_type === "deleted"
+                                    ? "已删除文件无法直接浏览"
+                                    : "当前文件暂不可浏览"
+                            }
+                          >
+                            浏览文件
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              void handleToggleStageFile(change);
+                            }}
+                            disabled={stagingFilePath === change.path || bulkStageAction !== null}
+                          >
+                            {stagingFilePath === change.path
+                              ? (change.stage_status === "staged" || change.stage_status === "partially_staged"
+                                  ? "取消中..."
+                                  : "暂存中...")
+                              : (change.stage_status === "staged" || change.stage_status === "partially_staged"
+                                  ? "取消暂存"
+                                  : "暂存")}
+                          </Button>
+                        </div>
                       </div>
                       {change.previous_path && (
                         <div className="mt-1 text-[11px] text-muted-foreground">
@@ -782,6 +1045,29 @@ export function ProjectDetailPage() {
         projectBranches={gitOverview?.project_branches ?? []}
         preferredAction={selectedGitAction}
         onActionCompleted={handleGitActionCompleted}
+      />
+
+      <ProjectGitRepoActionDialog
+        open={selectedRepoAction !== null}
+        action={selectedRepoAction}
+        projectId={project.id}
+        currentBranch={gitOverview?.current_branch}
+        workingTreeSummary={gitOverview?.working_tree_summary ?? null}
+        projectBranches={gitOverview?.project_branches ?? []}
+        stagedFileCount={stagedFileCount}
+        stagedChanges={
+          gitOverview?.working_tree_changes.filter(
+            (change) =>
+              change.stage_status === "staged"
+              || change.stage_status === "partially_staged",
+          ) ?? []
+        }
+        onOpenChange={(open) => {
+          if (!open) {
+            setSelectedRepoAction(null);
+          }
+        }}
+        onActionCompleted={handleRepoActionCompleted}
       />
     </div>
   );

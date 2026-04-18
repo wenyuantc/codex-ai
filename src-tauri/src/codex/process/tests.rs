@@ -4,7 +4,8 @@ use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use super::{
-    attach_session_file_change_details, build_ai_generate_plan_prompt,
+    attach_session_file_change_details, build_ai_generate_commit_message_prompt,
+    build_ai_generate_plan_prompt,
     build_ai_optimize_prompt_prompt, build_one_shot_exec_args, build_remote_codex_session_command,
     build_remote_sdk_bridge_command, build_session_exec_args, compose_codex_prompt,
     compute_execution_session_file_changes_from_entries, detect_exec_json_output_flag,
@@ -420,6 +421,28 @@ fn builds_plan_prompt_with_required_sections_and_context() {
     assert!(prompt.contains("2. 补前端预览"));
     assert!(prompt.contains("不要假装你已经读取仓库"));
     assert!(prompt.contains("如果本次输入附带任务图片"));
+}
+
+#[test]
+fn builds_commit_message_prompt_with_staged_changes() {
+    let prompt = build_ai_generate_commit_message_prompt(
+        "看板系统",
+        Some("main"),
+        Some("共 3 项变更（修改 2，新增 1）"),
+        &[
+            "修改 src/pages/ProjectDetailPage.tsx".to_string(),
+            "新增 src/components/projects/ProjectGitRepoActionDialog.tsx".to_string(),
+        ],
+    );
+
+    assert!(prompt.contains("你是 Git commit message 助手"));
+    assert!(prompt.contains("项目名称：看板系统"));
+    assert!(prompt.contains("当前分支：main"));
+    assert!(prompt.contains("工作区摘要：共 3 项变更（修改 2，新增 1）"));
+    assert!(prompt.contains("- 修改 src/pages/ProjectDetailPage.tsx"));
+    assert!(prompt.contains("- 新增 src/components/projects/ProjectGitRepoActionDialog.tsx"));
+    assert!(prompt.contains("只返回最终 commit message"));
+    assert!(prompt.contains("Conventional Commits 风格"));
 }
 
 #[test]

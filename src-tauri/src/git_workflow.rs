@@ -148,6 +148,7 @@ pub struct ProjectGitWorkingTreeChange {
     pub path: String,
     pub previous_path: Option<String>,
     pub change_type: String,
+    pub stage_status: String,
     pub can_open_file: bool,
 }
 
@@ -182,6 +183,8 @@ pub struct ProjectGitOverview {
     pub project_branches: Vec<String>,
     pub head_commit_sha: Option<String>,
     pub working_tree_summary: Option<String>,
+    pub ahead_commits: Option<u32>,
+    pub behind_commits: Option<u32>,
     pub working_tree_changes: Vec<ProjectGitWorkingTreeChange>,
     pub refreshed_at: String,
     pub recent_commits: Vec<ProjectGitCommit>,
@@ -775,6 +778,7 @@ fn build_working_tree_changes(
             path: change.path,
             previous_path: change.previous_path,
             change_type: change.change_type,
+            stage_status: change.stage_status,
         })
         .collect()
 }
@@ -1375,6 +1379,8 @@ pub async fn get_project_git_overview<R: Runtime>(
                 project_branches: Vec::new(),
                 head_commit_sha: None,
                 working_tree_summary: None,
+                ahead_commits: None,
+                behind_commits: None,
                 working_tree_changes: Vec::new(),
                 refreshed_at: now_sqlite(),
                 recent_commits: Vec::new(),
@@ -1432,6 +1438,8 @@ pub async fn get_project_git_overview<R: Runtime>(
                 project_branches: overview.project_branches,
                 head_commit_sha: Some(overview.head_commit_sha),
                 working_tree_summary: overview.working_tree_summary,
+                ahead_commits: overview.ahead_commits,
+                behind_commits: overview.behind_commits,
                 working_tree_changes,
                 refreshed_at: now_sqlite(),
                 recent_commits: overview
@@ -1461,6 +1469,8 @@ pub async fn get_project_git_overview<R: Runtime>(
             project_branches: Vec::new(),
             head_commit_sha: None,
             working_tree_summary: None,
+            ahead_commits: None,
+            behind_commits: None,
             working_tree_changes: Vec::new(),
             refreshed_at: now_sqlite(),
             recent_commits: Vec::new(),
@@ -1717,6 +1727,248 @@ pub async fn get_project_git_file_preview<R: Runtime>(
         after_truncated: after_snapshot.truncated,
         message,
     })
+}
+
+async fn resolve_project_runtime_for_git_overview<R: Runtime>(
+    app: &AppHandle<R>,
+    project_id: &str,
+) -> Result<(SqlitePool, Project, GitProjectRuntimeContext), String> {
+    let pool = sqlite_pool(app).await?;
+    let project = fetch_project_by_id(&pool, project_id).await?;
+    let runtime = resolve_project_runtime_context(&project)?;
+    Ok((pool, project, runtime))
+}
+
+async fn mutate_project_git_stage<R: Runtime>(
+    app: &AppHandle<R>,
+    project_id: &str,
+    target_path: Option<&str>,
+    stage: bool,
+) -> Result<String, String> {
+    let (pool, project, runtime) = resolve_project_runtime_for_git_overview(app, project_id).await?;
+    let message = match (stage, target_path) {
+        (true, Some(path)) => {
+            git_runtime::stage_path(
+                app,
+                &runtime.execution_target,
+                runtime.ssh_config_id.as_deref(),
+                &runtime.repo_path,
+                path,
+            )
+            .await?;
+            let details = format!("已暂存工作区文件：{}", path);
+            insert_activity_log(&pool, "project_git_file_staged", &details, None, None, Some(&project.id)).await?;
+            details
+        }
+        (false, Some(path)) => {
+            git_runtime::unstage_path(
+                app,
+                &runtime.execution_target,
+                runtime.ssh_config_id.as_deref(),
+                &runtime.repo_path,
+                path,
+            )
+            .await?;
+            let details = format!("已取消暂存工作区文件：{}", path);
+            insert_activity_log(&pool, "project_git_file_unstaged", &details, None, None, Some(&project.id)).await?;
+            details
+        }
+        (true, None) => {
+            git_runtime::stage_all(
+                app,
+                &runtime.execution_target,
+                runtime.ssh_config_id.as_deref(),
+                &runtime.repo_path,
+            )
+            .await?;
+            let details = "已暂存当前项目全部工作区变更".to_string();
+            insert_activity_log(&pool, "project_git_stage_all", &details, None, None, Some(&project.id)).await?;
+            details
+        }
+        (false, None) => {
+            git_runtime::unstage_all(
+                app,
+                &runtime.execution_target,
+                runtime.ssh_config_id.as_deref(),
+                &runtime.repo_path,
+            )
+            .await?;
+            let details = "已取消暂存当前项目全部工作区变更".to_string();
+            insert_activity_log(&pool, "project_git_unstage_all", &details, None, None, Some(&project.id)).await?;
+            details
+        }
+    };
+    Ok(message)
+}
+
+fn normalize_project_git_push_force_mode(value: Option<String>) -> Result<String, String> {
+    match trim_optional(value).as_deref() {
+        None | Some("none") => Ok("none".to_string()),
+        Some("force") => Ok("force".to_string()),
+        Some("force_with_lease") => Ok("force_with_lease".to_string()),
+        Some(other) => Err(format!("不支持的推送模式：{}", other)),
+    }
+}
+
+fn normalize_project_git_pull_mode(value: Option<String>) -> Result<String, String> {
+    match trim_optional(value).as_deref() {
+        None | Some("ff_only") => Ok("ff_only".to_string()),
+        Some("rebase") => Ok("rebase".to_string()),
+        Some(other) => Err(format!("不支持的拉取模式：{}", other)),
+    }
+}
+
+#[tauri::command]
+pub async fn stage_project_git_file<R: Runtime>(
+    app: AppHandle<R>,
+    project_id: String,
+    relative_path: String,
+) -> Result<String, String> {
+    let trimmed = relative_path.trim().to_string();
+    if trimmed.is_empty() {
+        return Err("文件路径不能为空".to_string());
+    }
+    mutate_project_git_stage(&app, &project_id, Some(&trimmed), true).await
+}
+
+#[tauri::command]
+pub async fn unstage_project_git_file<R: Runtime>(
+    app: AppHandle<R>,
+    project_id: String,
+    relative_path: String,
+) -> Result<String, String> {
+    let trimmed = relative_path.trim().to_string();
+    if trimmed.is_empty() {
+        return Err("文件路径不能为空".to_string());
+    }
+    mutate_project_git_stage(&app, &project_id, Some(&trimmed), false).await
+}
+
+#[tauri::command]
+pub async fn stage_all_project_git_files<R: Runtime>(
+    app: AppHandle<R>,
+    project_id: String,
+) -> Result<String, String> {
+    mutate_project_git_stage(&app, &project_id, None, true).await
+}
+
+#[tauri::command]
+pub async fn unstage_all_project_git_files<R: Runtime>(
+    app: AppHandle<R>,
+    project_id: String,
+) -> Result<String, String> {
+    mutate_project_git_stage(&app, &project_id, None, false).await
+}
+
+#[tauri::command]
+pub async fn commit_project_git_changes<R: Runtime>(
+    app: AppHandle<R>,
+    project_id: String,
+    message: String,
+) -> Result<String, String> {
+    let trimmed = message.trim().to_string();
+    if trimmed.is_empty() {
+        return Err("提交说明不能为空".to_string());
+    }
+
+    let (pool, project, runtime) = resolve_project_runtime_for_git_overview(&app, &project_id).await?;
+    let result = git_runtime::commit_changes(
+        &app,
+        &runtime.execution_target,
+        runtime.ssh_config_id.as_deref(),
+        &runtime.repo_path,
+        &trimmed,
+    )
+    .await?;
+
+    insert_activity_log(
+        &pool,
+        "project_git_committed",
+        &result,
+        None,
+        None,
+        Some(&project.id),
+    )
+    .await?;
+
+    Ok(result)
+}
+
+#[tauri::command]
+pub async fn push_project_git_branch<R: Runtime>(
+    app: AppHandle<R>,
+    project_id: String,
+    remote_name: Option<String>,
+    branch_name: Option<String>,
+    force_mode: Option<String>,
+) -> Result<String, String> {
+    let remote_name = trim_optional(remote_name).unwrap_or_else(|| "origin".to_string());
+    let branch_name = trim_optional(branch_name).unwrap_or_default();
+    let force_mode = normalize_project_git_push_force_mode(force_mode)?;
+    let (pool, project, runtime) = resolve_project_runtime_for_git_overview(&app, &project_id).await?;
+
+    let result = git_runtime::push_branch(
+        &app,
+        &runtime.execution_target,
+        runtime.ssh_config_id.as_deref(),
+        &runtime.repo_path,
+        &remote_name,
+        &branch_name,
+        &force_mode,
+    )
+    .await?;
+
+    insert_activity_log(
+        &pool,
+        "project_git_pushed",
+        &result,
+        None,
+        None,
+        Some(&project.id),
+    )
+    .await?;
+
+    Ok(result)
+}
+
+#[tauri::command]
+pub async fn pull_project_git_branch<R: Runtime>(
+    app: AppHandle<R>,
+    project_id: String,
+    remote_name: Option<String>,
+    branch_name: Option<String>,
+    mode: Option<String>,
+    auto_stash: Option<bool>,
+) -> Result<String, String> {
+    let remote_name = trim_optional(remote_name).unwrap_or_else(|| "origin".to_string());
+    let branch_name = trim_optional(branch_name).unwrap_or_default();
+    let pull_mode = normalize_project_git_pull_mode(mode)?;
+    let auto_stash = auto_stash.unwrap_or(false);
+    let (pool, project, runtime) = resolve_project_runtime_for_git_overview(&app, &project_id).await?;
+
+    let result = git_runtime::pull_branch(
+        &app,
+        &runtime.execution_target,
+        runtime.ssh_config_id.as_deref(),
+        &runtime.repo_path,
+        &remote_name,
+        &branch_name,
+        &pull_mode,
+        auto_stash,
+    )
+    .await?;
+
+    insert_activity_log(
+        &pool,
+        "project_git_pulled",
+        &result,
+        None,
+        None,
+        Some(&project.id),
+    )
+    .await?;
+
+    Ok(result)
 }
 
 #[tauri::command]

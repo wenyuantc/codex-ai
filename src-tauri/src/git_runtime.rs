@@ -40,6 +40,8 @@ pub(crate) struct GitRuntimeOverview {
     pub project_branches: Vec<String>,
     pub head_commit_sha: String,
     pub working_tree_summary: Option<String>,
+    pub ahead_commits: Option<u32>,
+    pub behind_commits: Option<u32>,
     pub recent_commits: Vec<GitRuntimeCommit>,
 }
 
@@ -48,6 +50,7 @@ pub(crate) struct GitRuntimeChange {
     pub path: String,
     pub previous_path: Option<String>,
     pub change_type: String,
+    pub stage_status: String,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -488,6 +491,159 @@ pub(crate) async fn git_ref_exists<R: Runtime>(
     )
     .await?;
     Ok(result.exists)
+}
+
+pub(crate) async fn stage_path<R: Runtime>(
+    app: &AppHandle<R>,
+    execution_target: &str,
+    ssh_config_id: Option<&str>,
+    repo_path: &str,
+    target_path: &str,
+) -> Result<String, String> {
+    let result: GitBridgeMessageResult = call_bridge(
+        app,
+        execution_target,
+        ssh_config_id,
+        serde_json::json!({
+            "command": "stage_path",
+            "repoPath": repo_path,
+            "targetPath": target_path,
+        }),
+    )
+    .await?;
+    Ok(result.message)
+}
+
+pub(crate) async fn unstage_path<R: Runtime>(
+    app: &AppHandle<R>,
+    execution_target: &str,
+    ssh_config_id: Option<&str>,
+    repo_path: &str,
+    target_path: &str,
+) -> Result<String, String> {
+    let result: GitBridgeMessageResult = call_bridge(
+        app,
+        execution_target,
+        ssh_config_id,
+        serde_json::json!({
+            "command": "unstage_path",
+            "repoPath": repo_path,
+            "targetPath": target_path,
+        }),
+    )
+    .await?;
+    Ok(result.message)
+}
+
+pub(crate) async fn stage_all<R: Runtime>(
+    app: &AppHandle<R>,
+    execution_target: &str,
+    ssh_config_id: Option<&str>,
+    repo_path: &str,
+) -> Result<String, String> {
+    let result: GitBridgeMessageResult = call_bridge(
+        app,
+        execution_target,
+        ssh_config_id,
+        serde_json::json!({
+            "command": "stage_all",
+            "repoPath": repo_path,
+        }),
+    )
+    .await?;
+    Ok(result.message)
+}
+
+pub(crate) async fn unstage_all<R: Runtime>(
+    app: &AppHandle<R>,
+    execution_target: &str,
+    ssh_config_id: Option<&str>,
+    repo_path: &str,
+) -> Result<String, String> {
+    let result: GitBridgeMessageResult = call_bridge(
+        app,
+        execution_target,
+        ssh_config_id,
+        serde_json::json!({
+            "command": "unstage_all",
+            "repoPath": repo_path,
+        }),
+    )
+    .await?;
+    Ok(result.message)
+}
+
+pub(crate) async fn commit_changes<R: Runtime>(
+    app: &AppHandle<R>,
+    execution_target: &str,
+    ssh_config_id: Option<&str>,
+    repo_path: &str,
+    message: &str,
+) -> Result<String, String> {
+    let result: GitBridgeMessageResult = call_bridge(
+        app,
+        execution_target,
+        ssh_config_id,
+        serde_json::json!({
+            "command": "commit_changes",
+            "repoPath": repo_path,
+            "message": message,
+        }),
+    )
+    .await?;
+    Ok(result.message)
+}
+
+pub(crate) async fn push_branch<R: Runtime>(
+    app: &AppHandle<R>,
+    execution_target: &str,
+    ssh_config_id: Option<&str>,
+    repo_path: &str,
+    remote_name: &str,
+    branch_name: &str,
+    force_mode: &str,
+) -> Result<String, String> {
+    let result: GitBridgeMessageResult = call_bridge(
+        app,
+        execution_target,
+        ssh_config_id,
+        serde_json::json!({
+            "command": "push_branch",
+            "repoPath": repo_path,
+            "remoteName": remote_name,
+            "branchName": branch_name,
+            "forceMode": force_mode,
+        }),
+    )
+    .await?;
+    Ok(result.message)
+}
+
+pub(crate) async fn pull_branch<R: Runtime>(
+    app: &AppHandle<R>,
+    execution_target: &str,
+    ssh_config_id: Option<&str>,
+    repo_path: &str,
+    remote_name: &str,
+    branch_name: &str,
+    mode: &str,
+    auto_stash: bool,
+) -> Result<String, String> {
+    let result: GitBridgeMessageResult = call_bridge(
+        app,
+        execution_target,
+        ssh_config_id,
+        serde_json::json!({
+            "command": "pull_branch",
+            "repoPath": repo_path,
+            "remoteName": remote_name,
+            "branchName": branch_name,
+            "mode": mode,
+            "autoStash": auto_stash,
+        }),
+    )
+    .await?;
+    Ok(result.message)
 }
 
 pub(crate) async fn path_exists<R: Runtime>(

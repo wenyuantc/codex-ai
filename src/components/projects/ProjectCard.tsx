@@ -1,6 +1,6 @@
 import type { Project } from "@/lib/types";
 import { getStatusLabel, getStatusColor, formatDate } from "@/lib/utils";
-import { Trash2, Edit2, FolderKanban, ArrowRight } from "lucide-react";
+import { Trash2, Edit2, FolderKanban, ArrowRight, ArrowDown, ArrowUp } from "lucide-react";
 import { RepoPathDisplay } from "@/components/projects/RepoPathDisplay";
 import { getProjectTypeLabel, getProjectWorkingDir } from "@/lib/projects";
 import { Badge } from "@/components/ui/badge";
@@ -9,11 +9,24 @@ import { Link } from "react-router-dom";
 interface ProjectCardProps {
   project: Project;
   taskCount?: number;
+  aheadCommits?: number | null;
+  behindCommits?: number | null;
+  onPushRequested?: (project: Project) => void;
+  onPullRequested?: (project: Project) => void;
   onEdit: (project: Project) => void;
   onDelete: (project: Project) => void;
 }
 
-export function ProjectCard({ project, taskCount, onEdit, onDelete }: ProjectCardProps) {
+export function ProjectCard({
+  project,
+  taskCount,
+  aheadCommits,
+  behindCommits,
+  onPushRequested,
+  onPullRequested,
+  onEdit,
+  onDelete,
+}: ProjectCardProps) {
   return (
     <div className="flex min-h-44 w-fit max-w-full min-w-[min(100%,22rem)] flex-col rounded-lg border border-border bg-card p-4 transition-shadow hover:shadow-sm">
       <div className="flex flex-1 items-start justify-between gap-3">
@@ -36,6 +49,28 @@ export function ProjectCard({ project, taskCount, onEdit, onDelete }: ProjectCar
               <Badge variant={project.project_type === "ssh" ? "secondary" : "outline"}>
                 {getProjectTypeLabel(project.project_type)}
               </Badge>
+              {(aheadCommits ?? 0) > 0 && (
+                <button
+                  type="button"
+                  className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-sm font-semibold text-sky-600 transition-colors hover:bg-sky-500/10"
+                  title={`当前有 ${aheadCommits} 个提交待推送`}
+                  onClick={() => onPushRequested?.(project)}
+                >
+                  <ArrowUp className="h-4 w-4" />
+                  {aheadCommits}
+                </button>
+              )}
+              {(behindCommits ?? 0) > 0 && (
+                <button
+                  type="button"
+                  className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-sm font-semibold text-amber-600 transition-colors hover:bg-amber-500/10"
+                  title={`当前有 ${behindCommits} 个提交待拉取`}
+                  onClick={() => onPullRequested?.(project)}
+                >
+                  <ArrowDown className="h-4 w-4" />
+                  {behindCommits}
+                </button>
+              )}
             </div>
             <RepoPathDisplay
               repoPath={getProjectWorkingDir(project)}
