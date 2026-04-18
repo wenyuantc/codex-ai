@@ -9,7 +9,7 @@ use tauri::{AppHandle, Manager};
 use crate::app::{
     fetch_employee_by_id, fetch_project_by_id, fetch_task_automation_state_record,
     fetch_task_by_id, insert_activity_log, now_sqlite, parse_review_verdict_json,
-    record_completion_metric, sqlite_pool, start_task_code_review_internal, PROJECT_TYPE_SSH,
+    record_completion_metric, sqlite_pool, start_task_code_review_internal,
 };
 use crate::codex::{
     load_codex_settings, start_codex_with_manager, stop_codex_for_automation_restart, CodexManager,
@@ -606,18 +606,8 @@ async fn start_automation_fix_round(
 async fn resolve_automation_execution_context(
     pool: &SqlitePool,
     task: &Task,
-    project: &Project,
+    _project: &Project,
 ) -> Result<AutomationExecutionContext, String> {
-    if project.project_type == PROJECT_TYPE_SSH {
-        return Ok(AutomationExecutionContext {
-            working_dir: project
-                .remote_repo_path
-                .clone()
-                .ok_or_else(|| "当前 SSH 项目未配置远程仓库目录，无法自动修复".to_string())?,
-            task_git_context_id: None,
-        });
-    }
-
     let mut candidates = Vec::new();
     if let Some(last_session_id) = task.last_codex_session_id.as_deref() {
         if let Some(session) = sqlx::query_as::<_, CodexSessionRecord>(
@@ -1336,7 +1326,7 @@ mod automation_working_dir_tests {
     }
 
     #[test]
-    fn resolves_remote_repo_path_for_ssh_project() {
+    fn resolves_remote_execution_worktree_for_ssh_project() {
         let runtime = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()
@@ -1347,12 +1337,146 @@ mod automation_working_dir_tests {
             let project = build_project(PROJECT_TYPE_SSH, None, Some("/srv/demo"));
             let task = build_task(&project.id);
 
+            sqlx::query(
+                r#"
+                INSERT INTO ssh_configs (
+                    id,
+                    name,
+                    host,
+                    port,
+                    username,
+                    auth_type,
+                    private_key_path,
+                    known_hosts_mode,
+                    password_ref,
+                    passphrase_ref,
+                    last_checked_at,
+                    last_check_status,
+                    last_check_message,
+                    password_probe_checked_at,
+                    password_probe_status,
+                    password_probe_message,
+                    created_at,
+                    updated_at
+                ) VALUES (
+                    'ssh-1', 'SSH Demo', 'example.com', 22, 'demo', 'key', NULL, 'accept-new',
+                    NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, '2026-04-17 00:00:00', '2026-04-17 00:00:00'
+                )
+                "#,
+            )
+            .execute(&pool)
+            .await
+            .expect("insert ssh config");
+
+            sqlx::query(
+                r#"
+                INSERT INTO projects (
+                    id,
+                    name,
+                    description,
+                    status,
+                    repo_path,
+                    project_type,
+                    ssh_config_id,
+                    remote_repo_path,
+                    created_at,
+                    updated_at
+                ) VALUES ($1, $2, NULL, 'active', NULL, 'ssh', 'ssh-1', $3, '2026-04-17 00:00:00', '2026-04-17 00:00:00')
+                "#,
+            )
+            .bind(&project.id)
+            .bind(&project.name)
+            .bind("/srv/demo")
+            .execute(&pool)
+            .await
+            .expect("insert ssh project");
+
+            sqlx::query(
+                r#"
+                INSERT INTO tasks (
+                    id,
+                    title,
+                    description,
+                    status,
+                    priority,
+                    project_id,
+                    assignee_id,
+                    reviewer_id,
+                    automation_mode,
+                    last_codex_session_id,
+                    last_review_session_id,
+                    created_at,
+                    updated_at
+                ) VALUES ($1, $2, NULL, 'review', 'medium', $3, NULL, NULL, 'review_fix_loop_v1', $4, NULL, '2026-04-17 00:00:00', '2026-04-17 00:00:00')
+                "#,
+            )
+            .bind(&task.id)
+            .bind(&task.title)
+            .bind(&project.id)
+            .bind(task.last_codex_session_id.as_deref())
+            .execute(&pool)
+            .await
+            .expect("insert ssh task");
+
+            sqlx::query(
+                r#"
+                INSERT INTO task_git_contexts (
+                    id,
+                    task_id,
+                    project_id,
+                    base_branch,
+                    task_branch,
+                    target_branch,
+                    worktree_path,
+                    state,
+                    context_version,
+                    created_at,
+                    updated_at
+                ) VALUES (
+                    $1, $2, $3, 'main', 'codex/task-task-1', 'main', $4, 'merge_ready', 1, '2026-04-17 00:00:00', '2026-04-17 00:00:00'
+                )
+                "#,
+            )
+            .bind("ctx-ssh-1")
+            .bind(&task.id)
+            .bind(&project.id)
+            .bind("/srv/demo/.codex-ai-worktrees/task-1")
+            .execute(&pool)
+            .await
+            .expect("insert ssh task git context");
+
+            sqlx::query(
+                r#"
+                INSERT INTO codex_sessions (
+                    id,
+                    task_id,
+                    project_id,
+                    task_git_context_id,
+                    working_dir,
+                    execution_target,
+                    artifact_capture_mode,
+                    session_kind,
+                    status,
+                    started_at,
+                    created_at
+                ) VALUES ($1, $2, $3, $4, $5, 'ssh', 'ssh_full', 'execution', 'exited', '2026-04-17 00:00:01', '2026-04-17 00:00:01')
+                "#,
+            )
+            .bind("exec-ssh-1")
+            .bind(&task.id)
+            .bind(&project.id)
+            .bind("ctx-ssh-1")
+            .bind("/srv/demo/.codex-ai-worktrees/task-1")
+            .execute(&pool)
+            .await
+            .expect("insert ssh execution session");
+
             let context = resolve_automation_execution_context(&pool, &task, &project)
                 .await
-                .expect("resolve remote repo path");
+                .expect("resolve remote execution worktree");
 
-            assert_eq!(context.working_dir, "/srv/demo");
-            assert!(context.task_git_context_id.is_none());
+            assert_eq!(context.working_dir, "/srv/demo/.codex-ai-worktrees/task-1");
+            assert_eq!(context.task_git_context_id.as_deref(), Some("ctx-ssh-1"));
 
             pool.close().await;
         });

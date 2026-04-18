@@ -1,7 +1,9 @@
 use std::collections::hash_map::DefaultHasher;
+#[cfg(test)]
 use std::fs;
 use std::hash::{Hash, Hasher};
 use std::path::Path;
+#[cfg(test)]
 use std::process::Command;
 
 use chrono::{Duration, Utc};
@@ -9,13 +11,17 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use sqlx::{FromRow, SqlitePool};
 use tauri::{AppHandle, Runtime};
+use tauri_plugin_opener::OpenerExt;
 use uuid::Uuid;
 
 use crate::app::{
     fetch_project_by_id, fetch_task_by_id, insert_activity_log, now_sqlite, sqlite_pool,
-    PROJECT_TYPE_LOCAL,
+    EXECUTION_TARGET_LOCAL, EXECUTION_TARGET_SSH, PROJECT_TYPE_SSH,
 };
 use crate::db::models::{Project, Task};
+use crate::git_runtime::{
+    self, GIT_RUNTIME_PROVIDER_SIMPLE_GIT, GIT_RUNTIME_STATUS_READY, GIT_RUNTIME_STATUS_UNAVAILABLE,
+};
 
 const SQLITE_DATETIME_FORMAT: &str = "%Y-%m-%d %H:%M:%S";
 const TASK_GIT_STATE_PROVISIONING: &str = "provisioning";
@@ -71,6 +77,7 @@ pub struct TaskGitContextSummary {
     pub pending_action_expires_at: Option<String>,
     pub last_reconciled_at: Option<String>,
     pub last_error: Option<String>,
+    pub worktree_missing: bool,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -93,6 +100,7 @@ impl From<TaskGitContextRecord> for TaskGitContextSummary {
             pending_action_expires_at: value.pending_action_expires_at,
             last_reconciled_at: value.last_reconciled_at,
             last_error: value.last_error,
+            worktree_missing: false,
             created_at: value.created_at,
             updated_at: value.updated_at,
         }
@@ -136,15 +144,45 @@ pub struct ProjectGitCommit {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProjectGitWorkingTreeChange {
+    pub path: String,
+    pub previous_path: Option<String>,
+    pub change_type: String,
+    pub can_open_file: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProjectGitFilePreview {
+    pub project_id: String,
+    pub relative_path: String,
+    pub previous_path: Option<String>,
+    pub absolute_path: Option<String>,
+    pub previous_absolute_path: Option<String>,
+    pub execution_target: String,
+    pub change_type: String,
+    pub before_status: String,
+    pub before_text: Option<String>,
+    pub before_truncated: bool,
+    pub after_status: String,
+    pub after_text: Option<String>,
+    pub after_truncated: bool,
+    pub message: Option<String>,
+ }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProjectGitOverview {
     pub project_id: String,
     pub repo_path: Option<String>,
     pub execution_target: String,
+    pub git_runtime_provider: String,
+    pub git_runtime_status: String,
+    pub git_runtime_message: Option<String>,
     pub default_branch: Option<String>,
     pub current_branch: Option<String>,
     pub project_branches: Vec<String>,
     pub head_commit_sha: Option<String>,
     pub working_tree_summary: Option<String>,
+    pub working_tree_changes: Vec<ProjectGitWorkingTreeChange>,
     pub refreshed_at: String,
     pub recent_commits: Vec<ProjectGitCommit>,
     pub active_contexts: Vec<TaskGitContextSummary>,
@@ -199,6 +237,14 @@ fn parse_token(token: &str) -> Result<(&str, &str), String> {
     Ok((nonce, signature))
 }
 
+#[derive(Clone, Debug)]
+struct GitProjectRuntimeContext {
+    repo_path: String,
+    execution_target: String,
+    ssh_config_id: Option<String>,
+}
+
+#[cfg(test)]
 fn run_git_text(repo_path: &str, args: &[&str]) -> Result<String, String> {
     let output = Command::new("git")
         .arg("-C")
@@ -217,6 +263,7 @@ fn run_git_text(repo_path: &str, args: &[&str]) -> Result<String, String> {
     Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
 }
 
+#[cfg(test)]
 fn run_git_command(repo_path: &str, args: &[&str]) -> Result<(), String> {
     let output = Command::new("git")
         .arg("-C")
@@ -235,7 +282,8 @@ fn run_git_command(repo_path: &str, args: &[&str]) -> Result<(), String> {
     Ok(())
 }
 
-fn git_ref_exists(repo_path: &str, full_ref: &str) -> bool {
+#[cfg(test)]
+fn git_ref_exists_local(repo_path: &str, full_ref: &str) -> bool {
     Command::new("git")
         .arg("-C")
         .arg(repo_path)
@@ -245,6 +293,7 @@ fn git_ref_exists(repo_path: &str, full_ref: &str) -> bool {
         .unwrap_or(false)
 }
 
+#[cfg(test)]
 fn ensure_git_repository(repo_path: &str) -> Result<(), String> {
     let git_dir = Path::new(repo_path).join(".git");
     if git_dir.exists() {
@@ -254,44 +303,107 @@ fn ensure_git_repository(repo_path: &str) -> Result<(), String> {
     }
 }
 
-fn ensure_local_project_repo(project: &Project) -> Result<String, String> {
-    if project.project_type != PROJECT_TYPE_LOCAL {
-        return Err("SSH 项目暂不支持自动 prepare task git context".to_string());
+fn resolve_project_runtime_context(project: &Project) -> Result<GitProjectRuntimeContext, String> {
+    match project.project_type.as_str() {
+        PROJECT_TYPE_SSH => {
+            let repo_path = project
+                .remote_repo_path
+                .clone()
+                .ok_or_else(|| "当前 SSH 项目未配置远程仓库目录".to_string())?;
+            let ssh_config_id = project
+                .ssh_config_id
+                .clone()
+                .ok_or_else(|| "当前 SSH 项目缺少 ssh_config_id".to_string())?;
+            Ok(GitProjectRuntimeContext {
+                repo_path,
+                execution_target: EXECUTION_TARGET_SSH.to_string(),
+                ssh_config_id: Some(ssh_config_id),
+            })
+        }
+        _ => {
+            let repo_path = project
+                .repo_path
+                .clone()
+                .ok_or_else(|| "当前项目未配置本地仓库目录".to_string())?;
+            #[cfg(test)]
+            ensure_git_repository(&repo_path)?;
+            Ok(GitProjectRuntimeContext {
+                repo_path,
+                execution_target: EXECUTION_TARGET_LOCAL.to_string(),
+                ssh_config_id: None,
+            })
+        }
     }
-    let repo_path = project
-        .repo_path
-        .clone()
-        .ok_or_else(|| "当前项目未配置本地仓库目录".to_string())?;
-    ensure_git_repository(&repo_path)?;
-    Ok(repo_path)
 }
 
-fn determine_default_branch(repo_path: &str) -> Result<String, String> {
-    if let Ok(value) = run_git_text(
-        repo_path,
-        &["symbolic-ref", "refs/remotes/origin/HEAD", "--short"],
-    ) {
-        let branch = value.rsplit('/').next().unwrap_or(value.as_str()).trim();
-        if !branch.is_empty() {
-            return Ok(branch.to_string());
+async fn git_ref_exists<R: Runtime>(
+    app: &AppHandle<R>,
+    runtime: &GitProjectRuntimeContext,
+    full_ref: &str,
+) -> Result<bool, String> {
+    #[cfg(test)]
+    {
+        if runtime.execution_target == EXECUTION_TARGET_LOCAL {
+            return Ok(git_ref_exists_local(&runtime.repo_path, full_ref));
         }
     }
 
-    if let Ok(branch) = run_git_text(repo_path, &["rev-parse", "--abbrev-ref", "HEAD"]) {
-        let branch = branch.trim();
-        if !branch.is_empty() && branch != "HEAD" {
-            return Ok(branch.to_string());
+    git_runtime::git_ref_exists(
+        app,
+        &runtime.execution_target,
+        runtime.ssh_config_id.as_deref(),
+        &runtime.repo_path,
+        full_ref,
+    )
+    .await
+}
+
+async fn determine_default_branch<R: Runtime>(
+    app: &AppHandle<R>,
+    runtime: &GitProjectRuntimeContext,
+) -> Result<String, String> {
+    #[cfg(test)]
+    {
+        if runtime.execution_target == EXECUTION_TARGET_LOCAL {
+            if let Ok(value) = run_git_text(
+                &runtime.repo_path,
+                &["symbolic-ref", "refs/remotes/origin/HEAD", "--short"],
+            ) {
+                let branch = value.rsplit('/').next().unwrap_or(value.as_str()).trim();
+                if !branch.is_empty() {
+                    return Ok(branch.to_string());
+                }
+            }
+
+            if let Ok(branch) =
+                run_git_text(&runtime.repo_path, &["rev-parse", "--abbrev-ref", "HEAD"])
+            {
+                let branch = branch.trim();
+                if !branch.is_empty() && branch != "HEAD" {
+                    return Ok(branch.to_string());
+                }
+            }
+
+            if git_ref_exists_local(&runtime.repo_path, "refs/heads/main") {
+                return Ok("main".to_string());
+            }
+            if git_ref_exists_local(&runtime.repo_path, "refs/heads/master") {
+                return Ok("master".to_string());
+            }
+
+            return Err("无法解析默认目标分支".to_string());
         }
     }
 
-    if git_ref_exists(repo_path, "refs/heads/main") {
-        return Ok("main".to_string());
-    }
-    if git_ref_exists(repo_path, "refs/heads/master") {
-        return Ok("master".to_string());
-    }
-
-    Err("无法解析默认目标分支".to_string())
+    Ok(git_runtime::collect_git_overview(
+        app,
+        &runtime.execution_target,
+        runtime.ssh_config_id.as_deref(),
+        &runtime.repo_path,
+        1,
+    )
+    .await?
+    .default_branch)
 }
 
 fn sanitize_git_fragment(value: &str) -> String {
@@ -334,179 +446,121 @@ fn build_worktree_path(repo_path: &str, task_id: &str) -> Result<String, String>
     Ok(path.to_string_lossy().to_string())
 }
 
-fn context_is_healthy(repo_path: &str, context: &TaskGitContextRecord) -> bool {
-    if !git_ref_exists(repo_path, &format!("refs/heads/{}", context.task_branch)) {
+async fn context_is_healthy<R: Runtime>(
+    app: &AppHandle<R>,
+    runtime: &GitProjectRuntimeContext,
+    context: &TaskGitContextRecord,
+) -> bool {
+    let branch_exists =
+        match git_ref_exists(app, runtime, &format!("refs/heads/{}", context.task_branch)).await {
+            Ok(value) => value,
+            Err(_) => false,
+        };
+    if !branch_exists {
         return false;
     }
-    let worktree = Path::new(&context.worktree_path);
-    worktree.exists() && worktree.join(".git").exists()
+    let worktree_runtime = GitProjectRuntimeContext {
+        repo_path: context.worktree_path.clone(),
+        execution_target: runtime.execution_target.clone(),
+        ssh_config_id: runtime.ssh_config_id.clone(),
+    };
+    determine_default_branch(app, &worktree_runtime)
+        .await
+        .is_ok()
 }
 
-fn ensure_task_branch(
-    repo_path: &str,
+async fn ensure_task_branch_for_runtime<R: Runtime>(
+    app: &AppHandle<R>,
+    runtime: &GitProjectRuntimeContext,
     task_branch: &str,
     target_branch: &str,
 ) -> Result<(), String> {
-    let full_ref = format!("refs/heads/{task_branch}");
-    if git_ref_exists(repo_path, &full_ref) {
-        return Ok(());
+    #[cfg(test)]
+    {
+        if runtime.execution_target == EXECUTION_TARGET_LOCAL {
+            let full_ref = format!("refs/heads/{task_branch}");
+            if git_ref_exists_local(&runtime.repo_path, &full_ref) {
+                return Ok(());
+            }
+            return run_git_command(&runtime.repo_path, &["branch", task_branch, target_branch]);
+        }
     }
-    run_git_command(repo_path, &["branch", task_branch, target_branch])
+
+    git_runtime::ensure_task_branch(
+        app,
+        &runtime.execution_target,
+        runtime.ssh_config_id.as_deref(),
+        &runtime.repo_path,
+        task_branch,
+        target_branch,
+    )
+    .await
 }
 
-fn ensure_task_worktree(
-    repo_path: &str,
+async fn ensure_task_worktree_for_runtime<R: Runtime>(
+    app: &AppHandle<R>,
+    runtime: &GitProjectRuntimeContext,
     worktree_path: &str,
     task_branch: &str,
 ) -> Result<(), String> {
-    let worktree = Path::new(worktree_path);
-    if worktree.join(".git").exists() {
-        return Ok(());
-    }
-    if worktree.exists() {
-        let is_empty = fs::read_dir(worktree)
-            .map_err(|error| format!("读取 worktree 目录失败: {}", error))?
-            .next()
-            .is_none();
-        if !is_empty {
-            return Err(format!("worktree 目录已存在且非空：{}", worktree_path));
+    #[cfg(test)]
+    {
+        if runtime.execution_target == EXECUTION_TARGET_LOCAL {
+            let worktree = Path::new(worktree_path);
+            if worktree.join(".git").exists() {
+                return Ok(());
+            }
+            if worktree.exists() {
+                let is_empty = fs::read_dir(worktree)
+                    .map_err(|error| format!("读取 worktree 目录失败: {}", error))?
+                    .next()
+                    .is_none();
+                if !is_empty {
+                    return Err(format!("worktree 目录已存在且非空：{}", worktree_path));
+                }
+            } else if let Some(parent) = worktree.parent() {
+                fs::create_dir_all(parent)
+                    .map_err(|error| format!("创建 worktree 父目录失败: {}", error))?;
+            }
+            return run_git_command(
+                &runtime.repo_path,
+                &["worktree", "add", worktree_path, task_branch],
+            );
         }
-    } else if let Some(parent) = worktree.parent() {
-        fs::create_dir_all(parent)
-            .map_err(|error| format!("创建 worktree 父目录失败: {}", error))?;
     }
-    run_git_command(repo_path, &["worktree", "add", worktree_path, task_branch])
+
+    git_runtime::ensure_task_worktree(
+        app,
+        &runtime.execution_target,
+        runtime.ssh_config_id.as_deref(),
+        &runtime.repo_path,
+        worktree_path,
+        task_branch,
+    )
+    .await
 }
 
-fn current_head_commit(repo_path: &str, revision: &str) -> Result<String, String> {
-    run_git_text(repo_path, &["rev-parse", revision])
-}
-
-fn current_branch(repo_path: &str) -> Result<Option<String>, String> {
-    let branch = run_git_text(repo_path, &["rev-parse", "--abbrev-ref", "HEAD"])?;
-    if branch.trim().is_empty() || branch.trim() == "HEAD" {
-        Ok(None)
-    } else {
-        Ok(Some(branch))
+async fn current_head_commit<R: Runtime>(
+    app: &AppHandle<R>,
+    runtime: &GitProjectRuntimeContext,
+    repo_path: &str,
+    revision: &str,
+) -> Result<String, String> {
+    #[cfg(test)]
+    {
+        if runtime.execution_target == EXECUTION_TARGET_LOCAL {
+            return run_git_text(repo_path, &["rev-parse", revision]);
+        }
     }
-}
 
-fn list_local_branches(repo_path: &str) -> Result<Vec<String>, String> {
-    let output = run_git_text(
+    git_runtime::rev_parse(
+        app,
+        &runtime.execution_target,
+        runtime.ssh_config_id.as_deref(),
         repo_path,
-        &["for-each-ref", "--format=%(refname:short)", "refs/heads"],
-    )?;
-
-    if output.trim().is_empty() {
-        return Ok(Vec::new());
-    }
-
-    let mut branches = Vec::new();
-    for line in output.lines() {
-        let branch = line.trim();
-        if branch.is_empty() || branches.iter().any(|existing| existing == branch) {
-            continue;
-        }
-        branches.push(branch.to_string());
-    }
-
-    Ok(branches)
-}
-
-fn summarize_working_tree(repo_path: &str) -> Result<Option<String>, String> {
-    let status = run_git_text(repo_path, &["status", "--short"])?;
-    if status.trim().is_empty() {
-        return Ok(None);
-    }
-
-    let mut modified = 0;
-    let mut added = 0;
-    let mut deleted = 0;
-    let mut renamed = 0;
-    let mut untracked = 0;
-    let mut total = 0;
-
-    for line in status.lines() {
-        let code = line.get(0..2).unwrap_or("").trim();
-        if code.is_empty() {
-            continue;
-        }
-        total += 1;
-        if code == "??" {
-            untracked += 1;
-            continue;
-        }
-        if code.contains('M') {
-            modified += 1;
-        }
-        if code.contains('A') {
-            added += 1;
-        }
-        if code.contains('D') {
-            deleted += 1;
-        }
-        if code.contains('R') {
-            renamed += 1;
-        }
-    }
-
-    let mut parts = Vec::new();
-    if modified > 0 {
-        parts.push(format!("修改 {modified}"));
-    }
-    if added > 0 {
-        parts.push(format!("新增 {added}"));
-    }
-    if deleted > 0 {
-        parts.push(format!("删除 {deleted}"));
-    }
-    if renamed > 0 {
-        parts.push(format!("重命名 {renamed}"));
-    }
-    if untracked > 0 {
-        parts.push(format!("未跟踪 {untracked}"));
-    }
-
-    Ok(Some(format!("共 {total} 项变更（{}）", parts.join("，"))))
-}
-
-fn recent_commits(repo_path: &str, limit: usize) -> Result<Vec<ProjectGitCommit>, String> {
-    let limit_value = limit.to_string();
-    let output = run_git_text(
-        repo_path,
-        &[
-            "log",
-            "--format=%H%x1f%h%x1f%s%x1f%an%x1f%ad",
-            "--date=format:%Y-%m-%d %H:%M:%S",
-            "-n",
-            limit_value.as_str(),
-        ],
-    )?;
-
-    if output.trim().is_empty() {
-        return Ok(Vec::new());
-    }
-
-    let commits = output
-        .lines()
-        .filter_map(|line| {
-            let mut parts = line.split('\u{1f}');
-            let sha = parts.next()?.trim().to_string();
-            let short_sha = parts.next()?.trim().to_string();
-            let subject = parts.next()?.trim().to_string();
-            let author_name = parts.next()?.trim().to_string();
-            let authored_at = parts.next()?.trim().to_string();
-            Some(ProjectGitCommit {
-                sha,
-                short_sha,
-                subject,
-                author_name,
-                authored_at,
-            })
-        })
-        .collect::<Vec<_>>();
-
-    Ok(commits)
+        revision,
+    )
+    .await
 }
 
 async fn fetch_task_git_context_by_id(
@@ -652,6 +706,79 @@ async fn save_task_git_context(
     fetch_task_git_context_by_id(pool, &context.id).await
 }
 
+async fn delete_task_git_context(
+    pool: &SqlitePool,
+    task_git_context_id: &str,
+) -> Result<(), String> {
+    sqlx::query("DELETE FROM task_git_contexts WHERE id = $1")
+        .bind(task_git_context_id)
+        .execute(pool)
+        .await
+        .map_err(|error| {
+            format!(
+                "删除 Task git context {} 失败: {}",
+                task_git_context_id, error
+            )
+        })?;
+    Ok(())
+}
+
+async fn worktree_path_exists<R: Runtime>(
+    app: &AppHandle<R>,
+    runtime: &GitProjectRuntimeContext,
+    worktree_path: &str,
+) -> bool {
+    if runtime.execution_target == EXECUTION_TARGET_LOCAL {
+        return Path::new(worktree_path).exists();
+    }
+
+    git_runtime::path_exists(
+        app,
+        &runtime.execution_target,
+        runtime.ssh_config_id.as_deref(),
+        &runtime.repo_path,
+        worktree_path,
+    )
+    .await
+    .unwrap_or(false)
+}
+
+async fn summarize_task_git_context<R: Runtime>(
+    app: &AppHandle<R>,
+    runtime: Option<&GitProjectRuntimeContext>,
+    value: TaskGitContextRecord,
+) -> TaskGitContextSummary {
+    let mut summary = TaskGitContextSummary::from(value);
+    if let Some(runtime) = runtime {
+        summary.worktree_missing =
+            !worktree_path_exists(app, runtime, &summary.worktree_path).await;
+    }
+    summary
+}
+
+fn can_open_repo_file_locally(repo_path: &str, relative_path: &str) -> bool {
+    let candidate = Path::new(repo_path).join(relative_path);
+    candidate.is_file()
+}
+
+fn build_working_tree_changes(
+    repo_path: &str,
+    execution_target: &str,
+    changes: Vec<git_runtime::GitRuntimeChange>,
+) -> Vec<ProjectGitWorkingTreeChange> {
+    changes
+        .into_iter()
+        .map(|change| ProjectGitWorkingTreeChange {
+            can_open_file: change.change_type != "deleted"
+                && (execution_target != EXECUTION_TARGET_LOCAL
+                    || can_open_repo_file_locally(repo_path, &change.path)),
+            path: change.path,
+            previous_path: change.previous_path,
+            change_type: change.change_type,
+        })
+        .collect()
+}
+
 fn summarize_prepared(context: &TaskGitContextRecord) -> PreparedTaskGitExecution {
     PreparedTaskGitExecution {
         task_git_context_id: context.id.clone(),
@@ -753,6 +880,10 @@ fn normalize_action_type(value: &str) -> Result<&'static str, String> {
     }
 }
 
+fn action_allows_drifted_context(action_type: &str) -> bool {
+    action_type == "cleanup_worktree"
+}
+
 fn normalize_git_action_payload(
     action_type: &str,
     context: &TaskGitContextRecord,
@@ -800,137 +931,167 @@ fn normalize_git_action_payload(
         .map_err(|error| format!("序列化规范化 payload 失败: {}", error))
 }
 
-fn execute_normalized_action(
+async fn execute_normalized_action<R: Runtime>(
+    app: &AppHandle<R>,
+    runtime: &GitProjectRuntimeContext,
     repo_path: &str,
     context: &TaskGitContextRecord,
     action_type: &str,
     normalized_payload_json: &str,
 ) -> Result<String, String> {
-    let payload: Value = serde_json::from_str(normalized_payload_json)
-        .map_err(|error| format!("解析规范化 payload 失败: {}", error))?;
-    let map = payload_object(&payload)?;
-    match action_type {
-        "merge" => {
-            let target_branch = payload_string(map, "target_branch")
-                .ok_or_else(|| "merge 缺少 target_branch".to_string())?;
-            let strategy = payload_string(map, "strategy").unwrap_or_else(|| "ort".to_string());
-            let allow_ff = payload_bool(map, "allow_ff", true);
-            let mut args = vec!["merge"];
-            if !allow_ff {
-                args.push("--no-ff");
-            }
-            let strategy_arg = format!("--strategy={strategy}");
-            args.push(strategy_arg.as_str());
-            args.push(target_branch.as_str());
-            run_git_command(&context.worktree_path, &args)?;
-            Ok(format!("已在任务分支合并目标分支 {}", target_branch))
+    #[cfg(test)]
+    {
+        if runtime.execution_target == EXECUTION_TARGET_LOCAL {
+            let payload: Value = serde_json::from_str(normalized_payload_json)
+                .map_err(|error| format!("解析规范化 payload 失败: {}", error))?;
+            let map = payload_object(&payload)?;
+            return match action_type {
+                "merge" => {
+                    let target_branch = payload_string(map, "target_branch")
+                        .ok_or_else(|| "merge 缺少 target_branch".to_string())?;
+                    let strategy =
+                        payload_string(map, "strategy").unwrap_or_else(|| "ort".to_string());
+                    let allow_ff = payload_bool(map, "allow_ff", true);
+                    let mut args = vec!["merge"];
+                    if !allow_ff {
+                        args.push("--no-ff");
+                    }
+                    let strategy_arg = format!("--strategy={strategy}");
+                    args.push(strategy_arg.as_str());
+                    args.push(target_branch.as_str());
+                    run_git_command(&context.worktree_path, &args)?;
+                    Ok(format!("已在任务分支合并目标分支 {}", target_branch))
+                }
+                "push" => {
+                    let remote_name = payload_string(map, "remote_name")
+                        .ok_or_else(|| "push 缺少 remote_name".to_string())?;
+                    let source_branch = payload_string(map, "source_branch")
+                        .ok_or_else(|| "push 缺少 source_branch".to_string())?;
+                    let target_ref = payload_string(map, "target_ref")
+                        .ok_or_else(|| "push 缺少 target_ref".to_string())?;
+                    let force_mode =
+                        payload_string(map, "force_mode").unwrap_or_else(|| "none".to_string());
+                    let mut args = vec!["push"];
+                    if force_mode == "force" {
+                        args.push("--force");
+                    } else if force_mode == "force_with_lease" {
+                        args.push("--force-with-lease");
+                    }
+                    args.push(remote_name.as_str());
+                    let refspec = format!("{source_branch}:{target_ref}");
+                    args.push(refspec.as_str());
+                    run_git_command(&context.worktree_path, &args)?;
+                    Ok(format!("已推送 {} 到 {}", source_branch, target_ref))
+                }
+                "rebase" => {
+                    let onto_branch = payload_string(map, "onto_branch")
+                        .ok_or_else(|| "rebase 缺少 onto_branch".to_string())?;
+                    let auto_stash = payload_bool(map, "auto_stash", false);
+                    let mut args = vec!["rebase"];
+                    if auto_stash {
+                        args.push("--autostash");
+                    }
+                    args.push(onto_branch.as_str());
+                    run_git_command(&context.worktree_path, &args)?;
+                    Ok(format!("已将任务分支 rebase 到 {}", onto_branch))
+                }
+                "cherry_pick" => {
+                    let commit_ids = payload_string_array(map, "commit_ids")?;
+                    if commit_ids.is_empty() {
+                        return Err("cherry_pick 缺少 commit_ids".to_string());
+                    }
+                    let mut args = vec!["cherry-pick"];
+                    for commit_id in &commit_ids {
+                        args.push(commit_id.as_str());
+                    }
+                    run_git_command(&context.worktree_path, &args)?;
+                    Ok("已完成 cherry-pick".to_string())
+                }
+                "stash" => {
+                    let include_untracked = payload_bool(map, "include_untracked", false);
+                    let message = payload_string(map, "message");
+                    let mut args = vec!["stash", "push"];
+                    if include_untracked {
+                        args.push("--include-untracked");
+                    }
+                    if let Some(message) = message.as_deref() {
+                        args.push("-m");
+                        args.push(message);
+                    }
+                    run_git_command(&context.worktree_path, &args)?;
+                    Ok("已创建 stash".to_string())
+                }
+                "unstash" => {
+                    let stash_ref =
+                        payload_string(map, "stash_ref").unwrap_or_else(|| "stash@{0}".to_string());
+                    run_git_command(
+                        &context.worktree_path,
+                        &["stash", "pop", stash_ref.as_str()],
+                    )?;
+                    Ok(format!("已恢复 {}", stash_ref))
+                }
+                "cleanup_worktree" => {
+                    let delete_branch = payload_bool(map, "delete_branch", false);
+                    let prune_worktree = payload_bool(map, "prune_worktree", true);
+                    run_git_command(
+                        repo_path,
+                        &[
+                            "worktree",
+                            "remove",
+                            context.worktree_path.as_str(),
+                            "--force",
+                        ],
+                    )?;
+                    if delete_branch
+                        && git_ref_exists_local(
+                            repo_path,
+                            &format!("refs/heads/{}", context.task_branch),
+                        )
+                    {
+                        run_git_command(
+                            repo_path,
+                            &["branch", "-D", context.task_branch.as_str()],
+                        )?;
+                    }
+                    if prune_worktree {
+                        run_git_command(repo_path, &["worktree", "prune"])?;
+                    }
+                    Ok("已清理任务 worktree".to_string())
+                }
+                _ => Err("不支持的 git action".to_string()),
+            };
         }
-        "push" => {
-            let remote_name = payload_string(map, "remote_name")
-                .ok_or_else(|| "push 缺少 remote_name".to_string())?;
-            let source_branch = payload_string(map, "source_branch")
-                .ok_or_else(|| "push 缺少 source_branch".to_string())?;
-            let target_ref = payload_string(map, "target_ref")
-                .ok_or_else(|| "push 缺少 target_ref".to_string())?;
-            let force_mode =
-                payload_string(map, "force_mode").unwrap_or_else(|| "none".to_string());
-            let mut args = vec!["push"];
-            if force_mode == "force" {
-                args.push("--force");
-            } else if force_mode == "force_with_lease" {
-                args.push("--force-with-lease");
-            }
-            args.push(remote_name.as_str());
-            let refspec = format!("{source_branch}:{target_ref}");
-            args.push(refspec.as_str());
-            run_git_command(&context.worktree_path, &args)?;
-            Ok(format!("已推送 {} 到 {}", source_branch, target_ref))
-        }
-        "rebase" => {
-            let onto_branch = payload_string(map, "onto_branch")
-                .ok_or_else(|| "rebase 缺少 onto_branch".to_string())?;
-            let auto_stash = payload_bool(map, "auto_stash", false);
-            let mut args = vec!["rebase"];
-            if auto_stash {
-                args.push("--autostash");
-            }
-            args.push(onto_branch.as_str());
-            run_git_command(&context.worktree_path, &args)?;
-            Ok(format!("已将任务分支 rebase 到 {}", onto_branch))
-        }
-        "cherry_pick" => {
-            let commit_ids = payload_string_array(map, "commit_ids")?;
-            if commit_ids.is_empty() {
-                return Err("cherry_pick 缺少 commit_ids".to_string());
-            }
-            let mut args = vec!["cherry-pick"];
-            let owned = commit_ids;
-            for commit_id in &owned {
-                args.push(commit_id.as_str());
-            }
-            run_git_command(&context.worktree_path, &args)?;
-            Ok("已完成 cherry-pick".to_string())
-        }
-        "stash" => {
-            let include_untracked = payload_bool(map, "include_untracked", false);
-            let message = payload_string(map, "message");
-            let mut args = vec!["stash", "push"];
-            if include_untracked {
-                args.push("--include-untracked");
-            }
-            if let Some(message) = message.as_deref() {
-                args.push("-m");
-                args.push(message);
-            }
-            run_git_command(&context.worktree_path, &args)?;
-            Ok("已创建 stash".to_string())
-        }
-        "unstash" => {
-            let stash_ref =
-                payload_string(map, "stash_ref").unwrap_or_else(|| "stash@{0}".to_string());
-            run_git_command(
-                &context.worktree_path,
-                &["stash", "pop", stash_ref.as_str()],
-            )?;
-            Ok(format!("已恢复 {}", stash_ref))
-        }
-        "cleanup_worktree" => {
-            let delete_branch = payload_bool(map, "delete_branch", false);
-            let prune_worktree = payload_bool(map, "prune_worktree", true);
-            run_git_command(
-                repo_path,
-                &[
-                    "worktree",
-                    "remove",
-                    context.worktree_path.as_str(),
-                    "--force",
-                ],
-            )?;
-            if delete_branch
-                && git_ref_exists(repo_path, &format!("refs/heads/{}", context.task_branch))
-            {
-                run_git_command(repo_path, &["branch", "-D", context.task_branch.as_str()])?;
-            }
-            if prune_worktree {
-                run_git_command(repo_path, &["worktree", "prune"])?;
-            }
-            Ok("已清理任务 worktree".to_string())
-        }
-        _ => Err("不支持的 git action".to_string()),
     }
+
+    git_runtime::execute_action(
+        app,
+        &runtime.execution_target,
+        runtime.ssh_config_id.as_deref(),
+        repo_path,
+        &context.worktree_path,
+        &context.task_branch,
+        action_type,
+        normalized_payload_json,
+    )
+    .await
 }
 
-async fn update_context_after_prepare(
+async fn update_context_after_prepare<R: Runtime>(
+    app: &AppHandle<R>,
     pool: &SqlitePool,
     task: &Task,
     project: &Project,
     preferred_target_branch: Option<String>,
 ) -> Result<TaskGitContextRecord, String> {
-    let repo_path = ensure_local_project_repo(project)?;
-    let target_branch = preferred_target_branch.unwrap_or(determine_default_branch(&repo_path)?);
+    let runtime = resolve_project_runtime_context(project)?;
+    let target_branch = match preferred_target_branch {
+        Some(branch) => branch,
+        None => determine_default_branch(app, &runtime).await?,
+    };
     let task_branch = build_task_branch(&task.id);
-    let worktree_path = build_worktree_path(&repo_path, &task.id)?;
-    let head_commit = current_head_commit(&repo_path, &target_branch)?;
+    let worktree_path = build_worktree_path(&runtime.repo_path, &task.id)?;
+    let head_commit =
+        current_head_commit(app, &runtime, &runtime.repo_path, &target_branch).await?;
 
     if let Some(mut existing) = fetch_task_git_context_by_task_id(pool, &task.id).await? {
         if existing.target_branch != target_branch {
@@ -939,12 +1100,24 @@ async fn update_context_after_prepare(
                 existing.target_branch, target_branch
             ));
         }
-        if context_is_healthy(&repo_path, &existing) {
+        if context_is_healthy(app, &runtime, &existing).await {
             return Ok(existing);
         }
 
-        ensure_task_branch(&repo_path, &existing.task_branch, &existing.target_branch)?;
-        ensure_task_worktree(&repo_path, &existing.worktree_path, &existing.task_branch)?;
+        ensure_task_branch_for_runtime(
+            app,
+            &runtime,
+            &existing.task_branch,
+            &existing.target_branch,
+        )
+        .await?;
+        ensure_task_worktree_for_runtime(
+            app,
+            &runtime,
+            &existing.worktree_path,
+            &existing.task_branch,
+        )
+        .await?;
         existing.base_branch = existing.target_branch.clone();
         existing.repo_head_commit_at_prepare = Some(head_commit);
         existing.last_reconciled_at = Some(now_sqlite());
@@ -966,8 +1139,8 @@ async fn update_context_after_prepare(
         return Ok(saved);
     }
 
-    ensure_task_branch(&repo_path, &task_branch, &target_branch)?;
-    ensure_task_worktree(&repo_path, &worktree_path, &task_branch)?;
+    ensure_task_branch_for_runtime(app, &runtime, &task_branch, &target_branch).await?;
+    ensure_task_worktree_for_runtime(app, &runtime, &worktree_path, &task_branch).await?;
 
     let now = now_sqlite();
     let record = TaskGitContextRecord {
@@ -1010,7 +1183,7 @@ async fn update_context_after_prepare(
         }
         Err(error) => {
             if let Some(mut existing) = fetch_task_git_context_by_task_id(pool, &task.id).await? {
-                if context_is_healthy(&repo_path, &existing) {
+                if context_is_healthy(app, &runtime, &existing).await {
                     return Ok(existing);
                 }
                 existing.state = TASK_GIT_STATE_FAILED.to_string();
@@ -1035,24 +1208,25 @@ async fn update_context_after_prepare(
     }
 }
 
-async fn refresh_context_state(
+async fn refresh_context_state<R: Runtime>(
+    app: &AppHandle<R>,
     pool: &SqlitePool,
     context: &mut TaskGitContextRecord,
-    repo_path: &str,
+    runtime: &GitProjectRuntimeContext,
 ) -> Result<TaskGitContextRecord, String> {
-    if context_is_healthy(repo_path, context) {
+    if context_is_healthy(app, runtime, context).await {
         return Ok(context.clone());
     }
     context.state = TASK_GIT_STATE_DRIFTED.to_string();
     context.context_version += 1;
-    context.last_error = Some("检测到 worktree 或任务分支已漂移".to_string());
+    context.last_error = Some("检测到任务工作树或任务分支状态异常".to_string());
     clear_pending_action_fields(context);
     context.updated_at = now_sqlite();
     let saved = save_task_git_context(pool, context).await?;
     insert_activity_log(
         pool,
         "task_git_context_drift_detected",
-        "检测到任务 worktree / branch 漂移",
+        "检测到任务工作树或任务分支状态异常",
         None,
         Some(&saved.task_id),
         Some(&saved.project_id),
@@ -1168,60 +1342,132 @@ pub async fn get_project_git_overview<R: Runtime>(
     .await
     .map_err(|error| format!("查询项目 Git 上下文失败: {}", error))?;
 
-    let active_contexts = rows
-        .iter()
-        .filter(|row| row.state != TASK_GIT_STATE_COMPLETED)
-        .cloned()
-        .map(TaskGitContextSummary::from)
-        .collect::<Vec<_>>();
-    let pending_action_contexts = rows
-        .iter()
-        .filter(|row| {
-            row.pending_action_type.is_some() || row.state == TASK_GIT_STATE_ACTION_PENDING
-        })
-        .cloned()
-        .map(TaskGitContextSummary::from)
-        .collect::<Vec<_>>();
+    let runtime = match resolve_project_runtime_context(&project) {
+        Ok(runtime) => runtime,
+        Err(error) => {
+            let active_contexts = rows
+                .iter()
+                .filter(|row| row.state != TASK_GIT_STATE_COMPLETED)
+                .cloned()
+                .map(TaskGitContextSummary::from)
+                .collect::<Vec<_>>();
+            let pending_action_contexts = rows
+                .iter()
+                .filter(|row| {
+                    row.pending_action_type.is_some() || row.state == TASK_GIT_STATE_ACTION_PENDING
+                })
+                .cloned()
+                .map(TaskGitContextSummary::from)
+                .collect::<Vec<_>>();
+            return Ok(ProjectGitOverview {
+                project_id: project.id,
+                repo_path: project.repo_path.or(project.remote_repo_path),
+                execution_target: if project.project_type == PROJECT_TYPE_SSH {
+                    EXECUTION_TARGET_SSH.to_string()
+                } else {
+                    EXECUTION_TARGET_LOCAL.to_string()
+                },
+                git_runtime_provider: GIT_RUNTIME_PROVIDER_SIMPLE_GIT.to_string(),
+                git_runtime_status: GIT_RUNTIME_STATUS_UNAVAILABLE.to_string(),
+                git_runtime_message: Some(error),
+                default_branch: None,
+                current_branch: None,
+                project_branches: Vec::new(),
+                head_commit_sha: None,
+                working_tree_summary: None,
+                working_tree_changes: Vec::new(),
+                refreshed_at: now_sqlite(),
+                recent_commits: Vec::new(),
+                active_contexts,
+                pending_action_contexts,
+            });
+        }
+    };
+    let mut active_contexts = Vec::new();
+    let mut pending_action_contexts = Vec::new();
+    for row in rows {
+        let is_active = row.state != TASK_GIT_STATE_COMPLETED;
+        let is_pending =
+            row.pending_action_type.is_some() || row.state == TASK_GIT_STATE_ACTION_PENDING;
+        let summary = summarize_task_git_context(&app, Some(&runtime), row).await;
+        if is_active {
+            active_contexts.push(summary.clone());
+        }
+        if is_pending {
+            pending_action_contexts.push(summary);
+        }
+    }
 
-    if project.project_type != PROJECT_TYPE_LOCAL {
-        return Ok(ProjectGitOverview {
+    match git_runtime::collect_git_overview(
+        &app,
+        &runtime.execution_target,
+        runtime.ssh_config_id.as_deref(),
+        &runtime.repo_path,
+        5,
+    )
+    .await
+    {
+        Ok(overview) => {
+            let working_tree_changes = git_runtime::collect_status_changes(
+                &app,
+                &runtime.execution_target,
+                runtime.ssh_config_id.as_deref(),
+                &runtime.repo_path,
+            )
+            .await
+            .map(|changes| {
+                build_working_tree_changes(&runtime.repo_path, &runtime.execution_target, changes)
+            })
+            .unwrap_or_default();
+
+            Ok(ProjectGitOverview {
+                project_id: project.id,
+                repo_path: Some(runtime.repo_path),
+                execution_target: runtime.execution_target,
+                git_runtime_provider: GIT_RUNTIME_PROVIDER_SIMPLE_GIT.to_string(),
+                git_runtime_status: GIT_RUNTIME_STATUS_READY.to_string(),
+                git_runtime_message: None,
+                default_branch: Some(overview.default_branch),
+                current_branch: overview.current_branch,
+                project_branches: overview.project_branches,
+                head_commit_sha: Some(overview.head_commit_sha),
+                working_tree_summary: overview.working_tree_summary,
+                working_tree_changes,
+                refreshed_at: now_sqlite(),
+                recent_commits: overview
+                    .recent_commits
+                    .into_iter()
+                    .map(|commit| ProjectGitCommit {
+                        sha: commit.sha,
+                        short_sha: commit.short_sha,
+                        subject: commit.subject,
+                        author_name: commit.author_name,
+                        authored_at: commit.authored_at,
+                    })
+                    .collect(),
+                active_contexts,
+                pending_action_contexts,
+            })
+        }
+        Err(error) => Ok(ProjectGitOverview {
             project_id: project.id,
-            repo_path: project.remote_repo_path,
-            execution_target: "ssh".to_string(),
+            repo_path: Some(runtime.repo_path),
+            execution_target: runtime.execution_target,
+            git_runtime_provider: GIT_RUNTIME_PROVIDER_SIMPLE_GIT.to_string(),
+            git_runtime_status: GIT_RUNTIME_STATUS_UNAVAILABLE.to_string(),
+            git_runtime_message: Some(error),
             default_branch: None,
             current_branch: None,
             project_branches: Vec::new(),
             head_commit_sha: None,
-            working_tree_summary: Some("SSH v1 暂不支持实时 Git 查询".to_string()),
+            working_tree_summary: None,
+            working_tree_changes: Vec::new(),
             refreshed_at: now_sqlite(),
             recent_commits: Vec::new(),
             active_contexts,
             pending_action_contexts,
-        });
+        }),
     }
-
-    let repo_path = ensure_local_project_repo(&project)?;
-    let default_branch = Some(determine_default_branch(&repo_path)?);
-    let current_branch = current_branch(&repo_path)?;
-    let project_branches = list_local_branches(&repo_path)?;
-    let head_commit_sha = Some(current_head_commit(&repo_path, "HEAD")?);
-    let working_tree_summary = summarize_working_tree(&repo_path)?;
-    let recent_commits = recent_commits(&repo_path, 5)?;
-
-    Ok(ProjectGitOverview {
-        project_id: project.id,
-        repo_path: Some(repo_path),
-        execution_target: "local".to_string(),
-        default_branch,
-        current_branch,
-        project_branches,
-        head_commit_sha,
-        working_tree_summary,
-        refreshed_at: now_sqlite(),
-        recent_commits,
-        active_contexts,
-        pending_action_contexts,
-    })
 }
 
 #[tauri::command]
@@ -1230,6 +1476,8 @@ pub async fn list_task_git_contexts<R: Runtime>(
     project_id: String,
 ) -> Result<Vec<TaskGitContextSummary>, String> {
     let pool = sqlite_pool(&app).await?;
+    let project = fetch_project_by_id(&pool, &project_id).await?;
+    let runtime = resolve_project_runtime_context(&project).ok();
     let rows = sqlx::query_as::<_, TaskGitContextRecord>(
         "SELECT * FROM task_git_contexts WHERE project_id = $1 ORDER BY updated_at DESC, created_at DESC",
     )
@@ -1237,7 +1485,11 @@ pub async fn list_task_git_contexts<R: Runtime>(
     .fetch_all(&pool)
     .await
     .map_err(|error| format!("查询 task git contexts 失败: {}", error))?;
-    Ok(rows.into_iter().map(TaskGitContextSummary::from).collect())
+    let mut summaries = Vec::with_capacity(rows.len());
+    for row in rows {
+        summaries.push(summarize_task_git_context(&app, runtime.as_ref(), row).await);
+    }
+    Ok(summaries)
 }
 
 #[tauri::command]
@@ -1253,7 +1505,14 @@ pub async fn get_task_git_context<R: Runtime>(
     .fetch_optional(&pool)
     .await
     .map_err(|error| format!("查询 task git context 失败: {}", error))?;
-    Ok(row.map(TaskGitContextSummary::from))
+    let Some(row) = row else {
+        return Ok(None);
+    };
+    let project = fetch_project_by_id(&pool, &row.project_id).await?;
+    let runtime = resolve_project_runtime_context(&project).ok();
+    Ok(Some(
+        summarize_task_git_context(&app, runtime.as_ref(), row).await,
+    ))
 }
 
 #[tauri::command]
@@ -1267,7 +1526,7 @@ pub async fn prepare_task_git_execution<R: Runtime>(
     let project = fetch_project_by_id(&pool, &task.project_id).await?;
     let preferred_target_branch = trim_optional(preferred_target_branch);
     let context =
-        update_context_after_prepare(&pool, &task, &project, preferred_target_branch).await?;
+        update_context_after_prepare(&app, &pool, &task, &project, preferred_target_branch).await?;
     Ok(summarize_prepared(&context))
 }
 
@@ -1279,9 +1538,9 @@ pub async fn refresh_task_git_context<R: Runtime>(
     let pool = sqlite_pool(&app).await?;
     let mut context = fetch_task_git_context_by_id(&pool, &task_git_context_id).await?;
     let project = fetch_project_by_id(&pool, &context.project_id).await?;
-    let repo_path = ensure_local_project_repo(&project)?;
-    let refreshed = refresh_context_state(&pool, &mut context, &repo_path).await?;
-    Ok(TaskGitContextSummary::from(refreshed))
+    let runtime = resolve_project_runtime_context(&project)?;
+    let refreshed = refresh_context_state(&app, &pool, &mut context, &runtime).await?;
+    Ok(summarize_task_git_context(&app, Some(&runtime), refreshed).await)
 }
 
 #[tauri::command]
@@ -1294,8 +1553,197 @@ pub async fn reconcile_task_git_context<R: Runtime>(
     let task = fetch_task_by_id(&pool, &context.task_id).await?;
     let project = fetch_project_by_id(&pool, &context.project_id).await?;
     let reconciled =
-        update_context_after_prepare(&pool, &task, &project, Some(context.target_branch)).await?;
-    Ok(TaskGitContextSummary::from(reconciled))
+        update_context_after_prepare(&app, &pool, &task, &project, Some(context.target_branch))
+            .await?;
+    let runtime = resolve_project_runtime_context(&project)?;
+    Ok(summarize_task_git_context(&app, Some(&runtime), reconciled).await)
+}
+
+#[tauri::command]
+pub async fn open_project_git_file<R: Runtime>(
+    app: AppHandle<R>,
+    project_id: String,
+    relative_path: String,
+) -> Result<(), String> {
+    let pool = sqlite_pool(&app).await?;
+    let project = fetch_project_by_id(&pool, &project_id).await?;
+    let runtime = resolve_project_runtime_context(&project)?;
+    if runtime.execution_target != EXECUTION_TARGET_LOCAL {
+        return Err("SSH 项目暂不支持直接浏览远程文件".to_string());
+    }
+
+    let trimmed = relative_path.trim();
+    if trimmed.is_empty() {
+        return Err("文件路径不能为空".to_string());
+    }
+
+    let repo_root = Path::new(&runtime.repo_path)
+        .canonicalize()
+        .map_err(|error| format!("解析项目仓库路径失败: {}", error))?;
+    let target = repo_root.join(trimmed);
+    let canonical_target = target
+        .canonicalize()
+        .map_err(|error| format!("定位工作区文件失败: {}", error))?;
+    if !canonical_target.starts_with(&repo_root) {
+        return Err("文件路径超出当前仓库范围".to_string());
+    }
+    if !canonical_target.is_file() {
+        return Err("当前文件不存在或不是普通文件".to_string());
+    }
+
+    app.opener()
+        .open_path(canonical_target.to_string_lossy().to_string(), None::<&str>)
+        .map_err(|error| format!("打开工作区文件失败: {}", error))?;
+
+    insert_activity_log(
+        &pool,
+        "project_git_file_opened",
+        &format!("浏览工作区文件：{}", trimmed),
+        None,
+        None,
+        Some(&project.id),
+    )
+    .await?;
+
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn get_project_git_file_preview<R: Runtime>(
+    app: AppHandle<R>,
+    project_id: String,
+    relative_path: String,
+    previous_path: Option<String>,
+    change_type: Option<String>,
+) -> Result<ProjectGitFilePreview, String> {
+    let pool = sqlite_pool(&app).await?;
+    let project = fetch_project_by_id(&pool, &project_id).await?;
+    let runtime = resolve_project_runtime_context(&project)?;
+    let trimmed = relative_path.trim();
+    if trimmed.is_empty() {
+        return Err("文件路径不能为空".to_string());
+    }
+
+    let normalized_previous_path = previous_path
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty());
+    let normalized_change_type = change_type
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| "modified".to_string());
+
+    let before_path = if normalized_change_type == "renamed" {
+        normalized_previous_path
+            .as_deref()
+            .unwrap_or(trimmed)
+    } else {
+        trimmed
+    };
+    let before_snapshot = if normalized_change_type == "added" {
+        git_runtime::GitRuntimeTextSnapshot {
+            status: "missing".to_string(),
+            text: None,
+            truncated: false,
+        }
+    } else {
+        git_runtime::capture_head_text_snapshot(
+            &app,
+            &runtime.execution_target,
+            runtime.ssh_config_id.as_deref(),
+            &runtime.repo_path,
+            before_path,
+        )
+        .await?
+    };
+    let after_snapshot = if normalized_change_type == "deleted" {
+        git_runtime::GitRuntimeTextSnapshot {
+            status: "missing".to_string(),
+            text: None,
+            truncated: false,
+        }
+    } else {
+        git_runtime::capture_worktree_text_snapshot(
+            &app,
+            &runtime.execution_target,
+            runtime.ssh_config_id.as_deref(),
+            &runtime.repo_path,
+            trimmed,
+        )
+        .await?
+    };
+
+    let absolute_path = Some(Path::new(&runtime.repo_path).join(trimmed).to_string_lossy().to_string());
+    let previous_absolute_path = normalized_previous_path.as_ref().map(|path| {
+        Path::new(&runtime.repo_path)
+            .join(path)
+            .to_string_lossy()
+            .to_string()
+    });
+    let message = if before_snapshot.status == "binary" || after_snapshot.status == "binary" {
+        Some("当前变更包含二进制文件，Diff 仅支持文本预览".to_string())
+    } else if before_snapshot.status == "unavailable" || after_snapshot.status == "unavailable" {
+        Some("当前目标不是普通文本文件，暂不支持完整 Diff 预览".to_string())
+    } else if before_snapshot.truncated || after_snapshot.truncated {
+        Some("文件内容较长，当前只展示截断后的 Diff 预览".to_string())
+    } else if before_snapshot.status == "missing" && after_snapshot.status == "missing" {
+        Some("当前文件在基线和工作区中都不可用，无法生成 Diff".to_string())
+    } else {
+        None
+    };
+
+    insert_activity_log(
+        &pool,
+        "project_git_file_previewed",
+        &format!("预览工作区文件：{}", trimmed),
+        None,
+        None,
+        Some(&project.id),
+    )
+    .await?;
+
+    Ok(ProjectGitFilePreview {
+        project_id: project.id,
+        relative_path: trimmed.to_string(),
+        previous_path: normalized_previous_path,
+        absolute_path,
+        previous_absolute_path,
+        execution_target: runtime.execution_target,
+        change_type: normalized_change_type,
+        before_status: before_snapshot.status,
+        before_text: before_snapshot.text,
+        before_truncated: before_snapshot.truncated,
+        after_status: after_snapshot.status,
+        after_text: after_snapshot.text,
+        after_truncated: after_snapshot.truncated,
+        message,
+    })
+}
+
+#[tauri::command]
+pub async fn delete_task_git_context_record<R: Runtime>(
+    app: AppHandle<R>,
+    task_git_context_id: String,
+) -> Result<String, String> {
+    let pool = sqlite_pool(&app).await?;
+    let context = fetch_task_git_context_by_id(&pool, &task_git_context_id).await?;
+    let project = fetch_project_by_id(&pool, &context.project_id).await?;
+    let runtime = resolve_project_runtime_context(&project)?;
+    if worktree_path_exists(&app, &runtime, &context.worktree_path).await {
+        return Err("当前任务 worktree 仍存在，请先执行“清理任务工作树”".to_string());
+    }
+
+    delete_task_git_context(&pool, &context.id).await?;
+    insert_activity_log(
+        &pool,
+        "task_worktree_cleanup_completed",
+        "任务工作树已缺失，已直接移除 Git 上下文记录",
+        None,
+        Some(&context.task_id),
+        Some(&context.project_id),
+    )
+    .await?;
+
+    Ok("检测到任务 worktree 已不存在，已直接删除这条 Git 上下文记录".to_string())
 }
 
 #[tauri::command]
@@ -1306,22 +1754,29 @@ pub async fn request_git_action<R: Runtime>(
     let pool = sqlite_pool(&app).await?;
     let mut context = fetch_task_git_context_by_id(&pool, &input.task_git_context_id).await?;
     let project = fetch_project_by_id(&pool, &context.project_id).await?;
-    let repo_path = ensure_local_project_repo(&project)?;
+    let runtime = resolve_project_runtime_context(&project)?;
     let action_type = normalize_action_type(&input.action_type)?;
-    if !context_is_healthy(&repo_path, &context) {
-        let refreshed = refresh_context_state(&pool, &mut context, &repo_path).await?;
-        return Err(format!(
-            "task git context 不可用，当前状态：{}",
-            refreshed.state
-        ));
+    if !context_is_healthy(&app, &runtime, &context).await {
+        let refreshed = refresh_context_state(&app, &pool, &mut context, &runtime).await?;
+        if action_allows_drifted_context(action_type) && refreshed.state == TASK_GIT_STATE_DRIFTED {
+            context = fetch_task_git_context_by_id(&pool, &input.task_git_context_id).await?;
+        } else {
+            return Err(format!(
+                "task git context 不可用，当前状态：{}",
+                refreshed.state
+            ));
+        }
     }
     if matches!(
         context.state.as_str(),
-        TASK_GIT_STATE_PROVISIONING
-            | TASK_GIT_STATE_FAILED
-            | TASK_GIT_STATE_DRIFTED
-            | TASK_GIT_STATE_COMPLETED
+        TASK_GIT_STATE_PROVISIONING | TASK_GIT_STATE_FAILED | TASK_GIT_STATE_COMPLETED
     ) {
+        return Err(format!(
+            "当前状态不允许 request git action：{}",
+            context.state
+        ));
+    }
+    if context.state == TASK_GIT_STATE_DRIFTED && !action_allows_drifted_context(action_type) {
         return Err(format!(
             "当前状态不允许 request git action：{}",
             context.state
@@ -1333,7 +1788,11 @@ pub async fn request_git_action<R: Runtime>(
     let nonce = Uuid::new_v4().to_string();
     let expires_at = sqlite_now_with_offset(PENDING_ACTION_TTL_MINUTES);
     let next_version = context.context_version + 1;
-    let repo_revision = current_head_commit(&context.worktree_path, "HEAD")?;
+    let repo_revision = if action_allows_drifted_context(action_type) {
+        current_head_commit(&app, &runtime, &runtime.repo_path, "HEAD").await?
+    } else {
+        current_head_commit(&app, &runtime, &context.worktree_path, "HEAD").await?
+    };
     let signature = build_pending_action_signature(
         &context.id,
         action_type,
@@ -1387,7 +1846,7 @@ pub async fn confirm_git_action<R: Runtime>(
     let pool = sqlite_pool(&app).await?;
     let mut context = fetch_task_git_context_by_id(&pool, &task_git_context_id).await?;
     let project = fetch_project_by_id(&pool, &context.project_id).await?;
-    let repo_path = ensure_local_project_repo(&project)?;
+    let runtime = resolve_project_runtime_context(&project)?;
 
     if context.pending_action_type.is_none() {
         insert_activity_log(
@@ -1469,18 +1928,24 @@ pub async fn confirm_git_action<R: Runtime>(
         reject_pending_action(&pool, &mut context, "git action token 已过期", false).await?;
         return Err("确认 token 已过期".to_string());
     }
-    if !context_is_healthy(&repo_path, &context) {
+    if !action_allows_drifted_context(&action_type)
+        && !context_is_healthy(&app, &runtime, &context).await
+    {
         reject_pending_action(
             &pool,
             &mut context,
-            "worktree / task branch 已漂移，不能执行 confirm",
+            "任务工作树或任务分支状态异常，不能执行确认",
             true,
         )
         .await?;
-        return Err("task git context 已漂移".to_string());
+        return Err("task git context 不可用，当前状态异常".to_string());
     }
 
-    let current_revision = current_head_commit(&context.worktree_path, "HEAD")?;
+    let current_revision = if action_allows_drifted_context(&action_type) {
+        current_head_commit(&app, &runtime, &runtime.repo_path, "HEAD").await?
+    } else {
+        current_head_commit(&app, &runtime, &context.worktree_path, "HEAD").await?
+    };
     if context.pending_action_repo_revision.as_deref() != Some(current_revision.as_str()) {
         reject_pending_action(
             &pool,
@@ -1492,44 +1957,67 @@ pub async fn confirm_git_action<R: Runtime>(
         return Err("仓库 revision 已变化，请重新 request".to_string());
     }
 
-    let execution_result =
-        execute_normalized_action(&repo_path, &context, &action_type, &payload_json);
+    let execution_result = execute_normalized_action(
+        &app,
+        &runtime,
+        &runtime.repo_path,
+        &context,
+        &action_type,
+        &payload_json,
+    )
+    .await;
     match execution_result {
         Ok(message) => {
+            let cleanup_completed = action_type == "cleanup_worktree";
+            let result_message = if cleanup_completed {
+                "已清理任务工作树，并移除失效上下文记录".to_string()
+            } else {
+                message.clone()
+            };
+
             clear_pending_action_fields(&mut context);
             context.context_version += 1;
-            context.state = if action_type == "cleanup_worktree" || action_type == "merge" {
+            context.state = if cleanup_completed || action_type == "merge" {
                 TASK_GIT_STATE_COMPLETED.to_string()
             } else {
                 TASK_GIT_STATE_MERGE_READY.to_string()
             };
             context.last_error = None;
             context.updated_at = now_sqlite();
-            let saved = save_task_git_context(&pool, &context).await?;
+
+            let result_context = if cleanup_completed {
+                let summary = TaskGitContextSummary::from(context.clone());
+                delete_task_git_context(&pool, &context.id).await?;
+                summary
+            } else {
+                let saved = save_task_git_context(&pool, &context).await?;
+                TaskGitContextSummary::from(saved)
+            };
+
             insert_activity_log(
                 &pool,
                 "git_action_confirmed",
-                &message,
+                &result_message,
                 None,
-                Some(&saved.task_id),
-                Some(&saved.project_id),
+                Some(&context.task_id),
+                Some(&context.project_id),
             )
             .await?;
-            if action_type == "cleanup_worktree" {
+            if cleanup_completed {
                 insert_activity_log(
                     &pool,
                     "task_worktree_cleanup_completed",
-                    "任务 worktree 已清理",
+                    "任务工作树已清理，Git 上下文记录已移除",
                     None,
-                    Some(&saved.task_id),
-                    Some(&saved.project_id),
+                    Some(&context.task_id),
+                    Some(&context.project_id),
                 )
                 .await?;
             }
             Ok(ConfirmGitActionResult {
-                context: TaskGitContextSummary::from(saved),
+                context: result_context,
                 action_type,
-                message,
+                message: result_message,
             })
         }
         Err(error) => {
@@ -1608,7 +2096,7 @@ mod tests {
             description: None,
             status: "active".to_string(),
             repo_path: Some(repo_path.to_string()),
-            project_type: PROJECT_TYPE_LOCAL.to_string(),
+            project_type: EXECUTION_TARGET_LOCAL.to_string(),
             ssh_config_id: None,
             remote_repo_path: None,
             created_at: now_sqlite(),
@@ -1690,6 +2178,149 @@ mod tests {
         repo_root.to_string_lossy().to_string()
     }
 
+    async fn update_context_after_prepare_for_test(
+        pool: &SqlitePool,
+        task: &Task,
+        project: &Project,
+        preferred_target_branch: Option<String>,
+    ) -> Result<TaskGitContextRecord, String> {
+        let repo_path = project
+            .repo_path
+            .clone()
+            .ok_or_else(|| "当前项目未配置本地仓库目录".to_string())?;
+        ensure_git_repository(&repo_path)?;
+        let target_branch = match preferred_target_branch {
+            Some(branch) => branch,
+            None => {
+                if let Ok(value) = run_git_text(
+                    &repo_path,
+                    &["symbolic-ref", "refs/remotes/origin/HEAD", "--short"],
+                ) {
+                    let branch = value.rsplit('/').next().unwrap_or(value.as_str()).trim();
+                    if !branch.is_empty() {
+                        branch.to_string()
+                    } else {
+                        run_git_text(&repo_path, &["rev-parse", "--abbrev-ref", "HEAD"])?
+                    }
+                } else {
+                    run_git_text(&repo_path, &["rev-parse", "--abbrev-ref", "HEAD"])?
+                }
+            }
+        };
+        let task_branch = build_task_branch(&task.id);
+        let worktree_path = build_worktree_path(&repo_path, &task.id)?;
+        let head_commit = run_git_text(&repo_path, &["rev-parse", &target_branch])?;
+
+        if let Some(mut existing) = fetch_task_git_context_by_task_id(pool, &task.id).await? {
+            if existing.target_branch != target_branch {
+                return Err(format!(
+                    "当前任务已绑定目标分支 {}，不能切换到 {}",
+                    existing.target_branch, target_branch
+                ));
+            }
+            if git_ref_exists_local(&repo_path, &format!("refs/heads/{}", existing.task_branch))
+                && Path::new(&existing.worktree_path).join(".git").exists()
+            {
+                return Ok(existing);
+            }
+
+            let full_ref = format!("refs/heads/{}", existing.task_branch);
+            if !git_ref_exists_local(&repo_path, &full_ref) {
+                run_git_command(
+                    &repo_path,
+                    &["branch", &existing.task_branch, &existing.target_branch],
+                )?;
+            }
+            let worktree = Path::new(&existing.worktree_path);
+            if !worktree.join(".git").exists() {
+                if worktree.exists() {
+                    let is_empty = fs::read_dir(worktree)
+                        .map_err(|error| format!("读取 worktree 目录失败: {}", error))?
+                        .next()
+                        .is_none();
+                    if !is_empty {
+                        return Err(format!(
+                            "worktree 目录已存在且非空：{}",
+                            existing.worktree_path
+                        ));
+                    }
+                } else if let Some(parent) = worktree.parent() {
+                    fs::create_dir_all(parent)
+                        .map_err(|error| format!("创建 worktree 父目录失败: {}", error))?;
+                }
+                run_git_command(
+                    &repo_path,
+                    &[
+                        "worktree",
+                        "add",
+                        &existing.worktree_path,
+                        &existing.task_branch,
+                    ],
+                )?;
+            }
+            existing.base_branch = existing.target_branch.clone();
+            existing.repo_head_commit_at_prepare = Some(head_commit);
+            existing.last_reconciled_at = Some(now_sqlite());
+            existing.last_error = None;
+            clear_pending_action_fields(&mut existing);
+            existing.state = TASK_GIT_STATE_READY.to_string();
+            existing.context_version += 1;
+            existing.updated_at = now_sqlite();
+            return save_task_git_context(pool, &existing).await;
+        }
+
+        let full_ref = format!("refs/heads/{task_branch}");
+        if !git_ref_exists_local(&repo_path, &full_ref) {
+            run_git_command(&repo_path, &["branch", &task_branch, &target_branch])?;
+        }
+        let worktree = Path::new(&worktree_path);
+        if !worktree.join(".git").exists() {
+            if worktree.exists() {
+                let is_empty = fs::read_dir(worktree)
+                    .map_err(|error| format!("读取 worktree 目录失败: {}", error))?
+                    .next()
+                    .is_none();
+                if !is_empty {
+                    return Err(format!("worktree 目录已存在且非空：{}", worktree_path));
+                }
+            } else if let Some(parent) = worktree.parent() {
+                fs::create_dir_all(parent)
+                    .map_err(|error| format!("创建 worktree 父目录失败: {}", error))?;
+            }
+            run_git_command(
+                &repo_path,
+                &["worktree", "add", &worktree_path, &task_branch],
+            )?;
+        }
+
+        let now = now_sqlite();
+        let record = TaskGitContextRecord {
+            id: Uuid::new_v4().to_string(),
+            task_id: task.id.clone(),
+            project_id: project.id.clone(),
+            base_branch: target_branch.clone(),
+            task_branch,
+            target_branch,
+            worktree_path,
+            repo_head_commit_at_prepare: Some(head_commit),
+            state: TASK_GIT_STATE_READY.to_string(),
+            context_version: 1,
+            pending_action_type: None,
+            pending_action_token_hash: None,
+            pending_action_payload_json: None,
+            pending_action_nonce: None,
+            pending_action_requested_at: None,
+            pending_action_expires_at: None,
+            pending_action_repo_revision: None,
+            pending_action_bound_context_version: None,
+            last_reconciled_at: None,
+            last_error: None,
+            created_at: now.clone(),
+            updated_at: now,
+        };
+        insert_task_git_context(pool, &record).await
+    }
+
     #[test]
     fn list_local_branches_returns_local_heads() {
         let repo_path = init_git_repo();
@@ -1705,7 +2336,16 @@ mod tests {
         run(&["branch", "release/1.0"]);
         run(&["branch", "feature/git-panel"]);
 
-        let branches = list_local_branches(&repo_path).expect("list local branches");
+        let output = run_git_text(
+            &repo_path,
+            &["for-each-ref", "--format=%(refname:short)", "refs/heads"],
+        )
+        .expect("list local branches");
+        let branches = output
+            .lines()
+            .map(|line| line.trim().to_string())
+            .filter(|line| !line.is_empty())
+            .collect::<Vec<_>>();
 
         assert_eq!(
             branches,
@@ -1726,10 +2366,10 @@ mod tests {
             let repo_path = init_git_repo();
             let (project, task) = insert_project_and_task(&pool, &repo_path).await;
 
-            let first = update_context_after_prepare(&pool, &task, &project, None)
+            let first = update_context_after_prepare_for_test(&pool, &task, &project, None)
                 .await
                 .expect("first prepare");
-            let second = update_context_after_prepare(&pool, &task, &project, None)
+            let second = update_context_after_prepare_for_test(&pool, &task, &project, None)
                 .await
                 .expect("second prepare");
 
@@ -1753,7 +2393,7 @@ mod tests {
             let pool = setup_test_pool().await;
             let repo_path = init_git_repo();
             let (project, task) = insert_project_and_task(&pool, &repo_path).await;
-            let context = update_context_after_prepare(&pool, &task, &project, None)
+            let context = update_context_after_prepare_for_test(&pool, &task, &project, None)
                 .await
                 .expect("prepare context");
             let mut stored = fetch_task_git_context_by_id(&pool, &context.id)
@@ -1785,7 +2425,7 @@ mod tests {
             stored.pending_action_requested_at = Some(now_sqlite());
             stored.pending_action_expires_at = Some(expires_at);
             stored.pending_action_repo_revision =
-                Some(current_head_commit(&stored.worktree_path, "HEAD").expect("head"));
+                Some(run_git_text(&stored.worktree_path, &["rev-parse", "HEAD"]).expect("head"));
             stored.pending_action_bound_context_version = Some(stored.context_version);
             stored.updated_at = now_sqlite();
             let saved = save_task_git_context(&pool, &stored)
@@ -1818,6 +2458,28 @@ mod tests {
                     .parent()
                     .unwrap_or(Path::new("")),
             );
+            pool.close().await;
+        });
+    }
+
+    #[test]
+    fn delete_task_git_context_removes_record() {
+        tauri::async_runtime::block_on(async {
+            let pool = setup_test_pool().await;
+            let repo_path = init_git_repo();
+            let (project, task) = insert_project_and_task(&pool, &repo_path).await;
+            let context = update_context_after_prepare_for_test(&pool, &task, &project, None)
+                .await
+                .expect("prepare context");
+
+            delete_task_git_context(&pool, &context.id)
+                .await
+                .expect("delete task git context");
+
+            let deleted = fetch_task_git_context_by_id(&pool, &context.id).await;
+            assert!(deleted.is_err(), "task git context should be deleted");
+
+            let _ = fs::remove_dir_all(PathBuf::from(&repo_path));
             pool.close().await;
         });
     }

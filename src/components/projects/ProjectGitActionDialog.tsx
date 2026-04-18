@@ -30,6 +30,7 @@ interface ProjectGitActionDialogProps {
   onOpenChange: (open: boolean) => void;
   context: TaskGitContext | null;
   projectBranches: string[];
+  preferredAction?: GitActionType | null;
   onActionCompleted?: (message: string) => Promise<void> | void;
 }
 
@@ -77,6 +78,29 @@ const MERGE_STRATEGY_OPTIONS: Array<{ value: string; label: string }> = [
   { value: "ours", label: "优先保留当前分支（ours）" },
   { value: "subtree", label: "子树合并（subtree）" },
 ];
+
+function getTaskGitContextStateLabel(state: string) {
+  switch (state) {
+    case "provisioning":
+      return "准备中";
+    case "ready":
+      return "可执行";
+    case "running":
+      return "执行中";
+    case "merge_ready":
+      return "待合并";
+    case "action_pending":
+      return "待确认";
+    case "completed":
+      return "已完成";
+    case "failed":
+      return "失败";
+    case "drifted":
+      return "上下文失效";
+    default:
+      return state;
+  }
+}
 
 function getGitActionLabel(actionType: GitActionType) {
   return GIT_ACTION_OPTIONS.find((option) => option.value === actionType)?.label ?? actionType;
@@ -172,6 +196,7 @@ export function ProjectGitActionDialog({
   onOpenChange,
   context,
   projectBranches,
+  preferredAction,
   onActionCompleted,
 }: ProjectGitActionDialogProps) {
   const [selectedAction, setSelectedAction] = useState<GitActionType>("merge");
@@ -189,14 +214,17 @@ export function ProjectGitActionDialog({
       return;
     }
 
-    const initialAction = context?.pending_action_type ?? "merge";
+    const initialAction =
+      preferredAction
+      ?? context?.pending_action_type
+      ?? (context?.state === "drifted" ? "cleanup_worktree" : "merge");
     setSelectedAction(initialAction);
     setForm(buildInitialFormState(context));
     setPendingToken(null);
     setPendingExpiresAt(null);
     setError(null);
     setInfo(null);
-  }, [context, open]);
+  }, [context, open, preferredAction]);
 
   const hasExistingPendingAction = Boolean(context?.pending_action_type);
   const formLocked = pendingToken !== null || requesting || confirming || cancelling;
@@ -204,7 +232,7 @@ export function ProjectGitActionDialog({
     ? [
         `任务分支：${context.task_branch ?? "未命名分支"}`,
         `目标分支：${context.target_branch ?? "未设置"}`,
-        `当前状态：${context.state}`,
+        `当前状态：${getTaskGitContextStateLabel(context.state)}`,
       ].join(" · ")
     : null;
   const mergeTargetBranchOptions = buildBranchOptions(projectBranches, context, form.targetBranch);

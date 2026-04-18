@@ -330,6 +330,7 @@ export interface TaskGitContext {
   pending_action_bound_context_version: number | null;
   last_reconciled_at: string | null;
   last_error: string | null;
+  worktree_missing: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -342,15 +343,43 @@ export interface ProjectGitCommit {
   authored_at: string;
 }
 
+export interface ProjectGitWorkingTreeChange {
+  path: string;
+  previous_path: string | null;
+  change_type: "added" | "modified" | "deleted" | "renamed";
+  can_open_file: boolean;
+}
+
+export interface ProjectGitFilePreview {
+  project_id: string;
+  relative_path: string;
+  previous_path: string | null;
+  absolute_path: string | null;
+  previous_absolute_path: string | null;
+  execution_target: EnvironmentMode;
+  change_type: ProjectGitWorkingTreeChange["change_type"];
+  before_status: "text" | "missing" | "binary" | "unavailable";
+  before_text: string | null;
+  before_truncated: boolean;
+  after_status: "text" | "missing" | "binary" | "unavailable";
+  after_text: string | null;
+  after_truncated: boolean;
+  message: string | null;
+}
+
 export interface ProjectGitOverview {
   project_id: string;
   repo_path: string | null;
   execution_target: EnvironmentMode;
+  git_runtime_provider: "simple_git";
+  git_runtime_status: "ready" | "bootstrapping" | "unavailable";
+  git_runtime_message: string | null;
   default_branch: string | null;
   current_branch: string | null;
   project_branches: string[];
   head_commit_sha: string | null;
   working_tree_summary: string | null;
+  working_tree_changes: ProjectGitWorkingTreeChange[];
   refreshed_at: string;
   recent_commits: ProjectGitCommit[];
   active_contexts: TaskGitContext[];

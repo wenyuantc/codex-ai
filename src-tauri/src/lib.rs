@@ -1,6 +1,7 @@
 mod app;
 mod codex;
 mod db;
+mod git_runtime;
 mod git_workflow;
 mod process_spawn;
 mod task_automation;
@@ -66,6 +67,9 @@ pub fn run() {
             git_workflow::prepare_task_git_execution,
             git_workflow::refresh_task_git_context,
             git_workflow::reconcile_task_git_context,
+            git_workflow::open_project_git_file,
+            git_workflow::get_project_git_file_preview,
+            git_workflow::delete_task_git_context_record,
             git_workflow::request_git_action,
             git_workflow::confirm_git_action,
             git_workflow::cancel_git_action,

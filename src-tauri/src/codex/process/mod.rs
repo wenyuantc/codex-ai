@@ -653,9 +653,6 @@ pub async fn start_codex_with_manager(
             execution_context.working_dir.as_deref(),
         )
         .await?;
-        if execution_context.execution_target != EXECUTION_TARGET_LOCAL {
-            return Err("task git context 仅支持本地执行目标".to_string());
-        }
         if execution_context.working_dir.as_deref() != Some(validated_worktree.as_str()) {
             return Err("task git context 与 working_dir 不一致".to_string());
         }

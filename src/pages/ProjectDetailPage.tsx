@@ -1,20 +1,26 @@
-import { useEffect, useState } from "react";
+import { Suspense, lazy, useEffect, useState } from "react";
 import { useParams, Link, useNavigate } from "react-router-dom";
 import { useProjectStore } from "@/stores/projectStore";
 import { useTaskStore } from "@/stores/taskStore";
 import { useEmployeeStore } from "@/stores/employeeStore";
-import { getProjectGitOverview, reconcileTaskGitContext } from "@/lib/backend";
-import type { Employee, ProjectGitOverview, TaskGitContext } from "@/lib/types";
+import { deleteTaskGitContextRecord, getProjectGitFilePreview, getProjectGitOverview, reconcileTaskGitContext } from "@/lib/backend";
+import type { Employee, GitActionType, ProjectGitFilePreview, ProjectGitOverview, ProjectGitWorkingTreeChange, TaskGitContext } from "@/lib/types";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { EditProjectDialog } from "@/components/projects/EditProjectDialog";
 import { DeleteProjectDialog } from "@/components/projects/DeleteProjectDialog";
+import { DeleteTaskGitContextDialog } from "@/components/projects/DeleteTaskGitContextDialog";
 import { ProjectGitActionDialog } from "@/components/projects/ProjectGitActionDialog";
 import { RepoPathDisplay } from "@/components/projects/RepoPathDisplay";
 import { ArrowLeft, Edit2, GitBranch, Loader2, RefreshCw, ShieldAlert, Trash2 } from "lucide-react";
 import { getStatusLabel, getStatusColor, getPriorityLabel, formatDate } from "@/lib/utils";
 import { getProjectWorkingDir, getProjectTypeLabel } from "@/lib/projects";
+
+const ProjectGitFilePreviewDialog = lazy(async () => {
+  const module = await import("@/components/projects/ProjectGitFilePreviewDialog");
+  return { default: module.ProjectGitFilePreviewDialog };
+});
 
 function getTaskGitContextStateLabel(state: string) {
   switch (state) {
@@ -33,7 +39,7 @@ function getTaskGitContextStateLabel(state: string) {
     case "failed":
       return "失败";
     case "drifted":
-      return "已漂移";
+      return "上下文失效";
     default:
       return state;
   }
@@ -60,6 +66,49 @@ function getGitActionTypeLabel(actionType: string | null | undefined) {
   }
 }
 
+function getGitRuntimeStatusLabel(status: string) {
+  switch (status) {
+    case "ready":
+      return "运行时已就绪";
+    case "bootstrapping":
+      return "运行时准备中";
+    case "unavailable":
+      return "运行时不可用";
+    default:
+      return status;
+  }
+}
+
+function getWorkingTreeChangeLabel(changeType: ProjectGitWorkingTreeChange["change_type"]) {
+  switch (changeType) {
+    case "added":
+      return "新增";
+    case "modified":
+      return "修改";
+    case "deleted":
+      return "删除";
+    case "renamed":
+      return "重命名";
+    default:
+      return changeType;
+  }
+}
+
+function getWorkingTreeChangeClassName(changeType: ProjectGitWorkingTreeChange["change_type"]) {
+  switch (changeType) {
+    case "added":
+      return "border-emerald-500/30 bg-emerald-500/10 text-emerald-700";
+    case "modified":
+      return "border-sky-500/30 bg-sky-500/10 text-sky-700";
+    case "deleted":
+      return "border-rose-500/30 bg-rose-500/10 text-rose-700";
+    case "renamed":
+      return "border-amber-500/30 bg-amber-500/10 text-amber-700";
+    default:
+      return "border-border/60 bg-secondary/40 text-foreground";
+  }
+}
+
 export function ProjectDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -74,11 +123,18 @@ export function ProjectDetailPage() {
   const [gitOverviewLoading, setGitOverviewLoading] = useState(false);
   const [gitOverviewError, setGitOverviewError] = useState<string | null>(null);
   const [selectedGitContext, setSelectedGitContext] = useState<TaskGitContext | null>(null);
+  const [selectedGitAction, setSelectedGitAction] = useState<GitActionType | null>(null);
+  const [selectedWorkingTreeChange, setSelectedWorkingTreeChange] = useState<ProjectGitWorkingTreeChange | null>(null);
+  const [workingTreePreview, setWorkingTreePreview] = useState<ProjectGitFilePreview | null>(null);
+  const [workingTreePreviewLoading, setWorkingTreePreviewLoading] = useState(false);
+  const [workingTreePreviewError, setWorkingTreePreviewError] = useState<string | null>(null);
   const [gitActionNotice, setGitActionNotice] = useState<{
     tone: "success" | "error";
     message: string;
   } | null>(null);
   const [reconcilingContextId, setReconcilingContextId] = useState<string | null>(null);
+  const [deletingContextId, setDeletingContextId] = useState<string | null>(null);
+  const [pendingDeleteContext, setPendingDeleteContext] = useState<TaskGitContext | null>(null);
   const [gitOverviewReloadNonce, setGitOverviewReloadNonce] = useState(0);
 
   const project = projects.find((p) => p.id === id);
@@ -105,6 +161,12 @@ export function ProjectDetailPage() {
       setGitOverviewError(null);
       setGitOverviewLoading(false);
       setSelectedGitContext(null);
+      setSelectedGitAction(null);
+      setSelectedWorkingTreeChange(null);
+      setWorkingTreePreview(null);
+      setWorkingTreePreviewLoading(false);
+      setWorkingTreePreviewError(null);
+      setPendingDeleteContext(null);
       return;
     }
 
@@ -165,6 +227,56 @@ export function ProjectDetailPage() {
     setGitActionNotice({ tone: "success", message });
     setGitOverviewReloadNonce((value) => value + 1);
     setSelectedGitContext(null);
+    setSelectedGitAction(null);
+  };
+
+  const handleDeleteGitContextRecord = async (contextId: string) => {
+    setDeletingContextId(contextId);
+    setGitActionNotice(null);
+    try {
+      const message = await deleteTaskGitContextRecord(contextId);
+      setGitActionNotice({ tone: "success", message });
+      setGitOverviewReloadNonce((value) => value + 1);
+      setSelectedGitContext(null);
+      setSelectedGitAction(null);
+      setPendingDeleteContext(null);
+    } catch (error) {
+      setGitActionNotice({
+        tone: "error",
+        message: error instanceof Error ? error.message : String(error),
+      });
+    } finally {
+      setDeletingContextId(null);
+    }
+  };
+
+  const openGitActionDialog = (context: TaskGitContext, preferredAction?: GitActionType) => {
+    setSelectedGitContext(context);
+    setSelectedGitAction(preferredAction ?? null);
+  };
+
+  const handleOpenProjectGitFile = async (change: ProjectGitWorkingTreeChange) => {
+    if (!project) {
+      return;
+    }
+
+    setSelectedWorkingTreeChange(change);
+    setWorkingTreePreview(null);
+    setWorkingTreePreviewError(null);
+    setWorkingTreePreviewLoading(true);
+    try {
+      const preview = await getProjectGitFilePreview(
+        project.id,
+        change.path,
+        change.previous_path,
+        change.change_type,
+      );
+      setWorkingTreePreview(preview);
+    } catch (error) {
+      setWorkingTreePreviewError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setWorkingTreePreviewLoading(false);
+    }
   };
 
   if (!project) {
@@ -271,18 +383,6 @@ export function ProjectDetailPage() {
           )}
         </div>
 
-        {project.project_type === "ssh" && (
-          <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-900">
-            <div className="flex items-center gap-2 font-medium">
-              <ShieldAlert className="h-3.5 w-3.5" />
-              SSH v1 当前仅提供只读 Git 概览
-            </div>
-            <p className="mt-1 text-amber-900/80">
-              自动创建 branch/worktree、merge-ready 沉淀，以及 merge/push/rebase/cherry-pick/stash/unstash/清理工作树等高风险操作暂不可用。
-            </p>
-          </div>
-        )}
-
         {gitActionNotice && (
           <div
             className={`rounded-lg border px-3 py-2 text-xs ${
@@ -308,6 +408,11 @@ export function ProjectDetailPage() {
           <>
             <div className="grid gap-3 md:grid-cols-4">
               <div className="rounded-lg border border-border/60 px-3 py-2">
+                <div className="text-[11px] text-muted-foreground">Git 运行时</div>
+                <div className="mt-1 text-sm font-medium">{getGitRuntimeStatusLabel(gitOverview.git_runtime_status)}</div>
+                <div className="mt-1 text-[11px] text-muted-foreground">提供方：simple-git</div>
+              </div>
+              <div className="rounded-lg border border-border/60 px-3 py-2">
                 <div className="text-[11px] text-muted-foreground">默认分支</div>
                 <div className="mt-1 text-sm font-medium">{gitOverview.default_branch ?? "未知"}</div>
               </div>
@@ -324,6 +429,82 @@ export function ProjectDetailPage() {
                 <div className="mt-1 text-sm font-medium">{gitOverview.working_tree_summary ?? "工作区干净"}</div>
               </div>
             </div>
+
+            <div className="rounded-lg border border-border/60 p-3">
+              <div className="mb-2 flex items-center justify-between">
+                <div>
+                  <h4 className="text-sm font-medium">工作区文件</h4>
+                  <p className="text-[11px] text-muted-foreground">
+                    当前仓库实时变更文件列表，可直接在应用内预览文件内容。
+                  </p>
+                </div>
+                <span className="text-xs text-muted-foreground">{gitOverview.working_tree_changes.length} 条</span>
+              </div>
+              {gitOverview.working_tree_changes.length === 0 ? (
+                <div className="rounded-md border border-dashed border-border px-3 py-4 text-center text-xs text-muted-foreground">
+                  当前没有可展示的工作区文件变更。
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {gitOverview.working_tree_changes.slice(0, 20).map((change) => (
+                    <div
+                      key={`${change.change_type}:${change.previous_path ?? ""}:${change.path}`}
+                      className="rounded-md border border-border/60 bg-secondary/20 px-3 py-2 text-xs"
+                    >
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div className="flex min-w-0 flex-wrap items-center gap-2">
+                          <span
+                            className={`rounded-md border px-1.5 py-0.5 text-[11px] font-medium ${getWorkingTreeChangeClassName(change.change_type)}`}
+                          >
+                            {getWorkingTreeChangeLabel(change.change_type)}
+                          </span>
+                          <span className="break-all font-mono text-foreground">{change.path}</span>
+                        </div>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => {
+                            void handleOpenProjectGitFile(change);
+                          }}
+                          disabled={!change.can_open_file}
+                          title={
+                            change.can_open_file
+                              ? "使用内置代码预览浏览当前文件"
+                              : change.change_type === "deleted"
+                                  ? "已删除文件无法直接浏览"
+                                  : "当前文件暂不可浏览"
+                          }
+                        >
+                          浏览文件
+                        </Button>
+                      </div>
+                      {change.previous_path && (
+                        <div className="mt-1 text-[11px] text-muted-foreground">
+                          原路径：<span className="break-all font-mono">{change.previous_path}</span>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {gitOverview.git_runtime_message && (
+              <div
+                className={`rounded-lg border px-3 py-2 text-xs ${
+                  gitOverview.git_runtime_status === "unavailable"
+                    ? "border-amber-500/30 bg-amber-500/10 text-amber-900"
+                    : "border-border/60 bg-secondary/30 text-muted-foreground"
+                }`}
+              >
+                <div className="flex items-center gap-2 font-medium">
+                  <ShieldAlert className="h-3.5 w-3.5" />
+                  {getGitRuntimeStatusLabel(gitOverview.git_runtime_status)}
+                </div>
+                <p className="mt-1">{gitOverview.git_runtime_message}</p>
+              </div>
+            )}
 
             <div className="grid gap-3 md:grid-cols-2">
               <div className="rounded-lg border border-border/60 p-3">
@@ -352,9 +533,37 @@ export function ProjectDetailPage() {
                             最近错误：{context.last_error}
                           </div>
                         )}
-                        {project.project_type === "local" && (
-                          <div className="mt-2 flex flex-wrap items-center gap-2">
-                            {context.state === "drifted" ? (
+                        {context.worktree_missing && (
+                          <div className="mt-1 text-muted-foreground">
+                            当前任务 worktree 已不存在，可直接删除这条上下文记录。
+                          </div>
+                        )}
+                        <div className="mt-2 flex flex-wrap items-center gap-2">
+                          {context.worktree_missing ? (
+                            <>
+                              {context.state === "drifted" && (
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => {
+                                    void handleReconcileContext(context.id);
+                                  }}
+                                  disabled={reconcilingContextId === context.id}
+                                >
+                                  {reconcilingContextId === context.id ? "修复中..." : "修复上下文"}
+                                </Button>
+                              )}
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => setPendingDeleteContext(context)}
+                                disabled={deletingContextId === context.id}
+                              >
+                                {deletingContextId === context.id ? "删除中..." : "删除记录"}
+                              </Button>
+                            </>
+                          ) : context.state === "drifted" ? (
+                            <>
                               <Button
                                 variant="outline"
                                 size="sm"
@@ -365,17 +574,24 @@ export function ProjectDetailPage() {
                               >
                                 {reconcilingContextId === context.id ? "修复中..." : "修复上下文"}
                               </Button>
-                            ) : context.state !== "failed" && context.state !== "completed" ? (
                               <Button
                                 variant="outline"
                                 size="sm"
-                                onClick={() => setSelectedGitContext(context)}
+                                onClick={() => openGitActionDialog(context, "cleanup_worktree")}
                               >
-                                Git 动作
+                                直接清理
                               </Button>
-                            ) : null}
-                          </div>
-                        )}
+                            </>
+                          ) : context.state !== "failed" && context.state !== "completed" ? (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => openGitActionDialog(context)}
+                            >
+                              Git 动作
+                            </Button>
+                          ) : null}
+                        </div>
                       </div>
                     ))}
                   </div>
@@ -403,17 +619,15 @@ export function ProjectDetailPage() {
                         <div className="mt-1 text-muted-foreground">
                           过期时间：{context.pending_action_expires_at ? formatDate(context.pending_action_expires_at) : "未知"}
                         </div>
-                        {project.project_type === "local" && (
-                          <div className="mt-2">
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => setSelectedGitContext(context)}
-                            >
-                              继续处理
-                            </Button>
-                          </div>
-                        )}
+                        <div className="mt-2">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => openGitActionDialog(context)}
+                          >
+                            继续处理
+                          </Button>
+                        </div>
                       </div>
                     ))}
                   </div>
@@ -519,15 +733,54 @@ export function ProjectDetailPage() {
         onConfirm={handleDelete}
       />
 
+      <DeleteTaskGitContextDialog
+        open={pendingDeleteContext !== null}
+        context={pendingDeleteContext}
+        deleting={pendingDeleteContext !== null && deletingContextId === pendingDeleteContext.id}
+        onOpenChange={(open) => {
+          if (!open && !deletingContextId) {
+            setPendingDeleteContext(null);
+          }
+        }}
+        onConfirm={() => {
+          if (!pendingDeleteContext) {
+            return;
+          }
+          return handleDeleteGitContextRecord(pendingDeleteContext.id);
+        }}
+      />
+
+      <Suspense fallback={null}>
+        {selectedWorkingTreeChange && (
+          <ProjectGitFilePreviewDialog
+            open={selectedWorkingTreeChange !== null}
+            loading={workingTreePreviewLoading}
+            error={workingTreePreviewError}
+            preview={workingTreePreview}
+            change={selectedWorkingTreeChange}
+            onOpenChange={(open) => {
+              if (!open) {
+                setSelectedWorkingTreeChange(null);
+                setWorkingTreePreview(null);
+                setWorkingTreePreviewLoading(false);
+                setWorkingTreePreviewError(null);
+              }
+            }}
+          />
+        )}
+      </Suspense>
+
       <ProjectGitActionDialog
         open={selectedGitContext !== null}
         onOpenChange={(open) => {
           if (!open) {
             setSelectedGitContext(null);
+            setSelectedGitAction(null);
           }
         }}
         context={selectedGitContext}
         projectBranches={gitOverview?.project_branches ?? []}
+        preferredAction={selectedGitAction}
         onActionCompleted={handleGitActionCompleted}
       />
     </div>

@@ -1331,6 +1331,7 @@ fn build_task_review_context_from_git_outputs(
     ))
 }
 
+#[cfg(test)]
 pub(crate) fn collect_task_review_context(repo_path: &str) -> Result<String, String> {
     let status_output = run_git_text(repo_path, &["status", "--short"])?;
     let unstaged_stat = run_git_text(repo_path, &["diff", "--no-ext-diff", "--stat"])?;
@@ -1361,6 +1362,101 @@ pub(crate) fn collect_task_review_context(repo_path: &str) -> Result<String, Str
     )
 }
 
+async fn collect_project_task_review_context_for_task<R: Runtime>(
+    app: &AppHandle<R>,
+    pool: &SqlitePool,
+    task: &Task,
+    project: &Project,
+) -> Result<(String, String), String> {
+    let repo_path = if project.project_type == PROJECT_TYPE_SSH {
+        project
+            .remote_repo_path
+            .clone()
+            .ok_or_else(|| "当前 SSH 项目未配置远程仓库目录，无法审核代码".to_string())?
+    } else {
+        project
+            .repo_path
+            .clone()
+            .ok_or_else(|| "当前项目未配置仓库路径，无法审核代码".to_string())?
+    };
+
+    let mut candidate_dirs = Vec::new();
+    if let Some(last_session_id) = task.last_codex_session_id.as_deref() {
+        let latest_bound_working_dir = sqlx::query_scalar::<_, Option<String>>(
+            "SELECT working_dir FROM codex_sessions WHERE id = $1 AND session_kind = 'execution' LIMIT 1",
+        )
+        .bind(last_session_id)
+        .fetch_optional(pool)
+        .await
+        .map_err(|error| format!("查询最近执行 Session 工作区失败: {}", error))?
+        .flatten();
+        if let Some(path) = latest_bound_working_dir {
+            candidate_dirs.push(path);
+        }
+    }
+
+    let latest_execution_working_dir = sqlx::query_scalar::<_, Option<String>>(
+        r#"
+        SELECT working_dir
+        FROM codex_sessions
+        WHERE task_id = $1
+          AND session_kind = 'execution'
+          AND working_dir IS NOT NULL
+        ORDER BY started_at DESC, created_at DESC
+        LIMIT 1
+        "#,
+    )
+    .bind(&task.id)
+    .fetch_optional(pool)
+    .await
+    .map_err(|error| format!("查询任务最近执行工作区失败: {}", error))?
+    .flatten();
+    if let Some(path) = latest_execution_working_dir {
+        candidate_dirs.push(path);
+    }
+    candidate_dirs.push(repo_path.clone());
+
+    let mut seen_dirs = HashSet::new();
+    let mut last_empty_change_error: Option<String> = None;
+    let mut last_runtime_error: Option<String> = None;
+
+    for candidate in candidate_dirs {
+        let normalized = candidate.trim().to_string();
+        if normalized.is_empty() || !seen_dirs.insert(normalized.clone()) {
+            continue;
+        }
+
+        match crate::git_runtime::collect_review_context(
+            app,
+            if project.project_type == PROJECT_TYPE_SSH {
+                EXECUTION_TARGET_SSH
+            } else {
+                EXECUTION_TARGET_LOCAL
+            },
+            project.ssh_config_id.as_deref(),
+            &normalized,
+        )
+        .await
+        {
+            Ok(context) => return Ok((normalized, context)),
+            Err(error)
+                if error == "当前工作区没有可审核的代码改动"
+                    || error == "当前工作区没有可审核的代码 diff" =>
+            {
+                last_empty_change_error = Some(error);
+            }
+            Err(error) => {
+                last_runtime_error = Some(error);
+            }
+        }
+    }
+
+    Err(last_empty_change_error
+        .or(last_runtime_error)
+        .unwrap_or_else(|| "当前工作区没有可审核的代码改动".to_string()))
+}
+
+#[cfg(test)]
 async fn collect_local_task_review_context_for_task(
     pool: &SqlitePool,
     task: &Task,
@@ -1405,7 +1501,7 @@ async fn collect_local_task_review_context_for_task(
     if let Some(path) = latest_execution_working_dir {
         candidate_dirs.push(path);
     }
-    candidate_dirs.push(repo_path.clone());
+    candidate_dirs.push(repo_path);
 
     let mut seen_dirs = HashSet::new();
     let mut last_empty_change_error: Option<String> = None;
@@ -4263,10 +4359,10 @@ pub(crate) async fn start_task_code_review_internal(
             &reviewer.id,
             &task.id,
             "review",
-            "[SSH] 正在通过 SSH 采集远程 git status / diff，用于生成审核上下文...".to_string(),
+            "[SSH] 正在通过 Git bridge 采集远程工作区 diff，用于生成审核上下文...".to_string(),
         );
-        let review_context =
-            collect_remote_task_review_context(&app, ssh_config_id, remote_repo_path).await?;
+        let (_, review_context) =
+            collect_project_task_review_context_for_task(&app, &pool, &task, &project).await?;
         emit_task_preflight_log(
             &app,
             &reviewer.id,
@@ -4276,7 +4372,7 @@ pub(crate) async fn start_task_code_review_internal(
         );
         (remote_repo_path.to_string(), review_context)
     } else {
-        collect_local_task_review_context_for_task(&pool, &task, &project).await?
+        collect_project_task_review_context_for_task(&app, &pool, &task, &project).await?
     };
     let review_prompt =
         build_task_review_prompt(&task, &project, &review_working_dir, &review_context);

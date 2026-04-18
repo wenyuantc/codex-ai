@@ -22,6 +22,7 @@ import type {
   GitActionType,
   PreparedTaskGitExecution,
   Project,
+  ProjectGitFilePreview,
   ProjectGitOverview,
   RemoteCodexHealthCheck,
   RemoteCodexSdkInstallResult,
@@ -311,6 +312,20 @@ export async function getProjectGitOverview(projectId: string): Promise<ProjectG
   return invoke("get_project_git_overview", { projectId });
 }
 
+export async function getProjectGitFilePreview(
+  projectId: string,
+  relativePath: string,
+  previousPath?: string | null,
+  changeType?: string | null,
+): Promise<ProjectGitFilePreview> {
+  return invoke("get_project_git_file_preview", {
+    projectId,
+    relativePath,
+    previousPath: previousPath ?? null,
+    changeType: changeType ?? null,
+  });
+}
+
 export async function listTaskGitContexts(projectId: string): Promise<TaskGitContext[]> {
   return invoke("list_task_git_contexts", { projectId });
 }
@@ -331,9 +346,11 @@ export async function requestGitAction(
   payload: Record<string, unknown>,
 ): Promise<GitActionRequestResult> {
   return invoke("request_git_action", {
-    taskGitContextId,
-    actionType,
-    payload,
+    input: {
+      task_git_context_id: taskGitContextId,
+      action_type: actionType,
+      payload,
+    },
   });
 }
 
@@ -360,6 +377,10 @@ export async function refreshTaskGitContext(taskGitContextId: string): Promise<T
 
 export async function reconcileTaskGitContext(taskGitContextId: string): Promise<TaskGitContext> {
   return invoke("reconcile_task_git_context", { taskGitContextId });
+}
+
+export async function deleteTaskGitContextRecord(taskGitContextId: string): Promise<string> {
+  return invoke("delete_task_git_context_record", { taskGitContextId });
 }
 
 export async function getTaskLatestReview(taskId: string): Promise<TaskLatestReview | null> {

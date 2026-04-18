@@ -56,7 +56,7 @@ pub(super) async fn resolve_task_project_execution_context(
                 "{}@{}:{}",
                 ssh_config.username, ssh_config.host, ssh_config.port
             )),
-            artifact_capture_mode: ARTIFACT_CAPTURE_MODE_SSH_NONE.to_string(),
+            artifact_capture_mode: ARTIFACT_CAPTURE_MODE_SSH_FULL.to_string(),
         })
     } else {
         Ok(ExecutionContext {
