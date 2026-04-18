@@ -34,7 +34,7 @@ export function useTaskExecutionActions({
   assigneeId,
   assignee,
   projectRepoPath,
-  projectType = "local",
+  projectType: _projectType = "local",
   prepareExecutionInput,
   clearTaskOutputOnRun = false,
   clearTaskOutputOnContinue = false,
@@ -91,7 +91,7 @@ export function useTaskExecutionActions({
       let workingDir = projectRepoPath ?? undefined;
       let taskGitContextId: string | undefined;
 
-      if (projectType === "local") {
+      if (task.use_worktree) {
         const prepared = await prepareTaskGitExecution(task.id);
         workingDir = prepared.working_dir;
         taskGitContextId = prepared.task_git_context_id;

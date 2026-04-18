@@ -80,6 +80,7 @@ export function getActivityActionLabel(action: string): string {
     task_review_started: "开始代码审核",
     task_review_completed: "代码审核完成",
     task_review_failed: "代码审核失败",
+    task_worktree_enabled: "开启任务 Worktree 模式",
     task_git_context_prepared: "Git 执行上下文已准备",
     task_git_context_prepare_failed: "Git 执行上下文准备失败",
     task_git_context_drift_detected: "Git 执行上下文已失效",

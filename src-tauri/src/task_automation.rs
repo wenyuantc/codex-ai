@@ -1188,6 +1188,7 @@ mod automation_working_dir_tests {
             status: "review".to_string(),
             priority: "medium".to_string(),
             project_id: project_id.to_string(),
+            use_worktree: true,
             assignee_id: Some("emp-1".to_string()),
             reviewer_id: Some("reviewer-1".to_string()),
             complexity: None,
@@ -1242,6 +1243,7 @@ mod automation_working_dir_tests {
                     status,
                     priority,
                     project_id,
+                    use_worktree,
                     assignee_id,
                     reviewer_id,
                     automation_mode,
@@ -1249,7 +1251,7 @@ mod automation_working_dir_tests {
                     last_review_session_id,
                     created_at,
                     updated_at
-                ) VALUES ($1, $2, NULL, 'review', 'medium', $3, NULL, NULL, 'review_fix_loop_v1', $4, NULL, '2026-04-17 00:00:00', '2026-04-17 00:00:00')
+                ) VALUES ($1, $2, NULL, 'review', 'medium', $3, 1, NULL, NULL, 'review_fix_loop_v1', $4, NULL, '2026-04-17 00:00:00', '2026-04-17 00:00:00')
                 "#,
             )
             .bind(&task.id)
@@ -1400,6 +1402,7 @@ mod automation_working_dir_tests {
                     status,
                     priority,
                     project_id,
+                    use_worktree,
                     assignee_id,
                     reviewer_id,
                     automation_mode,
@@ -1407,7 +1410,7 @@ mod automation_working_dir_tests {
                     last_review_session_id,
                     created_at,
                     updated_at
-                ) VALUES ($1, $2, NULL, 'review', 'medium', $3, NULL, NULL, 'review_fix_loop_v1', $4, NULL, '2026-04-17 00:00:00', '2026-04-17 00:00:00')
+                ) VALUES ($1, $2, NULL, 'review', 'medium', $3, 1, NULL, NULL, 'review_fix_loop_v1', $4, NULL, '2026-04-17 00:00:00', '2026-04-17 00:00:00')
                 "#,
             )
             .bind(&task.id)

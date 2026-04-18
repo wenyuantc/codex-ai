@@ -104,6 +104,7 @@ mod tests {
             status: "review".to_string(),
             priority: "high".to_string(),
             project_id: "proj-1".to_string(),
+            use_worktree: true,
             assignee_id: Some("emp-1".to_string()),
             reviewer_id: Some("emp-2".to_string()),
             complexity: None,

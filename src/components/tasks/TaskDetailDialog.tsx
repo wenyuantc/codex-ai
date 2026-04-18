@@ -515,6 +515,7 @@ export function TaskDetailDialog({
         description: fixTaskDescription,
         priority,
         project_id: task.project_id,
+        use_worktree: task.use_worktree,
         assignee_id: assigneeId,
       });
 
@@ -530,7 +531,7 @@ export function TaskDetailDialog({
       let workingDir = projectRepoPath ?? undefined;
       let taskGitContextId: string | undefined;
 
-      if (project?.project_type !== "ssh") {
+      if (createdTask.use_worktree) {
         const prepared = await prepareTaskGitExecution(createdTask.id);
         workingDir = prepared.working_dir;
         taskGitContextId = prepared.task_git_context_id;

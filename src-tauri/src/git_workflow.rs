@@ -2394,6 +2394,7 @@ mod tests {
             status: "todo".to_string(),
             priority: "high".to_string(),
             project_id: project.id.clone(),
+            use_worktree: true,
             assignee_id: None,
             reviewer_id: None,
             complexity: None,
@@ -2405,8 +2406,8 @@ mod tests {
             updated_at: now_sqlite(),
         };
         sqlx::query(
-            r#"INSERT INTO tasks (id, title, description, status, priority, project_id, assignee_id, reviewer_id, complexity, ai_suggestion, automation_mode, last_codex_session_id, last_review_session_id, created_at, updated_at)
-               VALUES ($1, $2, $3, $4, $5, $6, NULL, NULL, NULL, NULL, NULL, NULL, NULL, $7, $8)"#,
+            r#"INSERT INTO tasks (id, title, description, status, priority, project_id, use_worktree, assignee_id, reviewer_id, complexity, ai_suggestion, automation_mode, last_codex_session_id, last_review_session_id, created_at, updated_at)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, NULL, NULL, NULL, NULL, NULL, NULL, NULL, $8, $9)"#,
         )
         .bind(&task.id)
         .bind(&task.title)
@@ -2414,6 +2415,7 @@ mod tests {
         .bind(&task.status)
         .bind(&task.priority)
         .bind(&task.project_id)
+        .bind(task.use_worktree)
         .bind(&task.created_at)
         .bind(&task.updated_at)
         .execute(pool)

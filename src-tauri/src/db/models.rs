@@ -127,6 +127,7 @@ pub struct Task {
     pub status: String,
     pub priority: String,
     pub project_id: String,
+    pub use_worktree: bool,
     pub assignee_id: Option<String>,
     pub reviewer_id: Option<String>,
     pub complexity: Option<i32>,
@@ -653,6 +654,7 @@ pub struct CreateTask {
     pub description: Option<String>,
     pub priority: Option<String>,
     pub project_id: String,
+    pub use_worktree: Option<bool>,
     pub assignee_id: Option<String>,
     pub reviewer_id: Option<String>,
     pub attachment_source_paths: Option<Vec<String>>,
@@ -885,6 +887,20 @@ mod tests {
             payload.attachment_source_paths,
             Some(vec!["/tmp/a.png".to_string(), "/tmp/b.jpg".to_string()])
         );
+    }
+
+    #[test]
+    fn create_task_accepts_use_worktree_flag() {
+        let payload: CreateTask = serde_json::from_str(
+            r#"{
+                "title":"独立工作树任务",
+                "project_id":"proj-1",
+                "use_worktree":true
+            }"#,
+        )
+        .expect("deserialize create task with worktree");
+
+        assert_eq!(payload.use_worktree, Some(true));
     }
 
     #[test]

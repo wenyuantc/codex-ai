@@ -2598,7 +2598,7 @@ async fn insert_task_record(
     task: &Task,
 ) -> Result<(), String> {
     sqlx::query(
-        "INSERT INTO tasks (id, title, description, status, priority, project_id, assignee_id, reviewer_id, automation_mode, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)",
+        "INSERT INTO tasks (id, title, description, status, priority, project_id, use_worktree, assignee_id, reviewer_id, automation_mode, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)",
     )
     .bind(&task.id)
     .bind(&task.title)
@@ -2606,6 +2606,7 @@ async fn insert_task_record(
     .bind(&task.status)
     .bind(&task.priority)
     .bind(&task.project_id)
+    .bind(task.use_worktree)
     .bind(&task.assignee_id)
     .bind(&task.reviewer_id)
     .bind(&task.automation_mode)
@@ -5556,6 +5557,7 @@ pub async fn create_task<R: Runtime>(
         status: "todo".to_string(),
         priority: payload.priority.unwrap_or_else(|| "medium".to_string()),
         project_id: payload.project_id,
+        use_worktree: payload.use_worktree.unwrap_or(false),
         assignee_id: normalize_optional_text(payload.assignee_id.as_deref()),
         reviewer_id: normalize_optional_text(payload.reviewer_id.as_deref()),
         complexity: None,
@@ -5689,6 +5691,18 @@ pub async fn create_task<R: Runtime>(
         Some(&task.project_id),
     )
     .await?;
+
+    if task.use_worktree {
+        insert_activity_log(
+            &pool,
+            "task_worktree_enabled",
+            &format!("{}（新建任务已开启独立 worktree）", task.title),
+            None,
+            Some(&task.id),
+            Some(&task.project_id),
+        )
+        .await?;
+    }
 
     if project.project_type == PROJECT_TYPE_SSH && !attachments.is_empty() {
         insert_activity_log(
@@ -6573,6 +6587,7 @@ mod tests {
             status: "review".to_string(),
             priority: "high".to_string(),
             project_id: "project-1".to_string(),
+            use_worktree: true,
             assignee_id: None,
             reviewer_id: Some("reviewer-1".to_string()),
             complexity: None,
@@ -6613,6 +6628,7 @@ mod tests {
             status: "review".to_string(),
             priority: "medium".to_string(),
             project_id: "project-2".to_string(),
+            use_worktree: true,
             assignee_id: None,
             reviewer_id: Some("reviewer-2".to_string()),
             complexity: None,
@@ -6713,6 +6729,7 @@ mod tests {
                 status: "review".to_string(),
                 priority: "medium".to_string(),
                 project_id: "proj-review".to_string(),
+                use_worktree: true,
                 assignee_id: None,
                 reviewer_id: None,
                 complexity: None,
@@ -6972,6 +6989,7 @@ mod tests {
                 status: "todo".to_string(),
                 priority: "medium".to_string(),
                 project_id: "proj-1".to_string(),
+                use_worktree: false,
                 assignee_id: None,
                 reviewer_id: Some("reviewer-1".to_string()),
                 complexity: None,
@@ -6993,6 +7011,7 @@ mod tests {
                 .await
                 .expect("fetch inserted task");
             assert_eq!(saved_task.reviewer_id.as_deref(), Some("reviewer-1"));
+            assert!(!saved_task.use_worktree);
 
             pool.close().await;
         });

@@ -42,6 +42,7 @@ interface TaskStore {
       description?: string;
       priority?: string;
       project_id: string;
+      use_worktree?: boolean;
       assignee_id?: string;
       reviewer_id?: string;
       attachment_source_paths?: string[];
@@ -144,6 +145,7 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
     const task = await createTaskCommand({
       ...data,
       description: data.description ?? null,
+      use_worktree: data.use_worktree ?? false,
       assignee_id: data.assignee_id ?? null,
       reviewer_id: data.reviewer_id ?? null,
       attachment_source_paths: data.attachment_source_paths ?? [],

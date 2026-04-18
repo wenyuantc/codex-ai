@@ -48,6 +48,7 @@ export function CreateTaskDialog({
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [priority, setPriority] = useState("medium");
+  const [useWorktree, setUseWorktree] = useState("false");
   const [selectedProjectId, setSelectedProjectId] = useState(
     projectId ?? ""
   );
@@ -81,6 +82,7 @@ export function CreateTaskDialog({
       setTitle("");
       setDescription("");
       setPriority("medium");
+      setUseWorktree("false");
       setSelectedProjectId(projectId ?? "");
       setAssigneeId("");
       setReviewerId("");
@@ -154,6 +156,7 @@ export function CreateTaskDialog({
         description: description.trim() || undefined,
         priority,
         project_id: selectedProjectId,
+        use_worktree: useWorktree === "true",
         assignee_id: assigneeId || undefined,
         reviewer_id: reviewerId || undefined,
         attachment_source_paths: attachmentPaths,
@@ -170,7 +173,7 @@ export function CreateTaskDialog({
 
   return (
     <Dialog open={open} onOpenChange={handleOpen}>
-      <DialogContent className="max-w-2xl">
+      <DialogContent className="max-w-4xl">
         <DialogHeader>
           <DialogTitle>新建任务</DialogTitle>
         </DialogHeader>
@@ -242,7 +245,7 @@ export function CreateTaskDialog({
             )}
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
+          <div className="space-y-3">
             <div>
               <label className="text-xs font-medium text-muted-foreground">
                 项目 *
@@ -274,31 +277,66 @@ export function CreateTaskDialog({
               </Select>
             </div>
 
-            <div>
-              <label className="text-xs font-medium text-muted-foreground">
-                优先级
-              </label>
-              <Select
-                value={priority}
-                onValueChange={(value) => setPriority(value ?? "medium")}
-              >
-                <SelectTrigger className="mt-1 bg-background">
-                  <SelectValue placeholder="选择优先级">
-                    {(value) =>
-                      typeof value === "string"
-                        ? PRIORITIES.find((item) => item.value === value)?.label ?? "选择优先级"
-                        : "选择优先级"
-                    }
-                  </SelectValue>
-                </SelectTrigger>
-                <SelectContent>
-                  {PRIORITIES.map((item) => (
-                    <SelectItem key={item.value} value={item.value}>
-                      {item.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+            <div className="grid gap-3 md:grid-cols-2">
+              <div>
+                <label className="text-xs font-medium text-muted-foreground">
+                  Worktree 模式
+                </label>
+                <Select
+                  value={useWorktree}
+                  onValueChange={(value) => setUseWorktree(value ?? "false")}
+                >
+                  <SelectTrigger className="mt-1 bg-background">
+                    <SelectValue placeholder="选择是否启用 worktree">
+                      {(value) => {
+                        if (value === "true") {
+                          return "是";
+                        }
+
+                        if (value === "false") {
+                          return "否";
+                        }
+
+                        return "选择是否启用 worktree";
+                      }}
+                    </SelectValue>
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="false">否</SelectItem>
+                    <SelectItem value="true">是</SelectItem>
+                  </SelectContent>
+                </Select>
+                <p className="mt-1 text-[11px] text-muted-foreground">
+                  默认直接使用项目工作目录；开启后会为该任务准备独立 worktree。
+                </p>
+              </div>
+
+              <div>
+                <label className="text-xs font-medium text-muted-foreground">
+                  优先级
+                </label>
+                <Select
+                  value={priority}
+                  onValueChange={(value) => setPriority(value ?? "medium")}
+                >
+                  <SelectTrigger className="mt-1 bg-background">
+                    <SelectValue placeholder="选择优先级">
+                      {(value) =>
+                        typeof value === "string"
+                          ? PRIORITIES.find((item) => item.value === value)?.label ?? "选择优先级"
+                          : "选择优先级"
+                      }
+                    </SelectValue>
+                  </SelectTrigger>
+                  <SelectContent>
+                    {PRIORITIES.map((item) => (
+                      <SelectItem key={item.value} value={item.value}>
+                        {item.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
           </div>
 

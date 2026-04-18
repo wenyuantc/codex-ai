@@ -78,6 +78,7 @@ export interface Task {
   status: string;
   priority: string;
   project_id: string;
+  use_worktree: boolean;
   assignee_id: string | null;
   reviewer_id: string | null;
   complexity: number | null;

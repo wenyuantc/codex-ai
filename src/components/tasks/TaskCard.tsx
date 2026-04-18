@@ -151,7 +151,8 @@ export function TaskCard({
   const isActionLoading = executionActions.loading !== null || reviewActions.loading || automationSubmitting || automationRestarting;
   const shouldShowActionBar = !isOverlay && (isRunning || isReviewTask || !hideRunAction);
   const shouldShowPrimaryMenuAction = isRunning || isReviewTask || !hideRunAction;
-  const isWorktreeMode = Boolean(gitContext?.worktree_path) && !gitContext?.worktree_missing;
+  const isWorktreeModeEnabled = task.use_worktree;
+  const isWorktreeReady = Boolean(gitContext?.worktree_path) && !gitContext?.worktree_missing;
   const gitContextBadge = getGitContextBadge(gitContext);
   const canTriggerMergeAction = Boolean(
     gitContext
@@ -386,10 +387,14 @@ export function TaskCard({
                 <Bot className="h-3 w-3" />
                 自动质控·{getTaskAutomationStatusLabel(automationState.status)}
               </span>
-              {isWorktreeMode && (
+              {isWorktreeModeEnabled && (
                 <span
                   className="inline-flex items-center gap-1 rounded-full bg-sky-500/10 px-2 py-0.5 text-[11px] text-sky-700"
-                  title={`任务已绑定 worktree：${gitContext?.task_branch ?? "未命名分支"} · ${gitContext?.target_branch ?? "未设置目标分支"}`}
+                  title={
+                    isWorktreeReady
+                      ? `任务已绑定 worktree：${gitContext?.task_branch ?? "未命名分支"} · ${gitContext?.target_branch ?? "未设置目标分支"}`
+                      : "任务已开启 Worktree 模式，首次运行后会准备独立 worktree"
+                  }
                 >
                   <GitBranch className="h-3 w-3" />
                   Worktree 模式

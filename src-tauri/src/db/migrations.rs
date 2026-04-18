@@ -671,6 +671,16 @@ pub fn get_all_migrations() -> Vec<Migration> {
             "#,
             kind: tauri_plugin_sql::MigrationKind::Up,
         },
+        Migration {
+            version: 27,
+            description: "persist task worktree mode preference",
+            sql: r#"
+                ALTER TABLE tasks
+                    ADD COLUMN use_worktree INTEGER NOT NULL DEFAULT 1
+                    CHECK (use_worktree IN (0, 1));
+            "#,
+            kind: tauri_plugin_sql::MigrationKind::Up,
+        },
     ]
 }
 
@@ -703,8 +713,8 @@ mod tests {
     }
 
     #[test]
-    fn latest_migration_version_includes_employee_model_normalization() {
-        assert_eq!(latest_migration_version(), 26);
+    fn latest_migration_version_includes_task_worktree_preference() {
+        assert_eq!(latest_migration_version(), 27);
     }
 
     #[test]
