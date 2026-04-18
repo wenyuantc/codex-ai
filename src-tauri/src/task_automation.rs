@@ -15,7 +15,8 @@ use crate::codex::{
     load_codex_settings, start_codex_with_manager, stop_codex_for_automation_restart, CodexManager,
 };
 use crate::db::models::{
-    Project, ReviewVerdict, Subtask, Task, TaskAttachment, TaskAutomationStateRecord,
+    CodexSessionRecord, Project, ReviewVerdict, Subtask, Task, TaskAttachment,
+    TaskAutomationStateRecord,
 };
 
 const AUTOMATION_MODE_REVIEW_FIX_LOOP_V1: &str = "review_fix_loop_v1";
@@ -58,6 +59,12 @@ struct TaskSessionIds {
 struct TaskAutomationPolicy {
     max_fix_rounds: i32,
     failure_strategy: String,
+}
+
+#[derive(Clone, Debug)]
+struct AutomationExecutionContext {
+    working_dir: String,
+    task_git_context_id: Option<String>,
 }
 
 impl TaskSessionIds {
@@ -564,7 +571,7 @@ async fn start_automation_fix_round(
         .ok_or_else(|| "自动修复要求任务已指派开发负责人".to_string())?;
     let assignee = fetch_employee_by_id(pool, assignee_id).await?;
     let project = fetch_project_by_id(pool, &task.project_id).await?;
-    let working_dir = resolve_automation_working_dir(&project)?;
+    let execution_context = resolve_automation_execution_context(pool, task, &project).await?;
     let attachments = fetch_task_attachments(pool, &task.id).await?;
     let subtasks = fetch_task_subtasks(pool, &task.id).await?;
     let execution_input =
@@ -586,9 +593,9 @@ async fn start_automation_fix_round(
         Some(assignee.model.clone()),
         Some(assignee.reasoning_effort.clone()),
         assignee.system_prompt.clone(),
-        Some(working_dir),
+        Some(execution_context.working_dir),
         Some(task.id.clone()),
-        None,
+        execution_context.task_git_context_id,
         None,
         Some(execution_input.image_paths),
         Some("execution".to_string()),
@@ -596,18 +603,90 @@ async fn start_automation_fix_round(
     .await
 }
 
-fn resolve_automation_working_dir(project: &Project) -> Result<String, String> {
+async fn resolve_automation_execution_context(
+    pool: &SqlitePool,
+    task: &Task,
+    project: &Project,
+) -> Result<AutomationExecutionContext, String> {
     if project.project_type == PROJECT_TYPE_SSH {
-        project
-            .remote_repo_path
-            .clone()
-            .ok_or_else(|| "当前 SSH 项目未配置远程仓库目录，无法自动修复".to_string())
-    } else {
-        project
-            .repo_path
-            .clone()
-            .ok_or_else(|| "当前项目未配置仓库路径，无法自动修复".to_string())
+        return Ok(AutomationExecutionContext {
+            working_dir: project
+                .remote_repo_path
+                .clone()
+                .ok_or_else(|| "当前 SSH 项目未配置远程仓库目录，无法自动修复".to_string())?,
+            task_git_context_id: None,
+        });
     }
+
+    let mut candidates = Vec::new();
+    if let Some(last_session_id) = task.last_codex_session_id.as_deref() {
+        if let Some(session) = sqlx::query_as::<_, CodexSessionRecord>(
+            "SELECT * FROM codex_sessions WHERE id = $1 AND session_kind = 'execution' LIMIT 1",
+        )
+        .bind(last_session_id)
+        .fetch_optional(pool)
+        .await
+        .map_err(|error| format!("查询最近执行 Session 失败: {}", error))?
+        {
+            candidates.push(session);
+        }
+    }
+
+    let latest_execution_session = sqlx::query_as::<_, CodexSessionRecord>(
+        r#"
+        SELECT *
+        FROM codex_sessions
+        WHERE task_id = $1
+          AND session_kind = 'execution'
+        ORDER BY started_at DESC, created_at DESC
+        LIMIT 1
+        "#,
+    )
+    .bind(&task.id)
+    .fetch_optional(pool)
+    .await
+    .map_err(|error| format!("查询任务最近执行 Session 失败: {}", error))?;
+    if let Some(session) = latest_execution_session {
+        candidates.push(session);
+    }
+
+    let mut seen = HashSet::new();
+    for session in candidates {
+        let Some(working_dir) = session.working_dir.clone() else {
+            continue;
+        };
+        if working_dir.trim().is_empty() || !seen.insert(working_dir.clone()) {
+            continue;
+        }
+        return Ok(AutomationExecutionContext {
+            working_dir,
+            task_git_context_id: session.task_git_context_id.clone(),
+        });
+    }
+
+    let context_row = sqlx::query_as::<_, (String, String)>(
+        r#"
+        SELECT worktree_path, id
+        FROM task_git_contexts
+        WHERE task_id = $1
+        ORDER BY updated_at DESC, created_at DESC
+        LIMIT 1
+        "#,
+    )
+    .bind(&task.id)
+    .fetch_optional(pool)
+    .await
+    .map_err(|error| format!("查询任务 Git 上下文失败: {}", error))?;
+    if let Some((working_dir, context_id)) = context_row {
+        if !working_dir.trim().is_empty() {
+            return Ok(AutomationExecutionContext {
+                working_dir,
+                task_git_context_id: Some(context_id),
+            });
+        }
+    }
+
+    Err("当前任务缺少可复用的 Git worktree，上下文未准备好，无法自动修复".to_string())
 }
 
 async fn mark_launch_failure(
@@ -1072,9 +1151,25 @@ pub async fn restart_task_automation(app: AppHandle, task_id: String) -> Result<
 
 #[cfg(test)]
 mod automation_working_dir_tests {
-    use super::resolve_automation_working_dir;
-    use crate::app::{PROJECT_TYPE_LOCAL, PROJECT_TYPE_SSH};
-    use crate::db::models::Project;
+    use sqlx::SqlitePool;
+
+    use super::resolve_automation_execution_context;
+    use crate::app::{build_current_migrator, PROJECT_TYPE_LOCAL, PROJECT_TYPE_SSH};
+    use crate::db::models::{Project, Task};
+
+    async fn setup_test_pool() -> SqlitePool {
+        let pool = SqlitePool::connect("sqlite::memory:")
+            .await
+            .expect("create sqlite memory pool");
+        let migrator = build_current_migrator();
+        let mut connection = pool.acquire().await.expect("acquire sqlite connection");
+        migrator
+            .run_direct(&mut *connection)
+            .await
+            .expect("run migrations");
+        drop(connection);
+        pool
+    }
 
     fn build_project(
         project_type: &str,
@@ -1095,24 +1190,172 @@ mod automation_working_dir_tests {
         }
     }
 
+    fn build_task(project_id: &str) -> Task {
+        Task {
+            id: "task-1".to_string(),
+            title: "demo task".to_string(),
+            description: None,
+            status: "review".to_string(),
+            priority: "medium".to_string(),
+            project_id: project_id.to_string(),
+            assignee_id: Some("emp-1".to_string()),
+            reviewer_id: Some("reviewer-1".to_string()),
+            complexity: None,
+            ai_suggestion: None,
+            automation_mode: Some("review_fix_loop_v1".to_string()),
+            last_codex_session_id: Some("exec-1".to_string()),
+            last_review_session_id: None,
+            created_at: "2026-04-17 00:00:00".to_string(),
+            updated_at: "2026-04-17 00:00:00".to_string(),
+        }
+    }
+
     #[test]
-    fn resolves_local_repo_path_for_local_project() {
-        let project = build_project(PROJECT_TYPE_LOCAL, Some("/tmp/demo"), None);
+    fn resolves_local_execution_worktree_for_local_project() {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("build tokio runtime");
 
-        let working_dir =
-            resolve_automation_working_dir(&project).expect("resolve local repo path");
+        runtime.block_on(async {
+            let pool = setup_test_pool().await;
+            let project = build_project(PROJECT_TYPE_LOCAL, Some("/tmp/demo"), None);
+            let task = build_task(&project.id);
 
-        assert_eq!(working_dir, "/tmp/demo");
+            sqlx::query(
+                r#"
+                INSERT INTO projects (
+                    id,
+                    name,
+                    description,
+                    status,
+                    repo_path,
+                    project_type,
+                    created_at,
+                    updated_at
+                ) VALUES ($1, $2, NULL, 'active', $3, 'local', '2026-04-17 00:00:00', '2026-04-17 00:00:00')
+                "#,
+            )
+            .bind(&project.id)
+            .bind(&project.name)
+            .bind("/tmp/demo")
+            .execute(&pool)
+            .await
+            .expect("insert project");
+
+            sqlx::query(
+                r#"
+                INSERT INTO tasks (
+                    id,
+                    title,
+                    description,
+                    status,
+                    priority,
+                    project_id,
+                    assignee_id,
+                    reviewer_id,
+                    automation_mode,
+                    last_codex_session_id,
+                    last_review_session_id,
+                    created_at,
+                    updated_at
+                ) VALUES ($1, $2, NULL, 'review', 'medium', $3, NULL, NULL, 'review_fix_loop_v1', $4, NULL, '2026-04-17 00:00:00', '2026-04-17 00:00:00')
+                "#,
+            )
+            .bind(&task.id)
+            .bind(&task.title)
+            .bind(&project.id)
+            .bind(task.last_codex_session_id.as_deref())
+            .execute(&pool)
+            .await
+            .expect("insert task");
+
+            sqlx::query(
+                r#"
+                INSERT INTO task_git_contexts (
+                    id,
+                    task_id,
+                    project_id,
+                    base_branch,
+                    task_branch,
+                    target_branch,
+                    worktree_path,
+                    repo_head_commit_at_prepare,
+                    state,
+                    context_version,
+                    created_at,
+                    updated_at
+                ) VALUES (
+                    $1, $2, $3, 'main', 'codex/task-task-1', 'main', $4, NULL, 'merge_ready', 1, '2026-04-17 00:00:00', '2026-04-17 00:00:00'
+                )
+                "#,
+            )
+            .bind("ctx-1")
+            .bind(&task.id)
+            .bind(&project.id)
+            .bind("/tmp/demo/.codex-ai-worktrees/task-1")
+            .execute(&pool)
+            .await
+            .expect("insert task git context");
+
+            sqlx::query(
+                r#"
+                INSERT INTO codex_sessions (
+                    id,
+                    task_id,
+                    project_id,
+                    task_git_context_id,
+                    working_dir,
+                    execution_target,
+                    artifact_capture_mode,
+                    session_kind,
+                    status,
+                    started_at,
+                    created_at
+                ) VALUES ($1, $2, $3, $4, $5, 'local', 'local_full', 'execution', 'exited', '2026-04-17 00:00:01', '2026-04-17 00:00:01')
+                "#,
+            )
+            .bind("exec-1")
+            .bind(&task.id)
+            .bind(&project.id)
+            .bind("ctx-1")
+            .bind("/tmp/demo/.codex-ai-worktrees/task-1")
+            .execute(&pool)
+            .await
+            .expect("insert execution session");
+
+            let context = resolve_automation_execution_context(&pool, &task, &project)
+                .await
+                .expect("resolve automation execution context");
+
+            assert_eq!(context.working_dir, "/tmp/demo/.codex-ai-worktrees/task-1");
+            assert_eq!(context.task_git_context_id.as_deref(), Some("ctx-1"));
+
+            pool.close().await;
+        });
     }
 
     #[test]
     fn resolves_remote_repo_path_for_ssh_project() {
-        let project = build_project(PROJECT_TYPE_SSH, None, Some("/srv/demo"));
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("build tokio runtime");
 
-        let working_dir =
-            resolve_automation_working_dir(&project).expect("resolve remote repo path");
+        runtime.block_on(async {
+            let pool = setup_test_pool().await;
+            let project = build_project(PROJECT_TYPE_SSH, None, Some("/srv/demo"));
+            let task = build_task(&project.id);
 
-        assert_eq!(working_dir, "/srv/demo");
+            let context = resolve_automation_execution_context(&pool, &task, &project)
+                .await
+                .expect("resolve remote repo path");
+
+            assert_eq!(context.working_dir, "/srv/demo");
+            assert!(context.task_git_context_id.is_none());
+
+            pool.close().await;
+        });
     }
 }
 
