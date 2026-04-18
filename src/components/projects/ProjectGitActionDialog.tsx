@@ -29,6 +29,7 @@ interface ProjectGitActionDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   context: TaskGitContext | null;
+  projectBranches: string[];
   onActionCompleted?: (message: string) => Promise<void> | void;
 }
 
@@ -53,11 +54,11 @@ interface GitActionFormState {
 const GIT_ACTION_OPTIONS: Array<{ value: GitActionType; label: string }> = [
   { value: "merge", label: "合并目标分支" },
   { value: "push", label: "推送分支" },
-  { value: "rebase", label: "Rebase 到目标分支" },
-  { value: "cherry_pick", label: "Cherry-pick 提交" },
-  { value: "stash", label: "创建 Stash" },
-  { value: "unstash", label: "恢复 Stash" },
-  { value: "cleanup_worktree", label: "清理 Worktree" },
+  { value: "rebase", label: "变基到目标分支" },
+  { value: "cherry_pick", label: "挑拣提交（Cherry-pick）" },
+  { value: "stash", label: "暂存当前改动（Stash）" },
+  { value: "unstash", label: "恢复暂存改动（Unstash）" },
+  { value: "cleanup_worktree", label: "清理任务工作树" },
 ];
 
 const FORCE_MODE_OPTIONS: Array<{
@@ -65,12 +66,50 @@ const FORCE_MODE_OPTIONS: Array<{
   label: string;
 }> = [
   { value: "none", label: "普通推送" },
-  { value: "force", label: "强制推送" },
-  { value: "force_with_lease", label: "force-with-lease" },
+  { value: "force", label: "强制推送（force）" },
+  { value: "force_with_lease", label: "带保护强推（force-with-lease）" },
+];
+
+const MERGE_STRATEGY_OPTIONS: Array<{ value: string; label: string }> = [
+  { value: "ort", label: "默认策略（ort）" },
+  { value: "recursive", label: "递归策略（recursive）" },
+  { value: "resolve", label: "快速冲突解决（resolve）" },
+  { value: "ours", label: "优先保留当前分支（ours）" },
+  { value: "subtree", label: "子树合并（subtree）" },
 ];
 
 function getGitActionLabel(actionType: GitActionType) {
   return GIT_ACTION_OPTIONS.find((option) => option.value === actionType)?.label ?? actionType;
+}
+
+function getMergeStrategyLabel(strategy: string) {
+  return MERGE_STRATEGY_OPTIONS.find((option) => option.value === strategy)?.label ?? strategy;
+}
+
+function buildBranchOptions(
+  projectBranches: string[],
+  context: TaskGitContext | null,
+  currentValue: string,
+) {
+  const candidates = [
+    currentValue,
+    context?.target_branch ?? "",
+    context?.base_branch ?? "",
+    ...projectBranches,
+  ];
+  const seen = new Set<string>();
+
+  return candidates
+    .map((value) => value.trim())
+    .filter((value) => value.length > 0)
+    .filter((value) => {
+      if (seen.has(value)) {
+        return false;
+      }
+      seen.add(value);
+      return true;
+    })
+    .map((value) => ({ value, label: value }));
 }
 
 function buildInitialFormState(context: TaskGitContext | null): GitActionFormState {
@@ -132,6 +171,7 @@ export function ProjectGitActionDialog({
   open,
   onOpenChange,
   context,
+  projectBranches,
   onActionCompleted,
 }: ProjectGitActionDialogProps) {
   const [selectedAction, setSelectedAction] = useState<GitActionType>("merge");
@@ -167,6 +207,8 @@ export function ProjectGitActionDialog({
         `当前状态：${context.state}`,
       ].join(" · ")
     : null;
+  const mergeTargetBranchOptions = buildBranchOptions(projectBranches, context, form.targetBranch);
+  const rebaseTargetBranchOptions = buildBranchOptions(projectBranches, context, form.ontoBranch);
 
   const updateForm = (patch: Partial<GitActionFormState>) => {
     setForm((current) => ({ ...current, ...patch }));
@@ -283,21 +325,49 @@ export function ProjectGitActionDialog({
           <div className="grid gap-3 sm:grid-cols-2">
             <label className="space-y-1.5">
               <span className="text-xs font-medium text-muted-foreground">目标分支</span>
-              <Input
+              <Select<string>
                 value={form.targetBranch}
-                onChange={(event) => updateForm({ targetBranch: event.target.value })}
+                onValueChange={(value) => {
+                  if (value) {
+                    updateForm({ targetBranch: value });
+                  }
+                }}
                 disabled={formLocked}
-                placeholder="main"
-              />
+              >
+                <SelectTrigger className="bg-background">
+                  <SelectValue>{form.targetBranch || "选择目标分支"}</SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                  {mergeTargetBranchOptions.map((option) => (
+                    <SelectItem key={option.value} value={option.value}>
+                      {option.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </label>
             <label className="space-y-1.5">
               <span className="text-xs font-medium text-muted-foreground">合并策略</span>
-              <Input
+              <Select<string>
                 value={form.strategy}
-                onChange={(event) => updateForm({ strategy: event.target.value })}
+                onValueChange={(value) => {
+                  if (value) {
+                    updateForm({ strategy: value });
+                  }
+                }}
                 disabled={formLocked}
-                placeholder="ort"
-              />
+              >
+                <SelectTrigger className="bg-background">
+                  <SelectValue>{getMergeStrategyLabel(form.strategy)}</SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                  {MERGE_STRATEGY_OPTIONS.map((option) => (
+                    <SelectItem key={option.value} value={option.value}>
+                      {option.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </label>
             <label className="col-span-full flex items-center gap-2 rounded-md border border-border/60 px-3 py-2 text-sm">
               <input
@@ -352,7 +422,9 @@ export function ProjectGitActionDialog({
                 disabled={formLocked}
               >
                 <SelectTrigger className="bg-background">
-                  <SelectValue />
+                  <SelectValue>
+                    {FORCE_MODE_OPTIONS.find((option) => option.value === form.forceMode)?.label ?? form.forceMode}
+                  </SelectValue>
                 </SelectTrigger>
                 <SelectContent>
                   {FORCE_MODE_OPTIONS.map((option) => (
@@ -370,12 +442,26 @@ export function ProjectGitActionDialog({
           <div className="grid gap-3">
             <label className="space-y-1.5">
               <span className="text-xs font-medium text-muted-foreground">目标分支</span>
-              <Input
+              <Select<string>
                 value={form.ontoBranch}
-                onChange={(event) => updateForm({ ontoBranch: event.target.value })}
+                onValueChange={(value) => {
+                  if (value) {
+                    updateForm({ ontoBranch: value });
+                  }
+                }}
                 disabled={formLocked}
-                placeholder="main"
-              />
+              >
+                <SelectTrigger className="bg-background">
+                  <SelectValue>{form.ontoBranch || "选择目标分支"}</SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                  {rebaseTargetBranchOptions.map((option) => (
+                    <SelectItem key={option.value} value={option.value}>
+                      {option.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </label>
             <label className="flex items-center gap-2 rounded-md border border-border/60 px-3 py-2 text-sm">
               <input
@@ -496,12 +582,12 @@ export function ProjectGitActionDialog({
                     }
                   }}
                   disabled={formLocked}
-                >
-                  <SelectTrigger className="bg-background">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {GIT_ACTION_OPTIONS.map((option) => (
+              >
+                <SelectTrigger className="bg-background">
+                  <SelectValue>{getGitActionLabel(selectedAction)}</SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                  {GIT_ACTION_OPTIONS.map((option) => (
                       <SelectItem key={option.value} value={option.value}>
                         {option.label}
                       </SelectItem>

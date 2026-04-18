@@ -1361,6 +1361,81 @@ pub(crate) fn collect_task_review_context(repo_path: &str) -> Result<String, Str
     )
 }
 
+async fn collect_local_task_review_context_for_task(
+    pool: &SqlitePool,
+    task: &Task,
+    project: &Project,
+) -> Result<(String, String), String> {
+    let repo_path = project
+        .repo_path
+        .clone()
+        .ok_or_else(|| "当前项目未配置仓库路径，无法审核代码".to_string())?;
+
+    let mut candidate_dirs = Vec::new();
+    if let Some(last_session_id) = task.last_codex_session_id.as_deref() {
+        let latest_bound_working_dir = sqlx::query_scalar::<_, Option<String>>(
+            "SELECT working_dir FROM codex_sessions WHERE id = $1 AND session_kind = 'execution' LIMIT 1",
+        )
+        .bind(last_session_id)
+        .fetch_optional(pool)
+        .await
+        .map_err(|error| format!("查询最近执行 Session 工作区失败: {}", error))?
+        .flatten();
+        if let Some(path) = latest_bound_working_dir {
+            candidate_dirs.push(path);
+        }
+    }
+
+    let latest_execution_working_dir = sqlx::query_scalar::<_, Option<String>>(
+        r#"
+        SELECT working_dir
+        FROM codex_sessions
+        WHERE task_id = $1
+          AND session_kind = 'execution'
+          AND working_dir IS NOT NULL
+        ORDER BY started_at DESC, created_at DESC
+        LIMIT 1
+        "#,
+    )
+    .bind(&task.id)
+    .fetch_optional(pool)
+    .await
+    .map_err(|error| format!("查询任务最近执行工作区失败: {}", error))?
+    .flatten();
+    if let Some(path) = latest_execution_working_dir {
+        candidate_dirs.push(path);
+    }
+    candidate_dirs.push(repo_path.clone());
+
+    let mut seen_dirs = HashSet::new();
+    let mut last_empty_change_error: Option<String> = None;
+    let mut last_runtime_error: Option<String> = None;
+
+    for candidate in candidate_dirs {
+        let normalized = candidate.trim().to_string();
+        if normalized.is_empty() || !seen_dirs.insert(normalized.clone()) {
+            continue;
+        }
+
+        match collect_task_review_context(&normalized) {
+            Ok(context) => return Ok((normalized, context)),
+            Err(error)
+                if error == "当前工作区没有可审核的代码改动"
+                    || error == "当前工作区没有可审核的代码 diff" =>
+            {
+                last_empty_change_error = Some(error);
+            }
+            Err(error) => {
+                last_runtime_error = Some(error);
+            }
+        }
+    }
+
+    Err(last_empty_change_error
+        .or(last_runtime_error)
+        .unwrap_or_else(|| "当前工作区没有可审核的代码改动".to_string()))
+}
+
 fn shell_join_single_quoted(args: &[&str]) -> String {
     args.iter()
         .map(|arg| shell_escape_single_quoted(arg))
@@ -4201,12 +4276,7 @@ pub(crate) async fn start_task_code_review_internal(
         );
         (remote_repo_path.to_string(), review_context)
     } else {
-        let repo_path = project
-            .repo_path
-            .clone()
-            .ok_or_else(|| "当前项目未配置仓库路径，无法审核代码".to_string())?;
-        let review_context = collect_task_review_context(&repo_path)?;
-        (repo_path, review_context)
+        collect_local_task_review_context_for_task(&pool, &task, &project).await?
     };
     let review_prompt =
         build_task_review_prompt(&task, &project, &review_working_dir, &review_context);
@@ -6008,12 +6078,12 @@ mod tests {
     use super::{
         build_current_migrator, build_remote_codex_runtime_health, build_remote_shell_command,
         build_task_review_context_from_git_outputs, build_task_review_prompt,
-        ensure_statement_terminated, fetch_execution_change_history_item_by_session_id,
-        fetch_task_by_id, insert_task_record, normalize_runtime_path_string,
-        remote_shell_path_expression, remote_task_attachment_dir, remote_task_attachment_path,
-        resolve_session_resume_state, rewrite_file_change_diff_labels, sanitize_sql_backup_script,
-        validate_project_repo_path, validate_runtime_working_dir, CodexSettings, Project, Task,
-        TaskAttachment, PROJECT_TYPE_LOCAL, PROJECT_TYPE_SSH,
+        collect_local_task_review_context_for_task, ensure_statement_terminated,
+        fetch_execution_change_history_item_by_session_id, fetch_task_by_id, insert_task_record,
+        normalize_runtime_path_string, remote_shell_path_expression, remote_task_attachment_dir,
+        remote_task_attachment_path, resolve_session_resume_state, rewrite_file_change_diff_labels,
+        sanitize_sql_backup_script, validate_project_repo_path, validate_runtime_working_dir,
+        CodexSettings, Project, Task, TaskAttachment, PROJECT_TYPE_LOCAL, PROJECT_TYPE_SSH,
     };
 
     async fn setup_test_pool() -> SqlitePool {
@@ -6477,6 +6547,152 @@ mod tests {
     }
 
     #[test]
+    fn local_review_context_prefers_latest_execution_worktree() {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("build tokio runtime");
+
+        runtime.block_on(async {
+            let pool = setup_test_pool().await;
+            let repo_root = std::env::temp_dir().join(format!("codex-ai-review-root-{}", uuid::Uuid::new_v4()));
+            let worktree_root =
+                std::env::temp_dir().join(format!("codex-ai-review-worktree-{}", uuid::Uuid::new_v4()));
+
+            fs::create_dir_all(&repo_root).expect("create review repo root");
+            let repo_root_str = repo_root.to_string_lossy().to_string();
+            let worktree_root_str = worktree_root.to_string_lossy().to_string();
+
+            let git = |args: &[&str]| {
+                let status = Command::new("git")
+                    .args(args)
+                    .status()
+                    .expect("run git command");
+                assert!(status.success(), "git {:?} should succeed", args);
+            };
+
+            git(&["init", "-b", "main", &repo_root_str]);
+            git(&["-C", &repo_root_str, "config", "user.email", "test@example.com"]);
+            git(&["-C", &repo_root_str, "config", "user.name", "Test User"]);
+            fs::write(repo_root.join("src.txt"), "base\n").expect("write initial file");
+            git(&["-C", &repo_root_str, "add", "src.txt"]);
+            git(&["-C", &repo_root_str, "commit", "-m", "init"]);
+            git(&[
+                "-C",
+                &repo_root_str,
+                "worktree",
+                "add",
+                "-b",
+                "codex/task-task-1",
+                &worktree_root_str,
+                "main",
+            ]);
+            fs::write(worktree_root.join("src.txt"), "base\nchange\n").expect("write worktree change");
+
+            sqlx::query(
+                r#"
+                INSERT INTO projects (
+                    id,
+                    name,
+                    description,
+                    status,
+                    repo_path,
+                    project_type,
+                    created_at,
+                    updated_at
+                ) VALUES ($1, $2, NULL, 'active', $3, 'local', '2026-04-16 10:00:00', '2026-04-16 10:00:00')
+                "#,
+            )
+            .bind("proj-review")
+            .bind("Review Project")
+            .bind(&repo_root_str)
+            .execute(&pool)
+            .await
+            .expect("insert project with repo path");
+
+            let task = Task {
+                id: "task-review".to_string(),
+                title: "审核 worktree 改动".to_string(),
+                description: None,
+                status: "review".to_string(),
+                priority: "medium".to_string(),
+                project_id: "proj-review".to_string(),
+                assignee_id: None,
+                reviewer_id: None,
+                complexity: None,
+                ai_suggestion: None,
+                automation_mode: None,
+                last_codex_session_id: Some("sess-exec-1".to_string()),
+                last_review_session_id: None,
+                created_at: "2026-04-16 10:00:00".to_string(),
+                updated_at: "2026-04-16 10:00:00".to_string(),
+            };
+
+            let mut tx = pool.begin().await.expect("begin task transaction");
+            insert_task_record(&mut tx, &task)
+                .await
+                .expect("insert task record");
+            tx.commit().await.expect("commit task transaction");
+
+            sqlx::query(
+                r#"
+                INSERT INTO codex_sessions (
+                    id,
+                    task_id,
+                    project_id,
+                    working_dir,
+                    execution_target,
+                    artifact_capture_mode,
+                    session_kind,
+                    status,
+                    started_at,
+                    created_at
+                ) VALUES ($1, $2, $3, $4, 'local', 'local_full', 'execution', 'exited', '2026-04-16 10:00:01', '2026-04-16 10:00:01')
+                "#,
+            )
+            .bind("sess-exec-1")
+            .bind("task-review")
+            .bind("proj-review")
+            .bind(&worktree_root_str)
+            .execute(&pool)
+            .await
+            .expect("insert execution session");
+
+            let saved_task = fetch_task_by_id(&pool, "task-review")
+                .await
+                .expect("fetch review task");
+            let project = Project {
+                id: "proj-review".to_string(),
+                name: "Review Project".to_string(),
+                description: None,
+                status: "active".to_string(),
+                repo_path: Some(repo_root_str.clone()),
+                project_type: PROJECT_TYPE_LOCAL.to_string(),
+                ssh_config_id: None,
+                remote_repo_path: None,
+                created_at: "2026-04-16 10:00:00".to_string(),
+                updated_at: "2026-04-16 10:00:00".to_string(),
+            };
+
+            let (review_working_dir, review_context) =
+                collect_local_task_review_context_for_task(&pool, &saved_task, &project)
+                    .await
+                    .expect("collect review context from worktree");
+
+            assert_eq!(review_working_dir, worktree_root_str);
+            assert!(review_context.contains("src.txt"));
+            assert!(review_context.contains("change"));
+
+            let _ = Command::new("git")
+                .args(["-C", &repo_root_str, "worktree", "remove", &worktree_root_str, "--force"])
+                .status();
+            let _ = fs::remove_dir_all(&repo_root);
+            let _ = fs::remove_dir_all(&worktree_root);
+            pool.close().await;
+        });
+    }
+
+    #[test]
     fn sanitizes_sql_control_statements() {
         let source = "\u{feff}BEGIN TRANSACTION;\nCREATE TABLE demo(id INTEGER);\nCOMMIT;\nPRAGMA foreign_keys=OFF;\nINSERT INTO demo VALUES (1);\n";
         let sanitized = sanitize_sql_backup_script(source);
@@ -6546,7 +6762,7 @@ mod tests {
 
         assert_eq!(status, "missing_cli_session");
         assert!(!can_resume);
-        assert!(message.unwrap_or_default().contains("CLI session id"));
+        assert!(message.unwrap_or_default().contains("CLI 对话 ID"));
     }
 
     #[test]

@@ -348,6 +348,7 @@ export interface ProjectGitOverview {
   execution_target: EnvironmentMode;
   default_branch: string | null;
   current_branch: string | null;
+  project_branches: string[];
   head_commit_sha: string | null;
   working_tree_summary: string | null;
   refreshed_at: string;

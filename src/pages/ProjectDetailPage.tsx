@@ -46,15 +46,15 @@ function getGitActionTypeLabel(actionType: string | null | undefined) {
     case "push":
       return "推送分支";
     case "rebase":
-      return "Rebase";
+      return "变基到目标分支";
     case "cherry_pick":
-      return "Cherry-pick";
+      return "挑拣提交（Cherry-pick）";
     case "stash":
-      return "创建 Stash";
+      return "暂存当前改动（Stash）";
     case "unstash":
-      return "恢复 Stash";
+      return "恢复暂存改动（Unstash）";
     case "cleanup_worktree":
-      return "清理 Worktree";
+      return "清理任务工作树";
     default:
       return actionType ?? "待确认操作";
   }
@@ -527,6 +527,7 @@ export function ProjectDetailPage() {
           }
         }}
         context={selectedGitContext}
+        projectBranches={gitOverview?.project_branches ?? []}
         onActionCompleted={handleGitActionCompleted}
       />
     </div>
