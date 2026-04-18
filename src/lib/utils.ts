@@ -101,6 +101,7 @@ export function getActivityActionLabel(action: string): string {
     project_git_pushed: "推送项目分支",
     project_git_pulled: "拉取项目分支",
     environment_mode_switched: "切换SSH模式",
+    ssh_host_selected: "切换SSH主机",
     employee_project_membership_conflict_migrated: "员工项目归属冲突已迁移",
     ssh_config_created: "新增SSH配置",
     ssh_config_updated: "更新SSH配置",

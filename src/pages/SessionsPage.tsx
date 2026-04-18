@@ -124,6 +124,7 @@ export function SessionsPage() {
   const refreshCodexRuntimeStatus = useEmployeeStore((state) => state.refreshCodexRuntimeStatus);
 
   const environmentMode = useProjectStore((state) => state.environmentMode);
+  const selectedSshConfigId = useProjectStore((state) => state.selectedSshConfigId);
   const [sessions, setSessions] = useState<CodexSessionListItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -158,6 +159,10 @@ export function SessionsPage() {
         return false;
       }
 
+      if (environmentMode === "ssh" && selectedSshConfigId && session.ssh_config_id !== selectedSshConfigId) {
+        return false;
+      }
+
       const matchesSessionId = !normalizedSessionIdQuery
         || normalizeSearchText(session.session_id).includes(normalizedSessionIdQuery)
         || normalizeSearchText(session.session_record_id).includes(normalizedSessionIdQuery)
@@ -185,7 +190,7 @@ export function SessionsPage() {
 
       return contentHaystack.includes(normalizedContentQuery);
     });
-  }, [contentQuery, environmentMode, sessionIdQuery, sessions]);
+  }, [contentQuery, environmentMode, selectedSshConfigId, sessionIdQuery, sessions]);
 
   const totalPages = filteredSessions.length > 0 ? Math.ceil(filteredSessions.length / PAGE_SIZE) : 0;
   const pageSessions = useMemo(

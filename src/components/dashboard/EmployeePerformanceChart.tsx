@@ -4,7 +4,7 @@ import type { EmployeeMetric } from "@/lib/types";
 import { useProjectStore } from "@/stores/projectStore";
 import { Card } from "@/components/ui/card";
 import { BarChart3 } from "lucide-react";
-import { normalizeProject, projectMatchesEnvironment } from "@/lib/projects";
+import { filterProjectsByScope, normalizeProject } from "@/lib/projects";
 import type { Project } from "@/lib/types";
 
 interface PerformanceRow {
@@ -26,12 +26,18 @@ export function EmployeePerformanceChart() {
   const [period, setPeriod] = useState<"7" | "30" | "90">("30");
   const currentProjectId = useProjectStore((state) => state.currentProject?.id);
   const environmentMode = useProjectStore((state) => state.environmentMode);
+  const selectedSshConfigId = useProjectStore((state) => state.selectedSshConfigId);
 
   useEffect(() => {
-    void fetchData(period, currentProjectId, environmentMode);
-  }, [currentProjectId, environmentMode, period]);
+    void fetchData(period, currentProjectId, environmentMode, selectedSshConfigId);
+  }, [currentProjectId, environmentMode, period, selectedSshConfigId]);
 
-  const fetchData = async (days: string, projectId?: string, nextEnvironmentMode?: "local" | "ssh") => {
+  const fetchData = async (
+    days: string,
+    projectId?: string,
+    nextEnvironmentMode?: "local" | "ssh",
+    nextSelectedSshConfigId?: string | null,
+  ) => {
     try {
       const [metrics, employees, projects] = await Promise.all([
         select<EmployeeMetric>(
@@ -43,10 +49,11 @@ export function EmployeePerformanceChart() {
         select<Project>("SELECT * FROM projects"),
       ]);
       const visibleProjectIds = new Set(
-        projects
-          .map((project) => normalizeProject(project))
-          .filter((project) => projectMatchesEnvironment(project, nextEnvironmentMode ?? "local"))
-          .map((project) => project.id),
+        filterProjectsByScope(
+          projects.map((project) => normalizeProject(project)),
+          nextEnvironmentMode ?? "local",
+          nextSelectedSshConfigId,
+        ).map((project) => project.id),
       );
       const filteredEmployees = employees.filter((employee) => {
         if (!projectId) {

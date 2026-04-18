@@ -40,8 +40,10 @@ export function Header() {
     currentProject,
     environmentMode,
     sshConfigs,
+    selectedSshConfigId,
     setCurrentProject,
     setEnvironmentMode,
+    setSelectedSshConfigId,
     fetchProjects,
     fetchSshConfigs,
   } = useProjectStore();
@@ -118,6 +120,40 @@ export function Header() {
             </Button>
           </div>
         </div>
+        {environmentMode === "ssh" && sshConfigs.length > 0 && (
+          <Select
+            value={selectedSshConfigId || null}
+            onValueChange={(value) => {
+              if (!value) {
+                return;
+              }
+
+              setSelectedSshConfigId(value);
+            }}
+          >
+            <SelectTrigger className="w-[260px] bg-background">
+              <SelectValue placeholder="选择 SSH 主机">
+                {(value) => {
+                  if (!value) {
+                    return "选择 SSH 主机";
+                  }
+
+                  const sshConfig = sshConfigs.find((config) => config.id === value);
+                  return sshConfig
+                    ? `${sshConfig.name} (${sshConfig.username}@${sshConfig.host})`
+                    : "选择 SSH 主机";
+                }}
+              </SelectValue>
+            </SelectTrigger>
+            <SelectContent>
+              {sshConfigs.map((config) => (
+                <SelectItem key={config.id} value={config.id}>
+                  {config.name} ({config.username}@{config.host})
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
         {projects.length > 0 && (
           <Select
             value={currentProject?.id ?? ALL_PROJECTS_VALUE}

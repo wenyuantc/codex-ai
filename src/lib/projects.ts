@@ -48,6 +48,34 @@ export function projectMatchesEnvironment(
   return normalizeProjectType(project.project_type) === environmentMode;
 }
 
+export function projectMatchesScope(
+  project: Pick<Project, "project_type" | "ssh_config_id"> | null | undefined,
+  environmentMode: EnvironmentMode,
+  selectedSshConfigId?: string | null,
+): boolean {
+  if (!projectMatchesEnvironment(project, environmentMode)) {
+    return false;
+  }
+
+  if (environmentMode !== "ssh") {
+    return true;
+  }
+
+  if (!selectedSshConfigId) {
+    return false;
+  }
+
+  return project?.ssh_config_id === selectedSshConfigId;
+}
+
+export function filterProjectsByScope(
+  projects: Project[],
+  environmentMode: EnvironmentMode,
+  selectedSshConfigId?: string | null,
+): Project[] {
+  return projects.filter((project) => projectMatchesScope(project, environmentMode, selectedSshConfigId));
+}
+
 export function getEnvironmentModeLabel(environmentMode: EnvironmentMode): string {
   return environmentMode === "ssh" ? "SSH 模式" : "本地模式";
 }

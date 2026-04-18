@@ -1,11 +1,12 @@
 import { create } from "zustand";
 
 import { select } from "@/lib/database";
-import { normalizeProject, projectMatchesEnvironment } from "@/lib/projects";
+import { filterProjectsByScope, normalizeProject } from "@/lib/projects";
 import type { ActivityLog, EnvironmentMode, Project, Task } from "@/lib/types";
 
 const SSH_GLOBAL_ACTIVITY_ACTIONS = new Set([
   "environment_mode_switched",
+  "ssh_host_selected",
   "ssh_config_created",
   "ssh_config_updated",
   "ssh_config_deleted",
@@ -47,10 +48,16 @@ interface DashboardStore {
   stats: DashboardStats | null;
   recentActivities: ActivityLog[];
   loading: boolean;
-  fetchStats: (environmentMode: EnvironmentMode, projectId?: string) => Promise<void>;
-  fetchRecentActivities: (environmentMode: EnvironmentMode, limit?: number, projectId?: string) => Promise<void>;
+  fetchStats: (environmentMode: EnvironmentMode, selectedSshConfigId?: string | null, projectId?: string) => Promise<void>;
+  fetchRecentActivities: (
+    environmentMode: EnvironmentMode,
+    selectedSshConfigId?: string | null,
+    limit?: number,
+    projectId?: string,
+  ) => Promise<void>;
   fetchActivitiesPage: (
     environmentMode: EnvironmentMode,
+    selectedSshConfigId?: string | null,
     page?: number,
     pageSize?: number,
     projectId?: string,
@@ -92,7 +99,7 @@ export const useDashboardStore = create<DashboardStore>((set) => ({
   recentActivities: [],
   loading: false,
 
-  fetchStats: async (environmentMode, projectId) => {
+  fetchStats: async (environmentMode, selectedSshConfigId, projectId) => {
     set({ loading: true });
     try {
       const [projects, tasks, employees] = await Promise.all([
@@ -101,7 +108,11 @@ export const useDashboardStore = create<DashboardStore>((set) => ({
         select<EmployeeLookup>("SELECT id, project_id, status FROM employees"),
       ]);
 
-      const visibleProjects = projects.filter((project) => projectMatchesEnvironment(project, environmentMode));
+      const visibleProjects = filterProjectsByScope(
+        projects,
+        environmentMode,
+        selectedSshConfigId,
+      );
       const visibleProjectIds = new Set(visibleProjects.map((project) => project.id));
       const scopedProjectIds = projectId && visibleProjectIds.has(projectId)
         ? new Set([projectId])
@@ -142,13 +153,11 @@ export const useDashboardStore = create<DashboardStore>((set) => ({
     }
   },
 
-  fetchRecentActivities: async (environmentMode, limit = 20, projectId) => {
+  fetchRecentActivities: async (environmentMode, selectedSshConfigId, limit = 20, projectId) => {
     try {
       const projects = await loadProjects();
       const visibleProjectIds = new Set(
-        projects
-          .filter((project) => projectMatchesEnvironment(project, environmentMode))
-          .map((project) => project.id),
+        filterProjectsByScope(projects, environmentMode, selectedSshConfigId).map((project) => project.id),
       );
 
       const activities = (await loadActivities()).filter((activity) => {
@@ -166,15 +175,13 @@ export const useDashboardStore = create<DashboardStore>((set) => ({
     }
   },
 
-  fetchActivitiesPage: async (environmentMode, page = 1, pageSize = 20, projectId) => {
+  fetchActivitiesPage: async (environmentMode, selectedSshConfigId, page = 1, pageSize = 20, projectId) => {
     const safePage = Math.max(1, page);
     const safePageSize = Math.max(1, pageSize);
     const offset = (safePage - 1) * safePageSize;
     const projects = await loadProjects();
     const visibleProjectIds = new Set(
-      projects
-        .filter((project) => projectMatchesEnvironment(project, environmentMode))
-        .map((project) => project.id),
+      filterProjectsByScope(projects, environmentMode, selectedSshConfigId).map((project) => project.id),
     );
     const items = (await loadActivities()).filter((activity) => {
       if (projectId) {

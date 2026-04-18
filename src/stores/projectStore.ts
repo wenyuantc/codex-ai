@@ -15,7 +15,12 @@ import {
   type UpdateProjectInput,
   type UpdateSshConfigInput,
 } from "@/lib/backend";
-import { DEFAULT_ENVIRONMENT_MODE, normalizeProject, projectMatchesEnvironment } from "@/lib/projects";
+import {
+  DEFAULT_ENVIRONMENT_MODE,
+  filterProjectsByScope,
+  normalizeProject,
+  projectMatchesScope,
+} from "@/lib/projects";
 import type { EnvironmentMode, Project, SshConfig, SshPasswordProbeResult } from "@/lib/types";
 
 const ENVIRONMENT_MODE_STORAGE_KEY = "codex-ai:environment-mode";
@@ -72,8 +77,19 @@ async function recordEnvironmentModeSwitch(environmentMode: EnvironmentMode) {
   }
 }
 
-function filterProjectsByMode(projects: Project[], environmentMode: EnvironmentMode) {
-  return projects.filter((project) => projectMatchesEnvironment(project, environmentMode));
+async function recordSshHostSelection(sshConfig: SshConfig) {
+  try {
+    await execute(
+      "INSERT INTO activity_logs (id, employee_id, action, details, task_id, project_id, created_at) VALUES (?1, NULL, ?2, ?3, NULL, NULL, datetime('now'))",
+      [
+        globalThis.crypto?.randomUUID?.() ?? `ssh-host-${Date.now()}`,
+        "ssh_host_selected",
+        `切换 SSH 主机到 ${sshConfig.name} (${sshConfig.username}@${sshConfig.host}:${sshConfig.port})`,
+      ],
+    );
+  } catch (error) {
+    console.error("Failed to record SSH host selection:", error);
+  }
 }
 
 function resolveSelectedSshConfigId(
@@ -135,16 +151,20 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
     try {
       const projects = await selectProjectsFromDatabase();
       set((state) => {
-        const filteredProjects = filterProjectsByMode(projects, state.environmentMode);
+        const selectedSshConfigId = resolveSelectedSshConfigId(
+          state.sshConfigs,
+          state.selectedSshConfigId,
+          state.currentProject,
+        );
+        const filteredProjects = filterProjectsByScope(
+          projects,
+          state.environmentMode,
+          selectedSshConfigId,
+        );
         const currentProjectId = state.currentProject?.id;
         const currentProject = currentProjectId
           ? filteredProjects.find((project) => project.id === currentProjectId) ?? null
           : null;
-        const selectedSshConfigId = resolveSelectedSshConfigId(
-          state.sshConfigs,
-          state.selectedSshConfigId,
-          currentProject,
-        );
 
         persistSshConfigId(selectedSshConfigId);
 
@@ -173,10 +193,20 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
           state.selectedSshConfigId,
           state.currentProject,
         );
+        const filteredProjects = filterProjectsByScope(
+          state.allProjects,
+          state.environmentMode,
+          selectedSshConfigId,
+        );
+        const currentProject = state.currentProject
+          ? filteredProjects.find((project) => project.id === state.currentProject?.id) ?? null
+          : null;
         persistSshConfigId(selectedSshConfigId);
 
         return {
           sshConfigs,
+          projects: filteredProjects,
+          currentProject,
           selectedSshConfigId,
           sshConfigsLoading: false,
         };
@@ -189,7 +219,11 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
   },
 
   setCurrentProject: (project) => {
-    const nextProject = project && projectMatchesEnvironment(project, get().environmentMode) ? project : null;
+    const nextProject = project && projectMatchesScope(
+      project,
+      get().environmentMode,
+      get().selectedSshConfigId,
+    ) ? project : null;
     const nextSshConfigId = nextProject?.project_type === "ssh"
       ? nextProject.ssh_config_id ?? get().selectedSshConfigId
       : get().selectedSshConfigId;
@@ -208,15 +242,23 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
     await recordEnvironmentModeSwitch(environmentMode);
 
     set((state) => {
-      const filteredProjects = filterProjectsByMode(state.allProjects, environmentMode);
-      const currentProject = state.currentProject && projectMatchesEnvironment(state.currentProject, environmentMode)
-        ? filteredProjects.find((project) => project.id === state.currentProject?.id) ?? null
-        : null;
       const selectedSshConfigId = resolveSelectedSshConfigId(
         state.sshConfigs,
         state.selectedSshConfigId,
-        currentProject,
+        state.currentProject,
       );
+      const filteredProjects = filterProjectsByScope(
+        state.allProjects,
+        environmentMode,
+        selectedSshConfigId,
+      );
+      const currentProject = state.currentProject && projectMatchesScope(
+        state.currentProject,
+        environmentMode,
+        selectedSshConfigId,
+      )
+        ? filteredProjects.find((project) => project.id === state.currentProject?.id) ?? null
+        : null;
 
       persistSshConfigId(selectedSshConfigId);
 
@@ -238,8 +280,38 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
   },
 
   setSelectedSshConfigId: (sshConfigId) => {
+    if (get().selectedSshConfigId === sshConfigId) {
+      return;
+    }
+
+    const currentProject = get().currentProject;
+    const shouldClearCurrentProject = currentProject?.project_type === "ssh"
+      && currentProject.ssh_config_id
+      && currentProject.ssh_config_id !== sshConfigId;
+    const filteredProjects = filterProjectsByScope(
+      get().allProjects,
+      get().environmentMode,
+      sshConfigId,
+    );
+    const nextCurrentProject = shouldClearCurrentProject
+      ? null
+      : currentProject
+        ? filteredProjects.find((project) => project.id === currentProject.id) ?? null
+        : null;
+
     persistSshConfigId(sshConfigId);
-    set({ selectedSshConfigId: sshConfigId });
+    set({
+      projects: filteredProjects,
+      selectedSshConfigId: sshConfigId,
+      currentProject: nextCurrentProject,
+    });
+
+    if (sshConfigId) {
+      const selectedConfig = get().sshConfigs.find((config) => config.id === sshConfigId);
+      if (selectedConfig) {
+        void recordSshHostSelection(selectedConfig);
+      }
+    }
   },
 
   createProject: async (data) => {

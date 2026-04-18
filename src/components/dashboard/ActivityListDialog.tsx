@@ -21,6 +21,7 @@ interface ActivityListDialogProps {
   projectId?: string;
   projectName?: string | null;
   environmentMode: EnvironmentMode;
+  selectedSshConfigId?: string | null;
   onOpenChange: (open: boolean) => void;
 }
 
@@ -29,6 +30,7 @@ export function ActivityListDialog({
   projectId,
   projectName,
   environmentMode,
+  selectedSshConfigId,
   onOpenChange,
 }: ActivityListDialogProps) {
   const fetchActivitiesPage = useDashboardStore((state) => state.fetchActivitiesPage);
@@ -56,7 +58,7 @@ export function ActivityListDialog({
     let active = true;
     setLoading(true);
 
-    void fetchActivitiesPage(environmentMode, page, PAGE_SIZE, projectId)
+    void fetchActivitiesPage(environmentMode, selectedSshConfigId, page, PAGE_SIZE, projectId)
       .then((result) => {
         if (!active) {
           return;
@@ -88,7 +90,7 @@ export function ActivityListDialog({
     return () => {
       active = false;
     };
-  }, [environmentMode, fetchActivitiesPage, open, page, projectId]);
+  }, [environmentMode, fetchActivitiesPage, open, page, projectId, selectedSshConfigId]);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>

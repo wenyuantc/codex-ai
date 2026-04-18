@@ -12,10 +12,11 @@ export function DashboardPage() {
   const { stats, fetchStats } = useDashboardStore();
   const currentProjectId = useProjectStore((state) => state.currentProject?.id);
   const environmentMode = useProjectStore((state) => state.environmentMode);
+  const selectedSshConfigId = useProjectStore((state) => state.selectedSshConfigId);
 
   useEffect(() => {
-    void fetchStats(environmentMode, currentProjectId);
-  }, [currentProjectId, environmentMode, fetchStats]);
+    void fetchStats(environmentMode, selectedSshConfigId, currentProjectId);
+  }, [currentProjectId, environmentMode, fetchStats, selectedSshConfigId]);
 
   return (
     <div className="space-y-6">

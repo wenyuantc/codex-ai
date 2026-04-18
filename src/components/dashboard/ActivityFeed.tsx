@@ -13,15 +13,16 @@ export function ActivityFeed() {
   const currentProjectId = useProjectStore((state) => state.currentProject?.id);
   const currentProjectName = useProjectStore((state) => state.currentProject?.name);
   const environmentMode = useProjectStore((state) => state.environmentMode);
+  const selectedSshConfigId = useProjectStore((state) => state.selectedSshConfigId);
   const [dialogOpen, setDialogOpen] = useState(false);
 
   useEffect(() => {
-    void fetchRecentActivities(environmentMode, 30, currentProjectId);
-  }, [currentProjectId, environmentMode, fetchRecentActivities]);
+    void fetchRecentActivities(environmentMode, selectedSshConfigId, 30, currentProjectId);
+  }, [currentProjectId, environmentMode, fetchRecentActivities, selectedSshConfigId]);
 
   const refresh = useCallback(() => {
-    void fetchRecentActivities(environmentMode, 30, currentProjectId);
-  }, [currentProjectId, environmentMode, fetchRecentActivities]);
+    void fetchRecentActivities(environmentMode, selectedSshConfigId, 30, currentProjectId);
+  }, [currentProjectId, environmentMode, fetchRecentActivities, selectedSshConfigId]);
 
   // Auto-refresh every 30 seconds
   useEffect(() => {
@@ -99,6 +100,7 @@ export function ActivityFeed() {
         projectId={currentProjectId}
         projectName={currentProjectName}
         environmentMode={environmentMode}
+        selectedSshConfigId={selectedSshConfigId}
       />
     </Card>
   );
