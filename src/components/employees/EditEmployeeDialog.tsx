@@ -92,7 +92,7 @@ export function EditEmployeeDialog({ open, onOpenChange, employee }: EditEmploye
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-md">
+      <DialogContent className="sm:max-w-[560px]">
         <DialogHeader>
           <DialogTitle>编辑员工</DialogTitle>
         </DialogHeader>

@@ -92,7 +92,7 @@ export function CreateEmployeeDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-md">
+      <DialogContent className="sm:max-w-[560px]">
         <DialogHeader>
           <DialogTitle>添加员工</DialogTitle>
         </DialogHeader>
