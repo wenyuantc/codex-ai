@@ -3,17 +3,62 @@ import { useParams, Link, useNavigate } from "react-router-dom";
 import { useProjectStore } from "@/stores/projectStore";
 import { useTaskStore } from "@/stores/taskStore";
 import { useEmployeeStore } from "@/stores/employeeStore";
-import { getProjectGitOverview } from "@/lib/backend";
-import type { Employee, ProjectGitOverview } from "@/lib/types";
+import { getProjectGitOverview, reconcileTaskGitContext } from "@/lib/backend";
+import type { Employee, ProjectGitOverview, TaskGitContext } from "@/lib/types";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { EditProjectDialog } from "@/components/projects/EditProjectDialog";
 import { DeleteProjectDialog } from "@/components/projects/DeleteProjectDialog";
+import { ProjectGitActionDialog } from "@/components/projects/ProjectGitActionDialog";
 import { RepoPathDisplay } from "@/components/projects/RepoPathDisplay";
-import { ArrowLeft, Edit2, GitBranch, Loader2, ShieldAlert, Trash2 } from "lucide-react";
+import { ArrowLeft, Edit2, GitBranch, Loader2, RefreshCw, ShieldAlert, Trash2 } from "lucide-react";
 import { getStatusLabel, getStatusColor, getPriorityLabel, formatDate } from "@/lib/utils";
 import { getProjectWorkingDir, getProjectTypeLabel } from "@/lib/projects";
+
+function getTaskGitContextStateLabel(state: string) {
+  switch (state) {
+    case "provisioning":
+      return "准备中";
+    case "ready":
+      return "可执行";
+    case "running":
+      return "执行中";
+    case "merge_ready":
+      return "待合并";
+    case "action_pending":
+      return "待确认";
+    case "completed":
+      return "已完成";
+    case "failed":
+      return "失败";
+    case "drifted":
+      return "已漂移";
+    default:
+      return state;
+  }
+}
+
+function getGitActionTypeLabel(actionType: string | null | undefined) {
+  switch (actionType) {
+    case "merge":
+      return "合并目标分支";
+    case "push":
+      return "推送分支";
+    case "rebase":
+      return "Rebase";
+    case "cherry_pick":
+      return "Cherry-pick";
+    case "stash":
+      return "创建 Stash";
+    case "unstash":
+      return "恢复 Stash";
+    case "cleanup_worktree":
+      return "清理 Worktree";
+    default:
+      return actionType ?? "待确认操作";
+  }
+}
 
 export function ProjectDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -28,6 +73,13 @@ export function ProjectDetailPage() {
   const [gitOverview, setGitOverview] = useState<ProjectGitOverview | null>(null);
   const [gitOverviewLoading, setGitOverviewLoading] = useState(false);
   const [gitOverviewError, setGitOverviewError] = useState<string | null>(null);
+  const [selectedGitContext, setSelectedGitContext] = useState<TaskGitContext | null>(null);
+  const [gitActionNotice, setGitActionNotice] = useState<{
+    tone: "success" | "error";
+    message: string;
+  } | null>(null);
+  const [reconcilingContextId, setReconcilingContextId] = useState<string | null>(null);
+  const [gitOverviewReloadNonce, setGitOverviewReloadNonce] = useState(0);
 
   const project = projects.find((p) => p.id === id);
 
@@ -52,6 +104,7 @@ export function ProjectDetailPage() {
       setGitOverview(null);
       setGitOverviewError(null);
       setGitOverviewLoading(false);
+      setSelectedGitContext(null);
       return;
     }
 
@@ -82,7 +135,37 @@ export function ProjectDetailPage() {
     return () => {
       active = false;
     };
-  }, [project]);
+  }, [gitOverviewReloadNonce, project]);
+
+  const handleGitOverviewRefresh = () => {
+    setGitOverviewReloadNonce((value) => value + 1);
+  };
+
+  const handleReconcileContext = async (contextId: string) => {
+    setReconcilingContextId(contextId);
+    setGitActionNotice(null);
+    try {
+      const refreshed = await reconcileTaskGitContext(contextId);
+      setGitActionNotice({
+        tone: "success",
+        message: `已修复 Git 上下文，当前状态：${getTaskGitContextStateLabel(refreshed.state)}`,
+      });
+      setGitOverviewReloadNonce((value) => value + 1);
+    } catch (error) {
+      setGitActionNotice({
+        tone: "error",
+        message: error instanceof Error ? error.message : String(error),
+      });
+    } finally {
+      setReconcilingContextId(null);
+    }
+  };
+
+  const handleGitActionCompleted = async (message: string) => {
+    setGitActionNotice({ tone: "success", message });
+    setGitOverviewReloadNonce((value) => value + 1);
+    setSelectedGitContext(null);
+  };
 
   if (!project) {
     return (
@@ -171,9 +254,20 @@ export function ProjectDetailPage() {
             </p>
           </div>
           {gitOverview?.refreshed_at && (
-            <span className="text-[11px] text-muted-foreground">
-              刷新于 {formatDate(gitOverview.refreshed_at)}
-            </span>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleGitOverviewRefresh}
+                disabled={gitOverviewLoading}
+              >
+                <RefreshCw className="mr-1 h-3.5 w-3.5" />
+                刷新
+              </Button>
+              <span className="text-[11px] text-muted-foreground">
+                刷新于 {formatDate(gitOverview.refreshed_at)}
+              </span>
+            </div>
           )}
         </div>
 
@@ -186,6 +280,18 @@ export function ProjectDetailPage() {
             <p className="mt-1 text-amber-900/80">
               自动创建 branch/worktree、merge-ready 沉淀，以及 merge/push/rebase/cherry-pick/stash/unstash/清理工作树等高风险操作暂不可用。
             </p>
+          </div>
+        )}
+
+        {gitActionNotice && (
+          <div
+            className={`rounded-lg border px-3 py-2 text-xs ${
+              gitActionNotice.tone === "success"
+                ? "border-primary/20 bg-primary/5 text-primary"
+                : "border-destructive/20 bg-destructive/10 text-destructive"
+            }`}
+          >
+            {gitActionNotice.message}
           </div>
         )}
 
@@ -233,7 +339,7 @@ export function ProjectDetailPage() {
                       <div key={context.id} className="rounded-md bg-secondary/40 px-2.5 py-2 text-xs">
                         <div className="flex items-center justify-between gap-2">
                           <span className="font-medium">{context.task_branch ?? "未命名分支"}</span>
-                          <Badge variant="outline">{context.state}</Badge>
+                          <Badge variant="outline">{getTaskGitContextStateLabel(context.state)}</Badge>
                         </div>
                         <div className="mt-1 text-muted-foreground">
                           目标分支：{context.target_branch ?? "未设置"}
@@ -241,6 +347,35 @@ export function ProjectDetailPage() {
                         <div className="mt-1 text-muted-foreground">
                           更新时间：{formatDate(context.updated_at)}
                         </div>
+                        {context.last_error && (
+                          <div className="mt-1 text-destructive">
+                            最近错误：{context.last_error}
+                          </div>
+                        )}
+                        {project.project_type === "local" && (
+                          <div className="mt-2 flex flex-wrap items-center gap-2">
+                            {context.state === "drifted" ? (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => {
+                                  void handleReconcileContext(context.id);
+                                }}
+                                disabled={reconcilingContextId === context.id}
+                              >
+                                {reconcilingContextId === context.id ? "修复中..." : "修复上下文"}
+                              </Button>
+                            ) : context.state !== "failed" && context.state !== "completed" ? (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => setSelectedGitContext(context)}
+                              >
+                                Git 动作
+                              </Button>
+                            ) : null}
+                          </div>
+                        )}
                       </div>
                     ))}
                   </div>
@@ -259,8 +394,8 @@ export function ProjectDetailPage() {
                     {gitOverview.pending_action_contexts.slice(0, 3).map((context) => (
                       <div key={context.id} className="rounded-md bg-secondary/40 px-2.5 py-2 text-xs">
                         <div className="flex items-center justify-between gap-2">
-                          <span className="font-medium">{context.pending_action_type ?? "待确认操作"}</span>
-                          <Badge variant="outline">{context.state}</Badge>
+                          <span className="font-medium">{getGitActionTypeLabel(context.pending_action_type)}</span>
+                          <Badge variant="outline">{getTaskGitContextStateLabel(context.state)}</Badge>
                         </div>
                         <div className="mt-1 text-muted-foreground">
                           请求时间：{context.pending_action_requested_at ? formatDate(context.pending_action_requested_at) : "未知"}
@@ -268,6 +403,17 @@ export function ProjectDetailPage() {
                         <div className="mt-1 text-muted-foreground">
                           过期时间：{context.pending_action_expires_at ? formatDate(context.pending_action_expires_at) : "未知"}
                         </div>
+                        {project.project_type === "local" && (
+                          <div className="mt-2">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => setSelectedGitContext(context)}
+                            >
+                              继续处理
+                            </Button>
+                          </div>
+                        )}
                       </div>
                     ))}
                   </div>
@@ -371,6 +517,17 @@ export function ProjectDetailPage() {
         project={project}
         deleting={deleting}
         onConfirm={handleDelete}
+      />
+
+      <ProjectGitActionDialog
+        open={selectedGitContext !== null}
+        onOpenChange={(open) => {
+          if (!open) {
+            setSelectedGitContext(null);
+          }
+        }}
+        context={selectedGitContext}
+        onActionCompleted={handleGitActionCompleted}
       />
     </div>
   );

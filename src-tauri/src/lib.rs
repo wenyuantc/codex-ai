@@ -60,6 +60,7 @@ pub fn run() {
             app::get_task_execution_change_history,
             app::get_codex_session_execution_change_history,
             app::get_codex_session_file_change_detail,
+            git_workflow::get_project_git_overview,
             git_workflow::list_task_git_contexts,
             git_workflow::get_task_git_context,
             git_workflow::prepare_task_git_execution,

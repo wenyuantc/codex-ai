@@ -126,6 +126,30 @@ pub struct ConfirmGitActionResult {
     pub message: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProjectGitCommit {
+    pub sha: String,
+    pub short_sha: String,
+    pub subject: String,
+    pub author_name: String,
+    pub authored_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProjectGitOverview {
+    pub project_id: String,
+    pub repo_path: Option<String>,
+    pub execution_target: String,
+    pub default_branch: Option<String>,
+    pub current_branch: Option<String>,
+    pub head_commit_sha: Option<String>,
+    pub working_tree_summary: Option<String>,
+    pub refreshed_at: String,
+    pub recent_commits: Vec<ProjectGitCommit>,
+    pub active_contexts: Vec<TaskGitContextSummary>,
+    pub pending_action_contexts: Vec<TaskGitContextSummary>,
+}
+
 #[derive(Debug, Clone, Deserialize)]
 pub struct RequestGitActionInput {
     pub task_git_context_id: String,
@@ -341,6 +365,111 @@ fn ensure_task_worktree(repo_path: &str, worktree_path: &str, task_branch: &str)
 
 fn current_head_commit(repo_path: &str, revision: &str) -> Result<String, String> {
     run_git_text(repo_path, &["rev-parse", revision])
+}
+
+fn current_branch(repo_path: &str) -> Result<Option<String>, String> {
+    let branch = run_git_text(repo_path, &["rev-parse", "--abbrev-ref", "HEAD"])?;
+    if branch.trim().is_empty() || branch.trim() == "HEAD" {
+        Ok(None)
+    } else {
+        Ok(Some(branch))
+    }
+}
+
+fn summarize_working_tree(repo_path: &str) -> Result<Option<String>, String> {
+    let status = run_git_text(repo_path, &["status", "--short"])?;
+    if status.trim().is_empty() {
+        return Ok(None);
+    }
+
+    let mut modified = 0;
+    let mut added = 0;
+    let mut deleted = 0;
+    let mut renamed = 0;
+    let mut untracked = 0;
+    let mut total = 0;
+
+    for line in status.lines() {
+        let code = line.get(0..2).unwrap_or("").trim();
+        if code.is_empty() {
+            continue;
+        }
+        total += 1;
+        if code == "??" {
+            untracked += 1;
+            continue;
+        }
+        if code.contains('M') {
+            modified += 1;
+        }
+        if code.contains('A') {
+            added += 1;
+        }
+        if code.contains('D') {
+            deleted += 1;
+        }
+        if code.contains('R') {
+            renamed += 1;
+        }
+    }
+
+    let mut parts = Vec::new();
+    if modified > 0 {
+        parts.push(format!("修改 {modified}"));
+    }
+    if added > 0 {
+        parts.push(format!("新增 {added}"));
+    }
+    if deleted > 0 {
+        parts.push(format!("删除 {deleted}"));
+    }
+    if renamed > 0 {
+        parts.push(format!("重命名 {renamed}"));
+    }
+    if untracked > 0 {
+        parts.push(format!("未跟踪 {untracked}"));
+    }
+
+    Ok(Some(format!("共 {total} 项变更（{}）", parts.join("，"))))
+}
+
+fn recent_commits(repo_path: &str, limit: usize) -> Result<Vec<ProjectGitCommit>, String> {
+    let limit_value = limit.to_string();
+    let output = run_git_text(
+        repo_path,
+        &[
+            "log",
+            "--format=%H%x1f%h%x1f%s%x1f%an%x1f%ad",
+            "--date=format:%Y-%m-%d %H:%M:%S",
+            "-n",
+            limit_value.as_str(),
+        ],
+    )?;
+
+    if output.trim().is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let commits = output
+        .lines()
+        .filter_map(|line| {
+            let mut parts = line.split('\u{1f}');
+            let sha = parts.next()?.trim().to_string();
+            let short_sha = parts.next()?.trim().to_string();
+            let subject = parts.next()?.trim().to_string();
+            let author_name = parts.next()?.trim().to_string();
+            let authored_at = parts.next()?.trim().to_string();
+            Some(ProjectGitCommit {
+                sha,
+                short_sha,
+                subject,
+                author_name,
+                authored_at,
+            })
+        })
+        .collect::<Vec<_>>();
+
+    Ok(commits)
 }
 
 async fn fetch_task_git_context_by_id(
@@ -964,6 +1093,72 @@ pub(crate) async fn mark_task_git_context_session_finished(
         .await?;
     }
     Ok(())
+}
+
+#[tauri::command]
+pub async fn get_project_git_overview<R: Runtime>(
+    app: AppHandle<R>,
+    project_id: String,
+) -> Result<ProjectGitOverview, String> {
+    let pool = sqlite_pool(&app).await?;
+    let project = fetch_project_by_id(&pool, &project_id).await?;
+    let rows = sqlx::query_as::<_, TaskGitContextRecord>(
+        "SELECT * FROM task_git_contexts WHERE project_id = $1 ORDER BY updated_at DESC, created_at DESC",
+    )
+    .bind(&project_id)
+    .fetch_all(&pool)
+    .await
+    .map_err(|error| format!("查询项目 Git 上下文失败: {}", error))?;
+
+    let active_contexts = rows
+        .iter()
+        .filter(|row| row.state != TASK_GIT_STATE_COMPLETED)
+        .cloned()
+        .map(TaskGitContextSummary::from)
+        .collect::<Vec<_>>();
+    let pending_action_contexts = rows
+        .iter()
+        .filter(|row| row.pending_action_type.is_some() || row.state == TASK_GIT_STATE_ACTION_PENDING)
+        .cloned()
+        .map(TaskGitContextSummary::from)
+        .collect::<Vec<_>>();
+
+    if project.project_type != PROJECT_TYPE_LOCAL {
+        return Ok(ProjectGitOverview {
+            project_id: project.id,
+            repo_path: project.remote_repo_path,
+            execution_target: "ssh".to_string(),
+            default_branch: None,
+            current_branch: None,
+            head_commit_sha: None,
+            working_tree_summary: Some("SSH v1 暂不支持实时 Git 查询".to_string()),
+            refreshed_at: now_sqlite(),
+            recent_commits: Vec::new(),
+            active_contexts,
+            pending_action_contexts,
+        });
+    }
+
+    let repo_path = ensure_local_project_repo(&project)?;
+    let default_branch = Some(determine_default_branch(&repo_path)?);
+    let current_branch = current_branch(&repo_path)?;
+    let head_commit_sha = Some(current_head_commit(&repo_path, "HEAD")?);
+    let working_tree_summary = summarize_working_tree(&repo_path)?;
+    let recent_commits = recent_commits(&repo_path, 5)?;
+
+    Ok(ProjectGitOverview {
+        project_id: project.id,
+        repo_path: Some(repo_path),
+        execution_target: "local".to_string(),
+        default_branch,
+        current_branch,
+        head_commit_sha,
+        working_tree_summary,
+        refreshed_at: now_sqlite(),
+        recent_commits,
+        active_contexts,
+        pending_action_contexts,
+    })
 }
 
 #[tauri::command]

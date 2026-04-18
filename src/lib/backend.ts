@@ -13,8 +13,10 @@ import type {
   DatabaseBackupResult,
   DatabaseRestoreResult,
   Comment,
+  ConfirmGitActionResult,
   Employee,
   EnvironmentMode,
+  GitActionRequestResult,
   GlobalSearchItemType,
   GlobalSearchResponse,
   GitActionType,
@@ -327,7 +329,7 @@ export async function requestGitAction(
   taskGitContextId: string,
   actionType: GitActionType,
   payload: Record<string, unknown>,
-): Promise<{ token: string; expires_at: string; context_version: number }> {
+): Promise<GitActionRequestResult> {
   return invoke("request_git_action", {
     taskGitContextId,
     actionType,
@@ -335,15 +337,29 @@ export async function requestGitAction(
   });
 }
 
-export async function confirmGitAction(taskGitContextId: string, token: string): Promise<void> {
+export async function confirmGitAction(
+  taskGitContextId: string,
+  token: string,
+): Promise<ConfirmGitActionResult> {
   return invoke("confirm_git_action", { taskGitContextId, token });
 }
 
-export async function cancelGitAction(taskGitContextId: string, token?: string): Promise<void> {
+export async function cancelGitAction(
+  taskGitContextId: string,
+  token?: string,
+): Promise<TaskGitContext> {
   return invoke("cancel_git_action", {
     taskGitContextId,
     token: token ?? null,
   });
+}
+
+export async function refreshTaskGitContext(taskGitContextId: string): Promise<TaskGitContext> {
+  return invoke("refresh_task_git_context", { taskGitContextId });
+}
+
+export async function reconcileTaskGitContext(taskGitContextId: string): Promise<TaskGitContext> {
+  return invoke("reconcile_task_git_context", { taskGitContextId });
 }
 
 export async function getTaskLatestReview(taskId: string): Promise<TaskLatestReview | null> {

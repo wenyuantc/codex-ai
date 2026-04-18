@@ -365,6 +365,21 @@ export interface PreparedTaskGitExecution {
   context_version: number;
 }
 
+export interface GitActionRequestResult {
+  task_git_context_id: string;
+  action_type: GitActionType;
+  token: string;
+  expires_at: string;
+  state: TaskGitContextState;
+  context_version: number;
+}
+
+export interface ConfirmGitActionResult {
+  context: TaskGitContext;
+  action_type: GitActionType;
+  message: string;
+}
+
 export interface CodexHealthCheck {
   codex_available: boolean;
   codex_version: string | null;

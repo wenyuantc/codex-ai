@@ -1,9 +1,10 @@
 import type { Project } from "@/lib/types";
 import { getStatusLabel, getStatusColor, formatDate } from "@/lib/utils";
-import { Trash2, Edit2, FolderKanban } from "lucide-react";
+import { Trash2, Edit2, FolderKanban, ArrowRight } from "lucide-react";
 import { RepoPathDisplay } from "@/components/projects/RepoPathDisplay";
 import { getProjectTypeLabel, getProjectWorkingDir } from "@/lib/projects";
 import { Badge } from "@/components/ui/badge";
+import { Link } from "react-router-dom";
 
 interface ProjectCardProps {
   project: Project;
@@ -21,7 +22,13 @@ export function ProjectCard({ project, taskCount, onEdit, onDelete }: ProjectCar
             <FolderKanban className="h-4 w-4 text-primary" />
           </div>
           <div className="min-w-0 flex-1">
-            <h3 className="truncate font-medium text-sm">{project.name}</h3>
+            <Link
+              to={`/projects/${project.id}`}
+              className="inline-flex max-w-full items-center gap-1 truncate text-sm font-medium transition-colors hover:text-primary"
+            >
+              <span className="truncate">{project.name}</span>
+              <ArrowRight className="h-3.5 w-3.5 shrink-0" />
+            </Link>
             {project.description && (
               <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">{project.description}</p>
             )}
@@ -69,6 +76,16 @@ export function ProjectCard({ project, taskCount, onEdit, onDelete }: ProjectCar
         <span className="text-xs text-muted-foreground ml-auto">
           {formatDate(project.created_at)}
         </span>
+      </div>
+
+      <div className="mt-3 flex items-center justify-end border-t border-border/60 pt-3">
+        <Link
+          to={`/projects/${project.id}`}
+          className="inline-flex items-center gap-1 text-xs font-medium text-primary transition-colors hover:text-primary/80"
+        >
+          查看详情
+          <ArrowRight className="h-3.5 w-3.5" />
+        </Link>
       </div>
     </div>
   );
