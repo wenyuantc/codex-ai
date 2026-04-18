@@ -147,10 +147,11 @@ export function ProjectGitRepoActionDialog({
   const [pushForceMode, setPushForceMode] = useState<PushForceMode>("none");
   const [pullMode, setPullMode] = useState<PullMode>("ff_only");
   const [pullAutoStash, setPullAutoStash] = useState(false);
-  const [submitting, setSubmitting] = useState(false);
+  const [submitMode, setSubmitMode] = useState<"primary" | "commit_push" | null>(null);
   const [generatingCommitMessage, setGeneratingCommitMessage] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const hasWorkingTreeChanges = Boolean(workingTreeSummary);
+  const submitting = submitMode !== null;
 
   useEffect(() => {
     if (!open) {
@@ -210,7 +211,7 @@ export function ProjectGitRepoActionDialog({
     }
   };
 
-  const handleSubmit = async () => {
+  const handleSubmit = async (mode: "primary" | "commit_push" = "primary") => {
     if (!projectId || !action) {
       return;
     }
@@ -226,27 +227,49 @@ export function ProjectGitRepoActionDialog({
       }
     }
 
-    setSubmitting(true);
+    setSubmitMode(mode);
     setError(null);
     try {
-      const result =
-        action === "commit"
-          ? await commitProjectGitChanges(projectId, commitMessage.trim())
-          : action === "push"
-            ? await pushProjectGitBranch(projectId, remoteName.trim(), branchName.trim(), pushForceMode)
-            : await pullProjectGitBranch(
-                projectId,
-                remoteName.trim(),
-                branchName.trim(),
-                pullMode,
-                pullAutoStash,
-              );
+      let result: string;
+      if (action === "commit") {
+        const commitResult = await commitProjectGitChanges(projectId, commitMessage.trim());
+        if (mode === "commit_push") {
+          const branch = currentBranch?.trim();
+          if (!branch) {
+            await onActionCompleted?.(commitResult);
+            setError("提交已创建，但当前分支未知，请返回后手动推送。");
+            return;
+          }
+          try {
+            const pushResult = await pushProjectGitBranch(projectId, "origin", branch, "none");
+            result = `${commitResult}\n${pushResult}`;
+          } catch (pushError) {
+            await onActionCompleted?.(commitResult);
+            setError(
+              `提交已创建，但推送失败：${pushError instanceof Error ? pushError.message : String(pushError)}`,
+            );
+            return;
+          }
+        } else {
+          result = commitResult;
+        }
+      } else if (action === "push") {
+        result = await pushProjectGitBranch(projectId, remoteName.trim(), branchName.trim(), pushForceMode);
+      } else {
+        result = await pullProjectGitBranch(
+          projectId,
+          remoteName.trim(),
+          branchName.trim(),
+          pullMode,
+          pullAutoStash,
+        );
+      }
       await onActionCompleted?.(result);
       onOpenChange(false);
     } catch (submitError) {
       setError(submitError instanceof Error ? submitError.message : String(submitError));
     } finally {
-      setSubmitting(false);
+      setSubmitMode(null);
     }
   };
 
@@ -457,12 +480,23 @@ export function ProjectGitRepoActionDialog({
           >
             取消
           </Button>
+          {action === "commit" && (
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => void handleSubmit("commit_push")}
+              disabled={submitting || commitDisabled || !currentBranch}
+              title={currentBranch ? `提交后推送到 origin/${currentBranch}` : "当前分支未知，暂不可提交并推送"}
+            >
+              {submitMode === "commit_push" ? "提交并推送中..." : "提交并推送"}
+            </Button>
+          )}
           <Button
             type="button"
-            onClick={() => void handleSubmit()}
+            onClick={() => void handleSubmit("primary")}
             disabled={submitting || !action || commitDisabled}
           >
-            {getSubmitLabel(action, submitting)}
+            {getSubmitLabel(action, submitMode === "primary")}
           </Button>
         </DialogFooter>
       </DialogContent>

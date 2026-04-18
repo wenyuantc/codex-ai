@@ -399,10 +399,6 @@ export function SessionsPage() {
         )}
 
         <Card>
-          {/* <CardHeader>
-            <CardTitle>对话列表</CardTitle>
-            <CardDescription>按最近更新时间倒序排列，支持 `对话 ID` 搜索、内容搜索、分页查看与直接操作。</CardDescription>
-          </CardHeader> */}
           <CardContent className="space-y-4">
             <div className="grid gap-3 md:grid-cols-2">
               <div className="space-y-2">
