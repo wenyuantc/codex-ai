@@ -226,3 +226,48 @@ pub(super) fn build_ai_generate_plan_prompt(
         subtasks_block
     )
 }
+
+pub(super) fn build_ai_generate_commit_message_prompt(
+    project_name: &str,
+    current_branch: Option<&str>,
+    working_tree_summary: Option<&str>,
+    staged_changes: &[String],
+) -> String {
+    let normalized_project_name = normalize_ai_optimize_prompt_field(Some(project_name));
+    let normalized_branch = normalize_ai_optimize_prompt_field(current_branch);
+    let normalized_summary = normalize_ai_optimize_prompt_field(working_tree_summary);
+    let staged_changes_block = if staged_changes.is_empty() {
+        "（暂无已暂存文件）".to_string()
+    } else {
+        staged_changes
+            .iter()
+            .map(|value| value.trim())
+            .filter(|value| !value.is_empty())
+            .map(|value| format!("- {}", value))
+            .collect::<Vec<_>>()
+            .join("\n")
+    };
+
+    format!(
+        "你是 Git commit message 助手。请基于项目上下文和当前已暂存改动，生成一条可直接使用的 commit message。\n\
+要求：\n\
+- 只返回最终 commit message，不要 Markdown，不要代码块，不要解释，不要前后缀\n\
+- 优先使用 Conventional Commits 风格：<type>(<scope>): <description>\n\
+- type 仅可从 feat、fix、refactor、chore、docs、test、style、perf、build、ci 中选择\n\
+- 如果 scope 不明确，可以省略 scope，仅输出 type: description\n\
+- description 使用中文，简洁明确，聚焦这批已暂存改动的共同目的\n\
+- 不要虚构未给出的实现细节，不要逐条复述文件列表，不要输出多种候选\n\
+- 新功能优先用 feat，缺陷修复优先用 fix，结构整理优先用 refactor，杂项维护优先用 chore\n\
+\n\
+项目信息：\n\
+- 项目名称：{}\n\
+- 当前分支：{}\n\
+- 工作区摘要：{}\n\
+\n\
+已暂存文件：\n{}",
+        normalized_project_name,
+        normalized_branch,
+        normalized_summary,
+        staged_changes_block
+    )
+}

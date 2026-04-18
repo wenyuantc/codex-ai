@@ -242,15 +242,20 @@ pub(super) async fn run_ai_command(
     prompt: String,
     image_paths: Option<Vec<String>>,
     task_id: Option<String>,
+    project_id: Option<String>,
     working_dir: Option<String>,
 ) -> Result<String, String> {
-    let execution_context = match task_id
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
+    let execution_context = match task_id.as_deref().map(str::trim).filter(|value| !value.is_empty())
     {
         Some(task_id) => resolve_task_project_execution_context(app, task_id).await?,
-        None => ExecutionContext::local_default(),
+        None => match project_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            Some(project_id) => resolve_project_execution_context(app, project_id).await?,
+            None => ExecutionContext::local_default(),
+        },
     };
     let (image_paths, missing_image_paths, _ignored_remote_image_count) =
         prepare_execution_image_paths(
@@ -270,7 +275,13 @@ pub(super) async fn run_ai_command(
     }
 
     let working_dir =
-        resolve_one_shot_working_dir(app, task_id.as_deref(), working_dir.as_deref()).await?;
+        resolve_one_shot_working_dir(
+            app,
+            task_id.as_deref(),
+            project_id.as_deref(),
+            working_dir.as_deref(),
+        )
+        .await?;
 
     let settings = if execution_context.execution_target == EXECUTION_TARGET_SSH {
         execution_context
