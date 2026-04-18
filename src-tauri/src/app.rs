@@ -2936,7 +2936,7 @@ fn resolve_session_resume_state(
     if cli_session_id.is_none() {
         return (
             "missing_cli_session".to_string(),
-            Some("该会话缺少可恢复的 CLI session id，只能查看，不能继续对话。".to_string()),
+            Some("该对话缺少可恢复的 CLI 对话 ID，只能查看，不能继续。".to_string()),
             false,
         );
     }
@@ -2944,7 +2944,7 @@ fn resolve_session_resume_state(
     if employee_id.is_none() || employee_name.is_none() {
         return (
             "missing_employee".to_string(),
-            Some("该会话缺少有效的关联员工，暂时无法恢复。".to_string()),
+            Some("该对话缺少有效的关联员工，暂时无法恢复。".to_string()),
             false,
         );
     }
@@ -2952,7 +2952,7 @@ fn resolve_session_resume_state(
     if status == "stopping" {
         return (
             "stopping".to_string(),
-            Some("该会话正在停止，请稍后再试。".to_string()),
+            Some("该对话正在停止，请稍后再试。".to_string()),
             false,
         );
     }
@@ -2960,7 +2960,7 @@ fn resolve_session_resume_state(
     if employee_is_running {
         return (
             "running".to_string(),
-            Some("关联员工当前已有运行中的会话，请先停止后再继续对话。".to_string()),
+            Some("关联员工当前已有运行中的对话，请先停止后再继续。".to_string()),
             false,
         );
     }
@@ -3193,9 +3193,9 @@ fn search_project_type_label(project_type: &str) -> &str {
 
 fn search_session_kind_label(session_kind: &str) -> &str {
     if session_kind == "review" {
-        "审核会话"
+        "审核对话"
     } else {
-        "执行会话"
+        "执行对话"
     }
 }
 
@@ -3603,8 +3603,8 @@ async fn query_codex_session_list<R: Runtime>(
             COALESCE(
                 t.title,
                 CASE
-                    WHEN s.session_kind = 'review' THEN '代码审核会话'
-                    ELSE 'Codex 执行会话'
+                    WHEN s.session_kind = 'review' THEN '代码审核对话'
+                    ELSE 'Codex 执行对话'
                 END
             ) AS display_name,
             CASE
@@ -3728,7 +3728,7 @@ pub async fn prepare_codex_session_resume<R: Runtime>(
             target_host_label: None,
             artifact_capture_mode: None,
             resume_status: "invalid".to_string(),
-            resume_message: Some("无效 session id，未找到对应会话。".to_string()),
+            resume_message: Some("无效对话 ID，未找到对应对话。".to_string()),
             can_resume: false,
         });
     };
