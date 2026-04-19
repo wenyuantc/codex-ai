@@ -2,19 +2,18 @@ use tauri::{AppHandle, Runtime};
 
 use super::{
     build_ai_generate_commit_message_prompt, build_ai_generate_plan_prompt,
-    build_ai_optimize_prompt_prompt, parse_ai_subtasks_response, run_ai_command,
+    build_ai_optimize_prompt_prompt, normalize_model, normalize_reasoning_effort,
+    parse_ai_subtasks_response, resolve_project_execution_context,
+    resolve_task_project_execution_context, run_ai_command, ExecutionContext,
 };
-use crate::app::{fetch_project_by_id, insert_activity_log, sqlite_pool, PROJECT_TYPE_SSH};
+use crate::app::{
+    fetch_project_by_id, fetch_task_by_id, insert_activity_log, now_sqlite, sqlite_pool,
+    PROJECT_TYPE_SSH,
+};
 use crate::codex::{load_codex_settings, load_remote_codex_settings};
 
-const COMMIT_MESSAGE_PROCESS_TERMS: &[&str] = &[
-    "暂存",
-    "已暂存",
-    "工作区",
-    "核对",
-    "文件列表",
-    "待提交文件",
-];
+const COMMIT_MESSAGE_PROCESS_TERMS: &[&str] =
+    &["暂存", "已暂存", "工作区", "核对", "文件列表", "待提交文件"];
 
 fn normalize_generated_commit_message(raw: &str) -> Result<String, String> {
     let mut normalized_lines = Vec::new();
@@ -112,13 +111,134 @@ fn build_commit_message_retry_prompt(
     )
 }
 
+fn resolve_ai_optimize_prompt_scene_label(scene: &str) -> Result<&'static str, String> {
+    match scene.trim() {
+        "task_create" => Ok("新建任务"),
+        "task_continue" => Ok("任务继续对话"),
+        "session_continue" => Ok("Session 继续对话"),
+        other => Err(format!("不支持的提示词优化场景: {}", other)),
+    }
+}
+
+fn format_ai_optimize_prompt_activity_details(
+    project_name: &str,
+    scene_label: &str,
+    model: &str,
+    reasoning_effort: &str,
+    generated_at: &str,
+) -> String {
+    format!(
+        "项目：{}；场景：{}；模型：{}；推理等级：{}；生成时间：{}",
+        project_name, scene_label, model, reasoning_effort, generated_at
+    )
+}
+
+fn resolve_commit_message_activity_model_and_reasoning(
+    settings: &crate::db::models::CodexSettings,
+) -> (Option<String>, Option<String>, String, String) {
+    if settings.git_preferences.ai_commit_model_source == "custom" {
+        let model = normalize_model(Some(&settings.git_preferences.ai_commit_model)).to_string();
+        let reasoning_effort =
+            normalize_reasoning_effort(Some(&settings.git_preferences.ai_commit_reasoning_effort))
+                .to_string();
+        (
+            Some(settings.git_preferences.ai_commit_model.clone()),
+            Some(settings.git_preferences.ai_commit_reasoning_effort.clone()),
+            model,
+            reasoning_effort,
+        )
+    } else {
+        let model = normalize_model(Some(&settings.one_shot_model)).to_string();
+        let reasoning_effort =
+            normalize_reasoning_effort(Some(&settings.one_shot_reasoning_effort)).to_string();
+        (None, None, model, reasoning_effort)
+    }
+}
+
+fn format_commit_message_activity_details(
+    project_name: &str,
+    model: &str,
+    reasoning_effort: &str,
+    generated_at: &str,
+    message: &str,
+) -> String {
+    format!(
+        "项目：{}；模型：{}；推理等级：{}；生成时间：{}；结果：{}",
+        project_name, model, reasoning_effort, generated_at, message
+    )
+}
+
+pub(crate) struct GeneratedCommitMessage {
+    pub(crate) message: String,
+    pub(crate) project_id: String,
+    pub(crate) project_name: String,
+    pub(crate) model: String,
+    pub(crate) reasoning_effort: String,
+}
+
+async fn resolve_ai_optimize_prompt_activity_context<R: Runtime>(
+    app: &AppHandle<R>,
+    task_id: Option<&str>,
+    project_id: Option<&str>,
+) -> Result<(Option<String>, String, String), String> {
+    let normalized_task_id = task_id
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned);
+    let normalized_project_id = project_id
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned);
+
+    let resolved_project_id = match (normalized_project_id, normalized_task_id.as_deref()) {
+        (Some(project_id), _) => Some(project_id),
+        (None, Some(task_id)) => {
+            let pool = sqlite_pool(app).await?;
+            Some(fetch_task_by_id(&pool, task_id).await?.project_id)
+        }
+        (None, None) => None,
+    };
+
+    let execution_context = match normalized_task_id.as_deref() {
+        Some(task_id) => resolve_task_project_execution_context(app, task_id).await?,
+        None => match resolved_project_id.as_deref() {
+            Some(project_id) => resolve_project_execution_context(app, project_id).await?,
+            None => ExecutionContext::local_default(),
+        },
+    };
+
+    let settings = if execution_context.execution_target == PROJECT_TYPE_SSH {
+        execution_context
+            .ssh_config_id
+            .as_deref()
+            .map(|ssh_config_id| load_remote_codex_settings(app, ssh_config_id))
+            .transpose()?
+            .or_else(|| load_codex_settings(app).ok())
+    } else {
+        load_codex_settings(app).ok()
+    };
+
+    let model = settings
+        .as_ref()
+        .map(|settings| normalize_model(Some(&settings.one_shot_model)))
+        .unwrap_or(normalize_model(None))
+        .to_string();
+    let reasoning_effort = settings
+        .as_ref()
+        .map(|settings| normalize_reasoning_effort(Some(&settings.one_shot_reasoning_effort)))
+        .unwrap_or(normalize_reasoning_effort(None))
+        .to_string();
+
+    Ok((resolved_project_id, model, reasoning_effort))
+}
+
 pub(crate) async fn generate_commit_message_for_project<R: Runtime>(
     app: &AppHandle<R>,
     project_id: &str,
     current_branch: Option<&str>,
     working_tree_summary: Option<&str>,
     staged_changes: &[String],
-) -> Result<String, String> {
+) -> Result<GeneratedCommitMessage, String> {
     let normalized_staged_changes = staged_changes
         .iter()
         .map(|value| value.trim().to_string())
@@ -147,15 +267,8 @@ pub(crate) async fn generate_commit_message_for_project<R: Runtime>(
         &normalized_staged_changes,
         &settings.git_preferences.ai_commit_message_length,
     );
-    let (model_override, reasoning_override) =
-        if settings.git_preferences.ai_commit_model_source == "custom" {
-            (
-                Some(settings.git_preferences.ai_commit_model.clone()),
-                Some(settings.git_preferences.ai_commit_reasoning_effort.clone()),
-            )
-        } else {
-            (None, None)
-        };
+    let (model_override, reasoning_override, effective_model, effective_reasoning_effort) =
+        resolve_commit_message_activity_model_and_reasoning(&settings);
     let raw = run_ai_command(
         app,
         prompt.clone(),
@@ -172,7 +285,15 @@ pub(crate) async fn generate_commit_message_for_project<R: Runtime>(
         &normalized,
         &settings.git_preferences.ai_commit_message_length,
     ) {
-        Ok(()) => return Ok(normalized),
+        Ok(()) => {
+            return Ok(GeneratedCommitMessage {
+                message: normalized,
+                project_id: project.id.clone(),
+                project_name: project.name.trim().to_string(),
+                model: effective_model,
+                reasoning_effort: effective_reasoning_effort,
+            });
+        }
         Err(error) => error,
     };
     let retry_prompt = build_commit_message_retry_prompt(
@@ -193,10 +314,19 @@ pub(crate) async fn generate_commit_message_for_project<R: Runtime>(
     )
     .await?;
     let retried = normalize_generated_commit_message(&retried_raw)?;
-    if validate_generated_commit_message(&retried, &settings.git_preferences.ai_commit_message_length)
-        .is_ok()
+    if validate_generated_commit_message(
+        &retried,
+        &settings.git_preferences.ai_commit_message_length,
+    )
+    .is_ok()
     {
-        return Ok(retried);
+        return Ok(GeneratedCommitMessage {
+            message: retried,
+            project_id: project.id.clone(),
+            project_name: project.name.trim().to_string(),
+            model: effective_model,
+            reasoning_effort: effective_reasoning_effort,
+        });
     }
 
     Err(format!(
@@ -333,9 +463,13 @@ pub async fn ai_generate_commit_message(
     .await?;
 
     let pool = sqlite_pool(&app).await?;
-    let details = format!(
-        "AI 已生成提交信息：{}",
-        result.lines().next().unwrap_or("未命名提交")
+    let generated_at = now_sqlite();
+    let details = format_commit_message_activity_details(
+        &result.project_name,
+        &result.model,
+        &result.reasoning_effort,
+        &generated_at,
+        result.message.lines().next().unwrap_or("未命名提交"),
     );
     insert_activity_log(
         &pool,
@@ -343,17 +477,18 @@ pub async fn ai_generate_commit_message(
         &details,
         None,
         None,
-        Some(&project_id),
+        Some(&result.project_id),
     )
     .await?;
 
-    Ok(result)
+    Ok(result.message)
 }
 
 #[tauri::command]
 pub async fn ai_optimize_prompt(
     app: AppHandle,
     scene: String,
+    project_id: Option<String>,
     project_name: String,
     project_description: Option<String>,
     project_repo_path: Option<String>,
@@ -377,7 +512,46 @@ pub async fn ai_optimize_prompt(
         session_summary.as_deref(),
     )?;
 
-    run_ai_command(&app, prompt, None, task_id, None, working_dir, None, None).await
+    let result = run_ai_command(
+        &app,
+        prompt,
+        None,
+        task_id.clone(),
+        project_id.clone(),
+        working_dir,
+        None,
+        None,
+    )
+    .await?;
+
+    let scene_label = resolve_ai_optimize_prompt_scene_label(&scene)?;
+    let (resolved_project_id, model, reasoning_effort) =
+        resolve_ai_optimize_prompt_activity_context(
+            &app,
+            task_id.as_deref(),
+            project_id.as_deref(),
+        )
+        .await?;
+    let generated_at = now_sqlite();
+    let details = format_ai_optimize_prompt_activity_details(
+        &project_name,
+        scene_label,
+        &model,
+        &reasoning_effort,
+        &generated_at,
+    );
+    let pool = sqlite_pool(&app).await?;
+    insert_activity_log(
+        &pool,
+        "ai_prompt_optimized",
+        &details,
+        None,
+        task_id.as_deref(),
+        resolved_project_id.as_deref(),
+    )
+    .await?;
+
+    Ok(result)
 }
 
 #[tauri::command]
@@ -414,4 +588,60 @@ pub async fn ai_split_subtasks(
     )
     .await?;
     parse_ai_subtasks_response(&raw)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        format_ai_optimize_prompt_activity_details, format_commit_message_activity_details,
+        resolve_ai_optimize_prompt_scene_label,
+    };
+
+    #[test]
+    fn resolves_ai_optimize_prompt_scene_labels() {
+        assert_eq!(
+            resolve_ai_optimize_prompt_scene_label("task_create").expect("task_create"),
+            "新建任务"
+        );
+        assert_eq!(
+            resolve_ai_optimize_prompt_scene_label("task_continue").expect("task_continue"),
+            "任务继续对话"
+        );
+        assert_eq!(
+            resolve_ai_optimize_prompt_scene_label("session_continue").expect("session_continue"),
+            "Session 继续对话"
+        );
+    }
+
+    #[test]
+    fn formats_ai_optimize_prompt_activity_details_with_model_metadata() {
+        let details = format_ai_optimize_prompt_activity_details(
+            "Codex AI",
+            "新建任务",
+            "gpt-5.4",
+            "high",
+            "2026-04-20 10:30:00",
+        );
+
+        assert_eq!(
+            details,
+            "项目：Codex AI；场景：新建任务；模型：gpt-5.4；推理等级：high；生成时间：2026-04-20 10:30:00"
+        );
+    }
+
+    #[test]
+    fn formats_commit_message_activity_details_with_model_metadata() {
+        let details = format_commit_message_activity_details(
+            "Codex AI",
+            "gpt-5.4-mini",
+            "medium",
+            "2026-04-20 11:00:00",
+            "fix: 修复活动日志展示",
+        );
+
+        assert_eq!(
+            details,
+            "项目：Codex AI；模型：gpt-5.4-mini；推理等级：medium；生成时间：2026-04-20 11:00:00；结果：fix: 修复活动日志展示"
+        );
+    }
 }
