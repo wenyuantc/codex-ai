@@ -70,6 +70,9 @@ export function getActivityActionLabel(action: string): string {
     task_automation_disabled: "关闭自动质控",
     task_automation_review_started: "自动质控开始审核",
     task_automation_fix_started: "自动质控开始修复",
+    task_automation_commit_started: "自动质控开始提交代码",
+    task_automation_commit_completed: "自动质控提交代码完成",
+    task_automation_commit_failed: "自动质控提交代码失败",
     task_automation_completed: "自动质控闭环完成",
     task_automation_blocked: "自动质控阻塞",
     task_automation_manual_control: "自动质控转人工处理",
@@ -81,10 +84,13 @@ export function getActivityActionLabel(action: string): string {
     task_review_completed: "代码审核完成",
     task_review_failed: "代码审核失败",
     task_worktree_enabled: "开启任务 Worktree 模式",
+    task_git_context_ready: "任务代码等待自动提交",
     task_git_context_prepared: "Git 执行上下文已准备",
     task_git_context_prepare_failed: "Git 执行上下文准备失败",
     task_git_context_drift_detected: "Git 执行上下文已失效",
     task_git_context_reconciled: "Git 执行上下文已修复",
+    task_git_stage_all: "暂存任务全部改动",
+    task_git_committed: "提交任务代码",
     git_action_requested: "Git 高风险操作待确认",
     git_action_confirmed: "Git 高风险操作已执行",
     git_action_cancelled: "Git 高风险操作已取消",
@@ -199,8 +205,10 @@ export function getTaskAutomationStatusLabel(status: string): string {
     waiting_review: "自动审核中",
     launching_fix: "启动修复中",
     waiting_execution: "自动修复中",
+    committing_code: "正在提交代码",
     review_launch_failed: "审核启动失败",
     fix_launch_failed: "修复启动失败",
+    commit_failed: "提交失败",
     review_started: "自动审核中",
     fix_started: "自动修复中",
     completed: "闭环完成",
@@ -220,6 +228,7 @@ const ACTIVE_REVIEW_AUTOMATION_PHASES = new Set([
 const ACTIVE_EXECUTION_AUTOMATION_PHASES = new Set([
   "launching_fix",
   "waiting_execution",
+  "committing_code",
 ])
 
 export function isTaskAutomationReviewActive(

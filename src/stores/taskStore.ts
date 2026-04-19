@@ -1,7 +1,12 @@
 import { create } from "zustand";
 import { select } from "@/lib/database";
 import type { CodexSessionKind, Task, TaskAttachment, Subtask, Comment, TaskStatus } from "@/lib/types";
-import { onCodexExit, onCodexSession, type CodexSession } from "@/lib/codex";
+import {
+  onCodexExit,
+  onCodexSession,
+  onTaskAutomationStateChanged,
+  type CodexSession,
+} from "@/lib/codex";
 import {
   addTaskAttachments as addTaskAttachmentsCommand,
   createComment as createCommentCommand,
@@ -339,6 +344,10 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
           }
 
           void get().fetchTaskAutomationState(exit.task_id);
+          void get().fetchTasks(get().activeProjectId);
+        }),
+        onTaskAutomationStateChanged((event) => {
+          void get().fetchTaskAutomationState(event.task_id);
           void get().fetchTasks(get().activeProjectId);
         }),
       ])

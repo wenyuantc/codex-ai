@@ -18,10 +18,12 @@ use crate::app::{
     fetch_project_by_id, fetch_task_by_id, insert_activity_log, now_sqlite, sqlite_pool,
     EXECUTION_TARGET_LOCAL, EXECUTION_TARGET_SSH, PROJECT_TYPE_SSH,
 };
+use crate::codex::generate_commit_message_for_project;
 use crate::db::models::{Project, Task};
 use crate::git_runtime::{
     self, GIT_RUNTIME_PROVIDER_SIMPLE_GIT, GIT_RUNTIME_STATUS_READY, GIT_RUNTIME_STATUS_UNAVAILABLE,
 };
+use crate::task_automation;
 
 const SQLITE_DATETIME_FORMAT: &str = "%Y-%m-%d %H:%M:%S";
 const TASK_GIT_STATE_PROVISIONING: &str = "provisioning";
@@ -190,6 +192,25 @@ pub struct ProjectGitOverview {
     pub recent_commits: Vec<ProjectGitCommit>,
     pub active_contexts: Vec<TaskGitContextSummary>,
     pub pending_action_contexts: Vec<TaskGitContextSummary>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TaskGitCommitOverview {
+    pub task_git_context_id: String,
+    pub project_id: String,
+    pub worktree_path: String,
+    pub execution_target: String,
+    pub current_branch: Option<String>,
+    pub working_tree_summary: Option<String>,
+    pub working_tree_changes: Vec<ProjectGitWorkingTreeChange>,
+    pub refreshed_at: String,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) enum TaskGitAutoCommitOutcome {
+    Committed { detail: String },
+    MergeReady { detail: String },
+    NoChanges { detail: String },
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -654,6 +675,97 @@ async fn fetch_task_git_context_by_task_id(
     .map_err(|error| format!("查询 task git context 失败: {}", error))
 }
 
+async fn resolve_task_git_commit_target<R: Runtime>(
+    app: &AppHandle<R>,
+    task_git_context_id: &str,
+) -> Result<
+    (
+        SqlitePool,
+        Task,
+        Project,
+        GitProjectRuntimeContext,
+        TaskGitContextRecord,
+    ),
+    String,
+> {
+    let pool = sqlite_pool(app).await?;
+    let context = fetch_task_git_context_by_id(&pool, task_git_context_id).await?;
+    let task = fetch_task_by_id(&pool, &context.task_id).await?;
+    let project = fetch_project_by_id(&pool, &context.project_id).await?;
+    let runtime = resolve_project_runtime_context(&project)?;
+    Ok((pool, task, project, runtime, context))
+}
+
+async fn collect_task_git_commit_overview<R: Runtime>(
+    app: &AppHandle<R>,
+    runtime: &GitProjectRuntimeContext,
+    context: &TaskGitContextRecord,
+) -> Result<TaskGitCommitOverview, String> {
+    let overview = git_runtime::collect_git_overview(
+        app,
+        &runtime.execution_target,
+        runtime.ssh_config_id.as_deref(),
+        &context.worktree_path,
+        1,
+    )
+    .await?;
+    let working_tree_changes = build_working_tree_changes(
+        &context.worktree_path,
+        &runtime.execution_target,
+        git_runtime::collect_status_changes(
+            app,
+            &runtime.execution_target,
+            runtime.ssh_config_id.as_deref(),
+            &context.worktree_path,
+        )
+        .await?,
+    );
+
+    Ok(TaskGitCommitOverview {
+        task_git_context_id: context.id.clone(),
+        project_id: context.project_id.clone(),
+        worktree_path: context.worktree_path.clone(),
+        execution_target: runtime.execution_target.clone(),
+        current_branch: overview.current_branch,
+        working_tree_summary: overview.working_tree_summary,
+        working_tree_changes,
+        refreshed_at: now_sqlite(),
+    })
+}
+
+async fn update_task_git_context_merge_ready(
+    pool: &SqlitePool,
+    context: &mut TaskGitContextRecord,
+    detail: &str,
+) -> Result<TaskGitContextRecord, String> {
+    context.context_version += 1;
+    context.state = TASK_GIT_STATE_MERGE_READY.to_string();
+    context.last_error = None;
+    context.updated_at = now_sqlite();
+    let saved = save_task_git_context(pool, context).await?;
+    insert_activity_log(
+        pool,
+        "task_merge_ready",
+        detail,
+        None,
+        Some(saved.task_id.as_str()),
+        Some(saved.project_id.as_str()),
+    )
+    .await?;
+    Ok(saved)
+}
+
+async fn task_git_context_has_pending_merge<R: Runtime>(
+    app: &AppHandle<R>,
+    runtime: &GitProjectRuntimeContext,
+    context: &TaskGitContextRecord,
+) -> Result<bool, String> {
+    let task_head = current_head_commit(app, runtime, &context.worktree_path, "HEAD").await?;
+    let target_head =
+        current_head_commit(app, runtime, &runtime.repo_path, &context.target_branch).await?;
+    Ok(task_head != target_head)
+}
+
 async fn insert_task_git_context(
     pool: &SqlitePool,
     context: &TaskGitContextRecord,
@@ -841,6 +953,33 @@ fn build_working_tree_changes(
             previous_path: change.previous_path,
             change_type: change.change_type,
             stage_status: change.stage_status,
+        })
+        .collect()
+}
+
+fn has_stageable_worktree_changes(changes: &[ProjectGitWorkingTreeChange]) -> bool {
+    changes.iter().any(|change| {
+        matches!(
+            change.stage_status.as_str(),
+            "unstaged" | "untracked" | "partially_staged"
+        )
+    })
+}
+
+fn collect_staged_change_prompts(changes: &[ProjectGitWorkingTreeChange]) -> Vec<String> {
+    changes
+        .iter()
+        .filter(|change| matches!(change.stage_status.as_str(), "staged" | "partially_staged"))
+        .map(|change| match change.change_type.as_str() {
+            "renamed" if change.previous_path.is_some() => format!(
+                "重命名 {} -> {}",
+                change.previous_path.as_deref().unwrap_or_default(),
+                change.path
+            ),
+            "added" => format!("新增 {}", change.path),
+            "deleted" => format!("删除 {}", change.path),
+            "renamed" => format!("重命名 {}", change.path),
+            _ => format!("修改 {}", change.path),
         })
         .collect()
 }
@@ -1364,13 +1503,27 @@ pub(crate) async fn mark_task_git_context_session_finished(
     context.context_version += 1;
     context.updated_at = now_sqlite();
     if success {
-        context.state = TASK_GIT_STATE_MERGE_READY.to_string();
+        let task = fetch_task_by_id(pool, &context.task_id).await?;
+        let is_automation_enabled = task.automation_mode.is_some();
+        context.state = if is_automation_enabled {
+            TASK_GIT_STATE_READY.to_string()
+        } else {
+            TASK_GIT_STATE_MERGE_READY.to_string()
+        };
         context.last_error = None;
         let saved = save_task_git_context(pool, &context).await?;
         insert_activity_log(
             pool,
-            "task_merge_ready",
-            "任务执行完成，等待后续 Git 确认动作",
+            if is_automation_enabled {
+                "task_git_context_ready"
+            } else {
+                "task_merge_ready"
+            },
+            if is_automation_enabled {
+                "任务执行完成，等待自动提交代码"
+            } else {
+                "任务执行完成，等待后续 Git 确认动作"
+            },
             None,
             Some(&saved.task_id),
             Some(&saved.project_id),
@@ -1629,6 +1782,171 @@ pub async fn reconcile_task_git_context<R: Runtime>(
             .await?;
     let runtime = resolve_project_runtime_context(&project)?;
     Ok(summarize_task_git_context(&app, Some(&runtime), reconciled).await)
+}
+
+async fn commit_task_git_changes_internal<R: Runtime>(
+    app: &AppHandle<R>,
+    pool: &SqlitePool,
+    task: &Task,
+    runtime: &GitProjectRuntimeContext,
+    context: &mut TaskGitContextRecord,
+    message: &str,
+    recover_automation: bool,
+) -> Result<String, String> {
+    let result = git_runtime::commit_changes(
+        app,
+        &runtime.execution_target,
+        runtime.ssh_config_id.as_deref(),
+        &context.worktree_path,
+        message,
+    )
+    .await?;
+    insert_activity_log(
+        pool,
+        "task_git_committed",
+        &result,
+        None,
+        Some(task.id.as_str()),
+        Some(task.project_id.as_str()),
+    )
+    .await?;
+    update_task_git_context_merge_ready(pool, context, "任务代码已提交，等待合并到目标分支")
+        .await?;
+    if recover_automation {
+        task_automation::mark_task_automation_commit_completed(app, pool, task, &result).await?;
+    }
+    Ok(result)
+}
+
+pub(crate) async fn auto_commit_task_worktree<R: Runtime>(
+    app: &AppHandle<R>,
+    task_id: &str,
+) -> Result<TaskGitAutoCommitOutcome, String> {
+    let pool = sqlite_pool(app).await?;
+    let task = fetch_task_by_id(&pool, task_id).await?;
+    let mut context = fetch_task_git_context_by_task_id(&pool, task_id)
+        .await?
+        .ok_or_else(|| "当前任务缺少 Git worktree，上下文未准备好，无法自动提交".to_string())?;
+    let project = fetch_project_by_id(&pool, &task.project_id).await?;
+    let runtime = resolve_project_runtime_context(&project)?;
+
+    if !context_is_healthy(app, &runtime, &context).await {
+        return Err("task git context 不可用，当前状态异常".to_string());
+    }
+
+    let mut overview = collect_task_git_commit_overview(app, &runtime, &context).await?;
+    if has_stageable_worktree_changes(&overview.working_tree_changes) {
+        git_runtime::stage_all(
+            app,
+            &runtime.execution_target,
+            runtime.ssh_config_id.as_deref(),
+            &context.worktree_path,
+        )
+        .await?;
+        overview = collect_task_git_commit_overview(app, &runtime, &context).await?;
+    }
+
+    let staged_change_prompts = collect_staged_change_prompts(&overview.working_tree_changes);
+    if !staged_change_prompts.is_empty() {
+        let commit_message = generate_commit_message_for_project(
+            app,
+            &project.id,
+            overview.current_branch.as_deref(),
+            overview.working_tree_summary.as_deref(),
+            &staged_change_prompts,
+        )
+        .await?;
+        let detail = commit_task_git_changes_internal(
+            app,
+            &pool,
+            &task,
+            &runtime,
+            &mut context,
+            &commit_message,
+            false,
+        )
+        .await?;
+        return Ok(TaskGitAutoCommitOutcome::Committed { detail });
+    }
+
+    if task_git_context_has_pending_merge(app, &runtime, &context).await? {
+        update_task_git_context_merge_ready(
+            &pool,
+            &mut context,
+            "任务代码已就绪，等待合并到目标分支",
+        )
+        .await?;
+        return Ok(TaskGitAutoCommitOutcome::MergeReady {
+            detail: "任务代码已就绪，等待合并到目标分支".to_string(),
+        });
+    }
+
+    Ok(TaskGitAutoCommitOutcome::NoChanges {
+        detail: "审核通过且没有可提交的代码改动".to_string(),
+    })
+}
+
+#[tauri::command]
+pub async fn get_task_git_commit_overview<R: Runtime>(
+    app: AppHandle<R>,
+    task_git_context_id: String,
+) -> Result<TaskGitCommitOverview, String> {
+    let (_pool, _task, _project, runtime, context) =
+        resolve_task_git_commit_target(&app, &task_git_context_id).await?;
+    if !context_is_healthy(&app, &runtime, &context).await {
+        return Err("task git context 不可用，当前状态异常".to_string());
+    }
+    collect_task_git_commit_overview(&app, &runtime, &context).await
+}
+
+#[tauri::command]
+pub async fn stage_all_task_git_files<R: Runtime>(
+    app: AppHandle<R>,
+    task_git_context_id: String,
+) -> Result<String, String> {
+    let (pool, task, _project, runtime, context) =
+        resolve_task_git_commit_target(&app, &task_git_context_id).await?;
+    if !context_is_healthy(&app, &runtime, &context).await {
+        return Err("task git context 不可用，当前状态异常".to_string());
+    }
+    let result = git_runtime::stage_all(
+        &app,
+        &runtime.execution_target,
+        runtime.ssh_config_id.as_deref(),
+        &context.worktree_path,
+    )
+    .await?;
+    insert_activity_log(
+        &pool,
+        "task_git_stage_all",
+        &result,
+        None,
+        Some(task.id.as_str()),
+        Some(task.project_id.as_str()),
+    )
+    .await?;
+    Ok(result)
+}
+
+#[tauri::command]
+pub async fn commit_task_git_changes<R: Runtime>(
+    app: AppHandle<R>,
+    task_git_context_id: String,
+    message: String,
+) -> Result<String, String> {
+    let trimmed = message.trim().to_string();
+    if trimmed.is_empty() {
+        return Err("提交说明不能为空".to_string());
+    }
+
+    let (pool, task, _project, runtime, mut context) =
+        resolve_task_git_commit_target(&app, &task_git_context_id).await?;
+    if !context_is_healthy(&app, &runtime, &context).await {
+        return Err("task git context 不可用，当前状态异常".to_string());
+    }
+
+    commit_task_git_changes_internal(&app, &pool, &task, &runtime, &mut context, &trimmed, true)
+        .await
 }
 
 #[tauri::command]

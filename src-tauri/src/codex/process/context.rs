@@ -22,8 +22,8 @@ impl ExecutionContext {
     }
 }
 
-pub(super) async fn resolve_task_project_execution_context(
-    app: &AppHandle,
+pub(super) async fn resolve_task_project_execution_context<R: Runtime>(
+    app: &AppHandle<R>,
     task_id: &str,
 ) -> Result<ExecutionContext, String> {
     let pool = sqlite_pool(app).await?;
@@ -70,8 +70,8 @@ pub(super) async fn resolve_task_project_execution_context(
     }
 }
 
-pub(super) async fn resolve_project_execution_context(
-    app: &AppHandle,
+pub(super) async fn resolve_project_execution_context<R: Runtime>(
+    app: &AppHandle<R>,
     project_id: &str,
 ) -> Result<ExecutionContext, String> {
     let pool = sqlite_pool(app).await?;
@@ -107,8 +107,8 @@ pub(super) async fn resolve_project_execution_context(
     }
 }
 
-pub(super) async fn resolve_one_shot_working_dir(
-    app: &AppHandle,
+pub(super) async fn resolve_one_shot_working_dir<R: Runtime>(
+    app: &AppHandle<R>,
     task_id: Option<&str>,
     project_id: Option<&str>,
     working_dir: Option<&str>,
@@ -147,8 +147,8 @@ pub(super) async fn resolve_one_shot_working_dir(
     }
 }
 
-pub(super) async fn resolve_session_execution_context(
-    app: &AppHandle,
+pub(super) async fn resolve_session_execution_context<R: Runtime>(
+    app: &AppHandle<R>,
     task_id: Option<&str>,
     working_dir: Option<&str>,
 ) -> Result<ExecutionContext, String> {

@@ -525,8 +525,8 @@ fn collect_available_image_paths(image_paths: Option<Vec<String>>) -> (Vec<Strin
     (available, missing)
 }
 
-async fn prepare_execution_image_paths(
-    app: &AppHandle,
+async fn prepare_execution_image_paths<R: Runtime>(
+    app: &AppHandle<R>,
     task_id: Option<&str>,
     execution_target: &str,
     ssh_config_id: Option<&str>,

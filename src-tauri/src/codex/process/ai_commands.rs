@@ -1,10 +1,132 @@
-use tauri::AppHandle;
+use tauri::{AppHandle, Runtime};
 
 use super::{
     build_ai_generate_commit_message_prompt, build_ai_generate_plan_prompt,
     build_ai_optimize_prompt_prompt, parse_ai_subtasks_response, run_ai_command,
 };
 use crate::app::{fetch_project_by_id, insert_activity_log, sqlite_pool};
+
+const COMMIT_MESSAGE_PROCESS_TERMS: &[&str] = &[
+    "暂存",
+    "已暂存",
+    "工作区",
+    "提交信息",
+    "commit message",
+    "核对",
+    "文件列表",
+    "待提交文件",
+];
+
+fn normalize_generated_commit_message(raw: &str) -> Result<String, String> {
+    let mut normalized_lines = Vec::new();
+    let mut previous_blank = true;
+    for raw_line in raw.lines() {
+        let trimmed = raw_line.trim();
+        if trimmed == "```" || trimmed.starts_with("```") {
+            continue;
+        }
+        if trimmed.is_empty() {
+            if !previous_blank && !normalized_lines.is_empty() {
+                normalized_lines.push(String::new());
+                previous_blank = true;
+            }
+            continue;
+        }
+        normalized_lines.push(trimmed.trim_matches('`').trim().to_string());
+        previous_blank = false;
+    }
+    while matches!(normalized_lines.last(), Some(line) if line.is_empty()) {
+        normalized_lines.pop();
+    }
+    let normalized = normalized_lines.join("\n").trim().to_string();
+    if normalized.is_empty() {
+        return Err("AI 没有返回可用的提交信息".to_string());
+    }
+    Ok(normalized)
+}
+
+pub(crate) fn commit_message_uses_process_language(message: &str) -> bool {
+    let subject = message
+        .lines()
+        .find(|line| !line.trim().is_empty())
+        .unwrap_or_default()
+        .trim()
+        .to_lowercase();
+
+    !subject.is_empty()
+        && COMMIT_MESSAGE_PROCESS_TERMS
+            .iter()
+            .any(|term| subject.contains(&term.to_lowercase()))
+}
+
+fn build_commit_message_retry_prompt(base_prompt: &str, previous_message: &str) -> String {
+    format!(
+        "{base_prompt}\n\n\
+上一次输出不合格，因为它在描述提交流程，而不是实际改动：\n\
+{previous_message}\n\n\
+请重新生成，并严格遵守以下附加要求：\n\
+- 只描述真实代码或产品改动结果，不要描述暂存、提交、核对、整理文件等过程\n\
+- 标题必须像“调整首页文案”“修复任务状态刷新”这样表达真实变化\n\
+- 如果无法判断是 feat 还是 fix，优先根据用户可见变化选择，不要默认写成 chore\n\
+- 不要复用上一次输出中的过程词"
+    )
+}
+
+pub(crate) async fn generate_commit_message_for_project<R: Runtime>(
+    app: &AppHandle<R>,
+    project_id: &str,
+    current_branch: Option<&str>,
+    working_tree_summary: Option<&str>,
+    staged_changes: &[String],
+) -> Result<String, String> {
+    let normalized_staged_changes = staged_changes
+        .iter()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+        .collect::<Vec<_>>();
+    if normalized_staged_changes.is_empty() {
+        return Err("当前没有可用于生成提交信息的已暂存文件".to_string());
+    }
+
+    let pool = sqlite_pool(app).await?;
+    let project = fetch_project_by_id(&pool, project_id).await?;
+    let prompt = build_ai_generate_commit_message_prompt(
+        project.name.trim(),
+        current_branch,
+        working_tree_summary,
+        &normalized_staged_changes,
+    );
+    let raw = run_ai_command(
+        app,
+        prompt.clone(),
+        None,
+        None,
+        Some(project.id.clone()),
+        None,
+    )
+    .await?;
+    let normalized = normalize_generated_commit_message(&raw)?;
+    if !commit_message_uses_process_language(&normalized) {
+        return Ok(normalized);
+    }
+
+    let retry_prompt = build_commit_message_retry_prompt(&prompt, &normalized);
+    let retried_raw = run_ai_command(
+        app,
+        retry_prompt,
+        None,
+        None,
+        Some(project.id.clone()),
+        None,
+    )
+    .await?;
+    let retried = normalize_generated_commit_message(&retried_raw)?;
+    if commit_message_uses_process_language(&retried) {
+        return Err("AI 生成的提交信息仍在描述暂存或提交流程，请手动确认后再提交".to_string());
+    }
+
+    Ok(retried)
+}
 
 #[tauri::command]
 pub async fn ai_suggest_assignee(
@@ -84,53 +206,19 @@ pub async fn ai_generate_commit_message(
     working_tree_summary: Option<String>,
     staged_changes: Vec<String>,
 ) -> Result<String, String> {
-    let normalized_staged_changes = staged_changes
-        .into_iter()
-        .map(|value| value.trim().to_string())
-        .filter(|value| !value.is_empty())
-        .collect::<Vec<_>>();
-    if normalized_staged_changes.is_empty() {
-        return Err("当前没有可用于生成提交信息的已暂存文件".to_string());
-    }
-
-    let pool = sqlite_pool(&app).await?;
-    let project = fetch_project_by_id(&pool, &project_id).await?;
-    let prompt = build_ai_generate_commit_message_prompt(
-        project.name.trim(),
+    let result = generate_commit_message_for_project(
+        &app,
+        &project_id,
         current_branch.as_deref(),
         working_tree_summary.as_deref(),
-        &normalized_staged_changes,
-    );
-    let result = run_ai_command(&app, prompt, None, None, Some(project.id.clone()), None).await?;
-    let mut normalized_lines = Vec::new();
-    let mut previous_blank = true;
-    for raw_line in result.lines() {
-        let trimmed = raw_line.trim();
-        if trimmed == "```" || trimmed.starts_with("```") {
-            continue;
-        }
-        if trimmed.is_empty() {
-            if !previous_blank && !normalized_lines.is_empty() {
-                normalized_lines.push(String::new());
-                previous_blank = true;
-            }
-            continue;
-        }
-        normalized_lines.push(trimmed.trim_matches('`').trim().to_string());
-        previous_blank = false;
-    }
-    while matches!(normalized_lines.last(), Some(line) if line.is_empty()) {
-        normalized_lines.pop();
-    }
-    let normalized = normalized_lines.join("\n").trim().to_string();
+        &staged_changes,
+    )
+    .await?;
 
-    if normalized.is_empty() {
-        return Err("AI 没有返回可用的提交信息".to_string());
-    }
-
+    let pool = sqlite_pool(&app).await?;
     let details = format!(
         "AI 已生成提交信息：{}",
-        normalized.lines().next().unwrap_or("未命名提交")
+        result.lines().next().unwrap_or("未命名提交")
     );
     insert_activity_log(
         &pool,
@@ -138,11 +226,11 @@ pub async fn ai_generate_commit_message(
         &details,
         None,
         None,
-        Some(&project.id),
+        Some(&project_id),
     )
     .await?;
 
-    Ok(normalized)
+    Ok(result)
 }
 
 #[tauri::command]

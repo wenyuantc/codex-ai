@@ -9,7 +9,7 @@ import {
   closestCorners,
 } from "@dnd-kit/core";
 import { getProjectGitOverview, listTaskGitContexts } from "@/lib/backend";
-import { onCodexExit } from "@/lib/codex";
+import { onCodexExit, onTaskAutomationStateChanged } from "@/lib/codex";
 import { TASK_STATUSES, type CodexSessionKind, type ProjectGitOverview, type Task, type TaskGitContext, type TaskStatus } from "@/lib/types";
 import { useTaskStore } from "@/stores/taskStore";
 import { useEmployeeStore } from "@/stores/employeeStore";
@@ -47,16 +47,16 @@ export function KanbanBoard({
     () => new Map(projects.map((project) => [project.id, project])),
     [projects],
   );
-  const localProjectIds = useMemo(() => {
+  const gitProjectIds = useMemo(() => {
     const ids = new Set<string>();
     tasks.forEach((task) => {
-      if (projectMap.get(task.project_id)?.project_type === "local") {
+      if (projectMap.has(task.project_id)) {
         ids.add(task.project_id);
       }
     });
     return Array.from(ids).sort();
   }, [projectMap, tasks]);
-  const localProjectIdsKey = localProjectIds.join(",");
+  const gitProjectIdsKey = gitProjectIds.join(",");
   const gitContextRefreshKey = useMemo(
     () =>
       tasks
@@ -249,7 +249,7 @@ export function KanbanBoard({
     let active = true;
 
     void (async () => {
-      if (localProjectIds.length === 0) {
+      if (gitProjectIds.length === 0) {
         if (active) {
           setGitOverviewByProjectId({});
           setTaskGitContextsByProjectId({});
@@ -258,7 +258,7 @@ export function KanbanBoard({
       }
 
       const results = await Promise.all(
-        localProjectIds.map(async (projectId) => {
+        gitProjectIds.map(async (projectId) => {
           try {
             const [overview, contexts] = await Promise.all([
               getProjectGitOverview(projectId),
@@ -293,26 +293,27 @@ export function KanbanBoard({
     return () => {
       active = false;
     };
-  }, [gitContextRefreshKey, localProjectIdsKey]);
+  }, [gitContextRefreshKey, gitProjectIdsKey]);
 
   useEffect(() => {
-    if (localProjectIds.length === 0) {
+    if (gitProjectIds.length === 0) {
       return;
     }
 
     const handleWindowFocus = () => {
-      void refreshGitOverviews(localProjectIds);
+      void refreshGitOverviews(gitProjectIds);
     };
 
     window.addEventListener("focus", handleWindowFocus);
     return () => {
       window.removeEventListener("focus", handleWindowFocus);
     };
-  }, [localProjectIdsKey]);
+  }, [gitProjectIdsKey]);
 
   useEffect(() => {
     let active = true;
     let cleanup: (() => void) | null = null;
+    let automationCleanup: (() => void) | null = null;
 
     void onCodexExit((exit) => {
       if (!exit.task_id) {
@@ -320,7 +321,7 @@ export function KanbanBoard({
       }
 
       const projectId = taskProjectMap[exit.task_id];
-      if (!projectId || !localProjectIds.includes(projectId)) {
+      if (!projectId || !gitProjectIds.includes(projectId)) {
         return;
       }
 
@@ -337,11 +338,29 @@ export function KanbanBoard({
         console.error("Failed to listen codex exit events for kanban git refresh:", error);
       });
 
+    void onTaskAutomationStateChanged((event) => {
+      if (!gitProjectIds.includes(event.project_id)) {
+        return;
+      }
+      void refreshGitOverviews([event.project_id]);
+    })
+      .then((unlisten) => {
+        if (!active) {
+          unlisten();
+          return;
+        }
+        automationCleanup = unlisten;
+      })
+      .catch((error) => {
+        console.error("Failed to listen task automation state change events:", error);
+      });
+
     return () => {
       active = false;
       cleanup?.();
+      automationCleanup?.();
     };
-  }, [localProjectIdsKey, taskProjectMap]);
+  }, [gitProjectIdsKey, taskProjectMap]);
 
   return (
     <>

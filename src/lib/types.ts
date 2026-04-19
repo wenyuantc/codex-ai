@@ -391,6 +391,17 @@ export interface ProjectGitOverview {
   pending_action_contexts: TaskGitContext[];
 }
 
+export interface TaskGitCommitOverview {
+  task_git_context_id: string;
+  project_id: string;
+  worktree_path: string;
+  execution_target: EnvironmentMode;
+  current_branch: string | null;
+  working_tree_summary: string | null;
+  working_tree_changes: ProjectGitWorkingTreeChange[];
+  refreshed_at: string;
+}
+
 export interface PreparedTaskGitExecution {
   task_git_context_id: string;
   working_dir: string;
@@ -546,8 +557,10 @@ export type TaskAutomationPhase =
   | "waiting_review"
   | "launching_fix"
   | "waiting_execution"
+  | "committing_code"
   | "review_launch_failed"
   | "fix_launch_failed"
+  | "commit_failed"
   | "manual_control"
   | "blocked"
   | "completed";

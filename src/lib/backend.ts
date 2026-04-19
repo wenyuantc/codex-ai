@@ -25,6 +25,7 @@ import type {
   Project,
   ProjectGitFilePreview,
   ProjectGitOverview,
+  TaskGitCommitOverview,
   RemoteCodexHealthCheck,
   RemoteCodexSdkInstallResult,
   RemoteCodexSettings,
@@ -429,6 +430,18 @@ export async function cancelGitAction(
 
 export async function refreshTaskGitContext(taskGitContextId: string): Promise<TaskGitContext> {
   return invoke("refresh_task_git_context", { taskGitContextId });
+}
+
+export async function getTaskGitCommitOverview(taskGitContextId: string): Promise<TaskGitCommitOverview> {
+  return invoke("get_task_git_commit_overview", { taskGitContextId });
+}
+
+export async function stageAllTaskGitFiles(taskGitContextId: string): Promise<string> {
+  return invoke("stage_all_task_git_files", { taskGitContextId });
+}
+
+export async function commitTaskGitChanges(taskGitContextId: string, message: string): Promise<string> {
+  return invoke("commit_task_git_changes", { taskGitContextId, message });
 }
 
 export async function reconcileTaskGitContext(taskGitContextId: string): Promise<TaskGitContext> {

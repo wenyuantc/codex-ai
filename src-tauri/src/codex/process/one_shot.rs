@@ -62,8 +62,8 @@ async fn run_ai_command_via_exec(
     }
 }
 
-async fn run_ai_command_via_remote_sdk(
-    app: &AppHandle,
+async fn run_ai_command_via_remote_sdk<R: Runtime>(
+    app: &AppHandle<R>,
     ssh_config_id: &str,
     prompt: &str,
     model: &str,
@@ -117,8 +117,8 @@ async fn run_ai_command_via_remote_sdk(
     parse_sdk_bridge_output(&output.stdout, &output.stderr)
 }
 
-async fn run_ai_command_via_ssh_exec(
-    app: &AppHandle,
+async fn run_ai_command_via_ssh_exec<R: Runtime>(
+    app: &AppHandle<R>,
     ssh_config_id: &str,
     prompt: String,
     model: &str,
@@ -180,8 +180,8 @@ async fn run_ai_command_via_ssh_exec(
     }
 }
 
-async fn run_ai_command_via_sdk(
-    app: &AppHandle,
+async fn run_ai_command_via_sdk<R: Runtime>(
+    app: &AppHandle<R>,
     prompt: &str,
     model: &str,
     reasoning_effort: &str,
@@ -237,8 +237,8 @@ async fn run_ai_command_via_sdk(
     parse_sdk_bridge_output(&output.stdout, &output.stderr)
 }
 
-pub(super) async fn run_ai_command(
-    app: &AppHandle,
+pub(super) async fn run_ai_command<R: Runtime>(
+    app: &AppHandle<R>,
     prompt: String,
     image_paths: Option<Vec<String>>,
     task_id: Option<String>,

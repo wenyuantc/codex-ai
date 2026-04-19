@@ -7,11 +7,11 @@ use super::{
     attach_session_file_change_details, build_ai_generate_commit_message_prompt,
     build_ai_generate_plan_prompt, build_ai_optimize_prompt_prompt, build_one_shot_exec_args,
     build_remote_codex_session_command, build_remote_sdk_bridge_command, build_session_exec_args,
-    compose_codex_prompt, compute_execution_session_file_changes_from_entries,
-    detect_exec_json_output_flag, extract_session_id_from_output, format_session_prompt_log,
-    hash_worktree_path, normalize_model, normalize_session_file_change_paths,
-    parse_ai_subtasks_response, parse_cli_json_event_line, parse_sdk_bridge_output,
-    parse_sdk_file_change_event, sdk_codex_path_override_allowed_for_os,
+    commit_message_uses_process_language, compose_codex_prompt,
+    compute_execution_session_file_changes_from_entries, detect_exec_json_output_flag,
+    extract_session_id_from_output, format_session_prompt_log, hash_worktree_path, normalize_model,
+    normalize_session_file_change_paths, parse_ai_subtasks_response, parse_cli_json_event_line,
+    parse_sdk_bridge_output, parse_sdk_file_change_event, sdk_codex_path_override_allowed_for_os,
     should_capture_execution_change_baseline, CliJsonOutputFlag, CliJsonStreamState,
     CodexExecutionProvider, CodexSessionKind, TextSnapshot, WorkingTreeSnapshotEntry,
     EXECUTION_TARGET_LOCAL, EXECUTION_TARGET_SSH,
@@ -462,6 +462,21 @@ fn builds_commit_message_prompt_with_staged_changes() {
     assert!(prompt.contains("Conventional Commits 风格"));
     assert!(prompt.contains("第一行是 Conventional Commits 标题"));
     assert!(prompt.contains("补充 2 到 4 行正文"));
+    assert!(prompt.contains("不要在标题或正文里出现“暂存”"));
+    assert!(prompt.contains("不要因为输入来自暂存区就默认使用 chore"));
+}
+
+#[test]
+fn detects_process_language_in_commit_message_subject() {
+    assert!(commit_message_uses_process_language(
+        "chore: 核对首页页面暂存内容\n\n- 调整了页面文案"
+    ));
+    assert!(commit_message_uses_process_language(
+        "fix: 更新工作区提交信息\n\n- 优化提交文案"
+    ));
+    assert!(!commit_message_uses_process_language(
+        "fix: 调整首页说明文案\n\n- 将社区文案改为更准确的描述"
+    ));
 }
 
 #[test]

@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import type { CodexSessionKind } from "./types";
+import type { CodexSessionKind, TaskAutomationPhase } from "./types";
 
 export interface CodexOutput {
   employee_id: string;
@@ -27,6 +27,12 @@ export interface CodexSession {
   session_kind: CodexSessionKind;
   session_record_id: string;
   session_id: string;
+}
+
+export interface TaskAutomationStateChanged {
+  task_id: string;
+  project_id: string;
+  phase: TaskAutomationPhase;
 }
 
 interface StartCodexOptions {
@@ -118,6 +124,15 @@ export function onCodexExit(callback: (exit: CodexExit) => void) {
 
 export function onCodexSession(callback: (session: CodexSession) => void) {
   return listen<CodexSession>("codex-session", (event) => callback(event.payload));
+}
+
+export function onTaskAutomationStateChanged(
+  callback: (payload: TaskAutomationStateChanged) => void,
+) {
+  return listen<TaskAutomationStateChanged>(
+    "task-automation-state-changed",
+    (event) => callback(event.payload),
+  );
 }
 
 // AI-powered features

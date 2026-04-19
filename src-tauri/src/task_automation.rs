@@ -4,7 +4,7 @@ use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
 
 use sqlx::SqlitePool;
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, Emitter, Manager, Runtime};
 
 use crate::app::{
     fetch_employee_by_id, fetch_project_by_id, fetch_task_automation_state_record,
@@ -18,6 +18,7 @@ use crate::db::models::{
     CodexSessionRecord, Project, ReviewVerdict, Subtask, Task, TaskAttachment,
     TaskAutomationStateRecord,
 };
+use crate::git_workflow::{auto_commit_task_worktree, TaskGitAutoCommitOutcome};
 
 const AUTOMATION_MODE_REVIEW_FIX_LOOP_V1: &str = "review_fix_loop_v1";
 const DEFAULT_MAX_FIX_ROUNDS: i32 = 3;
@@ -28,8 +29,10 @@ const PHASE_LAUNCHING_REVIEW: &str = "launching_review";
 const PHASE_WAITING_REVIEW: &str = "waiting_review";
 const PHASE_LAUNCHING_FIX: &str = "launching_fix";
 const PHASE_WAITING_EXECUTION: &str = "waiting_execution";
+const PHASE_COMMITTING_CODE: &str = "committing_code";
 const PHASE_REVIEW_LAUNCH_FAILED: &str = "review_launch_failed";
 const PHASE_FIX_LAUNCH_FAILED: &str = "fix_launch_failed";
+const PHASE_COMMIT_FAILED: &str = "commit_failed";
 const PHASE_MANUAL_CONTROL: &str = "manual_control";
 const PHASE_BLOCKED: &str = "blocked";
 const PHASE_COMPLETED: &str = "completed";
@@ -67,6 +70,13 @@ struct AutomationExecutionContext {
     task_git_context_id: Option<String>,
 }
 
+#[derive(Clone, Debug, serde::Serialize)]
+struct TaskAutomationStateChangedEvent {
+    task_id: String,
+    project_id: String,
+    phase: String,
+}
+
 impl TaskSessionIds {
     fn contains(&self, session_id: &str) -> bool {
         self.ids.contains(session_id)
@@ -93,6 +103,72 @@ fn load_task_automation_policy(app: &AppHandle) -> TaskAutomationPolicy {
             FAILURE_STRATEGY_BLOCKED.to_string()
         },
     }
+}
+
+fn emit_task_automation_state_changed<R: Runtime>(app: &AppHandle<R>, task: &Task, phase: &str) {
+    let _ = app.emit(
+        "task-automation-state-changed",
+        TaskAutomationStateChangedEvent {
+            task_id: task.id.clone(),
+            project_id: task.project_id.clone(),
+            phase: phase.to_string(),
+        },
+    );
+}
+
+pub(crate) async fn mark_task_automation_commit_completed<R: Runtime>(
+    app: &AppHandle<R>,
+    pool: &SqlitePool,
+    task: &Task,
+    detail: &str,
+) -> Result<(), String> {
+    if task.automation_mode.as_deref() != Some(AUTOMATION_MODE_REVIEW_FIX_LOOP_V1) {
+        return Ok(());
+    }
+
+    let current = fetch_task_automation_state_record(pool, &task.id).await?;
+    let Some(state_record) = current.as_ref() else {
+        return Ok(());
+    };
+
+    if !matches!(
+        state_record.phase.as_str(),
+        PHASE_COMMITTING_CODE | PHASE_COMMIT_FAILED
+    ) {
+        return Ok(());
+    }
+
+    upsert_state_terminal(
+        pool,
+        &task.id,
+        state_record.consumed_session_id.as_deref(),
+        PHASE_COMPLETED,
+        state_record.last_verdict_json.as_deref(),
+        None,
+        None,
+        current.as_ref(),
+    )
+    .await?;
+    insert_activity_log(
+        pool,
+        "task_automation_commit_completed",
+        detail,
+        None,
+        Some(task.id.as_str()),
+        Some(task.project_id.as_str()),
+    )
+    .await?;
+    insert_activity_log(
+        pool,
+        "task_automation_completed",
+        detail,
+        None,
+        Some(task.id.as_str()),
+        Some(task.project_id.as_str()),
+    )
+    .await?;
+    emit_task_automation_state_changed(app, task, PHASE_COMPLETED);
+    Ok(())
 }
 
 async fn finalize_terminal_failure(
@@ -187,7 +263,7 @@ pub async fn resume_pending_automation(app: &AppHandle) -> Result<(), String> {
         FROM task_automation_state tas
         INNER JOIN tasks t ON t.id = tas.task_id
         WHERE t.automation_mode = $1
-          AND tas.phase IN ($2, $3, $4, $5)
+          AND tas.phase IN ($2, $3, $4, $5, $6)
         "#,
     )
     .bind(AUTOMATION_MODE_REVIEW_FIX_LOOP_V1)
@@ -195,6 +271,7 @@ pub async fn resume_pending_automation(app: &AppHandle) -> Result<(), String> {
     .bind(PHASE_REVIEW_LAUNCH_FAILED)
     .bind(PHASE_LAUNCHING_FIX)
     .bind(PHASE_FIX_LAUNCH_FAILED)
+    .bind(PHASE_COMMITTING_CODE)
     .fetch_all(&pool)
     .await
     .map_err(|error| format!("Failed to list pending automation tasks: {}", error))?;
@@ -210,6 +287,10 @@ pub async fn resume_pending_automation(app: &AppHandle) -> Result<(), String> {
             }
             PHASE_LAUNCHING_FIX | PHASE_FIX_LAUNCH_FAILED => {
                 retry_pending_fix(app, &pool, &task_id, &state_record).await?;
+            }
+            PHASE_COMMITTING_CODE => {
+                let task = fetch_task_by_id(&pool, &task_id).await?;
+                retry_pending_commit(app, &pool, &task, None).await?;
             }
             _ => {}
         }
@@ -396,7 +477,7 @@ async fn handle_review_exit(
             pool,
             &task.id,
             Some(&facts.session_id),
-            PHASE_COMPLETED,
+            PHASE_COMMITTING_CODE,
             Some(&verdict_json),
             None,
             None,
@@ -405,14 +486,15 @@ async fn handle_review_exit(
         .await?;
         insert_activity_log(
             pool,
-            "task_automation_completed",
-            verdict.summary.as_str(),
+            "task_automation_commit_started",
+            "审核已通过，正在自动提交代码",
             facts.employee_id.as_deref(),
             Some(task.id.as_str()),
             Some(task.project_id.as_str()),
         )
         .await?;
-        return Ok(());
+        emit_task_automation_state_changed(app, task, PHASE_COMMITTING_CODE);
+        return retry_pending_commit(app, pool, task, facts.employee_id.as_deref()).await;
     }
 
     let policy = load_task_automation_policy(app);
@@ -467,6 +549,90 @@ async fn handle_review_exit(
     .await?;
 
     Ok(())
+}
+
+async fn retry_pending_commit(
+    app: &AppHandle,
+    pool: &SqlitePool,
+    task: &Task,
+    employee_id: Option<&str>,
+) -> Result<(), String> {
+    let state_record = fetch_task_automation_state_record(pool, &task.id)
+        .await?
+        .ok_or_else(|| "自动质控状态不存在，无法继续自动提交".to_string())?;
+    let verdict_summary = state_record
+        .last_verdict_json
+        .as_deref()
+        .map(parse_review_verdict_json)
+        .transpose()
+        .map_err(|error| format!("解析自动质控审核结论失败: {}", error))?
+        .map(|verdict| verdict.summary)
+        .unwrap_or_else(|| "自动质控已完成".to_string());
+
+    match auto_commit_task_worktree(app, &task.id).await {
+        Ok(TaskGitAutoCommitOutcome::Committed { detail })
+        | Ok(TaskGitAutoCommitOutcome::MergeReady { detail }) => {
+            mark_task_automation_commit_completed(app, pool, task, &detail).await?;
+            Ok(())
+        }
+        Ok(TaskGitAutoCommitOutcome::NoChanges { detail }) => {
+            upsert_state_terminal(
+                pool,
+                &task.id,
+                state_record.consumed_session_id.as_deref(),
+                PHASE_COMPLETED,
+                state_record.last_verdict_json.as_deref(),
+                None,
+                None,
+                Some(&state_record),
+            )
+            .await?;
+            insert_activity_log(
+                pool,
+                "task_automation_commit_completed",
+                &detail,
+                employee_id,
+                Some(task.id.as_str()),
+                Some(task.project_id.as_str()),
+            )
+            .await?;
+            insert_activity_log(
+                pool,
+                "task_automation_completed",
+                verdict_summary.as_str(),
+                employee_id,
+                Some(task.id.as_str()),
+                Some(task.project_id.as_str()),
+            )
+            .await?;
+            emit_task_automation_state_changed(app, task, PHASE_COMPLETED);
+            Ok(())
+        }
+        Err(error) => {
+            upsert_state_terminal(
+                pool,
+                &task.id,
+                state_record.consumed_session_id.as_deref(),
+                PHASE_COMMIT_FAILED,
+                state_record.last_verdict_json.as_deref(),
+                None,
+                Some(&error),
+                Some(&state_record),
+            )
+            .await?;
+            insert_activity_log(
+                pool,
+                "task_automation_commit_failed",
+                &error,
+                employee_id,
+                Some(task.id.as_str()),
+                Some(task.project_id.as_str()),
+            )
+            .await?;
+            emit_task_automation_state_changed(app, task, PHASE_COMMIT_FAILED);
+            Ok(())
+        }
+    }
 }
 
 async fn retry_pending_review(

@@ -29,6 +29,7 @@ import {
 import { ContinueConversationDialog } from "./ContinueConversationDialog";
 import { TaskDetailDialog } from "./TaskDetailDialog";
 import { DeleteTaskDialog } from "./DeleteTaskDialog";
+import { TaskGitCommitDialog } from "./TaskGitCommitDialog";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { ProjectGitActionDialog } from "@/components/projects/ProjectGitActionDialog";
 import { useProjectStore } from "@/stores/projectStore";
@@ -66,6 +67,14 @@ function getGitContextBadge(context: TaskGitContext | null): {
     };
   }
 
+  if (context.state === "merge_ready") {
+    return {
+      label: "待合并",
+      className: "bg-sky-500/10 text-sky-700",
+      title: `任务分支 ${context.task_branch ?? "未命名分支"} 已提交，等待合并到 ${context.target_branch ?? "目标分支"}`,
+    };
+  }
+
   if (context.state === "failed") {
     return {
       label: "失败",
@@ -99,6 +108,7 @@ export function TaskCard({
   const [showContinueDialog, setShowContinueDialog] = useState(false);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [showGitActionDialog, setShowGitActionDialog] = useState(false);
+  const [showCommitDialog, setShowCommitDialog] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [automationSubmitting, setAutomationSubmitting] = useState(false);
   const [automationRestarting, setAutomationRestarting] = useState(false);
@@ -174,7 +184,24 @@ export function TaskCard({
     && gitContext.state !== "completed"
     && gitContext.state !== "drifted",
   );
-  const hasPreLogActions = shouldShowPrimaryMenuAction || Boolean(task.last_codex_session_id) || canTriggerMergeAction;
+  const canCommitTaskCode = Boolean(
+    gitContext
+    && !gitContext.worktree_missing
+    && !hasActiveSession
+    && gitContext.state !== "failed"
+    && gitContext.state !== "completed"
+    && gitContext.state !== "merge_ready"
+    && gitContext.state !== "drifted"
+    && gitContext.state !== "action_pending"
+    && (
+      automationState.status === "commit_failed"
+      || !automationState.enabled
+    ),
+  );
+  const hasPreLogActions = shouldShowPrimaryMenuAction
+    || Boolean(task.last_codex_session_id)
+    || canCommitTaskCode
+    || canTriggerMergeAction;
   const canRestartAutomation = automationState.enabled && [
     "launching_review",
     "waiting_review",
@@ -322,6 +349,14 @@ export function TaskCard({
     }
     setContextMenu(null);
     setShowGitActionDialog(true);
+  };
+
+  const openCommitDialog = () => {
+    if (!canCommitTaskCode) {
+      return;
+    }
+    setContextMenu(null);
+    setShowCommitDialog(true);
   };
 
   const handleRestartAutomation = async () => {
@@ -612,6 +647,18 @@ export function TaskCard({
                 合并到目标分支
               </button>
             )}
+            {canCommitTaskCode && (
+              <button
+                type="button"
+                role="menuitem"
+                onClick={openCommitDialog}
+                disabled={isActionLoading}
+                className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-left hover:bg-accent hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-50"
+              >
+                <GitBranch className="h-4 w-4" />
+                提交代码
+              </button>
+            )}
             {hasPreLogActions && <div className="my-1 h-px bg-border" />}
             <button
               type="button"
@@ -703,6 +750,17 @@ export function TaskCard({
             await onGitActionCompleted?.(task.project_id, "");
           }}
           onActionCompleted={async (message) => {
+            await onGitActionCompleted?.(task.project_id, message);
+          }}
+        />
+      )}
+      {!isOverlay && gitContext && (
+        <TaskGitCommitDialog
+          open={showCommitDialog}
+          onOpenChange={setShowCommitDialog}
+          task={task}
+          gitContext={gitContext}
+          onCommitted={async (message) => {
             await onGitActionCompleted?.(task.project_id, message);
           }}
         />
