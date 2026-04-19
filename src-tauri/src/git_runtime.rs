@@ -94,6 +94,11 @@ struct GitBridgeRevisionResult {
 }
 
 #[derive(Debug, Deserialize)]
+struct GitBridgePathResult {
+    path: String,
+}
+
+#[derive(Debug, Deserialize)]
 struct GitBridgeMessageResult {
     message: String,
 }
@@ -671,6 +676,25 @@ pub(crate) async fn path_exists<R: Runtime>(
     )
     .await?;
     Ok(result.exists)
+}
+
+pub(crate) async fn git_common_dir<R: Runtime>(
+    app: &AppHandle<R>,
+    execution_target: &str,
+    ssh_config_id: Option<&str>,
+    repo_path: &str,
+) -> Result<String, String> {
+    let result: GitBridgePathResult = call_bridge(
+        app,
+        execution_target,
+        ssh_config_id,
+        serde_json::json!({
+            "command": "git_common_dir",
+            "repoPath": repo_path,
+        }),
+    )
+    .await?;
+    Ok(result.path)
 }
 
 pub(crate) async fn ensure_task_branch<R: Runtime>(

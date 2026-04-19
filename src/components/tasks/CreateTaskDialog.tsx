@@ -9,7 +9,7 @@ import { useAiOptimizePrompt } from "@/hooks/useAiOptimizePrompt";
 import { getEmployeeRoleLabel } from "@/lib/utils";
 import { IMAGE_FILE_FILTERS, dedupePaths, isTauriRuntime, normalizeDialogSelection } from "@/lib/taskAttachments";
 import { PRIORITIES } from "@/lib/types";
-import { getCodexSettings } from "@/lib/backend";
+import { getCodexSettings, getRemoteCodexSettings } from "@/lib/backend";
 import { getProjectWorkingDir } from "@/lib/projects";
 import {
   Dialog,
@@ -57,6 +57,7 @@ export function CreateTaskDialog({
   const [attachmentPaths, setAttachmentPaths] = useState<string[]>([]);
   const [createError, setCreateError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [defaultsLoading, setDefaultsLoading] = useState(false);
   const [defaultAutomationEnabled, setDefaultAutomationEnabled] = useState(false);
   const selectedProject = projects.find((project) => project.id === selectedProjectId);
   const reviewerCandidates = employees.filter((employee) => employee.role === "reviewer");
@@ -67,18 +68,61 @@ export function CreateTaskDialog({
     }
   }, [open, selectedProjectId, title, description]);
 
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+    if (selectedProjectId && !selectedProject) {
+      setDefaultsLoading(true);
+      return;
+    }
+
+    let cancelled = false;
+    setDefaultsLoading(true);
+
+    const loadTaskDefaults = async () => {
+      try {
+        const settings =
+          selectedProject?.project_type === "ssh" && selectedProject.ssh_config_id
+            ? await getRemoteCodexSettings(selectedProject.ssh_config_id)
+            : await getCodexSettings();
+        if (cancelled) {
+          return;
+        }
+        setDefaultAutomationEnabled(settings.task_automation_default_enabled);
+        setUseWorktree(settings.git_preferences.default_task_use_worktree ? "true" : "false");
+      } catch (error) {
+        console.error("Failed to load task creation defaults:", error);
+        if (cancelled) {
+          return;
+        }
+        setDefaultAutomationEnabled(false);
+        setUseWorktree("false");
+      } finally {
+        if (!cancelled) {
+          setDefaultsLoading(false);
+        }
+      }
+    };
+
+    void loadTaskDefaults();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    open,
+    selectedProjectId,
+    selectedProject?.id,
+    selectedProject?.project_type,
+    selectedProject?.ssh_config_id,
+  ]);
+
   const handleOpen = (isOpen: boolean) => {
     if (isOpen) {
       fetchEmployees();
       fetchProjects();
-      void getCodexSettings()
-        .then((settings) => {
-          setDefaultAutomationEnabled(settings.task_automation_default_enabled);
-        })
-        .catch((error) => {
-          console.error("Failed to load task automation default setting:", error);
-          setDefaultAutomationEnabled(false);
-        });
+      setDefaultsLoading(true);
       setTitle("");
       setDescription("");
       setPriority("medium");
@@ -144,6 +188,10 @@ export function CreateTaskDialog({
 
   const handleCreate = async () => {
     if (!title.trim() || !selectedProjectId) return;
+    if (defaultsLoading) {
+      setCreateError("任务默认设置仍在加载，请稍候再试。");
+      return;
+    }
     if (defaultAutomationEnabled && !reviewerId) {
       setCreateError("当前已开启“新建任务默认自动质控”，请先指定审查员。");
       return;
@@ -285,6 +333,7 @@ export function CreateTaskDialog({
                 <Select
                   value={useWorktree}
                   onValueChange={(value) => setUseWorktree(value ?? "false")}
+                  disabled={saving || defaultsLoading}
                 >
                   <SelectTrigger className="mt-1 bg-background">
                     <SelectValue placeholder="选择是否启用 worktree">
@@ -307,7 +356,9 @@ export function CreateTaskDialog({
                   </SelectContent>
                 </Select>
                 <p className="mt-1 text-[11px] text-muted-foreground">
-                  默认直接使用项目工作目录；开启后会为该任务准备独立 worktree。
+                  {defaultsLoading
+                    ? "正在加载当前项目的默认设置…"
+                    : "默认直接使用项目工作目录；开启后会为该任务准备独立 worktree。"}
                 </p>
               </div>
 
@@ -474,10 +525,10 @@ export function CreateTaskDialog({
             </button>
             <button
               onClick={handleCreate}
-              disabled={!title.trim() || !selectedProjectId || saving}
+              disabled={!title.trim() || !selectedProjectId || saving || defaultsLoading}
               className="px-3 py-1.5 text-sm bg-primary text-primary-foreground rounded-md hover:bg-primary/90 disabled:opacity-50"
             >
-              {saving ? "创建中..." : "创建"}
+              {saving ? "创建中..." : defaultsLoading ? "加载默认值..." : "创建"}
             </button>
           </div>
         </div>

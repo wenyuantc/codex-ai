@@ -79,6 +79,7 @@ export function getActivityActionLabel(action: string): string {
     task_automation_skip_disabled: "自动质控因配置关闭而跳过",
     task_automation_restart_requested: "重启自动质控",
     task_automation_settings_updated: "自动质控设置更新",
+    git_preferences_updated: "Git 偏好设置更新",
     task_review_requested: "请求代码审核",
     task_review_started: "开始代码审核",
     task_review_completed: "代码审核完成",

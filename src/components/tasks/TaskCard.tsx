@@ -29,6 +29,7 @@ import {
 import { ContinueConversationDialog } from "./ContinueConversationDialog";
 import { TaskDetailDialog } from "./TaskDetailDialog";
 import { DeleteTaskDialog } from "./DeleteTaskDialog";
+import { DeleteTaskWorktreeDialog } from "./DeleteTaskWorktreeDialog";
 import { TaskGitCommitDialog } from "./TaskGitCommitDialog";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { ProjectGitActionDialog } from "@/components/projects/ProjectGitActionDialog";
@@ -107,6 +108,7 @@ export function TaskCard({
   const [showDetail, setShowDetail] = useState(false);
   const [showContinueDialog, setShowContinueDialog] = useState(false);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const [showDeleteWorktreeDialog, setShowDeleteWorktreeDialog] = useState(false);
   const [showGitActionDialog, setShowGitActionDialog] = useState(false);
   const [showCommitDialog, setShowCommitDialog] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -176,6 +178,12 @@ export function TaskCard({
   const shouldShowPrimaryMenuAction = isRunning || isReviewTask || !hideRunAction;
   const isWorktreeModeEnabled = task.use_worktree;
   const isWorktreeReady = Boolean(gitContext?.worktree_path) && !gitContext?.worktree_missing;
+  const canDeleteWorktree = Boolean(
+    isWorktreeModeEnabled
+    && isWorktreeReady
+    && !hasActiveSession,
+  );
+  const shouldShowTaskActionBar = shouldShowActionBar;
   const gitContextBadge = getGitContextBadge(gitContext);
   const canTriggerMergeAction = Boolean(
     gitContext
@@ -201,7 +209,8 @@ export function TaskCard({
   const hasPreLogActions = shouldShowPrimaryMenuAction
     || Boolean(task.last_codex_session_id)
     || canCommitTaskCode
-    || canTriggerMergeAction;
+    || canTriggerMergeAction
+    || canDeleteWorktree;
   const canRestartAutomation = automationState.enabled && [
     "launching_review",
     "waiting_review",
@@ -359,6 +368,14 @@ export function TaskCard({
     setShowCommitDialog(true);
   };
 
+  const openDeleteWorktreeDialog = () => {
+    if (!canDeleteWorktree) {
+      return;
+    }
+    setContextMenu(null);
+    setShowDeleteWorktreeDialog(true);
+  };
+
   const handleRestartAutomation = async () => {
     if (!canRestartAutomation) return;
     setContextMenu(null);
@@ -480,67 +497,69 @@ export function TaskCard({
           </div>
         </div>
         {/* Run/Stop Codex */}
-        {shouldShowActionBar && (
+        {shouldShowTaskActionBar && (
           <div className="flex items-center gap-1 mt-2 pt-2 border-t border-border/50">
-            {isRunning ? (
-              executionActions.isRunning ? (
-                <button
-                  onClick={handleStop}
-                  disabled={isActionLoading}
-                  className="flex items-center gap-1 px-2 py-0.5 text-xs bg-red-600 text-white rounded hover:bg-red-700 transition-colors disabled:opacity-50"
-                >
-                  {executionActions.loading === "stop" ? (
-                    <Square className="h-3 w-3" />
-                  ) : (
-                    <span className="inline-block w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
-                  )}
-                  停止
-                </button>
-              ) : (
-                <button
-                  disabled
-                  className="flex items-center gap-1 px-2 py-0.5 text-xs bg-green-600 text-white rounded opacity-50"
-                  title="自动修复正在启动或运行中"
-                >
-                  <Loader2 className="h-3 w-3 animate-spin" />
-                  运行中
-                </button>
-              )
-            ) : isReviewTask ? (
-              task.reviewer_id ? (
-                <button
-                  onClick={(e) => void handleReviewCode(e)}
-                  disabled={isActionLoading || isReviewRunning}
-                  title={`由 ${reviewer?.name ?? "审查员"} 发起代码审核`}
-                  className="flex items-center gap-1 px-2 py-0.5 text-xs bg-amber-500 text-black rounded hover:bg-amber-400 transition-colors disabled:opacity-50"
-                >
-                  {reviewActions.loading || isReviewRunning ? (
+            {shouldShowActionBar && (
+              isRunning ? (
+                executionActions.isRunning ? (
+                  <button
+                    onClick={handleStop}
+                    disabled={isActionLoading}
+                    className="flex items-center gap-1 px-2 py-0.5 text-xs bg-red-600 text-white rounded hover:bg-red-700 transition-colors disabled:opacity-50"
+                  >
+                    {executionActions.loading === "stop" ? (
+                      <Square className="h-3 w-3" />
+                    ) : (
+                      <span className="inline-block w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
+                    )}
+                    停止
+                  </button>
+                ) : (
+                  <button
+                    disabled
+                    className="flex items-center gap-1 px-2 py-0.5 text-xs bg-green-600 text-white rounded opacity-50"
+                    title="自动修复正在启动或运行中"
+                  >
                     <Loader2 className="h-3 w-3 animate-spin" />
-                  ) : (
-                    <ScrollText className="h-3 w-3" />
-                  )}
-                  {isReviewRunning ? "审核中" : "审核"}
+                    运行中
+                  </button>
+                )
+              ) : isReviewTask ? (
+                task.reviewer_id ? (
+                  <button
+                    onClick={(e) => void handleReviewCode(e)}
+                    disabled={isActionLoading || isReviewRunning}
+                    title={`由 ${reviewer?.name ?? "审查员"} 发起代码审核`}
+                    className="flex items-center gap-1 px-2 py-0.5 text-xs bg-amber-500 text-black rounded hover:bg-amber-400 transition-colors disabled:opacity-50"
+                  >
+                    {reviewActions.loading || isReviewRunning ? (
+                      <Loader2 className="h-3 w-3 animate-spin" />
+                    ) : (
+                      <ScrollText className="h-3 w-3" />
+                    )}
+                    {isReviewRunning ? "审核中" : "审核"}
+                  </button>
+                ) : (
+                  <span className="text-xs text-muted-foreground/50" title="请先指定审查员">
+                    <ScrollText className="h-3 w-3 inline mr-0.5" />
+                    未指定审查员
+                  </span>
+                )
+              ) : task.assignee_id ? (
+                <button
+                  onClick={handleRun}
+                  disabled={isActionLoading}
+                  className="flex items-center gap-1 px-2 py-0.5 text-xs bg-green-600 text-white rounded hover:bg-green-700 transition-colors disabled:opacity-50"
+                >
+                  <Play className="h-3 w-3" />
+                  运行
                 </button>
               ) : (
-                <span className="text-xs text-muted-foreground/50" title="请先指定审查员">
-                  <ScrollText className="h-3 w-3 inline mr-0.5" />
-                  未指定审查员
+                <span className="text-xs text-muted-foreground/50" title="请先指派员工">
+                  <Play className="h-3 w-3 inline mr-0.5" />
+                  未指派
                 </span>
               )
-            ) : task.assignee_id ? (
-              <button
-                onClick={handleRun}
-                disabled={isActionLoading}
-                className="flex items-center gap-1 px-2 py-0.5 text-xs bg-green-600 text-white rounded hover:bg-green-700 transition-colors disabled:opacity-50"
-              >
-                <Play className="h-3 w-3" />
-                运行
-              </button>
-            ) : (
-              <span className="text-xs text-muted-foreground/50" title="请先指派员工">
-                <Play className="h-3 w-3 inline mr-0.5" />
-                未指派
-              </span>
             )}
           </div>
         )}
@@ -659,6 +678,18 @@ export function TaskCard({
                 提交代码
               </button>
             )}
+            {canDeleteWorktree && (
+              <button
+                type="button"
+                role="menuitem"
+                onClick={openDeleteWorktreeDialog}
+                disabled={isActionLoading}
+                className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-left text-destructive hover:bg-destructive/10 disabled:pointer-events-none disabled:opacity-50"
+              >
+                <Trash2 className="h-4 w-4" />
+                删除 Worktree
+              </button>
+            )}
             {hasPreLogActions && <div className="my-1 h-px bg-border" />}
             <button
               type="button"
@@ -736,6 +767,16 @@ export function TaskCard({
           deleting={deleting}
           onOpenChange={setShowDeleteDialog}
           onConfirm={handleDelete}
+        />
+      )}
+      {!isOverlay && gitContext && (
+        <DeleteTaskWorktreeDialog
+          open={showDeleteWorktreeDialog}
+          context={gitContext}
+          onOpenChange={setShowDeleteWorktreeDialog}
+          onCompleted={async (message) => {
+            await onGitActionCompleted?.(task.project_id, message);
+          }}
         />
       )}
       {!isOverlay && gitContext && (

@@ -4,7 +4,8 @@ use super::{
     build_ai_generate_commit_message_prompt, build_ai_generate_plan_prompt,
     build_ai_optimize_prompt_prompt, parse_ai_subtasks_response, run_ai_command,
 };
-use crate::app::{fetch_project_by_id, insert_activity_log, sqlite_pool};
+use crate::app::{fetch_project_by_id, insert_activity_log, sqlite_pool, PROJECT_TYPE_SSH};
+use crate::codex::{load_codex_settings, load_remote_codex_settings};
 
 const COMMIT_MESSAGE_PROCESS_TERMS: &[&str] = &[
     "暂存",
@@ -90,12 +91,32 @@ pub(crate) async fn generate_commit_message_for_project<R: Runtime>(
 
     let pool = sqlite_pool(app).await?;
     let project = fetch_project_by_id(&pool, project_id).await?;
+    let settings = if project.project_type == PROJECT_TYPE_SSH {
+        project
+            .ssh_config_id
+            .as_deref()
+            .map(|ssh_config_id| load_remote_codex_settings(app, ssh_config_id))
+            .transpose()?
+            .unwrap_or(load_codex_settings(app)?)
+    } else {
+        load_codex_settings(app)?
+    };
     let prompt = build_ai_generate_commit_message_prompt(
         project.name.trim(),
         current_branch,
         working_tree_summary,
         &normalized_staged_changes,
+        &settings.git_preferences.ai_commit_message_length,
     );
+    let (model_override, reasoning_override) =
+        if settings.git_preferences.ai_commit_model_source == "custom" {
+            (
+                Some(settings.git_preferences.ai_commit_model.clone()),
+                Some(settings.git_preferences.ai_commit_reasoning_effort.clone()),
+            )
+        } else {
+            (None, None)
+        };
     let raw = run_ai_command(
         app,
         prompt.clone(),
@@ -103,6 +124,8 @@ pub(crate) async fn generate_commit_message_for_project<R: Runtime>(
         None,
         Some(project.id.clone()),
         None,
+        model_override.clone(),
+        reasoning_override.clone(),
     )
     .await?;
     let normalized = normalize_generated_commit_message(&raw)?;
@@ -118,6 +141,8 @@ pub(crate) async fn generate_commit_message_for_project<R: Runtime>(
         None,
         Some(project.id.clone()),
         None,
+        model_override,
+        reasoning_override,
     )
     .await?;
     let retried = normalize_generated_commit_message(&retried_raw)?;
@@ -141,7 +166,17 @@ pub async fn ai_suggest_assignee(
         "Based on the following task description, suggest the best assignee from the employee list. If task images are attached, consider them as additional context.\n\nTask: {}\n\nEmployees: {}\n\nRespond with just the employee ID and a brief reason.",
         task_description, employee_list
     );
-    run_ai_command(&app, prompt, image_paths, task_id, None, working_dir).await
+    run_ai_command(
+        &app,
+        prompt,
+        image_paths,
+        task_id,
+        None,
+        working_dir,
+        None,
+        None,
+    )
+    .await
 }
 
 #[tauri::command]
@@ -156,7 +191,17 @@ pub async fn ai_analyze_complexity(
         "Analyze the complexity of this task on a scale of 1-10, and provide a brief breakdown. If task images are attached, include them in the analysis.\n\nTask: {}",
         task_description
     );
-    run_ai_command(&app, prompt, image_paths, task_id, None, working_dir).await
+    run_ai_command(
+        &app,
+        prompt,
+        image_paths,
+        task_id,
+        None,
+        working_dir,
+        None,
+        None,
+    )
+    .await
 }
 
 #[tauri::command]
@@ -173,7 +218,17 @@ pub async fn ai_generate_comment(
         "Generate a progress assessment comment for this task. If task images are attached, use them as supporting context.\n\nTitle: {}\nDescription: {}\nContext: {}",
         task_title, task_description, context
     );
-    run_ai_command(&app, prompt, image_paths, task_id, None, working_dir).await
+    run_ai_command(
+        &app,
+        prompt,
+        image_paths,
+        task_id,
+        None,
+        working_dir,
+        None,
+        None,
+    )
+    .await
 }
 
 #[tauri::command]
@@ -195,7 +250,17 @@ pub async fn ai_generate_plan(
         &task_priority,
         &subtasks,
     );
-    run_ai_command(&app, prompt, image_paths, task_id, None, working_dir).await
+    run_ai_command(
+        &app,
+        prompt,
+        image_paths,
+        task_id,
+        None,
+        working_dir,
+        None,
+        None,
+    )
+    .await
 }
 
 #[tauri::command]
@@ -260,7 +325,7 @@ pub async fn ai_optimize_prompt(
         session_summary.as_deref(),
     )?;
 
-    run_ai_command(&app, prompt, None, task_id, None, working_dir).await
+    run_ai_command(&app, prompt, None, task_id, None, working_dir, None, None).await
 }
 
 #[tauri::command]
@@ -285,6 +350,16 @@ pub async fn ai_split_subtasks(
         task_title.trim(),
         task_description.trim()
     );
-    let raw = run_ai_command(&app, prompt, image_paths, task_id, None, working_dir).await?;
+    let raw = run_ai_command(
+        &app,
+        prompt,
+        image_paths,
+        task_id,
+        None,
+        working_dir,
+        None,
+        None,
+    )
+    .await?;
     parse_ai_subtasks_response(&raw)
 }

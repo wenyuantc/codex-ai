@@ -386,6 +386,17 @@ pub struct EmployeeRuntimeStatus {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GitPreferences {
+    pub default_task_use_worktree: bool,
+    pub worktree_location_mode: String,
+    pub worktree_custom_root: Option<String>,
+    pub ai_commit_message_length: String,
+    pub ai_commit_model_source: String,
+    pub ai_commit_model: String,
+    pub ai_commit_reasoning_effort: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CodexSettings {
     pub task_sdk_enabled: bool,
     pub one_shot_sdk_enabled: bool,
@@ -394,6 +405,7 @@ pub struct CodexSettings {
     pub task_automation_default_enabled: bool,
     pub task_automation_max_fix_rounds: i32,
     pub task_automation_failure_strategy: String,
+    pub git_preferences: GitPreferences,
     pub node_path_override: Option<String>,
     pub sdk_install_dir: String,
     pub one_shot_preferred_provider: String,
@@ -707,6 +719,18 @@ pub struct SetTaskAutomationModePayload {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UpdateGitPreferences {
+    pub default_task_use_worktree: Option<bool>,
+    pub worktree_location_mode: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_explicit_nullable")]
+    pub worktree_custom_root: Option<Option<String>>,
+    pub ai_commit_message_length: Option<String>,
+    pub ai_commit_model_source: Option<String>,
+    pub ai_commit_model: Option<String>,
+    pub ai_commit_reasoning_effort: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UpdateCodexSettings {
     pub task_sdk_enabled: Option<bool>,
     pub one_shot_sdk_enabled: Option<bool>,
@@ -715,6 +739,7 @@ pub struct UpdateCodexSettings {
     pub task_automation_default_enabled: Option<bool>,
     pub task_automation_max_fix_rounds: Option<i32>,
     pub task_automation_failure_strategy: Option<String>,
+    pub git_preferences: Option<UpdateGitPreferences>,
     #[serde(default, deserialize_with = "deserialize_explicit_nullable")]
     pub node_path_override: Option<Option<String>>,
     #[serde(default, deserialize_with = "deserialize_explicit_nullable")]

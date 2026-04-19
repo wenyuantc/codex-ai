@@ -244,6 +244,8 @@ pub(super) async fn run_ai_command<R: Runtime>(
     task_id: Option<String>,
     project_id: Option<String>,
     working_dir: Option<String>,
+    model_override: Option<String>,
+    reasoning_effort_override: Option<String>,
 ) -> Result<String, String> {
     let execution_context = match task_id
         .as_deref()
@@ -300,6 +302,13 @@ pub(super) async fn run_ai_command<R: Runtime>(
         one_shot_model = normalize_model(Some(&settings.one_shot_model)).to_string();
         one_shot_reasoning_effort =
             normalize_reasoning_effort(Some(&settings.one_shot_reasoning_effort)).to_string();
+        if let Some(model_override) = model_override.as_deref() {
+            one_shot_model = normalize_model(Some(model_override)).to_string();
+        }
+        if let Some(reasoning_effort_override) = reasoning_effort_override.as_deref() {
+            one_shot_reasoning_effort =
+                normalize_reasoning_effort(Some(reasoning_effort_override)).to_string();
+        }
         if execution_context.execution_target == EXECUTION_TARGET_LOCAL
             && settings.one_shot_sdk_enabled
         {
@@ -324,6 +333,16 @@ pub(super) async fn run_ai_command<R: Runtime>(
             } else {
                 eprintln!("[codex-sdk] {}", runtime.status_message);
             }
+        }
+    }
+
+    if settings.is_none() {
+        if let Some(model_override) = model_override.as_deref() {
+            one_shot_model = normalize_model(Some(model_override)).to_string();
+        }
+        if let Some(reasoning_effort_override) = reasoning_effort_override.as_deref() {
+            one_shot_reasoning_effort =
+                normalize_reasoning_effort(Some(reasoning_effort_override)).to_string();
         }
     }
 

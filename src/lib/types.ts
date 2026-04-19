@@ -477,6 +477,16 @@ export interface EmployeeRuntimeStatus {
   latest_session: CodexSessionRecord | null;
 }
 
+export interface GitPreferences {
+  default_task_use_worktree: boolean;
+  worktree_location_mode: WorktreeLocationMode;
+  worktree_custom_root: string | null;
+  ai_commit_message_length: AiCommitMessageLength;
+  ai_commit_model_source: AiCommitModelSource;
+  ai_commit_model: CodexModelId;
+  ai_commit_reasoning_effort: ReasoningEffort;
+}
+
 export interface CodexSettings {
   task_sdk_enabled: boolean;
   one_shot_sdk_enabled: boolean;
@@ -485,6 +495,7 @@ export interface CodexSettings {
   task_automation_default_enabled: boolean;
   task_automation_max_fix_rounds: number;
   task_automation_failure_strategy: TaskAutomationFailureStrategy;
+  git_preferences: GitPreferences;
   node_path_override: string | null;
   sdk_install_dir: string;
   one_shot_preferred_provider: string;
@@ -566,6 +577,9 @@ export type TaskAutomationPhase =
   | "completed";
 export type TaskAutomationPendingAction = "start_review" | "start_fix";
 export type TaskAutomationFailureStrategy = "blocked" | "manual_control";
+export type WorktreeLocationMode = "repo_sibling_hidden" | "repo_child_hidden" | "custom_root";
+export type AiCommitMessageLength = "title_only" | "title_with_body";
+export type AiCommitModelSource = "inherit_one_shot" | "custom";
 export type EmployeeStatus = "online" | "busy" | "offline" | "error";
 export type Priority = "low" | "medium" | "high" | "urgent";
 
@@ -575,6 +589,62 @@ export const TASK_AUTOMATION_FAILURE_STRATEGY_OPTIONS: {
 }[] = [
   { value: "blocked", label: "转阻塞" },
   { value: "manual_control", label: "转人工" },
+];
+
+export const WORKTREE_LOCATION_MODE_OPTIONS: {
+  value: WorktreeLocationMode;
+  label: string;
+  description: string;
+}[] = [
+  {
+    value: "repo_sibling_hidden",
+    label: "仓库同级隐藏目录",
+    description: "保持当前行为，放在仓库同级的 .codex-ai-worktrees-* 目录中",
+  },
+  {
+    value: "repo_child_hidden",
+    label: "仓库 .git 目录",
+    description: "放在仓库的 .git/codex-ai-worktrees 目录中，不会污染主工作区",
+  },
+  {
+    value: "custom_root",
+    label: "自定义根目录",
+    description: "使用你指定的根目录，并自动拼接仓库与任务目录",
+  },
+];
+
+export const AI_COMMIT_MESSAGE_LENGTH_OPTIONS: {
+  value: AiCommitMessageLength;
+  label: string;
+  description: string;
+}[] = [
+  {
+    value: "title_with_body",
+    label: "标题+详情",
+    description: "生成 Conventional Commit 标题，并补充正文说明改动",
+  },
+  {
+    value: "title_only",
+    label: "仅标题",
+    description: "只生成单行 Conventional Commit 标题",
+  },
+];
+
+export const AI_COMMIT_MODEL_SOURCE_OPTIONS: {
+  value: AiCommitModelSource;
+  label: string;
+  description: string;
+}[] = [
+  {
+    value: "inherit_one_shot",
+    label: "跟随一次性 AI",
+    description: "复用当前一次性 AI 的模型与推理强度",
+  },
+  {
+    value: "custom",
+    label: "单独指定",
+    description: "为 Git 提交信息生成单独配置模型与推理强度",
+  },
 ];
 
 export function isSupportedTaskAutomationFailureStrategy(
@@ -587,6 +657,48 @@ export function normalizeTaskAutomationFailureStrategy(
   value: string | null | undefined,
 ): TaskAutomationFailureStrategy {
   return value && isSupportedTaskAutomationFailureStrategy(value) ? value : "blocked";
+}
+
+export function isSupportedWorktreeLocationMode(
+  value: string,
+): value is WorktreeLocationMode {
+  return WORKTREE_LOCATION_MODE_OPTIONS.some((option) => option.value === value);
+}
+
+export function normalizeWorktreeLocationMode(
+  value: string | null | undefined,
+): WorktreeLocationMode {
+  return value && isSupportedWorktreeLocationMode(value)
+    ? value
+    : "repo_sibling_hidden";
+}
+
+export function isSupportedAiCommitMessageLength(
+  value: string,
+): value is AiCommitMessageLength {
+  return AI_COMMIT_MESSAGE_LENGTH_OPTIONS.some((option) => option.value === value);
+}
+
+export function normalizeAiCommitMessageLength(
+  value: string | null | undefined,
+): AiCommitMessageLength {
+  return value && isSupportedAiCommitMessageLength(value)
+    ? value
+    : "title_with_body";
+}
+
+export function isSupportedAiCommitModelSource(
+  value: string,
+): value is AiCommitModelSource {
+  return AI_COMMIT_MODEL_SOURCE_OPTIONS.some((option) => option.value === value);
+}
+
+export function normalizeAiCommitModelSource(
+  value: string | null | undefined,
+): AiCommitModelSource {
+  return value && isSupportedAiCommitModelSource(value)
+    ? value
+    : "inherit_one_shot";
 }
 
 export const CODEX_MODEL_OPTIONS: { value: CodexModelId; label: string }[] = [

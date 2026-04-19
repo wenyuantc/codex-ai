@@ -63,6 +63,14 @@ function resolveTargetPath(repoPath, candidatePath) {
   return path.isAbsolute(expanded) ? expanded : path.join(repoPath, expanded);
 }
 
+async function gitCommonDir(repoPath) {
+  const output = (await gitRaw(repoPath, ["rev-parse", "--git-common-dir"])).trim();
+  if (!output) {
+    throw new Error("无法解析 Git 公共目录");
+  }
+  return path.normalize(path.isAbsolute(output) ? output : path.join(repoPath, output));
+}
+
 function buildGit(repoPath) {
   return simpleGit({
     baseDir: repoPath,
@@ -852,9 +860,18 @@ async function executeAction(repoPath, worktreePath, taskBranch, actionType, pay
       return `已恢复 ${stashRef}`;
     }
     case "cleanup_worktree": {
+      const forceRemove = payload.force_remove !== false;
+      const worktreeRegistered = fs.existsSync(path.join(resolvedWorktreePath, ".git"));
       try {
-        await gitRaw(repoPath, ["worktree", "remove", resolvedWorktreePath, "--force"]);
-      } catch {
+        const args = ["worktree", "remove", resolvedWorktreePath];
+        if (forceRemove) {
+          args.push("--force");
+        }
+        await gitRaw(repoPath, args);
+      } catch (error) {
+        if (worktreeRegistered) {
+          throw error;
+        }
         // drifted worktree 允许继续做兜底清理
       }
       if (payload.delete_branch && await gitRefExists(repoPath, `refs/heads/${taskBranch}`)) {
@@ -895,6 +912,8 @@ async function executeCommand(input) {
     }
     case "path_exists":
       return { exists: fs.existsSync(resolveTargetPath(repoPath, input.targetPath)) };
+    case "git_common_dir":
+      return { path: await gitCommonDir(repoPath) };
     case "ref_exists":
       return { exists: await gitRefExists(repoPath, input.fullRef) };
     case "stage_path":

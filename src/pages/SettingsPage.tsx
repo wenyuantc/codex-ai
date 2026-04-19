@@ -44,20 +44,30 @@ import {
 } from "@/lib/backend";
 import { getEnvironmentModeLabel } from "@/lib/projects";
 import {
+  AI_COMMIT_MESSAGE_LENGTH_OPTIONS,
+  AI_COMMIT_MODEL_SOURCE_OPTIONS,
   CODEX_MODEL_OPTIONS,
   REASONING_EFFORT_OPTIONS,
   TASK_AUTOMATION_FAILURE_STRATEGY_OPTIONS,
+  WORKTREE_LOCATION_MODE_OPTIONS,
+  normalizeAiCommitMessageLength,
+  normalizeAiCommitModelSource,
   normalizeCodexModel,
   normalizeReasoningEffort,
   normalizeTaskAutomationFailureStrategy,
+  normalizeWorktreeLocationMode,
+  type AiCommitMessageLength,
+  type AiCommitModelSource,
   type CodexHealthCheck,
   type CodexModelId,
   type CodexSettings,
+  type GitPreferences,
   type ReasoningEffort,
   type RemoteCodexHealthCheck,
   type SshAuthType,
   type SshConfig,
   type TaskAutomationFailureStrategy,
+  type WorktreeLocationMode,
 } from "@/lib/types";
 import { applyTheme, getThemePreference, type ThemeMode } from "@/lib/theme";
 import { formatDate } from "@/lib/utils";
@@ -99,6 +109,16 @@ const EMPTY_SSH_CONFIG_FORM: SshConfigFormState = {
   password: "",
   passphrase: "",
   knownHostsMode: "accept-new",
+};
+
+const DEFAULT_GIT_PREFERENCES: GitPreferences = {
+  default_task_use_worktree: false,
+  worktree_location_mode: "repo_sibling_hidden",
+  worktree_custom_root: null,
+  ai_commit_message_length: "title_with_body",
+  ai_commit_model_source: "inherit_one_shot",
+  ai_commit_model: "gpt-5.4",
+  ai_commit_reasoning_effort: "high",
 };
 
 function formatBackupTimestamp(date = new Date()) {
@@ -163,6 +183,27 @@ export function SettingsPage() {
   const [taskAutomationMaxFixRounds, setTaskAutomationMaxFixRounds] = useState(3);
   const [taskAutomationFailureStrategy, setTaskAutomationFailureStrategy] =
     useState<TaskAutomationFailureStrategy>("blocked");
+  const [defaultTaskUseWorktree, setDefaultTaskUseWorktree] = useState(
+    DEFAULT_GIT_PREFERENCES.default_task_use_worktree,
+  );
+  const [worktreeLocationMode, setWorktreeLocationMode] = useState<WorktreeLocationMode>(
+    DEFAULT_GIT_PREFERENCES.worktree_location_mode,
+  );
+  const [worktreeCustomRoot, setWorktreeCustomRoot] = useState(
+    DEFAULT_GIT_PREFERENCES.worktree_custom_root ?? "",
+  );
+  const [aiCommitMessageLength, setAiCommitMessageLength] = useState<AiCommitMessageLength>(
+    DEFAULT_GIT_PREFERENCES.ai_commit_message_length,
+  );
+  const [aiCommitModelSource, setAiCommitModelSource] = useState<AiCommitModelSource>(
+    DEFAULT_GIT_PREFERENCES.ai_commit_model_source,
+  );
+  const [aiCommitModel, setAiCommitModel] = useState<CodexModelId>(
+    DEFAULT_GIT_PREFERENCES.ai_commit_model,
+  );
+  const [aiCommitReasoningEffort, setAiCommitReasoningEffort] = useState<ReasoningEffort>(
+    DEFAULT_GIT_PREFERENCES.ai_commit_reasoning_effort,
+  );
   const [nodePathOverride, setNodePathOverride] = useState("");
   const [healthLoading, setHealthLoading] = useState(false);
   const [sdkActionLoading, setSdkActionLoading] = useState<"save" | "install" | null>(null);
@@ -193,6 +234,33 @@ export function SettingsPage() {
     && !selectedSshConfig.password_execution_allowed,
   );
 
+  function applySettingsToFormState(settings: CodexSettings) {
+    const gitPreferences = settings.git_preferences ?? DEFAULT_GIT_PREFERENCES;
+
+    setCodexSettings(settings);
+    setTaskSdkEnabled(settings.task_sdk_enabled);
+    setOneShotSdkEnabled(settings.one_shot_sdk_enabled);
+    setOneShotModel(normalizeCodexModel(settings.one_shot_model));
+    setOneShotReasoningEffort(normalizeReasoningEffort(settings.one_shot_reasoning_effort));
+    setTaskAutomationDefaultEnabled(settings.task_automation_default_enabled);
+    setTaskAutomationMaxFixRounds(settings.task_automation_max_fix_rounds);
+    setTaskAutomationFailureStrategy(
+      normalizeTaskAutomationFailureStrategy(settings.task_automation_failure_strategy),
+    );
+    setDefaultTaskUseWorktree(gitPreferences.default_task_use_worktree);
+    setWorktreeLocationMode(normalizeWorktreeLocationMode(gitPreferences.worktree_location_mode));
+    setWorktreeCustomRoot(gitPreferences.worktree_custom_root ?? "");
+    setAiCommitMessageLength(
+      normalizeAiCommitMessageLength(gitPreferences.ai_commit_message_length),
+    );
+    setAiCommitModelSource(normalizeAiCommitModelSource(gitPreferences.ai_commit_model_source));
+    setAiCommitModel(normalizeCodexModel(gitPreferences.ai_commit_model));
+    setAiCommitReasoningEffort(
+      normalizeReasoningEffort(gitPreferences.ai_commit_reasoning_effort),
+    );
+    setNodePathOverride(settings.node_path_override ?? "");
+  }
+
   async function loadRuntimeState() {
     setHealthLoading(true);
     setSdkActionError(null);
@@ -211,33 +279,13 @@ export function SettingsPage() {
           getRemoteCodexSettings(selectedSshConfigId),
         ]);
         setCodexHealth(health);
-        setCodexSettings(settings);
-        setTaskSdkEnabled(settings.task_sdk_enabled);
-        setOneShotSdkEnabled(settings.one_shot_sdk_enabled);
-        setOneShotModel(normalizeCodexModel(settings.one_shot_model));
-        setOneShotReasoningEffort(normalizeReasoningEffort(settings.one_shot_reasoning_effort));
-        setTaskAutomationDefaultEnabled(settings.task_automation_default_enabled);
-        setTaskAutomationMaxFixRounds(settings.task_automation_max_fix_rounds);
-        setTaskAutomationFailureStrategy(
-          normalizeTaskAutomationFailureStrategy(settings.task_automation_failure_strategy),
-        );
-        setNodePathOverride(settings.node_path_override ?? "");
+        applySettingsToFormState(settings);
         return;
       }
 
       const [health, settings] = await Promise.all([healthCheck(), getCodexSettings()]);
       setCodexHealth(health);
-      setCodexSettings(settings);
-      setTaskSdkEnabled(settings.task_sdk_enabled);
-      setOneShotSdkEnabled(settings.one_shot_sdk_enabled);
-      setOneShotModel(normalizeCodexModel(settings.one_shot_model));
-      setOneShotReasoningEffort(normalizeReasoningEffort(settings.one_shot_reasoning_effort));
-      setTaskAutomationDefaultEnabled(settings.task_automation_default_enabled);
-      setTaskAutomationMaxFixRounds(settings.task_automation_max_fix_rounds);
-      setTaskAutomationFailureStrategy(
-        normalizeTaskAutomationFailureStrategy(settings.task_automation_failure_strategy),
-      );
-      setNodePathOverride(settings.node_path_override ?? "");
+      applySettingsToFormState(settings);
     } catch (error) {
       console.error("Failed to load codex settings state:", error);
       setCodexHealth(null);
@@ -294,6 +342,12 @@ export function SettingsPage() {
   };
 
   async function handleSaveSdkSettings() {
+    if (worktreeLocationMode === "custom_root" && !worktreeCustomRoot.trim()) {
+      setSdkActionError("自定义 Worktree 根目录不能为空。");
+      setSdkActionMessage(null);
+      return;
+    }
+
     setSdkActionLoading("save");
     setSdkActionError(null);
     setSdkActionMessage(null);
@@ -307,6 +361,15 @@ export function SettingsPage() {
         task_automation_default_enabled: taskAutomationDefaultEnabled,
         task_automation_max_fix_rounds: taskAutomationMaxFixRounds,
         task_automation_failure_strategy: taskAutomationFailureStrategy,
+        git_preferences: {
+          default_task_use_worktree: defaultTaskUseWorktree,
+          worktree_location_mode: worktreeLocationMode,
+          worktree_custom_root: worktreeCustomRoot.trim() || null,
+          ai_commit_message_length: aiCommitMessageLength,
+          ai_commit_model_source: aiCommitModelSource,
+          ai_commit_model: aiCommitModel,
+          ai_commit_reasoning_effort: aiCommitReasoningEffort,
+        },
         node_path_override: nodePathOverride.trim() || null,
       };
       const nextSettings = isRemoteMode && selectedSshConfigId
@@ -546,6 +609,20 @@ export function SettingsPage() {
   const selectedSshConfigSummary = selectedSshConfig
     ? `${selectedSshConfig.username}@${selectedSshConfig.host}:${selectedSshConfig.port}`
     : "未选择 SSH 配置";
+  const showCustomWorktreeRoot = worktreeLocationMode === "custom_root";
+  const gitAiUsesCustomModel = aiCommitModelSource === "custom";
+  const selectedWorktreeLocationOption = WORKTREE_LOCATION_MODE_OPTIONS.find(
+    (option) => option.value === worktreeLocationMode,
+  );
+  const selectedCommitLengthOption = AI_COMMIT_MESSAGE_LENGTH_OPTIONS.find(
+    (option) => option.value === aiCommitMessageLength,
+  );
+  const selectedCommitModelSourceOption = AI_COMMIT_MODEL_SOURCE_OPTIONS.find(
+    (option) => option.value === aiCommitModelSource,
+  );
+  const worktreeRootPlaceholder = isRemoteMode
+    ? "~/codex-worktrees"
+    : "/Users/wenyuan/codex-worktrees";
 
   return (
     <div className="max-w-4xl space-y-6">
@@ -851,6 +928,215 @@ export function SettingsPage() {
                 {taskAutomationDefaultEnabled ? " 新任务默认开启自动质控；" : " 新任务默认关闭自动质控；"}
                 最多自动修复 {taskAutomationMaxFixRounds} 轮；
                 失败后{taskAutomationFailureStrategy === "manual_control" ? "转人工处理" : "转阻塞"}。
+              </p>
+            </div>
+
+            <div className="space-y-3 rounded-md border border-border px-3 py-3">
+              <div className="space-y-1">
+                <h4 className="text-sm font-medium">Git 偏好</h4>
+                <p className="text-xs text-muted-foreground">
+                  控制新任务的 Worktree 默认行为，以及 AI 生成 Git 提交信息时的长度、模型和推理强度。
+                </p>
+              </div>
+
+              <label className="flex items-start gap-3 rounded-md border border-border px-3 py-2">
+                <input
+                  type="checkbox"
+                  className="mt-0.5 h-4 w-4 rounded border-input"
+                  checked={defaultTaskUseWorktree}
+                  onChange={(event) => setDefaultTaskUseWorktree(event.target.checked)}
+                  disabled={healthLoading || sdkActionLoading !== null}
+                />
+                <div className="space-y-1">
+                  <p className="text-sm font-medium">新建任务默认启用 Worktree</p>
+                  <p className="text-xs text-muted-foreground">
+                    开启后，新建任务会默认准备独立 Worktree；仍然可以在任务创建弹窗里单独改掉。
+                  </p>
+                </div>
+              </label>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Worktree 目录规则</label>
+                  <Select<WorktreeLocationMode>
+                    value={worktreeLocationMode}
+                    onValueChange={(value) => {
+                      if (value) {
+                        setWorktreeLocationMode(normalizeWorktreeLocationMode(value));
+                      }
+                    }}
+                    disabled={healthLoading || sdkActionLoading !== null}
+                  >
+                    <SelectTrigger className="bg-background">
+                      <SelectValue>
+                        {(value) =>
+                          typeof value === "string"
+                            ? WORKTREE_LOCATION_MODE_OPTIONS.find((option) => option.value === value)?.label ?? value
+                            : "选择 Worktree 目录规则"
+                        }
+                      </SelectValue>
+                    </SelectTrigger>
+                    <SelectContent>
+                      {WORKTREE_LOCATION_MODE_OPTIONS.map((option) => (
+                        <SelectItem key={option.value} value={option.value}>
+                          {option.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-muted-foreground">
+                    {selectedWorktreeLocationOption?.description}
+                  </p>
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">AI 提交信息默认长度</label>
+                  <Select<AiCommitMessageLength>
+                    value={aiCommitMessageLength}
+                    onValueChange={(value) => {
+                      if (value) {
+                        setAiCommitMessageLength(normalizeAiCommitMessageLength(value));
+                      }
+                    }}
+                    disabled={healthLoading || sdkActionLoading !== null}
+                  >
+                    <SelectTrigger className="bg-background">
+                      <SelectValue>
+                        {(value) =>
+                          typeof value === "string"
+                            ? AI_COMMIT_MESSAGE_LENGTH_OPTIONS.find((option) => option.value === value)?.label ?? value
+                            : "选择提交信息长度"
+                        }
+                      </SelectValue>
+                    </SelectTrigger>
+                    <SelectContent>
+                      {AI_COMMIT_MESSAGE_LENGTH_OPTIONS.map((option) => (
+                        <SelectItem key={option.value} value={option.value}>
+                          {option.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-muted-foreground">
+                    {selectedCommitLengthOption?.description}
+                  </p>
+                </div>
+              </div>
+
+              {showCustomWorktreeRoot && (
+                <div className="space-y-2">
+                  <label htmlFor="worktree-custom-root" className="text-sm font-medium">
+                    自定义 Worktree 根目录
+                  </label>
+                  <Input
+                    id="worktree-custom-root"
+                    value={worktreeCustomRoot}
+                    onChange={(event) => setWorktreeCustomRoot(event.target.value)}
+                    placeholder={worktreeRootPlaceholder}
+                    disabled={healthLoading || sdkActionLoading !== null}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    {isRemoteMode
+                      ? "SSH 配置下要求绝对路径或 ~/ 开头，最终目录结构为 <root>/<repo>/<task>。"
+                      : "本地配置下要求绝对路径，最终目录结构为 <root>/<repo>/<task>。"}
+                  </p>
+                </div>
+              )}
+
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Git AI 模型来源</label>
+                  <Select<AiCommitModelSource>
+                    value={aiCommitModelSource}
+                    onValueChange={(value) => {
+                      if (value) {
+                        setAiCommitModelSource(normalizeAiCommitModelSource(value));
+                      }
+                    }}
+                    disabled={healthLoading || sdkActionLoading !== null}
+                  >
+                    <SelectTrigger className="bg-background">
+                      <SelectValue>
+                        {(value) =>
+                          typeof value === "string"
+                            ? AI_COMMIT_MODEL_SOURCE_OPTIONS.find((option) => option.value === value)?.label ?? value
+                            : "选择 Git AI 模型来源"
+                        }
+                      </SelectValue>
+                    </SelectTrigger>
+                    <SelectContent>
+                      {AI_COMMIT_MODEL_SOURCE_OPTIONS.map((option) => (
+                        <SelectItem key={option.value} value={option.value}>
+                          {option.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-muted-foreground">
+                    {selectedCommitModelSourceOption?.description}
+                  </p>
+                </div>
+              </div>
+
+              {gitAiUsesCustomModel && (
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">Git AI 模型</label>
+                    <Select<CodexModelId>
+                      value={aiCommitModel}
+                      onValueChange={(value) => {
+                        if (value) {
+                          setAiCommitModel(normalizeCodexModel(value));
+                        }
+                      }}
+                      disabled={healthLoading || sdkActionLoading !== null}
+                    >
+                      <SelectTrigger className="bg-background">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {CODEX_MODEL_OPTIONS.map((option) => (
+                          <SelectItem key={option.value} value={option.value}>
+                            {option.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">Git AI 推理强度</label>
+                    <Select<ReasoningEffort>
+                      value={aiCommitReasoningEffort}
+                      onValueChange={(value) => {
+                        if (value) {
+                          setAiCommitReasoningEffort(normalizeReasoningEffort(value));
+                        }
+                      }}
+                      disabled={healthLoading || sdkActionLoading !== null}
+                    >
+                      <SelectTrigger className="bg-background">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {REASONING_EFFORT_OPTIONS.map((option) => (
+                          <SelectItem key={option.value} value={option.value}>
+                            {option.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+              )}
+
+              <p className="text-xs leading-5 text-muted-foreground">
+                当前策略：
+                {defaultTaskUseWorktree ? " 新任务默认启用 Worktree；" : " 新任务默认关闭 Worktree；"}
+                Worktree 目录使用{selectedWorktreeLocationOption?.label ?? "仓库同级隐藏目录"}；
+                AI 提交信息默认{selectedCommitLengthOption?.label ?? "标题+详情"}；
+                Git AI {selectedCommitModelSourceOption?.label ?? "跟随一次性 AI"}
+                {gitAiUsesCustomModel ? `（${aiCommitModel} / 推理 ${aiCommitReasoningEffort}）` : ""}。
               </p>
             </div>
 

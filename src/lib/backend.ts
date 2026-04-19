@@ -145,6 +145,7 @@ export interface UpdateCodexSettingsInput {
   task_automation_default_enabled?: boolean;
   task_automation_max_fix_rounds?: number;
   task_automation_failure_strategy?: "blocked" | "manual_control";
+  git_preferences?: Partial<CodexSettings["git_preferences"]>;
   node_path_override?: string | null;
 }
 

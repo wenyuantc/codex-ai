@@ -5615,11 +5615,20 @@ pub async fn create_task<R: Runtime>(
     validate_reviewer_for_project(&pool, payload.reviewer_id.as_deref(), &payload.project_id)
         .await?;
     let project = fetch_project_by_id(&pool, &payload.project_id).await?;
-    let settings = load_codex_settings(&app).ok();
+    let settings = resolve_project_task_default_settings(
+        &project.project_type,
+        project.ssh_config_id.as_deref(),
+        || load_codex_settings(&app),
+        |ssh_config_id| load_remote_codex_settings(&app, ssh_config_id),
+    )?;
     let automation_mode = settings
         .as_ref()
         .filter(|settings| settings.task_automation_default_enabled)
         .map(|_| "review_fix_loop_v1".to_string());
+    let default_task_use_worktree = settings
+        .as_ref()
+        .map(|settings| settings.git_preferences.default_task_use_worktree)
+        .unwrap_or(false);
 
     if automation_mode.is_some()
         && normalize_optional_text(payload.reviewer_id.as_deref()).is_none()
@@ -5634,7 +5643,7 @@ pub async fn create_task<R: Runtime>(
         status: "todo".to_string(),
         priority: payload.priority.unwrap_or_else(|| "medium".to_string()),
         project_id: payload.project_id,
-        use_worktree: payload.use_worktree.unwrap_or(false),
+        use_worktree: payload.use_worktree.unwrap_or(default_task_use_worktree),
         assignee_id: normalize_optional_text(payload.assignee_id.as_deref()),
         reviewer_id: normalize_optional_text(payload.reviewer_id.as_deref()),
         complexity: None,
@@ -5810,6 +5819,25 @@ pub async fn create_task<R: Runtime>(
     }
 
     fetch_task_by_id(&pool, &task.id).await
+}
+
+fn resolve_project_task_default_settings<T, LocalLoader, RemoteLoader>(
+    project_type: &str,
+    ssh_config_id: Option<&str>,
+    load_local_settings: LocalLoader,
+    load_remote_settings: RemoteLoader,
+) -> Result<Option<T>, String>
+where
+    LocalLoader: FnOnce() -> Result<T, String>,
+    RemoteLoader: FnOnce(&str) -> Result<T, String>,
+{
+    if project_type == PROJECT_TYPE_SSH {
+        let ssh_config_id = ssh_config_id
+            .ok_or_else(|| "SSH 项目缺少对应的 SSH 配置，无法读取任务默认设置".to_string())?;
+        return Ok(Some(load_remote_settings(ssh_config_id)?));
+    }
+
+    Ok(load_local_settings().ok())
 }
 
 #[tauri::command]
@@ -6269,10 +6297,12 @@ mod tests {
         fetch_execution_change_history_item_by_session_id, fetch_task_by_id, insert_task_record,
         normalize_runtime_path_string, record_task_review_requested_activity,
         remote_shell_path_expression, remote_task_attachment_dir, remote_task_attachment_path,
-        resolve_session_resume_state, rewrite_file_change_diff_labels, sanitize_sql_backup_script,
-        validate_project_repo_path, validate_runtime_working_dir, CodexSettings, Project, Task,
-        TaskAttachment, PROJECT_TYPE_LOCAL, PROJECT_TYPE_SSH,
+        resolve_project_task_default_settings, resolve_session_resume_state,
+        rewrite_file_change_diff_labels, sanitize_sql_backup_script, validate_project_repo_path,
+        validate_runtime_working_dir, CodexSettings, Project, Task, TaskAttachment,
+        PROJECT_TYPE_LOCAL, PROJECT_TYPE_SSH,
     };
+    use crate::db::models::GitPreferences;
 
     async fn setup_test_pool() -> SqlitePool {
         let pool = SqlitePool::connect("sqlite::memory:")
@@ -6561,6 +6591,15 @@ mod tests {
             task_automation_default_enabled: false,
             task_automation_max_fix_rounds: 3,
             task_automation_failure_strategy: "blocked".to_string(),
+            git_preferences: GitPreferences {
+                default_task_use_worktree: false,
+                worktree_location_mode: "repo_sibling_hidden".to_string(),
+                worktree_custom_root: None,
+                ai_commit_message_length: "title_with_body".to_string(),
+                ai_commit_model_source: "inherit_one_shot".to_string(),
+                ai_commit_model: "gpt-5.4".to_string(),
+                ai_commit_reasoning_effort: "high".to_string(),
+            },
             node_path_override: None,
             sdk_install_dir: "~/.codex-ai/codex-sdk-runtime/ssh-1".to_string(),
             one_shot_preferred_provider: "sdk".to_string(),
@@ -6591,6 +6630,15 @@ mod tests {
             task_automation_default_enabled: false,
             task_automation_max_fix_rounds: 3,
             task_automation_failure_strategy: "blocked".to_string(),
+            git_preferences: GitPreferences {
+                default_task_use_worktree: false,
+                worktree_location_mode: "repo_sibling_hidden".to_string(),
+                worktree_custom_root: None,
+                ai_commit_message_length: "title_with_body".to_string(),
+                ai_commit_model_source: "inherit_one_shot".to_string(),
+                ai_commit_model: "gpt-5.4".to_string(),
+                ai_commit_reasoning_effort: "high".to_string(),
+            },
             node_path_override: None,
             sdk_install_dir: "~/.codex-ai/codex-sdk-runtime/ssh-1".to_string(),
             one_shot_preferred_provider: "sdk".to_string(),
@@ -6609,6 +6657,45 @@ mod tests {
         assert_eq!(runtime.task_execution_effective_provider, "exec");
         assert_eq!(runtime.one_shot_effective_provider, "exec");
         assert!(runtime.status_message.contains("Node 版本过低"));
+    }
+
+    #[test]
+    fn resolve_project_task_default_settings_returns_remote_error_for_ssh_project() {
+        let error = resolve_project_task_default_settings(
+            PROJECT_TYPE_SSH,
+            Some("ssh-1"),
+            || Ok("local".to_string()),
+            |_| Err("remote settings broken".to_string()),
+        )
+        .expect_err("ssh project should surface remote settings error");
+
+        assert_eq!(error, "remote settings broken");
+    }
+
+    #[test]
+    fn resolve_project_task_default_settings_requires_ssh_config_for_ssh_project() {
+        let error = resolve_project_task_default_settings(
+            PROJECT_TYPE_SSH,
+            None,
+            || Ok("local".to_string()),
+            |_| Ok("remote".to_string()),
+        )
+        .expect_err("ssh project without ssh config should fail");
+
+        assert!(error.contains("SSH 配置"));
+    }
+
+    #[test]
+    fn resolve_project_task_default_settings_keeps_local_fallback_behavior() {
+        let settings = resolve_project_task_default_settings(
+            PROJECT_TYPE_LOCAL,
+            None,
+            || Err("local settings broken".to_string()),
+            |_| Ok("remote".to_string()),
+        )
+        .expect("local project should still tolerate local settings error");
+
+        assert!(settings.is_none());
     }
 
     #[test]

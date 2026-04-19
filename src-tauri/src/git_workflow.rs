@@ -2,7 +2,7 @@ use std::collections::hash_map::DefaultHasher;
 #[cfg(test)]
 use std::fs;
 use std::hash::{Hash, Hasher};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use chrono::{Duration, Utc};
@@ -17,8 +17,10 @@ use crate::app::{
     fetch_project_by_id, fetch_task_by_id, insert_activity_log, now_sqlite, sqlite_pool,
     EXECUTION_TARGET_LOCAL, EXECUTION_TARGET_SSH, PROJECT_TYPE_SSH,
 };
-use crate::codex::generate_commit_message_for_project;
-use crate::db::models::{Project, Task};
+use crate::codex::{
+    generate_commit_message_for_project, load_codex_settings, load_remote_codex_settings,
+};
+use crate::db::models::{GitPreferences, Project, Task};
 use crate::git_runtime::{
     self, GIT_RUNTIME_PROVIDER_SIMPLE_GIT, GIT_RUNTIME_STATUS_READY, GIT_RUNTIME_STATUS_UNAVAILABLE,
 };
@@ -495,23 +497,119 @@ fn build_task_branch(task_id: &str) -> String {
     format!("codex/task-{}", sanitize_git_fragment(task_id))
 }
 
-fn build_worktree_path(repo_path: &str, task_id: &str) -> Result<String, String> {
+fn build_repo_child_worktree_path(
+    git_common_dir_path: &str,
+    task_slug: &str,
+) -> Result<PathBuf, String> {
+    let git_common_dir = Path::new(git_common_dir_path);
+    if git_common_dir.as_os_str().is_empty() {
+        return Err("无法解析仓库 Git 公共目录".to_string());
+    }
+    Ok(git_common_dir.join("codex-ai-worktrees").join(task_slug))
+}
+
+fn build_worktree_path(
+    repo_path: &str,
+    task_id: &str,
+    git_preferences: &GitPreferences,
+) -> Result<String, String> {
     let repo = Path::new(repo_path);
     let repo_name = repo
         .file_name()
         .map(|value| value.to_string_lossy().to_string())
         .filter(|value| !value.trim().is_empty())
         .ok_or_else(|| "无法解析仓库目录名".to_string())?;
-    let parent = repo
-        .parent()
-        .ok_or_else(|| "无法解析仓库父目录".to_string())?;
-    let path = parent
-        .join(format!(
-            ".codex-ai-worktrees-{}",
-            sanitize_git_fragment(&repo_name)
-        ))
-        .join(sanitize_git_fragment(task_id));
+    let repo_slug = sanitize_git_fragment(&repo_name);
+    let task_slug = sanitize_git_fragment(task_id);
+    let path = match git_preferences.worktree_location_mode.as_str() {
+        "repo_child_hidden" => build_repo_child_worktree_path(
+            repo.join(".git").to_string_lossy().as_ref(),
+            &task_slug,
+        )?,
+        "custom_root" => {
+            let root = git_preferences
+                .worktree_custom_root
+                .as_deref()
+                .ok_or_else(|| "当前 Git 偏好缺少自定义 Worktree 根目录".to_string())?;
+            if root == "~" || root.starts_with("~/") {
+                Path::new(root).join(&repo_slug).join(&task_slug)
+            } else {
+                Path::new(root).join(&repo_slug).join(&task_slug)
+            }
+        }
+        _ => {
+            let parent = repo
+                .parent()
+                .ok_or_else(|| "无法解析仓库父目录".to_string())?;
+            parent
+                .join(format!(".codex-ai-worktrees-{}", repo_slug))
+                .join(&task_slug)
+        }
+    };
     Ok(path.to_string_lossy().to_string())
+}
+
+fn resolve_repo_child_worktree_root_local(repo_path: &str) -> Result<String, String> {
+    let git_common_dir = run_git_text(repo_path, &["rev-parse", "--git-common-dir"])?;
+    if git_common_dir.is_empty() {
+        return Err("无法解析仓库 Git 公共目录".to_string());
+    }
+    let path = if Path::new(&git_common_dir).is_absolute() {
+        PathBuf::from(git_common_dir)
+    } else {
+        Path::new(repo_path).join(git_common_dir)
+    };
+    Ok(path.to_string_lossy().to_string())
+}
+
+async fn resolve_repo_child_worktree_root<R: Runtime>(
+    app: &AppHandle<R>,
+    runtime: &GitProjectRuntimeContext,
+) -> Result<String, String> {
+    if runtime.execution_target == EXECUTION_TARGET_LOCAL {
+        resolve_repo_child_worktree_root_local(&runtime.repo_path)
+    } else {
+        git_runtime::git_common_dir(
+            app,
+            &runtime.execution_target,
+            runtime.ssh_config_id.as_deref(),
+            &runtime.repo_path,
+        )
+        .await
+    }
+}
+
+async fn build_task_worktree_path_for_runtime<R: Runtime>(
+    app: &AppHandle<R>,
+    runtime: &GitProjectRuntimeContext,
+    task_id: &str,
+    git_preferences: &GitPreferences,
+) -> Result<String, String> {
+    if git_preferences.worktree_location_mode != "repo_child_hidden" {
+        return build_worktree_path(&runtime.repo_path, task_id, git_preferences);
+    }
+
+    let task_slug = sanitize_git_fragment(task_id);
+    let git_common_dir_path = resolve_repo_child_worktree_root(app, runtime).await?;
+    let path = build_repo_child_worktree_path(&git_common_dir_path, &task_slug)?;
+    Ok(path.to_string_lossy().to_string())
+}
+
+fn resolve_project_git_preferences<R: Runtime>(
+    app: &AppHandle<R>,
+    project: &Project,
+) -> Result<GitPreferences, String> {
+    if project.project_type == PROJECT_TYPE_SSH {
+        project
+            .ssh_config_id
+            .as_deref()
+            .map(|ssh_config_id| load_remote_codex_settings(app, ssh_config_id))
+            .transpose()?
+            .map(|settings| settings.git_preferences)
+            .ok_or_else(|| "SSH 项目缺少对应的 SSH 配置，无法解析 Git 偏好".to_string())
+    } else {
+        Ok(load_codex_settings(app)?.git_preferences)
+    }
 }
 
 async fn context_is_healthy<R: Runtime>(
@@ -1138,6 +1236,10 @@ fn action_allows_drifted_context(action_type: &str) -> bool {
     action_type == "cleanup_worktree"
 }
 
+fn action_allows_completed_context(action_type: &str) -> bool {
+    action_type == "cleanup_worktree"
+}
+
 fn normalize_git_action_payload(
     action_type: &str,
     context: &TaskGitContextRecord,
@@ -1177,6 +1279,7 @@ fn normalize_git_action_payload(
         "cleanup_worktree" => serde_json::json!({
             "delete_branch": payload_bool(map, "delete_branch", false),
             "prune_worktree": payload_bool(map, "prune_worktree", true),
+            "force_remove": payload_bool(map, "force_remove", true),
         }),
         _ => return Err("不支持的 git action".to_string()),
     };
@@ -1285,15 +1388,12 @@ async fn execute_normalized_action<R: Runtime>(
                 "cleanup_worktree" => {
                     let delete_branch = payload_bool(map, "delete_branch", false);
                     let prune_worktree = payload_bool(map, "prune_worktree", true);
-                    run_git_command(
-                        repo_path,
-                        &[
-                            "worktree",
-                            "remove",
-                            context.worktree_path.as_str(),
-                            "--force",
-                        ],
-                    )?;
+                    let force_remove = payload_bool(map, "force_remove", true);
+                    let mut args = vec!["worktree", "remove", context.worktree_path.as_str()];
+                    if force_remove {
+                        args.push("--force");
+                    }
+                    run_git_command(repo_path, &args)?;
                     if delete_branch
                         && git_ref_exists_local(
                             repo_path,
@@ -1336,12 +1436,14 @@ async fn update_context_after_prepare<R: Runtime>(
     preferred_target_branch: Option<String>,
 ) -> Result<TaskGitContextRecord, String> {
     let runtime = resolve_project_runtime_context(project)?;
+    let git_preferences = resolve_project_git_preferences(app, project)?;
     let target_branch = match preferred_target_branch {
         Some(branch) => branch,
         None => determine_default_branch(app, &runtime).await?,
     };
     let task_branch = build_task_branch(&task.id);
-    let worktree_path = build_worktree_path(&runtime.repo_path, &task.id)?;
+    let worktree_path =
+        build_task_worktree_path_for_runtime(app, &runtime, &task.id, &git_preferences).await?;
     let head_commit =
         current_head_commit(app, &runtime, &runtime.repo_path, &target_branch).await?;
 
@@ -2489,8 +2591,14 @@ pub async fn request_git_action<R: Runtime>(
     }
     if matches!(
         context.state.as_str(),
-        TASK_GIT_STATE_PROVISIONING | TASK_GIT_STATE_FAILED | TASK_GIT_STATE_COMPLETED
+        TASK_GIT_STATE_PROVISIONING | TASK_GIT_STATE_FAILED
     ) {
+        return Err(format!(
+            "当前状态不允许 request git action：{}",
+            context.state
+        ));
+    }
+    if context.state == TASK_GIT_STATE_COMPLETED && !action_allows_completed_context(action_type) {
         return Err(format!(
             "当前状态不允许 request git action：{}",
             context.state
@@ -2809,6 +2917,33 @@ mod tests {
         pool
     }
 
+    fn default_test_git_preferences() -> GitPreferences {
+        GitPreferences {
+            default_task_use_worktree: false,
+            worktree_location_mode: "repo_sibling_hidden".to_string(),
+            worktree_custom_root: None,
+            ai_commit_message_length: "title_with_body".to_string(),
+            ai_commit_model_source: "inherit_one_shot".to_string(),
+            ai_commit_model: "gpt-5.4".to_string(),
+            ai_commit_reasoning_effort: "high".to_string(),
+        }
+    }
+
+    fn build_task_worktree_path_for_local_test(
+        repo_path: &str,
+        task_id: &str,
+        git_preferences: &GitPreferences,
+    ) -> Result<String, String> {
+        if git_preferences.worktree_location_mode != "repo_child_hidden" {
+            return build_worktree_path(repo_path, task_id, git_preferences);
+        }
+
+        let task_slug = sanitize_git_fragment(task_id);
+        let git_common_dir_path = resolve_repo_child_worktree_root_local(repo_path)?;
+        let path = build_repo_child_worktree_path(&git_common_dir_path, &task_slug)?;
+        Ok(path.to_string_lossy().to_string())
+    }
+
     async fn insert_project_and_task(pool: &SqlitePool, repo_path: &str) -> (Project, Task) {
         let project = Project {
             id: "proj-1".to_string(),
@@ -2930,7 +3065,11 @@ mod tests {
             }
         };
         let task_branch = build_task_branch(&task.id);
-        let worktree_path = build_worktree_path(&repo_path, &task.id)?;
+        let worktree_path = build_task_worktree_path_for_local_test(
+            &repo_path,
+            &task.id,
+            &default_test_git_preferences(),
+        )?;
         let head_commit = run_git_text(&repo_path, &["rev-parse", &target_branch])?;
 
         if let Some(mut existing) = fetch_task_git_context_by_task_id(pool, &task.id).await? {
@@ -3079,6 +3218,88 @@ mod tests {
         );
 
         let _ = fs::remove_dir_all(PathBuf::from(&repo_path));
+    }
+
+    #[test]
+    fn build_worktree_path_supports_all_configured_modes() {
+        let repo_path = "/tmp/demo-repo";
+        let task_id = "task/42";
+
+        let sibling_path = build_worktree_path(repo_path, task_id, &default_test_git_preferences())
+            .expect("build sibling path");
+        assert_eq!(sibling_path, "/tmp/.codex-ai-worktrees-demo-repo/task-42");
+
+        let child_path = build_worktree_path(
+            repo_path,
+            task_id,
+            &GitPreferences {
+                worktree_location_mode: "repo_child_hidden".to_string(),
+                ..default_test_git_preferences()
+            },
+        )
+        .expect("build child path");
+        assert_eq!(child_path, "/tmp/demo-repo/.git/codex-ai-worktrees/task-42");
+
+        let custom_path = build_worktree_path(
+            repo_path,
+            task_id,
+            &GitPreferences {
+                worktree_location_mode: "custom_root".to_string(),
+                worktree_custom_root: Some("/worktrees".to_string()),
+                ..default_test_git_preferences()
+            },
+        )
+        .expect("build custom path");
+        assert_eq!(custom_path, "/worktrees/demo-repo/task-42");
+    }
+
+    #[test]
+    fn resolve_repo_child_worktree_root_uses_common_git_dir_for_linked_worktree() {
+        let repo_path = init_git_repo();
+        let linked_worktree = PathBuf::from(&repo_path)
+            .parent()
+            .expect("repo parent")
+            .join("linked-worktree");
+        run_git_command(
+            &repo_path,
+            &[
+                "worktree",
+                "add",
+                "-b",
+                "feature/linked",
+                linked_worktree.to_string_lossy().as_ref(),
+                "main",
+            ],
+        )
+        .expect("create linked worktree");
+
+        let resolved =
+            resolve_repo_child_worktree_root_local(linked_worktree.to_string_lossy().as_ref())
+                .expect("resolve linked worktree common git dir");
+        assert!(
+            resolved.ends_with("/.git"),
+            "unexpected common git dir: {resolved}"
+        );
+
+        let child_path = build_repo_child_worktree_path(&resolved, "task-42")
+            .expect("build repo child worktree path");
+        assert!(
+            child_path
+                .to_string_lossy()
+                .ends_with("/.git/codex-ai-worktrees/task-42"),
+            "unexpected child path: {}",
+            child_path.to_string_lossy()
+        );
+
+        let _ = fs::remove_dir_all(linked_worktree);
+        let _ = fs::remove_dir_all(PathBuf::from(&repo_path));
+    }
+
+    #[test]
+    fn cleanup_worktree_action_is_allowed_after_completion() {
+        assert!(action_allows_completed_context("cleanup_worktree"));
+        assert!(!action_allows_completed_context("merge"));
+        assert!(!action_allows_completed_context("push"));
     }
 
     #[test]

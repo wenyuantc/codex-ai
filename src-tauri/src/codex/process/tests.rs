@@ -450,6 +450,7 @@ fn builds_commit_message_prompt_with_staged_changes() {
             "修改 src/pages/ProjectDetailPage.tsx".to_string(),
             "新增 src/components/projects/ProjectGitRepoActionDialog.tsx".to_string(),
         ],
+        "title_with_body",
     );
 
     assert!(prompt.contains("你是 Git commit message 助手"));
@@ -464,6 +465,22 @@ fn builds_commit_message_prompt_with_staged_changes() {
     assert!(prompt.contains("补充 2 到 4 行正文"));
     assert!(prompt.contains("不要在标题或正文里出现“暂存”"));
     assert!(prompt.contains("不要因为输入来自暂存区就默认使用 chore"));
+}
+
+#[test]
+fn builds_title_only_commit_message_prompt() {
+    let prompt = build_ai_generate_commit_message_prompt(
+        "设置中心",
+        Some("feat/git-settings"),
+        Some("共 2 项变更（修改 2）"),
+        &["修改 src/pages/SettingsPage.tsx".to_string()],
+        "title_only",
+    );
+
+    assert!(prompt.contains("输出必须是单行 Conventional Commits 标题"));
+    assert!(prompt.contains("本次长度配置为“仅标题”"));
+    assert!(prompt.contains("只输出单行标题，不要返回项目符号或多段内容"));
+    assert!(!prompt.contains("补充 2 到 4 行正文"));
 }
 
 #[test]
