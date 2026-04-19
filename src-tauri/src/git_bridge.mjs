@@ -243,6 +243,24 @@ async function branchSyncCounts(repoPath, branchName) {
   };
 }
 
+async function compareRevisions(repoPath, baseRevision, targetRevision) {
+  const output = (
+    await gitRaw(repoPath, ["rev-list", "--left-right", "--count", `${baseRevision}...${targetRevision}`])
+  ).trim();
+  const [behindRaw = "", aheadRaw = ""] = output.split(/\s+/);
+  const behindCommits = Number.parseInt(behindRaw, 10);
+  const aheadCommits = Number.parseInt(aheadRaw, 10);
+
+  if (!Number.isFinite(behindCommits) || !Number.isFinite(aheadCommits)) {
+    throw new Error(`无法解析 revision 比较结果: ${output}`);
+  }
+
+  return {
+    ahead_commits: aheadCommits,
+    behind_commits: behindCommits,
+  };
+}
+
 async function listBranches(repoPath) {
   const summary = await buildGit(repoPath).branchLocal();
   return [...summary.all].sort((left, right) => left.localeCompare(right));
@@ -924,6 +942,12 @@ async function executeCommand(input) {
       return { ok: true };
     case "rev_parse":
       return { sha: await headCommit(repoPath, input.revision || "HEAD") };
+    case "compare_revisions":
+      return await compareRevisions(
+        repoPath,
+        requiredText(input, ["baseRevision", "base_revision"], "baseRevision"),
+        requiredText(input, ["targetRevision", "target_revision"], "targetRevision"),
+      );
     case "execute_action":
       return {
         message: await executeAction(

@@ -3,7 +3,6 @@ use std::collections::hash_map::DefaultHasher;
 use std::fs;
 use std::hash::{Hash, Hasher};
 use std::path::Path;
-#[cfg(test)]
 use std::process::Command;
 
 use chrono::{Duration, Utc};
@@ -268,7 +267,6 @@ struct GitProjectRuntimeContext {
     ssh_config_id: Option<String>,
 }
 
-#[cfg(test)]
 fn run_git_text(repo_path: &str, args: &[&str]) -> Result<String, String> {
     let output = Command::new("git")
         .arg("-C")
@@ -649,6 +647,47 @@ async fn current_head_commit<R: Runtime>(
     .await
 }
 
+fn parse_revision_comparison_output(
+    output: &str,
+) -> Result<git_runtime::GitRuntimeRevisionComparison, String> {
+    let mut parts = output.split_whitespace();
+    let behind_raw = parts
+        .next()
+        .ok_or_else(|| format!("无法解析 revision 比较结果: {}", output.trim()))?;
+    let ahead_raw = parts
+        .next()
+        .ok_or_else(|| format!("无法解析 revision 比较结果: {}", output.trim()))?;
+    let behind_commits = behind_raw
+        .parse::<u32>()
+        .map_err(|error| format!("解析 behind commits 失败: {}", error))?;
+    let ahead_commits = ahead_raw
+        .parse::<u32>()
+        .map_err(|error| format!("解析 ahead commits 失败: {}", error))?;
+
+    Ok(git_runtime::GitRuntimeRevisionComparison {
+        ahead_commits,
+        behind_commits,
+    })
+}
+
+fn compare_revisions_local(
+    repo_path: &str,
+    base_revision: &str,
+    target_revision: &str,
+) -> Result<git_runtime::GitRuntimeRevisionComparison, String> {
+    let range = format!("{base_revision}...{target_revision}");
+    let output = run_git_text(repo_path, &["rev-list", "--left-right", "--count", &range])?;
+    parse_revision_comparison_output(&output)
+}
+
+fn task_git_context_has_pending_merge_local(
+    context: &TaskGitContextRecord,
+) -> Result<bool, String> {
+    let comparison =
+        compare_revisions_local(&context.worktree_path, &context.target_branch, "HEAD")?;
+    Ok(comparison.ahead_commits > 0)
+}
+
 async fn fetch_task_git_context_by_id(
     pool: &SqlitePool,
     task_git_context_id: &str,
@@ -760,10 +799,20 @@ async fn task_git_context_has_pending_merge<R: Runtime>(
     runtime: &GitProjectRuntimeContext,
     context: &TaskGitContextRecord,
 ) -> Result<bool, String> {
-    let task_head = current_head_commit(app, runtime, &context.worktree_path, "HEAD").await?;
-    let target_head =
-        current_head_commit(app, runtime, &runtime.repo_path, &context.target_branch).await?;
-    Ok(task_head != target_head)
+    if runtime.execution_target == EXECUTION_TARGET_LOCAL {
+        return task_git_context_has_pending_merge_local(context);
+    }
+
+    let comparison = git_runtime::compare_revisions(
+        app,
+        &runtime.execution_target,
+        runtime.ssh_config_id.as_deref(),
+        &context.worktree_path,
+        &context.target_branch,
+        "HEAD",
+    )
+    .await?;
+    Ok(comparison.ahead_commits > 0)
 }
 
 async fn insert_task_git_context(
@@ -3053,6 +3102,119 @@ mod tests {
             let _ = fs::remove_dir_all(PathBuf::from(&repo_path));
             let _ = fs::remove_dir_all(
                 PathBuf::from(&first.worktree_path)
+                    .parent()
+                    .unwrap_or(Path::new("")),
+            );
+            pool.close().await;
+        });
+    }
+
+    #[test]
+    fn pending_merge_requires_task_branch_to_be_ahead() {
+        tauri::async_runtime::block_on(async {
+            let pool = setup_test_pool().await;
+            let repo_path = init_git_repo();
+            let repo_root = PathBuf::from(&repo_path);
+            let (project, task) = insert_project_and_task(&pool, &repo_path).await;
+            let context = update_context_after_prepare_for_test(&pool, &task, &project, None)
+                .await
+                .expect("prepare context");
+
+            assert!(
+                !task_git_context_has_pending_merge_local(&context)
+                    .expect("initial pending merge state"),
+                "fresh task branch should not require merge action"
+            );
+
+            fs::write(repo_root.join("README.md"), "# demo repo\n").expect("write repo update");
+            run_git_command(&repo_path, &["add", "README.md"]).expect("stage repo update");
+            run_git_command(&repo_path, &["commit", "-q", "-m", "repo update"])
+                .expect("commit repo update");
+
+            assert!(
+                !task_git_context_has_pending_merge_local(&context)
+                    .expect("target-ahead pending merge state"),
+                "target branch moving ahead alone should not mark task branch merge-ready"
+            );
+
+            fs::write(
+                PathBuf::from(&context.worktree_path).join("src/main.ts"),
+                "console.log('task change');\n",
+            )
+            .expect("write task branch update");
+            run_git_command(&context.worktree_path, &["add", "src/main.ts"])
+                .expect("stage task branch update");
+            run_git_command(
+                &context.worktree_path,
+                &["commit", "-q", "-m", "task branch update"],
+            )
+            .expect("commit task branch update");
+
+            assert!(
+                task_git_context_has_pending_merge_local(&context)
+                    .expect("task-ahead pending merge state"),
+                "task branch commits should still be recognized as pending merge work"
+            );
+
+            let _ = fs::remove_dir_all(PathBuf::from(&repo_path));
+            let _ = fs::remove_dir_all(
+                PathBuf::from(&context.worktree_path)
+                    .parent()
+                    .unwrap_or(Path::new("")),
+            );
+            pool.close().await;
+        });
+    }
+
+    #[test]
+    fn pending_merge_uses_worktree_head_when_detached() {
+        tauri::async_runtime::block_on(async {
+            let pool = setup_test_pool().await;
+            let repo_path = init_git_repo();
+            let (project, task) = insert_project_and_task(&pool, &repo_path).await;
+            let context = update_context_after_prepare_for_test(&pool, &task, &project, None)
+                .await
+                .expect("prepare context");
+            let initial_task_branch_head =
+                run_git_text(&repo_path, &["rev-parse", &context.task_branch]).expect("task ref");
+
+            run_git_command(&context.worktree_path, &["checkout", "--detach"])
+                .expect("detach worktree head");
+            fs::write(
+                PathBuf::from(&context.worktree_path).join("src/main.ts"),
+                "console.log('detached head change');\n",
+            )
+            .expect("write detached head update");
+            run_git_command(&context.worktree_path, &["add", "src/main.ts"])
+                .expect("stage detached head update");
+            run_git_command(
+                &context.worktree_path,
+                &["commit", "-q", "-m", "detached head update"],
+            )
+            .expect("commit detached head update");
+
+            let detached_head =
+                run_git_text(&context.worktree_path, &["rev-parse", "HEAD"]).expect("head");
+            let task_branch_head =
+                run_git_text(&repo_path, &["rev-parse", &context.task_branch]).expect("task ref");
+
+            assert_ne!(
+                detached_head, task_branch_head,
+                "detached HEAD commit should not advance the tracked task branch ref"
+            );
+            assert_eq!(
+                task_branch_head, initial_task_branch_head,
+                "task branch ref should stay unchanged when committing from detached HEAD"
+            );
+            assert!(
+                task_git_context_has_pending_merge_local(&context)
+                    .expect("detached head pending merge state"),
+                "worktree HEAD commits should still be recognized as pending merge work"
+            );
+
+            let _ = fs::remove_dir_all(PathBuf::from(&repo_path));
+            let _ = fs::remove_dir_all(
+                PathBuf::from(&context.worktree_path)
                     .parent()
                     .unwrap_or(Path::new("")),
             );

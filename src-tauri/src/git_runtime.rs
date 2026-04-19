@@ -54,6 +54,12 @@ pub(crate) struct GitRuntimeChange {
 }
 
 #[derive(Debug, Clone, Deserialize)]
+pub(crate) struct GitRuntimeRevisionComparison {
+    pub ahead_commits: u32,
+    pub behind_commits: u32,
+}
+
+#[derive(Debug, Clone, Deserialize)]
 pub(crate) struct GitRuntimeTextSnapshot {
     pub status: String,
     pub text: Option<String>,
@@ -734,6 +740,28 @@ pub(crate) async fn rev_parse<R: Runtime>(
     )
     .await?;
     Ok(result.sha)
+}
+
+pub(crate) async fn compare_revisions<R: Runtime>(
+    app: &AppHandle<R>,
+    execution_target: &str,
+    ssh_config_id: Option<&str>,
+    repo_path: &str,
+    base_revision: &str,
+    target_revision: &str,
+) -> Result<GitRuntimeRevisionComparison, String> {
+    call_bridge(
+        app,
+        execution_target,
+        ssh_config_id,
+        serde_json::json!({
+            "command": "compare_revisions",
+            "repoPath": repo_path,
+            "baseRevision": base_revision,
+            "targetRevision": target_revision,
+        }),
+    )
+    .await
 }
 
 pub(crate) async fn execute_action<R: Runtime>(
