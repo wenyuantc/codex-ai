@@ -2203,6 +2203,30 @@ pub(crate) async fn insert_activity_log(
     Ok(())
 }
 
+async fn record_task_review_requested_activity(
+    pool: &SqlitePool,
+    reviewer_id: &str,
+    reviewer_name: &str,
+    task_id: &str,
+    project_id: &str,
+) {
+    if let Err(error) = insert_activity_log(
+        pool,
+        "task_review_requested",
+        &format!("{} 发起代码审核", reviewer_name),
+        Some(reviewer_id),
+        Some(task_id),
+        Some(project_id),
+    )
+    .await
+    {
+        eprintln!(
+            "[task-review] activity log write failed after review session start: {}",
+            error
+        );
+    }
+}
+
 pub(crate) async fn insert_codex_session_event_with_id(
     pool: &SqlitePool,
     session_id: &str,
@@ -4449,15 +4473,14 @@ pub(crate) async fn start_task_code_review_internal(
     )
     .await?;
 
-    insert_activity_log(
+    record_task_review_requested_activity(
         &pool,
-        "task_review_requested",
-        &format!("{} 发起代码审核", reviewer.name),
-        Some(reviewer.id.as_str()),
-        Some(task.id.as_str()),
-        Some(task.project_id.as_str()),
+        reviewer.id.as_str(),
+        reviewer.name.as_str(),
+        task.id.as_str(),
+        task.project_id.as_str(),
     )
-    .await?;
+    .await;
 
     Ok(())
 }
@@ -6244,10 +6267,11 @@ mod tests {
         build_task_review_context_from_git_outputs, build_task_review_prompt,
         collect_local_task_review_context_for_task, ensure_statement_terminated,
         fetch_execution_change_history_item_by_session_id, fetch_task_by_id, insert_task_record,
-        normalize_runtime_path_string, remote_shell_path_expression, remote_task_attachment_dir,
-        remote_task_attachment_path, resolve_session_resume_state, rewrite_file_change_diff_labels,
-        sanitize_sql_backup_script, validate_project_repo_path, validate_runtime_working_dir,
-        CodexSettings, Project, Task, TaskAttachment, PROJECT_TYPE_LOCAL, PROJECT_TYPE_SSH,
+        normalize_runtime_path_string, record_task_review_requested_activity,
+        remote_shell_path_expression, remote_task_attachment_dir, remote_task_attachment_path,
+        resolve_session_resume_state, rewrite_file_change_diff_labels, sanitize_sql_backup_script,
+        validate_project_repo_path, validate_runtime_working_dir, CodexSettings, Project, Task,
+        TaskAttachment, PROJECT_TYPE_LOCAL, PROJECT_TYPE_SSH,
     };
 
     async fn setup_test_pool() -> SqlitePool {
@@ -6983,6 +7007,26 @@ mod tests {
         assert_eq!(status, "ready");
         assert!(can_resume);
         assert!(message.is_none());
+    }
+
+    #[test]
+    fn record_task_review_requested_activity_ignores_missing_activity_log_table() {
+        tauri::async_runtime::block_on(async {
+            let pool = SqlitePool::connect("sqlite::memory:")
+                .await
+                .expect("create sqlite memory pool");
+
+            record_task_review_requested_activity(
+                &pool,
+                "reviewer-1",
+                "Reviewer",
+                "task-1",
+                "project-1",
+            )
+            .await;
+
+            pool.close().await;
+        });
     }
 
     #[test]
