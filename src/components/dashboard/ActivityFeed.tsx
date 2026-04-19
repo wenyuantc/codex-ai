@@ -72,6 +72,11 @@ export function ActivityFeed() {
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
                       <span className="font-medium">{getActivityActionLabel(activity.action)}</span>
+                      {activity.project_name && (
+                        <span className="text-xs bg-secondary px-1.5 py-0.5 rounded">
+                          {activity.project_name}
+                        </span>
+                      )}
                       {activity.employee_name && (
                         <span className="text-xs bg-secondary px-1.5 py-0.5 rounded">
                           {activity.employee_name}
@@ -79,7 +84,7 @@ export function ActivityFeed() {
                       )}
                     </div>
                     {details && (
-                      <p className="text-xs text-muted-foreground mt-0.5 truncate">
+                      <p className="text-xs text-muted-foreground mt-0.5 break-all">
                         {details}
                       </p>
                     )}

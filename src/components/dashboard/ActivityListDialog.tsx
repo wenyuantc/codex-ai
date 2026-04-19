@@ -128,6 +128,11 @@ export function ActivityListDialog({
                     >
                       <div className="flex items-center gap-2 flex-wrap">
                         <span className="font-medium">{getActivityActionLabel(activity.action)}</span>
+                        {activity.project_name && (
+                          <span className="rounded bg-secondary px-1.5 py-0.5 text-xs">
+                            {activity.project_name}
+                          </span>
+                        )}
                         {activity.employee_name && (
                           <span className="rounded bg-secondary px-1.5 py-0.5 text-xs">
                             {activity.employee_name}

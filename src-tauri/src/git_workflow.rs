@@ -2013,7 +2013,7 @@ pub(crate) async fn auto_commit_task_worktree<R: Runtime>(
             &task,
             &runtime,
             &mut context,
-            &commit_message,
+            &commit_message.message,
             false,
         )
         .await?;

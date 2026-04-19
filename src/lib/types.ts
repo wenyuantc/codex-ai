@@ -129,6 +129,7 @@ export interface ActivityLog {
   project_id: string | null;
   created_at: string;
   employee_name?: string;
+  project_name?: string;
 }
 
 export interface EmployeeMetric {

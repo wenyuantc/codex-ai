@@ -64,9 +64,10 @@ interface DashboardStore {
   ) => Promise<ActivityPageResult>;
 }
 
-const ACTIVITY_SELECT = `SELECT a.*, e.name as employee_name
+const ACTIVITY_SELECT = `SELECT a.*, e.name as employee_name, p.name as project_name
   FROM activity_logs a
   LEFT JOIN employees e ON a.employee_id = e.id
+  LEFT JOIN projects p ON a.project_id = p.id
   ORDER BY a.created_at DESC, a.id DESC`;
 
 async function loadProjects() {

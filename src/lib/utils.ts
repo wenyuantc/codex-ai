@@ -106,6 +106,7 @@ export function getActivityActionLabel(action: string): string {
     project_git_unstage_all: "取消暂存全部工作区文件",
     project_git_committed: "创建项目提交",
     project_git_commit_message_generated: "AI 生成提交信息",
+    ai_prompt_optimized: "AI 生成提示词",
     project_git_pushed: "推送项目分支",
     project_git_pulled: "拉取项目分支",
     environment_mode_switched: "切换SSH模式",

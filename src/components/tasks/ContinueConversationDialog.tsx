@@ -70,6 +70,7 @@ export function ContinueConversationDialog({
 
     await optimizePrompt.generate({
       scene: "task_continue",
+      projectId: currentProject.id,
       projectName: currentProject.name,
       projectDescription: currentProject.description,
       projectRepoPath: getProjectWorkingDir(currentProject),

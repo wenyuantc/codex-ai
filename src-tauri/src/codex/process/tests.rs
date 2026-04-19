@@ -12,9 +12,9 @@ use super::{
     extract_session_id_from_output, format_session_prompt_log, hash_worktree_path, normalize_model,
     normalize_session_file_change_paths, parse_ai_subtasks_response, parse_cli_json_event_line,
     parse_sdk_bridge_output, parse_sdk_file_change_event, sdk_codex_path_override_allowed_for_os,
-    should_capture_execution_change_baseline, validate_generated_commit_message,
-    CliJsonOutputFlag, CliJsonStreamState, CodexExecutionProvider, CodexSessionKind,
-    TextSnapshot, WorkingTreeSnapshotEntry, EXECUTION_TARGET_LOCAL, EXECUTION_TARGET_SSH,
+    should_capture_execution_change_baseline, validate_generated_commit_message, CliJsonOutputFlag,
+    CliJsonStreamState, CodexExecutionProvider, CodexSessionKind, TextSnapshot,
+    WorkingTreeSnapshotEntry, EXECUTION_TARGET_LOCAL, EXECUTION_TARGET_SSH,
 };
 use crate::db::models::CodexSessionFileChangeInput;
 
@@ -485,11 +485,9 @@ fn builds_title_only_commit_message_prompt() {
 
 #[test]
 fn title_only_commit_message_rejects_multiline_output() {
-    let error = validate_generated_commit_message(
-        "feat: 调整设置入口\n\n补充提交详情",
-        "title_only",
-    )
-    .expect_err("title_only should reject multi-line output");
+    let error =
+        validate_generated_commit_message("feat: 调整设置入口\n\n补充提交详情", "title_only")
+            .expect_err("title_only should reject multi-line output");
 
     assert!(error.contains("仅标题"));
 }

@@ -59,6 +59,7 @@ export type AiOptimizePromptScene =
 
 export interface AiOptimizePromptInput {
   scene: AiOptimizePromptScene;
+  projectId?: string | null;
   projectName: string;
   projectDescription?: string | null;
   projectRepoPath?: string | null;
@@ -234,6 +235,7 @@ export async function aiGenerateCommitMessage(
 export async function aiOptimizePrompt(input: AiOptimizePromptInput): Promise<string> {
   return invoke<string>("ai_optimize_prompt", {
     scene: input.scene,
+    projectId: input.projectId ?? null,
     projectName: input.projectName,
     projectDescription: input.projectDescription ?? null,
     projectRepoPath: input.projectRepoPath ?? null,

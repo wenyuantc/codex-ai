@@ -70,6 +70,7 @@ export function SessionContinueDialog({
 
     await optimizePrompt.generate({
       scene: "session_continue",
+      projectId: currentProject.id,
       projectName: currentProject.name,
       projectDescription: currentProject.description,
       projectRepoPath: getProjectWorkingDir(currentProject),

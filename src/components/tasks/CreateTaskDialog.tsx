@@ -164,6 +164,7 @@ export function CreateTaskDialog({
 
     await optimizePrompt.generate({
       scene: "task_create",
+      projectId: selectedProject.id,
       projectName: selectedProject.name,
       projectDescription: selectedProject.description,
       projectRepoPath: getProjectWorkingDir(selectedProject),
