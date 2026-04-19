@@ -312,7 +312,7 @@ fn spawn_exit_watcher(
                     {
                         let manager = app.state::<Arc<Mutex<CodexManager>>>();
                         let mut manager = manager.lock().unwrap();
-                        let removed = manager.remove_process(&employee_id);
+                        let removed = manager.remove_process(&session_record_id);
                         if let Some(process) = removed.as_ref() {
                             cleanup_process_artifacts(&process.cleanup_paths);
                         }
@@ -342,7 +342,7 @@ fn spawn_exit_watcher(
         {
             let manager = app.state::<Arc<Mutex<CodexManager>>>();
             let mut manager = manager.lock().unwrap();
-            let removed = manager.remove_process(&employee_id);
+            let removed = manager.remove_process(&session_record_id);
             if let Some(process) = removed.as_ref() {
                 cleanup_process_artifacts(&process.cleanup_paths);
             }

@@ -1,6 +1,6 @@
 import { useState } from "react";
 
-import { startCodex, stopCodex } from "@/lib/codex";
+import { startCodex, stopCodexSession } from "@/lib/codex";
 import { prepareTaskGitExecution } from "@/lib/backend";
 import type { Employee, ProjectType, Task } from "@/lib/types";
 import { buildTaskLogKey, useEmployeeStore } from "@/stores/employeeStore";
@@ -23,7 +23,6 @@ interface UseTaskExecutionActionsOptions {
   prepareExecutionInput: (followUpPrompt?: string) => Promise<PreparedExecutionInput>;
   clearTaskOutputOnRun?: boolean;
   clearTaskOutputOnContinue?: boolean;
-  clearEmployeeOutputOnRun?: boolean;
   onStarted?: (action: Exclude<TaskExecutionAction, "stop">) => void;
   onStopped?: () => void;
   onError?: (message: string, action: TaskExecutionAction) => void;
@@ -38,33 +37,35 @@ export function useTaskExecutionActions({
   prepareExecutionInput,
   clearTaskOutputOnRun = false,
   clearTaskOutputOnContinue = false,
-  clearEmployeeOutputOnRun = false,
   onStarted,
   onStopped,
   onError,
 }: UseTaskExecutionActionsOptions) {
   const [loading, setLoading] = useState<TaskExecutionAction | null>(null);
-  const codexProcesses = useEmployeeStore((state) => state.codexProcesses);
+  const employeeRuntime = useEmployeeStore((state) => (
+    assigneeId ? state.employeeRuntime[assigneeId] : undefined
+  ));
   const taskLogs = useEmployeeStore((state) => state.taskLogs);
   const updateEmployeeStatus = useEmployeeStore((state) => state.updateEmployeeStatus);
-  const setCodexRunning = useEmployeeStore((state) => state.setCodexRunning);
   const addCodexOutput = useEmployeeStore((state) => state.addCodexOutput);
-  const clearCodexOutput = useEmployeeStore((state) => state.clearCodexOutput);
   const clearTaskCodexOutput = useEmployeeStore((state) => state.clearTaskCodexOutput);
-  const refreshCodexRuntimeStatus = useEmployeeStore((state) => state.refreshCodexRuntimeStatus);
+  const refreshEmployeeRuntimeStatus = useEmployeeStore((state) => state.refreshEmployeeRuntimeStatus);
   const updateTaskStatus = useTaskStore((state) => state.updateTaskStatus);
 
-  const isRunning = assigneeId
-    ? (codexProcesses[assigneeId]?.running ?? false) && codexProcesses[assigneeId]?.activeTaskId === task.id
-    : false;
+  const runningSession = employeeRuntime?.sessions.find((session) => (
+    session.task_id === task.id && session.session_kind === "execution"
+  )) ?? null;
+  const isRunning = Boolean(runningSession);
   const output = taskLogs[buildTaskLogKey(task.id, "execution")] ?? [];
 
   const handleExecutionError = async (error: unknown, action: TaskExecutionAction) => {
     const message = error instanceof Error ? error.message : String(error);
     if (assigneeId) {
       addCodexOutput(assigneeId, `[ERROR] ${message}`, task.id);
-      setCodexRunning(assigneeId, false, null);
-      await refreshCodexRuntimeStatus(assigneeId);
+      const runtime = await refreshEmployeeRuntimeStatus(assigneeId);
+      if (!runtime?.running) {
+        await updateEmployeeStatus(assigneeId, "error");
+      }
     }
     onError?.(message, action);
   };
@@ -76,14 +77,9 @@ export function useTaskExecutionActions({
 
     setLoading(action);
     try {
-      if (action === "run") {
-        if (clearEmployeeOutputOnRun) {
-          clearCodexOutput(assigneeId);
-        }
-        if (clearTaskOutputOnRun) {
-          clearTaskCodexOutput(task.id);
-        }
-      } else if (clearTaskOutputOnContinue) {
+      if (action === "run" && clearTaskOutputOnRun) {
+        clearTaskCodexOutput(task.id);
+      } else if (action === "continue" && clearTaskOutputOnContinue) {
         clearTaskCodexOutput(task.id);
       }
 
@@ -103,7 +99,6 @@ export function useTaskExecutionActions({
 
       await updateEmployeeStatus(assigneeId, "busy");
       await updateTaskStatus(task.id, "in_progress");
-      setCodexRunning(assigneeId, true, task.id);
       await startCodex(assigneeId, executionInput.prompt, {
         model: assignee?.model,
         reasoningEffort: assignee?.reasoning_effort,
@@ -114,6 +109,7 @@ export function useTaskExecutionActions({
         resumeSessionId: executionInput.resumeSessionId,
         imagePaths: executionInput.imagePaths,
       });
+      await refreshEmployeeRuntimeStatus(assigneeId);
       onStarted?.(action);
     } catch (error) {
       await handleExecutionError(error, action);
@@ -134,13 +130,17 @@ export function useTaskExecutionActions({
     if (!assigneeId) {
       return;
     }
+    if (!runningSession) {
+      return;
+    }
 
     setLoading("stop");
     try {
-      await stopCodex(assigneeId);
-      setCodexRunning(assigneeId, false, null);
-      await updateEmployeeStatus(assigneeId, "offline");
-      await refreshCodexRuntimeStatus(assigneeId);
+      await stopCodexSession(runningSession.session_record_id);
+      const runtime = await refreshEmployeeRuntimeStatus(assigneeId);
+      if (!runtime?.running) {
+        await updateEmployeeStatus(assigneeId, "offline");
+      }
       onStopped?.();
     } catch (error) {
       await handleExecutionError(error, "stop");

@@ -5,6 +5,7 @@ import type {
   CodexHealthCheck,
   CodexSdkInstallResult,
   CodexSettings,
+  EmployeeRuntimeStatus,
   CodexRuntimeStatus,
   CodexSessionLogLine,
   CodexSessionListItem,
@@ -288,6 +289,10 @@ export async function openTaskAttachment(path: string): Promise<void> {
 
 export async function getCodexSessionStatus(employeeId: string): Promise<CodexRuntimeStatus> {
   return invoke("get_codex_session_status", { employeeId });
+}
+
+export async function getEmployeeRuntimeStatus(employeeId: string): Promise<EmployeeRuntimeStatus> {
+  return invoke("get_employee_runtime_status", { employeeId });
 }
 
 export async function searchGlobal(input: SearchGlobalInput): Promise<GlobalSearchResponse> {

@@ -450,6 +450,22 @@ export interface CodexRuntimeStatus {
   session: CodexSessionRecord | null;
 }
 
+export interface EmployeeRunningSession {
+  session_record_id: string;
+  cli_session_id: string | null;
+  task_id: string | null;
+  task_title: string | null;
+  session_kind: CodexSessionKind;
+  started_at: string;
+  status: string;
+}
+
+export interface EmployeeRuntimeStatus {
+  running: boolean;
+  sessions: EmployeeRunningSession[];
+  latest_session: CodexSessionRecord | null;
+}
+
 export interface CodexSettings {
   task_sdk_enabled: boolean;
   one_shot_sdk_enabled: boolean;

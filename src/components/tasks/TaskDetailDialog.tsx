@@ -88,13 +88,10 @@ export function TaskDetailDialog({
   const {
     employees,
     fetchEmployees,
-    codexProcesses,
     updateEmployeeStatus,
-    setCodexRunning,
-    clearCodexOutput,
     clearTaskCodexOutput,
     addCodexOutput,
-    refreshCodexRuntimeStatus,
+    refreshEmployeeRuntimeStatus,
   } = useEmployeeStore();
   const projects = useProjectStore((s) => s.projects);
   const attachmentMap = useTaskStore((state) => state.attachments);
@@ -155,7 +152,6 @@ export function TaskDetailDialog({
       };
     },
     clearTaskOutputOnRun: true,
-    clearEmployeeOutputOnRun: true,
     onStarted: () => {
       setStatus("in_progress");
     },
@@ -511,10 +507,6 @@ export function TaskDetailDialog({
       setReviewError("当前项目未配置仓库路径，无法立即运行修复任务。");
       return;
     }
-    if (codexProcesses[assigneeId]?.running) {
-      setReviewError("当前开发负责人仍有运行中的 Codex 会话，请先停止后再创建修复任务。");
-      return;
-    }
 
     const fixTaskTitle = `修复：${task.title}`.slice(0, 120);
     const fixTaskDescription = buildReviewFixTaskDescription(reviewReport);
@@ -534,8 +526,6 @@ export function TaskDetailDialog({
 
       await updateEmployeeStatus(assigneeId, "busy");
       await useTaskStore.getState().updateTaskStatus(createdTask.id, "in_progress");
-      setCodexRunning(assigneeId, true, createdTask.id);
-      clearCodexOutput(assigneeId);
       clearTaskCodexOutput(createdTask.id, "execution");
       const executionInput = buildTaskExecutionInput({
         title: createdTask.title,
@@ -563,6 +553,7 @@ export function TaskDetailDialog({
         taskGitContextId,
         imagePaths: executionInput.imagePaths,
       });
+      await refreshEmployeeRuntimeStatus(assigneeId);
 
       setReviewFixDialogOpen(false);
       setReviewNotice(`已创建修复任务“${createdTask.title}”，并开始运行。`);
@@ -570,8 +561,10 @@ export function TaskDetailDialog({
       const message = error instanceof Error ? error.message : String(error);
       setReviewError(message);
       addCodexOutput(assigneeId, `[ERROR] ${message}`);
-      setCodexRunning(assigneeId, false, null);
-      await refreshCodexRuntimeStatus(assigneeId);
+      const runtime = await refreshEmployeeRuntimeStatus(assigneeId);
+      if (!runtime?.running) {
+        await updateEmployeeStatus(assigneeId, "error");
+      }
     } finally {
       setReviewFixSubmitting(false);
     }

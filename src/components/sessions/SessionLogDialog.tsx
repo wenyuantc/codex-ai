@@ -84,7 +84,7 @@ export function SessionLogDialog({
     }
   }, [open]);
 
-  const canShowLogs = Boolean(session?.sessionRecordId || session?.taskId || session?.employeeId);
+  const canShowLogs = Boolean(session?.sessionRecordId || session?.taskId);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -128,9 +128,7 @@ export function SessionLogDialog({
               <CodexTerminal sessionRecordId={session.sessionRecordId} />
             ) : session?.taskId ? (
               <CodexTerminal taskId={session.taskId} sessionKind={session.sessionKind ?? "execution"} />
-            ) : (
-              <CodexTerminal employeeId={session?.employeeId ?? undefined} />
-            )}
+            ) : null}
           </div>
         ) : (
           <div className="rounded-lg border border-dashed border-border p-6 text-sm text-muted-foreground">

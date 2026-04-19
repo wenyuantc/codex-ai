@@ -368,6 +368,24 @@ pub struct CodexRuntimeStatus {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EmployeeRunningSession {
+    pub session_record_id: String,
+    pub cli_session_id: Option<String>,
+    pub task_id: Option<String>,
+    pub task_title: Option<String>,
+    pub session_kind: String,
+    pub started_at: String,
+    pub status: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EmployeeRuntimeStatus {
+    pub running: bool,
+    pub sessions: Vec<EmployeeRunningSession>,
+    pub latest_session: Option<CodexSessionRecord>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CodexSettings {
     pub task_sdk_enabled: bool,
     pub one_shot_sdk_enabled: bool,

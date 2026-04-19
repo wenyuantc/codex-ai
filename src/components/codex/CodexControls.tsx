@@ -1,17 +1,18 @@
-import { useEffect, useState } from "react";
-import { startCodex, stopCodex, restartCodex } from "@/lib/codex";
-import { startTaskCodeReview } from "@/lib/backend";
+import { useEffect, useMemo, useState } from "react";
+import { Loader2, Play, Search } from "lucide-react";
+
+import { prepareTaskGitExecution, startTaskCodeReview } from "@/lib/backend";
+import { startCodex } from "@/lib/codex";
+import { getProjectWorkingDir } from "@/lib/projects";
+import { buildTaskExecutionInput } from "@/lib/taskPrompt";
+import type { Task } from "@/lib/types";
+import { cn, getPriorityLabel, getStatusLabel } from "@/lib/utils";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { buildTaskExecutionInput } from "@/lib/taskPrompt";
-import { cn, getPriorityLabel, getStatusLabel } from "@/lib/utils";
 import { useEmployeeStore } from "@/stores/employeeStore";
 import { useProjectStore } from "@/stores/projectStore";
 import { useTaskStore } from "@/stores/taskStore";
-import type { Task } from "@/lib/types";
-import { Play, Square, RotateCw, Loader2, Search } from "lucide-react";
-import { getProjectWorkingDir } from "@/lib/projects";
 
 const STARTABLE_TASK_STATUSES = ["todo", "in_progress", "review"];
 
@@ -27,34 +28,31 @@ interface CodexControlsProps {
 export function CodexControls({
   employeeId,
   employeeRole,
-  employeeStatus,
+  employeeStatus: _employeeStatus,
   model,
   reasoningEffort,
   systemPrompt,
 }: CodexControlsProps) {
-  const updateEmployeeStatus = useEmployeeStore((s) => s.updateEmployeeStatus);
-  const setCodexRunning = useEmployeeStore((s) => s.setCodexRunning);
-  const clearCodexOutput = useEmployeeStore((s) => s.clearCodexOutput);
-  const clearTaskCodexOutput = useEmployeeStore((s) => s.clearTaskCodexOutput);
-  const addCodexOutput = useEmployeeStore((s) => s.addCodexOutput);
-  const refreshCodexRuntimeStatus = useEmployeeStore((s) => s.refreshCodexRuntimeStatus);
-  const tasks = useTaskStore((s) => s.tasks);
-  const fetchTasks = useTaskStore((s) => s.fetchTasks);
-  const fetchAttachments = useTaskStore((s) => s.fetchAttachments);
-  const fetchSubtasks = useTaskStore((s) => s.fetchSubtasks);
-  const updateTask = useTaskStore((s) => s.updateTask);
-  const updateTaskStatus = useTaskStore((s) => s.updateTaskStatus);
-  const projects = useProjectStore((s) => s.projects);
-  const currentProjectId = useProjectStore((s) => s.currentProject?.id);
-  const fetchProjects = useProjectStore((s) => s.fetchProjects);
-  const [taskDescription, setTaskDescription] = useState("");
-  const [actionLoading, setActionLoading] = useState<"start" | "stop" | "restart" | null>(null);
+  const employeeRuntime = useEmployeeStore((state) => state.employeeRuntime[employeeId]);
+  const updateEmployeeStatus = useEmployeeStore((state) => state.updateEmployeeStatus);
+  const clearTaskCodexOutput = useEmployeeStore((state) => state.clearTaskCodexOutput);
+  const addCodexOutput = useEmployeeStore((state) => state.addCodexOutput);
+  const refreshEmployeeRuntimeStatus = useEmployeeStore((state) => state.refreshEmployeeRuntimeStatus);
+  const tasks = useTaskStore((state) => state.tasks);
+  const fetchTasks = useTaskStore((state) => state.fetchTasks);
+  const fetchAttachments = useTaskStore((state) => state.fetchAttachments);
+  const fetchSubtasks = useTaskStore((state) => state.fetchSubtasks);
+  const updateTask = useTaskStore((state) => state.updateTask);
+  const updateTaskStatus = useTaskStore((state) => state.updateTaskStatus);
+  const projects = useProjectStore((state) => state.projects);
+  const currentProjectId = useProjectStore((state) => state.currentProject?.id);
+  const fetchProjects = useProjectStore((state) => state.fetchProjects);
+  const [actionLoading, setActionLoading] = useState<"start" | null>(null);
   const [showTaskDialog, setShowTaskDialog] = useState(false);
   const [taskDialogLoading, setTaskDialogLoading] = useState(false);
   const [taskKeyword, setTaskKeyword] = useState("");
   const [selectedTaskId, setSelectedTaskId] = useState("");
 
-  const isRunning = employeeStatus === "online" || employeeStatus === "busy";
   const isReviewer = employeeRole === "reviewer";
   const normalizedKeyword = taskKeyword.trim().toLowerCase();
   const eligibleTasks = tasks.filter((task) => {
@@ -81,6 +79,16 @@ export function CodexControls({
   });
   const selectedTask = eligibleTasks.find((task) => task.id === selectedTaskId) ?? null;
   const shouldStartReview = isReviewer && selectedTask?.status === "review";
+  const selectedTaskRunningSession = useMemo(() => {
+    if (!selectedTask) {
+      return null;
+    }
+
+    const expectedSessionKind = shouldStartReview ? "review" : "execution";
+    return employeeRuntime?.sessions.find((session) => (
+      session.task_id === selectedTask.id && session.session_kind === expectedSessionKind
+    )) ?? null;
+  }, [employeeRuntime?.sessions, selectedTask, shouldStartReview]);
 
   useEffect(() => {
     if (!showTaskDialog) {
@@ -90,7 +98,6 @@ export function CodexControls({
     }
 
     let cancelled = false;
-
     setTaskDialogLoading(true);
     void Promise.all([fetchTasks(currentProjectId), fetchProjects()])
       .catch((error) => {
@@ -133,6 +140,7 @@ export function CodexControls({
     const startAsReview = isReviewer && selectedTask.status === "review";
     const sessionKind = startAsReview ? "review" : "execution";
     setActionLoading("start");
+
     try {
       if (startAsReview) {
         if (selectedTask.reviewer_id !== employeeId) {
@@ -140,10 +148,9 @@ export function CodexControls({
         }
 
         await updateEmployeeStatus(employeeId, "busy");
-        setCodexRunning(employeeId, true, selectedTask.id);
-        clearCodexOutput(employeeId);
         clearTaskCodexOutput(selectedTask.id, "review");
         await startTaskCodeReview(selectedTask.id);
+        await refreshEmployeeRuntimeStatus(employeeId);
         setShowTaskDialog(false);
         return;
       }
@@ -154,8 +161,6 @@ export function CodexControls({
 
       await updateEmployeeStatus(employeeId, "busy");
       await updateTaskStatus(selectedTask.id, "in_progress");
-      setCodexRunning(employeeId, true, selectedTask.id);
-      clearCodexOutput(employeeId);
       clearTaskCodexOutput(selectedTask.id);
       await Promise.all([fetchSubtasks(selectedTask.id), fetchAttachments(selectedTask.id)]);
 
@@ -165,54 +170,34 @@ export function CodexControls({
         subtasks: useTaskStore.getState().subtasks[selectedTask.id] ?? [],
         attachments: useTaskStore.getState().attachments[selectedTask.id] ?? [],
       });
+      let workingDir = getProjectRepoPath(selectedTask);
+      let taskGitContextId: string | undefined;
+
+      if (selectedTask.use_worktree) {
+        const prepared = await prepareTaskGitExecution(selectedTask.id);
+        workingDir = prepared.working_dir;
+        taskGitContextId = prepared.task_git_context_id;
+      }
 
       await startCodex(employeeId, executionInput.prompt, {
         model,
         reasoningEffort,
         systemPrompt,
-        workingDir: getProjectRepoPath(selectedTask),
+        workingDir,
         taskId: selectedTask.id,
+        taskGitContextId,
         imagePaths: executionInput.imagePaths,
       });
+      await refreshEmployeeRuntimeStatus(employeeId);
       setShowTaskDialog(false);
-    } catch (e) {
-      const message = e instanceof Error ? e.message : String(e);
-      console.error("Failed to start task:", e);
-      setCodexRunning(employeeId, false, null);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.error("Failed to start task:", error);
       addCodexOutput(employeeId, `[ERROR] ${message}`, selectedTask.id, sessionKind);
-      await refreshCodexRuntimeStatus(employeeId);
-    } finally {
-      setActionLoading(null);
-    }
-  };
-
-  const handleStop = async () => {
-    setActionLoading("stop");
-    try {
-      await stopCodex(employeeId);
-      setCodexRunning(employeeId, false, null);
-      await refreshCodexRuntimeStatus(employeeId);
-    } catch (e) {
-      console.error("Failed to stop codex:", e);
-      addCodexOutput(employeeId, `[ERROR] ${String(e)}`);
-      await refreshCodexRuntimeStatus(employeeId);
-    }
-    setActionLoading(null);
-  };
-
-  const handleRestart = async () => {
-    if (!taskDescription.trim()) {
-      return;
-    }
-    setActionLoading("restart");
-    try {
-      setCodexRunning(employeeId, true, null);
-      await restartCodex(employeeId, taskDescription.trim(), { model, reasoningEffort, systemPrompt });
-      setTaskDescription("");
-    } catch (e) {
-      console.error("Failed to restart codex:", e);
-      setCodexRunning(employeeId, false, null);
-      addCodexOutput(employeeId, `[ERROR] ${String(e)}`);
+      const runtime = await refreshEmployeeRuntimeStatus(employeeId);
+      if (!runtime?.running) {
+        await updateEmployeeStatus(employeeId, "error");
+      }
     } finally {
       setActionLoading(null);
     }
@@ -221,47 +206,16 @@ export function CodexControls({
   return (
     <>
       <div className="flex items-center gap-1.5">
-        {!isRunning ? (
-          <button
-            onClick={() => setShowTaskDialog(true)}
-            disabled={actionLoading !== null}
-            className="flex items-center gap-1 px-2 py-1 text-xs bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-50 transition-colors"
-          >
-            {actionLoading === "start" ? <Loader2 className="h-3 w-3 animate-spin" /> : <Play className="h-3 w-3" />}
-            启动
-          </button>
-        ) : (
-          <>
-            <button
-              onClick={handleStop}
-              disabled={actionLoading !== null}
-              className="flex items-center gap-1 px-2 py-1 text-xs bg-red-600 text-white rounded hover:bg-red-700 disabled:opacity-50 transition-colors"
-            >
-              {actionLoading === "stop" ? <Loader2 className="h-3 w-3 animate-spin" /> : <Square className="h-3 w-3" />}
-              停止
-            </button>
-            <button
-              onClick={handleRestart}
-              disabled={actionLoading !== null}
-              className="flex items-center gap-1 px-2 py-1 text-xs bg-yellow-600 text-white rounded hover:bg-yellow-700 disabled:opacity-50 transition-colors"
-            >
-              {actionLoading === "restart" ? <Loader2 className="h-3 w-3 animate-spin" /> : <RotateCw className="h-3 w-3" />}
-              重启
-            </button>
-          </>
-        )}
-
-        {isRunning && (
-          <input
-            type="text"
-            value={taskDescription}
-            onChange={(e) => setTaskDescription(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && handleRestart()}
-            placeholder="新任务描述（重启用）"
-            className="flex-1 px-2 py-1 text-xs border border-input rounded bg-background ml-1"
-          />
-        )}
+        <button
+          onClick={() => setShowTaskDialog(true)}
+          disabled={actionLoading !== null}
+          className="flex items-center gap-1 px-2 py-1 text-xs bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-50 transition-colors"
+        >
+          {actionLoading === "start" ? <Loader2 className="h-3 w-3 animate-spin" /> : <Play className="h-3 w-3" />}
+          启动
+        </button>
       </div>
+
       <Dialog
         open={showTaskDialog}
         onOpenChange={(open) => {
@@ -314,7 +268,7 @@ export function CodexControls({
                         "w-full rounded-lg border p-3 text-left transition-colors",
                         selectedTaskId === task.id
                           ? "border-primary bg-primary/5"
-                          : "border-border hover:bg-accent/50"
+                          : "border-border hover:bg-accent/50",
                       )}
                     >
                       <div className="flex items-start justify-between gap-3">
@@ -345,13 +299,15 @@ export function CodexControls({
               <div className="rounded-lg border border-border bg-muted/40 p-3 text-xs text-muted-foreground">
                 <div className="font-medium text-foreground">{selectedTask.title}</div>
                 <div className="mt-1">
-                  {shouldStartReview
-                    ? selectedTask.reviewer_id === employeeId
-                      ? "将以当前审查员身份发起该任务的代码审核。"
-                      : "启动时会自动将该任务改派给当前审查员，并发起代码审核。"
-                    : selectedTask.assignee_id
-                      ? "将继续使用当前员工负责该任务。"
-                      : "启动时会自动把该任务指派给当前员工。"}
+                  {selectedTaskRunningSession
+                    ? "该任务当前已有同类型运行会话，不能重复启动。"
+                    : shouldStartReview
+                      ? selectedTask.reviewer_id === employeeId
+                        ? "将以当前审查员身份发起该任务的代码审核。"
+                        : "启动时会自动将该任务改派给当前审查员，并发起代码审核。"
+                      : selectedTask.assignee_id
+                        ? "将继续使用当前员工负责该任务。"
+                        : "启动时会自动把该任务指派给当前员工。"}
                 </div>
               </div>
             )}
@@ -369,7 +325,7 @@ export function CodexControls({
             <button
               type="button"
               onClick={handleStart}
-              disabled={!selectedTask || taskDialogLoading || actionLoading === "start"}
+              disabled={!selectedTask || Boolean(selectedTaskRunningSession) || taskDialogLoading || actionLoading === "start"}
               className="flex h-8 items-center justify-center gap-1 rounded-lg bg-primary px-3 text-sm text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
             >
               {actionLoading === "start" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />}

@@ -1,7 +1,7 @@
 use super::*;
 
-pub(super) async fn persist_execution_change_history(
-    app: &AppHandle,
+pub(super) async fn persist_execution_change_history<R: Runtime>(
+    app: &AppHandle<R>,
     session_record_id: &str,
     session_kind: CodexSessionKind,
     provider: CodexExecutionProvider,
@@ -263,8 +263,8 @@ pub(super) async fn persist_execution_change_history(
     }
 }
 
-async fn finalize_stale_process_slot(
-    app: &AppHandle,
+async fn finalize_stale_process_slot<R: Runtime>(
+    app: &AppHandle<R>,
     session_record_id: &str,
     exit_code: Option<i32>,
     error_message: Option<&str>,
@@ -333,28 +333,11 @@ pub(super) fn cleanup_process_artifacts(paths: &[PathBuf]) {
     }
 }
 
-pub(super) async fn get_live_managed_process(
-    app: &AppHandle,
-    state: &State<'_, Arc<Mutex<CodexManager>>>,
-    employee_id: &str,
-) -> Result<Option<crate::codex::manager::ManagedCodexProcess>, String> {
-    get_live_managed_process_with_manager(app, state.inner(), employee_id).await
-}
-
-pub(super) async fn get_live_managed_process_with_manager(
-    app: &AppHandle,
+async fn validate_managed_process<R: Runtime>(
+    app: &AppHandle<R>,
     manager_state: &Arc<Mutex<CodexManager>>,
-    employee_id: &str,
+    process: crate::codex::manager::ManagedCodexProcess,
 ) -> Result<Option<crate::codex::manager::ManagedCodexProcess>, String> {
-    let process = {
-        let manager = manager_state.lock().map_err(|error| error.to_string())?;
-        manager.get_process(employee_id)
-    };
-
-    let Some(process) = process else {
-        return Ok(None);
-    };
-
     let status = {
         let mut child = process.child.lock().await;
         child.try_wait()
@@ -375,7 +358,7 @@ pub(super) async fn get_live_managed_process_with_manager(
             .await;
             cleanup_process_artifacts(&process.cleanup_paths);
             let mut manager = manager_state.lock().map_err(|error| error.to_string())?;
-            manager.remove_process(employee_id);
+            manager.remove_process(&process.session_record_id);
             Ok(None)
         }
         Err(error) => {
@@ -391,19 +374,112 @@ pub(super) async fn get_live_managed_process_with_manager(
             .await;
             cleanup_process_artifacts(&process.cleanup_paths);
             let mut manager = manager_state.lock().map_err(|error| error.to_string())?;
-            manager.remove_process(employee_id);
+            manager.remove_process(&process.session_record_id);
             Ok(None)
         }
     }
 }
 
-async fn wait_until_process_stops_with_manager(
-    app: &AppHandle,
+pub(super) async fn get_live_managed_process<R: Runtime>(
+    app: &AppHandle<R>,
+    state: &State<'_, Arc<Mutex<CodexManager>>>,
+    employee_id: &str,
+) -> Result<Option<crate::codex::manager::ManagedCodexProcess>, String> {
+    get_live_managed_process_with_manager(app, state.inner(), employee_id).await
+}
+
+pub(super) async fn get_live_managed_process_with_manager<R: Runtime>(
+    app: &AppHandle<R>,
     manager_state: &Arc<Mutex<CodexManager>>,
     employee_id: &str,
+) -> Result<Option<crate::codex::manager::ManagedCodexProcess>, String> {
+    let processes =
+        get_live_managed_processes_with_manager(app, manager_state, employee_id).await?;
+    Ok(processes.into_iter().next())
+}
+
+pub(super) async fn get_live_managed_process_by_session_with_manager<R: Runtime>(
+    app: &AppHandle<R>,
+    manager_state: &Arc<Mutex<CodexManager>>,
+    session_record_id: &str,
+) -> Result<Option<crate::codex::manager::ManagedCodexProcess>, String> {
+    let process = {
+        let manager = manager_state.lock().map_err(|error| error.to_string())?;
+        manager.get_process(session_record_id)
+    };
+
+    let Some(process) = process else {
+        return Ok(None);
+    };
+
+    validate_managed_process(app, manager_state, process).await
+}
+
+pub(super) async fn get_live_managed_processes_with_manager<R: Runtime>(
+    app: &AppHandle<R>,
+    manager_state: &Arc<Mutex<CodexManager>>,
+    employee_id: &str,
+) -> Result<Vec<crate::codex::manager::ManagedCodexProcess>, String> {
+    let processes = {
+        let manager = manager_state.lock().map_err(|error| error.to_string())?;
+        manager.get_employee_processes(employee_id)
+    };
+    let mut live_processes = Vec::with_capacity(processes.len());
+
+    for process in processes {
+        if let Some(process) = validate_managed_process(app, manager_state, process).await? {
+            live_processes.push(process);
+        }
+    }
+
+    Ok(live_processes)
+}
+
+pub(super) async fn get_live_task_process_with_manager<R: Runtime>(
+    app: &AppHandle<R>,
+    manager_state: &Arc<Mutex<CodexManager>>,
+    employee_id: &str,
+    task_id: &str,
+    session_kind: CodexSessionKind,
+) -> Result<Option<crate::codex::manager::ManagedCodexProcess>, String> {
+    let live_processes =
+        get_live_managed_processes_with_manager(app, manager_state, employee_id).await?;
+    Ok(live_processes.into_iter().find(|process| {
+        process.task_id.as_deref() == Some(task_id) && process.session_kind == session_kind
+    }))
+}
+
+pub(super) async fn get_live_task_process_by_task_with_manager<R: Runtime>(
+    app: &AppHandle<R>,
+    manager_state: &Arc<Mutex<CodexManager>>,
+    task_id: &str,
+    session_kind: CodexSessionKind,
+) -> Result<Option<crate::codex::manager::ManagedCodexProcess>, String> {
+    let processes = {
+        let manager = manager_state.lock().map_err(|error| error.to_string())?;
+        manager.get_processes()
+    };
+
+    for process in processes {
+        if process.task_id.as_deref() != Some(task_id) || process.session_kind != session_kind {
+            continue;
+        }
+
+        if let Some(process) = validate_managed_process(app, manager_state, process).await? {
+            return Ok(Some(process));
+        }
+    }
+
+    Ok(None)
+}
+
+async fn wait_until_process_stops_with_manager<R: Runtime>(
+    app: &AppHandle<R>,
+    manager_state: &Arc<Mutex<CodexManager>>,
+    session_record_id: &str,
 ) -> Result<(), String> {
     for _ in 0..STOP_WAIT_MAX_ATTEMPTS {
-        if get_live_managed_process_with_manager(app, manager_state, employee_id)
+        if get_live_managed_process_by_session_with_manager(app, manager_state, session_record_id)
             .await?
             .is_none()
         {
@@ -414,7 +490,7 @@ async fn wait_until_process_stops_with_manager(
 
     let process = {
         let mut manager = manager_state.lock().map_err(|error| error.to_string())?;
-        manager.remove_process(employee_id)
+        manager.remove_process(session_record_id)
     };
 
     if let Some(process) = process {
@@ -434,15 +510,16 @@ async fn wait_until_process_stops_with_manager(
     Ok(())
 }
 
-pub(super) async fn stop_managed_process_with_manager(
-    app: &AppHandle,
+pub(super) async fn stop_managed_process_with_manager<R: Runtime>(
+    app: &AppHandle<R>,
     manager_state: &Arc<Mutex<CodexManager>>,
-    employee_id: &str,
+    session_record_id: &str,
     event_type: &str,
     message: &str,
 ) -> Result<bool, String> {
     let running_process =
-        get_live_managed_process_with_manager(app, manager_state, employee_id).await?;
+        get_live_managed_process_by_session_with_manager(app, manager_state, session_record_id)
+            .await?;
 
     if let Some(process) = running_process {
         let pool = sqlite_pool(app).await?;
@@ -464,39 +541,44 @@ pub(super) async fn stop_managed_process_with_manager(
         }
         child.kill().await?;
         drop(child);
-        wait_until_process_stops_with_manager(app, manager_state, employee_id).await?;
+        wait_until_process_stops_with_manager(app, manager_state, &process.session_record_id)
+            .await?;
         return Ok(true);
     }
 
     Ok(false)
 }
 
-pub(crate) async fn stop_codex_for_automation_restart(
-    app: &AppHandle,
+pub(crate) async fn stop_codex_for_automation_restart<R: Runtime>(
+    app: &AppHandle<R>,
     employee_id: &str,
     expected_session_record_id: Option<&str>,
     message: &str,
 ) -> Result<bool, String> {
     let manager_state = app.state::<Arc<Mutex<CodexManager>>>().inner().clone();
-    let running_process =
-        get_live_managed_process_with_manager(app, &manager_state, employee_id).await?;
+    let Some(expected_session_record_id) = expected_session_record_id else {
+        return Err("当前自动化步骤缺少会话标识，无法安全重启".to_string());
+    };
+
+    let running_process = get_live_managed_process_by_session_with_manager(
+        app,
+        &manager_state,
+        expected_session_record_id,
+    )
+    .await?;
 
     let Some(process) = running_process else {
         return Ok(false);
     };
 
-    let Some(expected_session_record_id) = expected_session_record_id else {
-        return Err("当前自动化步骤缺少会话标识，无法安全重启".to_string());
-    };
-
-    if process.session_record_id != expected_session_record_id {
+    if process.employee_id != employee_id {
         return Err("当前员工正在执行其他任务，无法重启这条自动化步骤".to_string());
     }
 
     stop_managed_process_with_manager(
         app,
         &manager_state,
-        employee_id,
+        expected_session_record_id,
         "automation_restart_requested",
         message,
     )
@@ -508,7 +590,7 @@ pub struct CodexChild {
 }
 
 impl CodexChild {
-    pub(super) fn new(child: Child) -> Self {
+    pub(crate) fn new(child: Child) -> Self {
         Self { child }
     }
 

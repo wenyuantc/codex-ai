@@ -20,17 +20,18 @@ export function useTaskReviewActions({
   onError,
 }: UseTaskReviewActionsOptions) {
   const [loading, setLoading] = useState(false);
-  const codexProcesses = useEmployeeStore((state) => state.codexProcesses);
+  const employeeRuntime = useEmployeeStore((state) => (
+    reviewerId ? state.employeeRuntime[reviewerId] : undefined
+  ));
   const taskLogs = useEmployeeStore((state) => state.taskLogs);
   const updateEmployeeStatus = useEmployeeStore((state) => state.updateEmployeeStatus);
-  const setCodexRunning = useEmployeeStore((state) => state.setCodexRunning);
   const addCodexOutput = useEmployeeStore((state) => state.addCodexOutput);
   const clearTaskCodexOutput = useEmployeeStore((state) => state.clearTaskCodexOutput);
-  const refreshCodexRuntimeStatus = useEmployeeStore((state) => state.refreshCodexRuntimeStatus);
+  const refreshEmployeeRuntimeStatus = useEmployeeStore((state) => state.refreshEmployeeRuntimeStatus);
 
-  const isRunning = reviewerId
-    ? (codexProcesses[reviewerId]?.running ?? false) && codexProcesses[reviewerId]?.activeTaskId === task.id
-    : false;
+  const isRunning = Boolean(employeeRuntime?.sessions.find((session) => (
+    session.task_id === task.id && session.session_kind === "review"
+  )));
   const output = taskLogs[buildTaskLogKey(task.id, "review")] ?? [];
 
   const startReview = async () => {
@@ -41,15 +42,17 @@ export function useTaskReviewActions({
     setLoading(true);
     try {
       await updateEmployeeStatus(reviewerId, "busy");
-      setCodexRunning(reviewerId, true, task.id);
       clearTaskCodexOutput(task.id, "review");
       await startTaskCodeReview(task.id);
+      await refreshEmployeeRuntimeStatus(reviewerId);
       onStarted?.();
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       addCodexOutput(reviewerId, `[ERROR] ${message}`, task.id, "review");
-      setCodexRunning(reviewerId, false, null);
-      await refreshCodexRuntimeStatus(reviewerId);
+      const runtime = await refreshEmployeeRuntimeStatus(reviewerId);
+      if (!runtime?.running) {
+        await updateEmployeeStatus(reviewerId, "error");
+      }
       onError?.(message);
     } finally {
       setLoading(false);

@@ -120,8 +120,7 @@ export function SessionsPage() {
   const employees = useEmployeeStore((state) => state.employees);
   const fetchEmployees = useEmployeeStore((state) => state.fetchEmployees);
   const updateEmployeeStatus = useEmployeeStore((state) => state.updateEmployeeStatus);
-  const setCodexRunning = useEmployeeStore((state) => state.setCodexRunning);
-  const refreshCodexRuntimeStatus = useEmployeeStore((state) => state.refreshCodexRuntimeStatus);
+  const refreshEmployeeRuntimeStatus = useEmployeeStore((state) => state.refreshEmployeeRuntimeStatus);
 
   const environmentMode = useProjectStore((state) => state.environmentMode);
   const selectedSshConfigId = useProjectStore((state) => state.selectedSshConfigId);
@@ -321,7 +320,6 @@ export function SessionsPage() {
 
       const employee = employees.find((item) => item.id === preview.employee_id);
       await updateEmployeeStatus(preview.employee_id, "busy");
-      setCodexRunning(preview.employee_id, true, preview.task_id ?? null);
       await startCodex(preview.employee_id, prompt, {
         model: employee?.model,
         reasoningEffort: employee?.reasoning_effort,
@@ -332,6 +330,7 @@ export function SessionsPage() {
         resumeSessionId: preview.resolved_session_id,
         sessionKind: preview.session_kind ?? undefined,
       });
+      await refreshEmployeeRuntimeStatus(preview.employee_id);
 
       const sessionItems = await loadSessions(true);
       const resumedSession = sessionItems.find((item) => (
@@ -354,8 +353,10 @@ export function SessionsPage() {
       setLogDialogOpen(true);
     } catch (error) {
       if (continueSession.employee_id) {
-        setCodexRunning(continueSession.employee_id, false, null);
-        await refreshCodexRuntimeStatus(continueSession.employee_id);
+        const runtime = await refreshEmployeeRuntimeStatus(continueSession.employee_id);
+        if (!runtime?.running) {
+          await updateEmployeeStatus(continueSession.employee_id, "error");
+        }
       }
       setErrorMessage(error instanceof Error ? error.message : "发送续聊消息失败");
     } finally {

@@ -30,11 +30,11 @@ use crate::db::models::{
     CodexSessionListItem, CodexSessionLogLine, CodexSessionRecord, CodexSessionResumePreview,
     CodexSettings, Comment, CreateComment, CreateEmployee, CreateProject, CreateSshConfig,
     CreateSubtask, CreateTask, DatabaseBackupResult, DatabaseRestoreResult, Employee,
-    EmployeeMetric, GlobalSearchItem, GlobalSearchResponse, PasswordAuthProbeResult, Project,
-    ReviewVerdict, SearchGlobalPayload, SetTaskAutomationModePayload, SshConfig, SshConfigRecord,
-    Subtask, Task, TaskAttachment, TaskAutomationState, TaskAutomationStateRecord,
-    TaskExecutionChangeHistoryItem, TaskLatestReview, UpdateEmployee, UpdateProject,
-    UpdateSshConfig, UpdateTask,
+    EmployeeMetric, EmployeeRunningSession, EmployeeRuntimeStatus, GlobalSearchItem,
+    GlobalSearchResponse, PasswordAuthProbeResult, Project, ReviewVerdict, SearchGlobalPayload,
+    SetTaskAutomationModePayload, SshConfig, SshConfigRecord, Subtask, Task, TaskAttachment,
+    TaskAutomationState, TaskAutomationStateRecord, TaskExecutionChangeHistoryItem,
+    TaskLatestReview, UpdateEmployee, UpdateProject, UpdateSshConfig, UpdateTask,
 };
 use crate::process_spawn::configure_std_command;
 
@@ -2995,105 +2995,93 @@ pub fn open_database_folder<R: Runtime>(app: AppHandle<R>) -> Result<(), String>
         .map_err(|error| format!("打开数据库文件夹失败: {}", error))
 }
 
+async fn fetch_latest_employee_session<R: Runtime>(
+    app: &AppHandle<R>,
+    employee_id: &str,
+) -> Result<Option<CodexSessionRecord>, String> {
+    let pool = sqlite_pool(app).await?;
+    sqlx::query_as::<_, CodexSessionRecord>(
+        "SELECT * FROM codex_sessions WHERE employee_id = $1 ORDER BY started_at DESC LIMIT 1",
+    )
+    .bind(employee_id)
+    .fetch_optional(&pool)
+    .await
+    .map_err(|error| format!("Failed to fetch runtime status: {}", error))
+}
+
+async fn build_employee_runtime_status<R: Runtime>(
+    app: &AppHandle<R>,
+    manager_state: &Arc<Mutex<CodexManager>>,
+    employee_id: &str,
+) -> Result<EmployeeRuntimeStatus, String> {
+    let live_processes =
+        crate::codex::list_live_employee_processes(app, manager_state, employee_id).await?;
+    let pool = sqlite_pool(app).await?;
+    let latest_session = fetch_latest_employee_session(app, employee_id).await?;
+    let mut sessions = Vec::with_capacity(live_processes.len());
+
+    for process in live_processes {
+        let session = fetch_codex_session_by_id(app, &process.session_record_id).await?;
+        let task_title = if let Some(task_id) = session.task_id.as_deref() {
+            sqlx::query_scalar::<_, Option<String>>("SELECT title FROM tasks WHERE id = $1 LIMIT 1")
+                .bind(task_id)
+                .fetch_optional(&pool)
+                .await
+                .map_err(|error| format!("Failed to fetch task title: {}", error))?
+                .flatten()
+        } else {
+            None
+        };
+
+        sessions.push(EmployeeRunningSession {
+            session_record_id: session.id.clone(),
+            cli_session_id: session.cli_session_id.clone(),
+            task_id: session.task_id.clone(),
+            task_title,
+            session_kind: session.session_kind.clone(),
+            started_at: session.started_at.clone(),
+            status: session.status.clone(),
+        });
+    }
+
+    sessions.sort_by(|left, right| {
+        right
+            .started_at
+            .cmp(&left.started_at)
+            .then_with(|| right.session_record_id.cmp(&left.session_record_id))
+    });
+
+    Ok(EmployeeRuntimeStatus {
+        running: !sessions.is_empty(),
+        sessions,
+        latest_session,
+    })
+}
+
+#[tauri::command]
+pub async fn get_employee_runtime_status<R: Runtime>(
+    app: AppHandle<R>,
+    state: State<'_, Arc<Mutex<CodexManager>>>,
+    employee_id: String,
+) -> Result<EmployeeRuntimeStatus, String> {
+    build_employee_runtime_status(&app, state.inner(), &employee_id).await
+}
+
 #[tauri::command]
 pub async fn get_codex_session_status<R: Runtime>(
     app: AppHandle<R>,
     state: State<'_, Arc<Mutex<CodexManager>>>,
     employee_id: String,
 ) -> Result<CodexRuntimeStatus, String> {
-    let running_process = {
-        let manager = state.lock().map_err(|error| error.to_string())?;
-        manager.get_process(&employee_id)
-    };
-
-    let running_process = if let Some(process) = running_process {
-        let process_state = {
-            let mut child = process.child.lock().await;
-            child.try_wait()
-        };
-
-        match process_state {
-            Ok(None) => Some(process),
-            Ok(Some(exit_code)) => {
-                let current = fetch_codex_session_by_id(&app, &process.session_record_id)
-                    .await
-                    .ok();
-                if let Some(current) = current {
-                    if !matches!(current.status.as_str(), "exited" | "failed") {
-                        let final_status = if current.status == "stopping" || exit_code == 0 {
-                            "exited"
-                        } else {
-                            "failed"
-                        };
-                        let ended_at = now_sqlite();
-                        let _ = update_codex_session_record(
-                            &app,
-                            &process.session_record_id,
-                            Some(final_status),
-                            None,
-                            Some(Some(exit_code)),
-                            Some(Some(ended_at.as_str())),
-                        )
-                        .await;
-                    }
-                }
-
-                let mut manager = state.lock().map_err(|error| error.to_string())?;
-                manager.remove_process(&employee_id);
-                None
-            }
-            Err(error) => {
-                let current = fetch_codex_session_by_id(&app, &process.session_record_id)
-                    .await
-                    .ok();
-                if let Some(current) = current {
-                    if !matches!(current.status.as_str(), "exited" | "failed") {
-                        let ended_at = now_sqlite();
-                        let _ = update_codex_session_record(
-                            &app,
-                            &process.session_record_id,
-                            Some("failed"),
-                            None,
-                            Some(None),
-                            Some(Some(ended_at.as_str())),
-                        )
-                        .await;
-                        if let Ok(pool) = sqlite_pool(&app).await {
-                            let _ = insert_codex_session_event(
-                                &pool,
-                                &process.session_record_id,
-                                "session_failed",
-                                Some(&format!("运行态检查失败: {}", error)),
-                            )
-                            .await;
-                        }
-                    }
-                }
-
-                let mut manager = state.lock().map_err(|error| error.to_string())?;
-                manager.remove_process(&employee_id);
-                None
-            }
-        }
+    let runtime = build_employee_runtime_status(&app, state.inner(), &employee_id).await?;
+    let session = if let Some(running_session) = runtime.sessions.first() {
+        Some(fetch_codex_session_by_id(&app, &running_session.session_record_id).await?)
     } else {
-        None
-    };
-
-    let session = if let Some(process) = running_process.as_ref() {
-        Some(fetch_codex_session_by_id(&app, &process.session_record_id).await?)
-    } else {
-        let pool = sqlite_pool(&app).await?;
-        sqlx::query_as::<_, CodexSessionRecord>(
-            "SELECT * FROM codex_sessions WHERE employee_id = $1 ORDER BY started_at DESC LIMIT 1",
-        )
-        .bind(&employee_id)
-        .fetch_optional(&pool)
-        .await
-        .map_err(|error| format!("Failed to fetch runtime status: {}", error))?
+        runtime.latest_session
     };
 
     Ok(CodexRuntimeStatus {
-        running: running_process.is_some(),
+        running: runtime.running,
         session,
     })
 }
@@ -3103,7 +3091,8 @@ fn resolve_session_resume_state(
     employee_id: Option<&str>,
     employee_name: Option<&str>,
     status: &str,
-    employee_is_running: bool,
+    has_running_conflict: bool,
+    running_conflict_message: &str,
 ) -> (String, Option<String>, bool) {
     if cli_session_id.is_none() {
         return (
@@ -3129,15 +3118,19 @@ fn resolve_session_resume_state(
         );
     }
 
-    if employee_is_running {
+    if has_running_conflict {
         return (
             "running".to_string(),
-            Some("关联员工当前已有运行中的对话，请先停止后再继续。".to_string()),
+            Some(running_conflict_message.to_string()),
             false,
         );
     }
 
     ("ready".to_string(), None, true)
+}
+
+fn running_task_session_key(task_id: &str, session_kind: &str) -> String {
+    format!("{task_id}::{session_kind}")
 }
 
 fn format_session_log_line(event_type: &str, message: &str) -> Option<String> {
@@ -3834,32 +3827,53 @@ pub async fn list_codex_sessions<R: Runtime>(
     state: State<'_, Arc<Mutex<CodexManager>>>,
 ) -> Result<Vec<CodexSessionListItem>, String> {
     let mut items = query_codex_session_list(&app).await?;
-    let running_by_employee = {
-        let manager = state.lock().map_err(|error| error.to_string())?;
-        let mut running = HashMap::new();
-        for item in &items {
-            if let Some(employee_id) = item.employee_id.as_ref() {
-                running
-                    .entry(employee_id.clone())
-                    .or_insert_with(|| manager.is_running(employee_id));
+    let employee_ids = items
+        .iter()
+        .filter_map(|item| item.employee_id.clone())
+        .collect::<HashSet<_>>();
+    let mut running_by_employee = HashMap::new();
+    let mut running_by_task_session = HashSet::new();
+
+    for employee_id in employee_ids {
+        let live_processes =
+            crate::codex::list_live_employee_processes(&app, state.inner(), &employee_id).await?;
+        running_by_employee.insert(employee_id.clone(), !live_processes.is_empty());
+        for process in live_processes {
+            if let Some(task_id) = process.task_id.as_deref() {
+                running_by_task_session.insert(running_task_session_key(
+                    task_id,
+                    process.session_kind.as_str(),
+                ));
             }
         }
-        running
-    };
+    }
 
     for item in &mut items {
-        let employee_is_running = item
-            .employee_id
+        let has_running_conflict = item
+            .task_id
             .as_ref()
-            .and_then(|employee_id| running_by_employee.get(employee_id))
-            .copied()
-            .unwrap_or(false);
+            .map(|task_id| {
+                running_by_task_session
+                    .contains(&running_task_session_key(task_id, &item.session_kind))
+            })
+            .unwrap_or_else(|| {
+                item.employee_id
+                    .as_ref()
+                    .and_then(|employee_id| running_by_employee.get(employee_id))
+                    .copied()
+                    .unwrap_or(false)
+            });
         let (resume_status, resume_message, can_resume) = resolve_session_resume_state(
             item.cli_session_id.as_deref(),
             item.employee_id.as_deref(),
             item.employee_name.as_deref(),
             &item.status,
-            employee_is_running,
+            has_running_conflict,
+            if item.task_id.is_some() {
+                "关联任务当前已有运行中的对话，请先停止后再继续。"
+            } else {
+                "关联员工当前已有运行中的对话，请先停止后再继续。"
+            },
         );
         item.resume_status = resume_status;
         item.resume_message = resume_message;
@@ -3905,21 +3919,30 @@ pub async fn prepare_codex_session_resume<R: Runtime>(
         });
     };
 
-    let employee_is_running = item
-        .employee_id
-        .as_ref()
-        .map(|employee_id| {
-            let manager = state.lock().map_err(|error| error.to_string())?;
-            Ok::<bool, String>(manager.is_running(employee_id))
+    let live_processes = if let Some(employee_id) = item.employee_id.as_deref() {
+        crate::codex::list_live_employee_processes(&app, state.inner(), employee_id).await?
+    } else {
+        Vec::new()
+    };
+    let has_running_conflict = if let Some(task_id) = item.task_id.as_deref() {
+        live_processes.iter().any(|process| {
+            process.task_id.as_deref() == Some(task_id)
+                && process.session_kind.as_str() == item.session_kind
         })
-        .transpose()?
-        .unwrap_or(false);
+    } else {
+        !live_processes.is_empty()
+    };
     let (resume_status, resume_message, can_resume) = resolve_session_resume_state(
         item.cli_session_id.as_deref(),
         item.employee_id.as_deref(),
         item.employee_name.as_deref(),
         &item.status,
-        employee_is_running,
+        has_running_conflict,
+        if item.task_id.is_some() {
+            "关联任务当前已有运行中的对话，请先停止后再继续。"
+        } else {
+            "关联员工当前已有运行中的对话，请先停止后再继续。"
+        },
     );
 
     Ok(CodexSessionResumePreview {
@@ -5468,11 +5491,11 @@ pub async fn delete_employee<R: Runtime>(
     state: State<'_, Arc<Mutex<CodexManager>>>,
     id: String,
 ) -> Result<(), String> {
+    if !crate::codex::list_live_employee_processes(&app, state.inner(), &id)
+        .await?
+        .is_empty()
     {
-        let manager = state.lock().map_err(|error| error.to_string())?;
-        if manager.is_running(&id) {
-            return Err("员工仍有运行中的 Codex 会话，不能删除".to_string());
-        }
+        return Err("员工仍有运行中的 Codex 会话，不能删除".to_string());
     }
 
     let pool = sqlite_pool(&app).await?;
@@ -6870,8 +6893,14 @@ mod tests {
 
     #[test]
     fn session_resume_state_requires_cli_session_id() {
-        let (status, message, can_resume) =
-            resolve_session_resume_state(None, Some("emp-1"), Some("Alice"), "exited", false);
+        let (status, message, can_resume) = resolve_session_resume_state(
+            None,
+            Some("emp-1"),
+            Some("Alice"),
+            "exited",
+            false,
+            "关联任务当前已有运行中的对话，请先停止后再继续。",
+        );
 
         assert_eq!(status, "missing_cli_session");
         assert!(!can_resume);
@@ -6880,11 +6909,33 @@ mod tests {
 
     #[test]
     fn session_resume_state_blocks_when_employee_missing() {
-        let (status, _, can_resume) =
-            resolve_session_resume_state(Some("sess-1"), None, None, "exited", false);
+        let (status, _, can_resume) = resolve_session_resume_state(
+            Some("sess-1"),
+            None,
+            None,
+            "exited",
+            false,
+            "关联任务当前已有运行中的对话，请先停止后再继续。",
+        );
 
         assert_eq!(status, "missing_employee");
         assert!(!can_resume);
+    }
+
+    #[test]
+    fn session_resume_state_blocks_when_task_conflicts() {
+        let (status, message, can_resume) = resolve_session_resume_state(
+            Some("sess-1"),
+            Some("emp-1"),
+            Some("Alice"),
+            "exited",
+            true,
+            "关联任务当前已有运行中的对话，请先停止后再继续。",
+        );
+
+        assert_eq!(status, "running");
+        assert!(!can_resume);
+        assert!(message.unwrap_or_default().contains("关联任务"));
     }
 
     #[test]
@@ -6895,6 +6946,7 @@ mod tests {
             Some("Alice"),
             "exited",
             false,
+            "关联任务当前已有运行中的对话，请先停止后再继续。",
         );
 
         assert_eq!(status, "ready");

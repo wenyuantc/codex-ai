@@ -385,8 +385,8 @@ fn is_remote_absolute_path(value: &str) -> bool {
         || trimmed.starts_with("${HOME}/")
 }
 
-async fn run_remote_shell_output(
-    app: &AppHandle,
+async fn run_remote_shell_output<R: Runtime>(
+    app: &AppHandle<R>,
     ssh_config: &SshConfigRecord,
     script: &str,
 ) -> Result<std::process::Output, String> {
@@ -403,8 +403,8 @@ fn remote_snapshot_head_limit() -> u64 {
     FILE_CHANGE_TEXT_SNAPSHOT_BYTE_LIMIT.saturating_add(4)
 }
 
-pub(super) async fn resolve_remote_working_dir(
-    app: &AppHandle,
+pub(super) async fn resolve_remote_working_dir<R: Runtime>(
+    app: &AppHandle<R>,
     ssh_config: &SshConfigRecord,
     working_dir: &str,
 ) -> Result<String, String> {
@@ -431,8 +431,8 @@ pub(super) async fn resolve_remote_working_dir(
     }
 }
 
-async fn hash_remote_worktree_path(
-    app: &AppHandle,
+async fn hash_remote_worktree_path<R: Runtime>(
+    app: &AppHandle<R>,
     ssh_config: &SshConfigRecord,
     working_dir: &str,
     path: &str,
@@ -472,8 +472,8 @@ async fn hash_remote_worktree_path(
     }
 }
 
-async fn capture_remote_worktree_text_snapshot(
-    app: &AppHandle,
+async fn capture_remote_worktree_text_snapshot<R: Runtime>(
+    app: &AppHandle<R>,
     ssh_config: &SshConfigRecord,
     working_dir: &str,
     path: &str,
@@ -518,8 +518,8 @@ async fn capture_remote_worktree_text_snapshot(
     }
 }
 
-async fn capture_remote_git_head_text_snapshot(
-    app: &AppHandle,
+async fn capture_remote_git_head_text_snapshot<R: Runtime>(
+    app: &AppHandle<R>,
     ssh_config: &SshConfigRecord,
     working_dir: &str,
     path: &str,
@@ -550,8 +550,8 @@ async fn capture_remote_git_head_text_snapshot(
     }
 }
 
-async fn collect_remote_working_tree_snapshot_entries(
-    app: &AppHandle,
+async fn collect_remote_working_tree_snapshot_entries<R: Runtime>(
+    app: &AppHandle<R>,
     ssh_config: &SshConfigRecord,
     working_dir: &str,
     capture_text_snapshots: bool,
@@ -628,8 +628,8 @@ async fn collect_remote_working_tree_snapshot_entries(
     Ok(entries)
 }
 
-pub(super) async fn capture_remote_execution_change_baseline(
-    app: &AppHandle,
+pub(super) async fn capture_remote_execution_change_baseline<R: Runtime>(
+    app: &AppHandle<R>,
     ssh_config: &SshConfigRecord,
     working_dir: &str,
 ) -> Result<ExecutionChangeBaseline, String> {
@@ -648,8 +648,8 @@ pub(super) async fn capture_remote_execution_change_baseline(
     })
 }
 
-pub(super) async fn capture_remote_git_status_changes(
-    app: &AppHandle,
+pub(super) async fn capture_remote_git_status_changes<R: Runtime>(
+    app: &AppHandle<R>,
     ssh_config: &SshConfigRecord,
     working_dir: &str,
 ) -> Result<Vec<CodexSessionFileChangeInput>, String> {
@@ -677,8 +677,8 @@ pub(super) async fn capture_remote_git_status_changes(
     )
 }
 
-async fn build_remote_session_file_change_detail(
-    app: &AppHandle,
+async fn build_remote_session_file_change_detail<R: Runtime>(
+    app: &AppHandle<R>,
     ssh_config: &SshConfigRecord,
     working_dir: &str,
     baseline_entries: &HashMap<String, WorkingTreeSnapshotEntry>,
@@ -714,8 +714,8 @@ async fn build_remote_session_file_change_detail(
     }
 }
 
-pub(super) async fn attach_remote_session_file_change_details(
-    app: &AppHandle,
+pub(super) async fn attach_remote_session_file_change_details<R: Runtime>(
+    app: &AppHandle<R>,
     ssh_config: &SshConfigRecord,
     working_dir: &str,
     baseline_entries: &HashMap<String, WorkingTreeSnapshotEntry>,
@@ -745,8 +745,8 @@ pub(super) async fn attach_remote_session_file_change_details(
     detailed_changes
 }
 
-pub(super) async fn compute_remote_execution_session_file_changes(
-    app: &AppHandle,
+pub(super) async fn compute_remote_execution_session_file_changes<R: Runtime>(
+    app: &AppHandle<R>,
     ssh_config: &SshConfigRecord,
     baseline: &ExecutionChangeBaseline,
 ) -> Result<Vec<CodexSessionFileChangeInput>, String> {

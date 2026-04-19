@@ -6,20 +6,16 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Eraser } from "lucide-react";
 
 interface CodexTerminalProps {
-  employeeId?: string;
   taskId?: string;
   sessionRecordId?: string;
   sessionKind?: CodexSessionKind;
 }
 
-export function CodexTerminal({ employeeId, taskId, sessionRecordId, sessionKind = "execution" }: CodexTerminalProps) {
-  const codexProcesses = useEmployeeStore((s) => s.codexProcesses);
-  const clearCodexOutput = useEmployeeStore((s) => s.clearCodexOutput);
+export function CodexTerminal({ taskId, sessionRecordId, sessionKind = "execution" }: CodexTerminalProps) {
   const clearTaskCodexOutput = useEmployeeStore((s) => s.clearTaskCodexOutput);
   const clearSessionCodexOutput = useEmployeeStore((s) => s.clearSessionCodexOutput);
   const taskLogs = useEmployeeStore((s) => s.taskLogs);
   const sessionLogs = useEmployeeStore((s) => s.sessionLogs);
-  const process = employeeId ? codexProcesses[employeeId] : undefined;
   const output = sessionRecordId
     ? (sessionLogs[sessionRecordId] ?? []).map((entry) => ({
         key: entry.event_id,
@@ -27,7 +23,7 @@ export function CodexTerminal({ employeeId, taskId, sessionRecordId, sessionKind
       }))
     : (taskId
       ? taskLogs[buildTaskLogKey(taskId, sessionKind)] ?? []
-      : process?.output ?? []
+      : []
     ).map((line, index) => ({
       key: `${index}:${line}`,
       line,
@@ -57,11 +53,6 @@ export function CodexTerminal({ employeeId, taskId, sessionRecordId, sessionKind
 
             if (taskId) {
               clearTaskCodexOutput(taskId, sessionKind);
-              return;
-            }
-
-            if (employeeId) {
-              clearCodexOutput(employeeId);
             }
           }}
           className="p-0.5 text-zinc-500 hover:text-zinc-300 transition-colors"

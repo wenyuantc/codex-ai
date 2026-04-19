@@ -1,14 +1,13 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { CODEX_MODEL_OPTIONS, REASONING_EFFORT_OPTIONS, type Employee } from "@/lib/types";
 import { useEmployeeStore } from "@/stores/employeeStore";
 import { EmployeeStatusBadge } from "./EmployeeStatusBadge";
 import { DeleteEmployeeDialog } from "./DeleteEmployeeDialog";
 import { EditEmployeeDialog } from "./EditEmployeeDialog";
+import { EmployeeRunningSessionsDialog } from "./EmployeeRunningSessionsDialog";
 import { CodexControls } from "@/components/codex/CodexControls";
-import { CodexTerminal } from "@/components/codex/CodexTerminal";
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Progress } from "@/components/ui/progress";
-import { Trash2, Terminal, ChevronDown, Pencil } from "lucide-react";
+import { Trash2, Terminal, Pencil } from "lucide-react";
 
 interface EmployeeCardProps {
   employee: Employee;
@@ -21,26 +20,18 @@ const MAX_TASKS = 5;
 export function EmployeeCard({ employee, taskCount = 0, highlighted = false }: EmployeeCardProps) {
   const deleteEmployee = useEmployeeStore((s) => s.deleteEmployee);
   const updateEmployeeStatus = useEmployeeStore((s) => s.updateEmployeeStatus);
-  const clearCodexOutput = useEmployeeStore((s) => s.clearCodexOutput);
-  const isRunning = useEmployeeStore((s) => s.codexProcesses[employee.id]?.running ?? false);
-  const [showTerminal, setShowTerminal] = useState(false);
+  const runningSessions = useEmployeeStore((s) => s.employeeRuntime[employee.id]?.sessions ?? []);
   const [showEdit, setShowEdit] = useState(false);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const [showRunningDialog, setShowRunningDialog] = useState(false);
   const [deleting, setDeleting] = useState(false);
 
   const workload = Math.min((taskCount / MAX_TASKS) * 100, 100);
-
-  useEffect(() => {
-    if (isRunning) {
-      setShowTerminal(true);
-    }
-  }, [isRunning]);
 
   const handleDelete = async () => {
     setDeleting(true);
     try {
       await updateEmployeeStatus(employee.id, "offline");
-      clearCodexOutput(employee.id);
       await deleteEmployee(employee.id);
       setShowDeleteDialog(false);
     } finally {
@@ -107,22 +98,21 @@ export function EmployeeCard({ employee, taskCount = 0, highlighted = false }: E
         />
       </div>
 
-      {/* Terminal toggle */}
-      <Collapsible open={showTerminal} onOpenChange={setShowTerminal}>
-        <CollapsibleTrigger className="w-full flex items-center justify-center gap-1.5 px-4 py-1.5 text-xs text-muted-foreground hover:bg-accent/50 transition-colors border-t border-border">
-          <Terminal className="h-3 w-3" />
-          {showTerminal ? "收起日志" : "查看日志"}
-          <ChevronDown className={`h-3 w-3 transition-transform ${showTerminal ? "rotate-180" : ""}`} />
-        </CollapsibleTrigger>
-        <CollapsibleContent>
-          <div className="px-3 pb-3">
-            <CodexTerminal employeeId={employee.id} />
-          </div>
-        </CollapsibleContent>
-      </Collapsible>
+      {runningSessions.length > 0 && (
+        <div className="px-4 pb-3">
+          <button
+            type="button"
+            onClick={() => setShowRunningDialog(true)}
+            className="w-full flex items-center justify-center gap-1.5 rounded-md border border-border px-3 py-2 text-xs text-muted-foreground hover:bg-accent/50 transition-colors"
+          >
+            <Terminal className="h-3 w-3" />
+            查看运行终端
+          </button>
+        </div>
+      )}
 
       {/* Actions */}
-      <div className="px-4 pb-3 flex justify-end gap-2">
+      <div className="flex justify-end gap-2 border-t border-border px-4 pb-3 pt-3">
         <button
           onClick={() => setShowEdit(true)}
           className="p-1 text-muted-foreground transition-colors hover:text-foreground"
@@ -139,6 +129,13 @@ export function EmployeeCard({ employee, taskCount = 0, highlighted = false }: E
           <Trash2 className="h-3.5 w-3.5" />
         </button>
       </div>
+
+      <EmployeeRunningSessionsDialog
+        open={showRunningDialog}
+        employee={employee}
+        sessions={runningSessions}
+        onOpenChange={setShowRunningDialog}
+      />
 
       <EditEmployeeDialog
         open={showEdit}

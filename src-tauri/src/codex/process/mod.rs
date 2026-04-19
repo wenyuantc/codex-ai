@@ -7,7 +7,7 @@ use std::time::{Duration, SystemTime};
 
 use serde::Deserialize;
 use sqlx::SqlitePool;
-use tauri::{AppHandle, Emitter, Manager, State};
+use tauri::{AppHandle, Emitter, Manager, Runtime, State};
 use tokio::io::AsyncWriteExt;
 use tokio::process::Child;
 use tokio::time::sleep;
@@ -611,6 +611,33 @@ pub async fn start_codex(
     .await
 }
 
+pub async fn list_live_employee_processes<R: Runtime>(
+    app: &AppHandle<R>,
+    manager_state: &Arc<Mutex<CodexManager>>,
+    employee_id: &str,
+) -> Result<Vec<crate::codex::manager::ManagedCodexProcess>, String> {
+    get_live_managed_processes_with_manager(app, manager_state, employee_id).await
+}
+
+pub async fn get_live_task_process<R: Runtime>(
+    app: &AppHandle<R>,
+    manager_state: &Arc<Mutex<CodexManager>>,
+    employee_id: &str,
+    task_id: &str,
+    session_kind: CodexSessionKind,
+) -> Result<Option<crate::codex::manager::ManagedCodexProcess>, String> {
+    get_live_task_process_with_manager(app, manager_state, employee_id, task_id, session_kind).await
+}
+
+pub async fn get_live_task_process_by_task<R: Runtime>(
+    app: &AppHandle<R>,
+    manager_state: &Arc<Mutex<CodexManager>>,
+    task_id: &str,
+    session_kind: CodexSessionKind,
+) -> Result<Option<crate::codex::manager::ManagedCodexProcess>, String> {
+    get_live_task_process_by_task_with_manager(app, manager_state, task_id, session_kind).await
+}
+
 pub async fn start_codex_with_manager(
     app: AppHandle,
     manager_state: Arc<Mutex<CodexManager>>,
@@ -628,12 +655,25 @@ pub async fn start_codex_with_manager(
 ) -> Result<(), String> {
     let session_kind = normalize_session_kind(session_kind.as_deref());
 
-    // Check if already running
-    if get_live_managed_process_with_manager(&app, &manager_state, &employee_id)
+    if let Some(task_id) = task_id.as_deref() {
+        if get_live_task_process_by_task_with_manager(&app, &manager_state, task_id, session_kind)
+            .await?
+            .is_some()
+        {
+            return Err(format!(
+                "任务{}的{}会话已在运行",
+                task_id,
+                session_kind.as_str()
+            ));
+        }
+    } else if get_live_managed_process_with_manager(&app, &manager_state, &employee_id)
         .await?
         .is_some()
     {
-        return Err(format!("员工{}的Codex实例已在运行", employee_id));
+        return Err(format!(
+            "员工{}已有未绑定任务的 Codex 会话在运行",
+            employee_id
+        ));
     }
 
     let execution_context =
@@ -947,6 +987,8 @@ pub async fn start_codex_with_manager(
         let mut manager = manager_state.lock().map_err(|e| e.to_string())?;
         manager.add_process(
             employee_id.clone(),
+            task_id.clone(),
+            session_kind,
             child_handle.clone(),
             session_record.id.clone(),
             provider,
@@ -1018,15 +1060,15 @@ pub async fn start_codex_with_manager(
 }
 
 #[tauri::command]
-pub async fn stop_codex(
+pub async fn stop_codex_session(
     app: AppHandle,
     state: State<'_, Arc<Mutex<CodexManager>>>,
-    employee_id: String,
+    session_record_id: String,
 ) -> Result<(), String> {
     if stop_managed_process_with_manager(
         &app,
         state.inner(),
-        &employee_id,
+        &session_record_id,
         "stopping_requested",
         "收到停止请求",
     )
@@ -1035,9 +1077,37 @@ pub async fn stop_codex(
         Ok(())
     } else {
         Err(format!(
+            "No running codex instance for session {}",
+            session_record_id
+        ))
+    }
+}
+
+#[tauri::command]
+pub async fn stop_codex(
+    app: AppHandle,
+    state: State<'_, Arc<Mutex<CodexManager>>>,
+    employee_id: String,
+) -> Result<(), String> {
+    let live_processes =
+        get_live_managed_processes_with_manager(&app, state.inner(), &employee_id).await?;
+    if live_processes.is_empty() {
+        Err(format!(
             "No running codex instance for employee {}",
             employee_id
         ))
+    } else {
+        for process in live_processes {
+            stop_managed_process_with_manager(
+                &app,
+                state.inner(),
+                &process.session_record_id,
+                "stopping_requested",
+                "收到停止请求",
+            )
+            .await?;
+        }
+        Ok(())
     }
 }
 
@@ -1053,15 +1123,13 @@ pub async fn restart_codex(
     working_dir: Option<String>,
     task_git_context_id: Option<String>,
 ) -> Result<(), String> {
-    let is_running = get_live_managed_process(&app, &state, &employee_id)
-        .await?
-        .is_some();
-
-    if is_running {
+    let live_processes =
+        get_live_managed_processes_with_manager(&app, state.inner(), &employee_id).await?;
+    for process in live_processes {
         stop_managed_process_with_manager(
             &app,
             state.inner(),
-            &employee_id,
+            &process.session_record_id,
             "restart_requested",
             "收到重启请求",
         )
@@ -1093,7 +1161,7 @@ pub async fn send_codex_input(
     _input: String,
 ) -> Result<(), String> {
     let manager = state.lock().map_err(|e| e.to_string())?;
-    if manager.is_running(&employee_id) {
+    if manager.has_employee_processes(&employee_id) {
         Err("Cannot write to stdin in non-interactive mode".to_string())
     } else {
         Err(format!(

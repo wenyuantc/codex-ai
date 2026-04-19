@@ -85,6 +85,10 @@ export async function stopCodex(employeeId: string): Promise<void> {
   await invoke("stop_codex", { employeeId });
 }
 
+export async function stopCodexSession(sessionRecordId: string): Promise<void> {
+  await invoke("stop_codex_session", { sessionRecordId });
+}
+
 export async function restartCodex(employeeId: string, taskDescription: string, options: StartCodexOptions = {}): Promise<void> {
   await invoke("restart_codex", {
     employeeId,
