@@ -11,8 +11,6 @@ const COMMIT_MESSAGE_PROCESS_TERMS: &[&str] = &[
     "暂存",
     "已暂存",
     "工作区",
-    "提交信息",
-    "commit message",
     "核对",
     "文件列表",
     "待提交文件",
@@ -46,6 +44,33 @@ fn normalize_generated_commit_message(raw: &str) -> Result<String, String> {
     Ok(normalized)
 }
 
+pub(crate) fn validate_generated_commit_message(
+    message: &str,
+    ai_commit_message_length: &str,
+) -> Result<(), String> {
+    let mut errors = Vec::new();
+
+    if commit_message_uses_process_language(message) {
+        errors.push("它在描述提交流程，而不是实际改动".to_string());
+    }
+
+    if ai_commit_message_length == "title_only" {
+        let non_empty_line_count = message
+            .lines()
+            .filter(|line| !line.trim().is_empty())
+            .count();
+        if non_empty_line_count > 1 {
+            errors.push("它没有遵守“仅标题”设置，输出了多行内容".to_string());
+        }
+    }
+
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(errors.join("；"))
+    }
+}
+
 pub(crate) fn commit_message_uses_process_language(message: &str) -> bool {
     let subject = message
         .lines()
@@ -60,16 +85,30 @@ pub(crate) fn commit_message_uses_process_language(message: &str) -> bool {
             .any(|term| subject.contains(&term.to_lowercase()))
 }
 
-fn build_commit_message_retry_prompt(base_prompt: &str, previous_message: &str) -> String {
+fn build_commit_message_retry_prompt(
+    base_prompt: &str,
+    previous_message: &str,
+    validation_error: &str,
+    ai_commit_message_length: &str,
+) -> String {
+    let length_requirement = if ai_commit_message_length == "title_only" {
+        "- 本次长度配置为“仅标题”，只能输出单行 Conventional Commits 标题，不要附带正文\n"
+    } else {
+        ""
+    };
     format!(
         "{base_prompt}\n\n\
-上一次输出不合格，因为它在描述提交流程，而不是实际改动：\n\
+上一次输出不合格，因为{validation_error}：\n\
 {previous_message}\n\n\
 请重新生成，并严格遵守以下附加要求：\n\
 - 只描述真实代码或产品改动结果，不要描述暂存、提交、核对、整理文件等过程\n\
 - 标题必须像“调整首页文案”“修复任务状态刷新”这样表达真实变化\n\
 - 如果无法判断是 feat 还是 fix，优先根据用户可见变化选择，不要默认写成 chore\n\
-- 不要复用上一次输出中的过程词"
+- 不要复用上一次输出中的不合格结构或措辞\n\
+- 返回前先自检是否满足当前长度配置\n\
+- 如果长度配置要求仅标题，就不要输出空行\n\
+- 不要复用上一次输出中的过程词\n\
+{length_requirement}"
     )
 }
 
@@ -129,11 +168,19 @@ pub(crate) async fn generate_commit_message_for_project<R: Runtime>(
     )
     .await?;
     let normalized = normalize_generated_commit_message(&raw)?;
-    if !commit_message_uses_process_language(&normalized) {
-        return Ok(normalized);
-    }
-
-    let retry_prompt = build_commit_message_retry_prompt(&prompt, &normalized);
+    let validation_error = match validate_generated_commit_message(
+        &normalized,
+        &settings.git_preferences.ai_commit_message_length,
+    ) {
+        Ok(()) => return Ok(normalized),
+        Err(error) => error,
+    };
+    let retry_prompt = build_commit_message_retry_prompt(
+        &prompt,
+        &normalized,
+        &validation_error,
+        &settings.git_preferences.ai_commit_message_length,
+    );
     let retried_raw = run_ai_command(
         app,
         retry_prompt,
@@ -146,11 +193,16 @@ pub(crate) async fn generate_commit_message_for_project<R: Runtime>(
     )
     .await?;
     let retried = normalize_generated_commit_message(&retried_raw)?;
-    if commit_message_uses_process_language(&retried) {
-        return Err("AI 生成的提交信息仍在描述暂存或提交流程，请手动确认后再提交".to_string());
+    if validate_generated_commit_message(&retried, &settings.git_preferences.ai_commit_message_length)
+        .is_ok()
+    {
+        return Ok(retried);
     }
 
-    Ok(retried)
+    Err(format!(
+        "AI 生成的提交信息仍不符合要求（{}），请手动确认后再提交",
+        settings.git_preferences.ai_commit_message_length
+    ))
 }
 
 #[tauri::command]

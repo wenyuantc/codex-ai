@@ -12,9 +12,9 @@ use super::{
     extract_session_id_from_output, format_session_prompt_log, hash_worktree_path, normalize_model,
     normalize_session_file_change_paths, parse_ai_subtasks_response, parse_cli_json_event_line,
     parse_sdk_bridge_output, parse_sdk_file_change_event, sdk_codex_path_override_allowed_for_os,
-    should_capture_execution_change_baseline, CliJsonOutputFlag, CliJsonStreamState,
-    CodexExecutionProvider, CodexSessionKind, TextSnapshot, WorkingTreeSnapshotEntry,
-    EXECUTION_TARGET_LOCAL, EXECUTION_TARGET_SSH,
+    should_capture_execution_change_baseline, validate_generated_commit_message,
+    CliJsonOutputFlag, CliJsonStreamState, CodexExecutionProvider, CodexSessionKind,
+    TextSnapshot, WorkingTreeSnapshotEntry, EXECUTION_TARGET_LOCAL, EXECUTION_TARGET_SSH,
 };
 use crate::db::models::CodexSessionFileChangeInput;
 
@@ -481,6 +481,32 @@ fn builds_title_only_commit_message_prompt() {
     assert!(prompt.contains("本次长度配置为“仅标题”"));
     assert!(prompt.contains("只输出单行标题，不要返回项目符号或多段内容"));
     assert!(!prompt.contains("补充 2 到 4 行正文"));
+}
+
+#[test]
+fn title_only_commit_message_rejects_multiline_output() {
+    let error = validate_generated_commit_message(
+        "feat: 调整设置入口\n\n补充提交详情",
+        "title_only",
+    )
+    .expect_err("title_only should reject multi-line output");
+
+    assert!(error.contains("仅标题"));
+}
+
+#[test]
+fn title_with_body_commit_message_accepts_multiline_output() {
+    validate_generated_commit_message("feat: 调整设置入口\n\n补充提交详情", "title_with_body")
+        .expect("title_with_body should allow body lines");
+}
+
+#[test]
+fn commit_related_subject_is_not_treated_as_process_language_by_itself() {
+    validate_generated_commit_message(
+        "fix: 收紧提交信息生成校验\n\n避免仅标题模式误收多行正文",
+        "title_with_body",
+    )
+    .expect("commit-related product change should be allowed");
 }
 
 #[test]

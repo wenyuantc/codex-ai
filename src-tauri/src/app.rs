@@ -5620,7 +5620,7 @@ pub async fn create_task<R: Runtime>(
         project.ssh_config_id.as_deref(),
         || load_codex_settings(&app),
         |ssh_config_id| load_remote_codex_settings(&app, ssh_config_id),
-    )?;
+    );
     let automation_mode = settings
         .as_ref()
         .filter(|settings| settings.task_automation_default_enabled)
@@ -5826,18 +5826,20 @@ fn resolve_project_task_default_settings<T, LocalLoader, RemoteLoader>(
     ssh_config_id: Option<&str>,
     load_local_settings: LocalLoader,
     load_remote_settings: RemoteLoader,
-) -> Result<Option<T>, String>
+) -> Option<T>
 where
     LocalLoader: FnOnce() -> Result<T, String>,
     RemoteLoader: FnOnce(&str) -> Result<T, String>,
 {
     if project_type == PROJECT_TYPE_SSH {
-        let ssh_config_id = ssh_config_id
-            .ok_or_else(|| "SSH 项目缺少对应的 SSH 配置，无法读取任务默认设置".to_string())?;
-        return Ok(Some(load_remote_settings(ssh_config_id)?));
+        if let Some(ssh_config_id) = ssh_config_id {
+            if let Ok(settings) = load_remote_settings(ssh_config_id) {
+                return Some(settings);
+            }
+        }
     }
 
-    Ok(load_local_settings().ok())
+    load_local_settings().ok()
 }
 
 #[tauri::command]
@@ -6660,29 +6662,27 @@ mod tests {
     }
 
     #[test]
-    fn resolve_project_task_default_settings_returns_remote_error_for_ssh_project() {
-        let error = resolve_project_task_default_settings(
+    fn resolve_project_task_default_settings_falls_back_to_local_when_remote_load_fails() {
+        let settings = resolve_project_task_default_settings(
             PROJECT_TYPE_SSH,
             Some("ssh-1"),
             || Ok("local".to_string()),
             |_| Err("remote settings broken".to_string()),
-        )
-        .expect_err("ssh project should surface remote settings error");
+        );
 
-        assert_eq!(error, "remote settings broken");
+        assert_eq!(settings.as_deref(), Some("local"));
     }
 
     #[test]
-    fn resolve_project_task_default_settings_requires_ssh_config_for_ssh_project() {
-        let error = resolve_project_task_default_settings(
+    fn resolve_project_task_default_settings_falls_back_to_local_when_ssh_config_missing() {
+        let settings = resolve_project_task_default_settings(
             PROJECT_TYPE_SSH,
             None,
             || Ok("local".to_string()),
             |_| Ok("remote".to_string()),
-        )
-        .expect_err("ssh project without ssh config should fail");
+        );
 
-        assert!(error.contains("SSH 配置"));
+        assert_eq!(settings.as_deref(), Some("local"));
     }
 
     #[test]
@@ -6692,8 +6692,7 @@ mod tests {
             None,
             || Err("local settings broken".to_string()),
             |_| Ok("remote".to_string()),
-        )
-        .expect("local project should still tolerate local settings error");
+        );
 
         assert!(settings.is_none());
     }
