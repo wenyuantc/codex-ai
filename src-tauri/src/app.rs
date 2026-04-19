@@ -22,7 +22,7 @@ use crate::codex::{
     delete_secret_value, determine_effective_provider, ensure_supported_node_version,
     inspect_sdk_runtime, load_codex_settings, load_remote_codex_settings, new_codex_command,
     new_ssh_command, resolve_secret_value, store_secret_value, sweep_orphan_secret_refs,
-    CodexManager,
+    CodexManager, CodexSessionKind,
 };
 use crate::db::models::{
     CodexHealthCheck, CodexOutput, CodexRuntimeStatus, CodexSessionFileChange,
@@ -3133,6 +3133,50 @@ fn running_task_session_key(task_id: &str, session_kind: &str) -> String {
     format!("{task_id}::{session_kind}")
 }
 
+fn resolve_session_kind(session_kind: &str) -> CodexSessionKind {
+    match session_kind {
+        "review" => CodexSessionKind::Review,
+        _ => CodexSessionKind::Execution,
+    }
+}
+
+fn resolve_running_conflict_message(task_id: Option<&str>) -> &'static str {
+    if task_id.is_some() {
+        "关联任务当前已有运行中的对话，请先停止后再继续。"
+    } else {
+        "关联员工当前已有运行中的对话，请先停止后再继续。"
+    }
+}
+
+async fn has_running_session_conflict<R: Runtime>(
+    app: &AppHandle<R>,
+    manager_state: &Arc<Mutex<CodexManager>>,
+    employee_id: Option<&str>,
+    task_id: Option<&str>,
+    session_kind: &str,
+) -> Result<bool, String> {
+    if let Some(task_id) = task_id {
+        return Ok(crate::codex::get_live_task_process_by_task(
+            app,
+            manager_state,
+            task_id,
+            resolve_session_kind(session_kind),
+        )
+        .await?
+        .is_some());
+    }
+
+    let Some(employee_id) = employee_id else {
+        return Ok(false);
+    };
+
+    Ok(
+        !crate::codex::list_live_employee_processes(app, manager_state, employee_id)
+            .await?
+            .is_empty(),
+    )
+}
+
 fn format_session_log_line(event_type: &str, message: &str) -> Option<String> {
     let preserved = message.trim_end_matches(['\r', '\n']);
     if preserved.trim().is_empty() {
@@ -3869,11 +3913,7 @@ pub async fn list_codex_sessions<R: Runtime>(
             item.employee_name.as_deref(),
             &item.status,
             has_running_conflict,
-            if item.task_id.is_some() {
-                "关联任务当前已有运行中的对话，请先停止后再继续。"
-            } else {
-                "关联员工当前已有运行中的对话，请先停止后再继续。"
-            },
+            resolve_running_conflict_message(item.task_id.as_deref()),
         );
         item.resume_status = resume_status;
         item.resume_message = resume_message;
@@ -3919,30 +3959,21 @@ pub async fn prepare_codex_session_resume<R: Runtime>(
         });
     };
 
-    let live_processes = if let Some(employee_id) = item.employee_id.as_deref() {
-        crate::codex::list_live_employee_processes(&app, state.inner(), employee_id).await?
-    } else {
-        Vec::new()
-    };
-    let has_running_conflict = if let Some(task_id) = item.task_id.as_deref() {
-        live_processes.iter().any(|process| {
-            process.task_id.as_deref() == Some(task_id)
-                && process.session_kind.as_str() == item.session_kind
-        })
-    } else {
-        !live_processes.is_empty()
-    };
+    let has_running_conflict = has_running_session_conflict(
+        &app,
+        state.inner(),
+        item.employee_id.as_deref(),
+        item.task_id.as_deref(),
+        &item.session_kind,
+    )
+    .await?;
     let (resume_status, resume_message, can_resume) = resolve_session_resume_state(
         item.cli_session_id.as_deref(),
         item.employee_id.as_deref(),
         item.employee_name.as_deref(),
         &item.status,
         has_running_conflict,
-        if item.task_id.is_some() {
-            "关联任务当前已有运行中的对话，请先停止后再继续。"
-        } else {
-            "关联员工当前已有运行中的对话，请先停止后再继续。"
-        },
+        resolve_running_conflict_message(item.task_id.as_deref()),
     );
 
     Ok(CodexSessionResumePreview {
