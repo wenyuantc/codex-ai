@@ -10,10 +10,10 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
 }
 
-export function formatDate(dateStr: string): string {
+export function parseDateValue(dateStr: string): Date | null {
   const trimmed = dateStr.trim();
   if (!trimmed) {
-    return dateStr;
+    return null;
   }
 
   const normalized = trimmed.includes("T") ? trimmed : trimmed.replace(" ", "T");
@@ -22,7 +22,12 @@ export function formatDate(dateStr: string): string {
     : `${normalized}Z`;
   const parsed = new Date(withTimezone);
 
-  return Number.isNaN(parsed.getTime()) ? dateStr : parsed.toLocaleString("zh-CN");
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+export function formatDate(dateStr: string): string {
+  const parsed = parseDateValue(dateStr);
+  return parsed ? parsed.toLocaleString("zh-CN") : dateStr;
 }
 
 export function getStatusColor(status: string): string {
