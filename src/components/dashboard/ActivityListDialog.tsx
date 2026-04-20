@@ -226,7 +226,19 @@ export function ActivityListDialog({
                 }))}
               >
                 <SelectTrigger className="bg-background">
-                  <SelectValue />
+                  <SelectValue>
+                    {(value) => {
+                      if (value === ALL_PROJECTS_VALUE) {
+                        return "全部项目";
+                      }
+
+                      if (typeof value === "string") {
+                        return projectOptions.find((project) => project.id === value)?.name ?? value;
+                      }
+
+                      return "全部项目";
+                    }}
+                  </SelectValue>
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value={ALL_PROJECTS_VALUE}>全部项目</SelectItem>
@@ -249,7 +261,19 @@ export function ActivityListDialog({
                 }))}
               >
                 <SelectTrigger className="bg-background">
-                  <SelectValue />
+                  <SelectValue>
+                    {(value) => {
+                      if (value === ALL_ACTIONS_VALUE) {
+                        return "全部类型";
+                      }
+
+                      if (typeof value === "string") {
+                        return getActivityActionLabel(value);
+                      }
+
+                      return "全部类型";
+                    }}
+                  </SelectValue>
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value={ALL_ACTIONS_VALUE}>全部类型</SelectItem>
