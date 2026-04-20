@@ -3,6 +3,7 @@ mod codex;
 mod db;
 mod git_runtime;
 mod git_workflow;
+mod notifications;
 mod process_spawn;
 mod task_automation;
 mod tray;
@@ -54,6 +55,7 @@ pub fn run() {
             app::open_database_folder,
             app::get_employee_runtime_status,
             app::get_codex_session_status,
+            app::sync_system_notifications,
             app::search_global,
             app::list_codex_sessions,
             app::prepare_codex_session_resume,
@@ -115,6 +117,9 @@ pub fn run() {
             app::update_subtask_status,
             app::delete_subtask,
             app::create_comment,
+            notifications::list_notifications,
+            notifications::mark_notification_read,
+            notifications::mark_all_notifications_read,
             codex::get_codex_settings,
             codex::get_remote_codex_settings,
             codex::update_codex_settings,

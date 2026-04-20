@@ -22,6 +22,8 @@ const SSH_GLOBAL_ACTIVITY_ACTIONS = new Set([
   "remote_session_artifact_limited",
   "remote_artifact_capture_limited",
   "global_search_navigated",
+  "notification_created",
+  "notification_resolved",
 ]);
 
 interface DashboardStats {
@@ -32,6 +34,8 @@ interface DashboardStats {
   totalEmployees: number;
   onlineEmployees: number;
   completionRate: number;
+  unreadNotifications: number;
+  highSeverityNotifications: number;
 }
 
 interface ActivityPageResult {
@@ -52,6 +56,11 @@ interface EmployeeLookup {
   id: string;
   project_id: string | null;
   status: string;
+}
+
+interface NotificationLookup {
+  severity: string;
+  is_read: number;
 }
 
 interface DashboardStore {
@@ -213,10 +222,13 @@ export const useDashboardStore = create<DashboardStore>((set) => ({
   fetchStats: async (environmentMode, selectedSshConfigId, projectId) => {
     set({ loading: true });
     try {
-      const [projects, tasks, employees] = await Promise.all([
+      const [projects, tasks, employees, notifications] = await Promise.all([
         loadProjects(),
         select<Task>("SELECT * FROM tasks ORDER BY updated_at DESC"),
         select<EmployeeLookup>("SELECT id, project_id, status FROM employees"),
+        select<NotificationLookup>(
+          "SELECT severity, is_read FROM notifications WHERE state = 'active' ORDER BY last_triggered_at DESC",
+        ),
       ]);
 
       const visibleProjects = filterProjectsByScope(
@@ -245,6 +257,10 @@ export const useDashboardStore = create<DashboardStore>((set) => ({
 
       const scopedProjects = visibleProjects.filter((project) => scopedProjectIds.has(project.id));
       const onlineEmployees = filteredEmployees.filter((employee) => employee.status === "online" || employee.status === "busy");
+      const unreadNotifications = notifications.filter((notification) => notification.is_read === 0).length;
+      const highSeverityNotifications = notifications.filter((notification) => (
+        notification.severity === "error" || notification.severity === "critical"
+      )).length;
 
       set({
         stats: {
@@ -255,6 +271,8 @@ export const useDashboardStore = create<DashboardStore>((set) => ({
           totalEmployees: filteredEmployees.length,
           onlineEmployees: onlineEmployees.length,
           completionRate: filteredTasks.length > 0 ? Math.round((completed / filteredTasks.length) * 100) : 0,
+          unreadNotifications,
+          highSeverityNotifications,
         },
         loading: false,
       });

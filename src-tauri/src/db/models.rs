@@ -813,6 +813,65 @@ pub struct GlobalSearchResponse {
     pub items: Vec<GlobalSearchItem>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+pub struct AppNotification {
+    pub id: String,
+    pub notification_type: String,
+    pub severity: String,
+    pub source_module: String,
+    pub title: String,
+    pub message: String,
+    pub recommendation: Option<String>,
+    pub action_label: Option<String>,
+    pub action_route: Option<String>,
+    pub related_object_type: Option<String>,
+    pub related_object_id: Option<String>,
+    pub project_id: Option<String>,
+    pub task_id: Option<String>,
+    pub ssh_config_id: Option<String>,
+    pub delivery_mode: String,
+    pub state: String,
+    pub is_read: bool,
+    pub dedupe_key: Option<String>,
+    pub occurrence_count: i64,
+    pub first_triggered_at: String,
+    pub last_triggered_at: String,
+    pub read_at: Option<String>,
+    pub resolved_at: Option<String>,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NotificationCenterChanged {
+    pub reason: String,
+    pub notification_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TransientNotification {
+    pub id: String,
+    pub notification_type: String,
+    pub severity: String,
+    pub source_module: String,
+    pub title: String,
+    pub message: String,
+    pub recommendation: Option<String>,
+    pub action_label: Option<String>,
+    pub action_route: Option<String>,
+    pub related_object_type: Option<String>,
+    pub related_object_id: Option<String>,
+    pub project_id: Option<String>,
+    pub task_id: Option<String>,
+    pub ssh_config_id: Option<String>,
+    pub delivery_mode: String,
+    pub occurrence_count: i64,
+    pub first_triggered_at: String,
+    pub last_triggered_at: String,
+    pub is_read: bool,
+    pub is_transient: bool,
+}
+
 // ========== Event Payloads ==========
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
