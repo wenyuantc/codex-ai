@@ -6,7 +6,9 @@ import {
   pushProjectGitBranch,
 } from "@/lib/backend";
 import { aiGenerateCommitMessage } from "@/lib/codex";
+import { buildGitCommitChangePrompts } from "@/lib/gitWorkingTree";
 import type { ProjectGitRepoActionType, ProjectGitWorkingTreeChange } from "@/lib/types";
+import { GitCommitDialogContent } from "@/components/git/GitCommitDialogContent";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -24,8 +26,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Textarea } from "@/components/ui/textarea";
-import { Loader2, Sparkles } from "lucide-react";
 
 interface ProjectGitRepoActionDialogProps {
   open: boolean;
@@ -169,20 +169,7 @@ export function ProjectGitRepoActionDialog({
 
   const branchOptions = buildBranchOptions(currentBranch, projectBranches, branchName);
 
-  const stagedChangePrompts = stagedChanges.map((change) => {
-    if (change.change_type === "renamed" && change.previous_path) {
-      return `重命名 ${change.previous_path} -> ${change.path}`;
-    }
-    const label =
-      change.change_type === "added"
-        ? "新增"
-        : change.change_type === "deleted"
-          ? "删除"
-          : change.change_type === "renamed"
-            ? "重命名"
-            : "修改";
-    return `${label} ${change.path}`;
-  });
+  const stagedChangePrompts = buildGitCommitChangePrompts(stagedChanges);
 
   const handleGenerateCommitMessage = async () => {
     if (!projectId) {
@@ -275,6 +262,43 @@ export function ProjectGitRepoActionDialog({
 
   const commitDisabled = action === "commit" && stagedFileCount === 0;
 
+  if (action === "commit") {
+    return (
+      <Dialog open={open} onOpenChange={onOpenChange}>
+        <GitCommitDialogContent
+          title={getDialogTitle(action)}
+          description={getDialogDescription(action, stagedFileCount)}
+          summaryRows={[
+            { label: "当前分支", value: currentBranch ?? "未知" },
+            { label: "已暂存文件", value: stagedFileCount },
+          ]}
+          commitMessage={commitMessage}
+          busy={submitting || generatingCommitMessage}
+          generatingCommitMessage={generatingCommitMessage}
+          error={error}
+          generateDisabled={stagedFileCount === 0}
+          submitDisabled={commitDisabled}
+          submitLabel={getSubmitLabel(action, submitMode === "primary")}
+          onCommitMessageChange={setCommitMessage}
+          onGenerateCommitMessage={handleGenerateCommitMessage}
+          onCancel={() => onOpenChange(false)}
+          onSubmit={() => handleSubmit("primary")}
+          extraActions={(
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => void handleSubmit("commit_push")}
+              disabled={submitting || commitDisabled || !currentBranch}
+              title={currentBranch ? `提交后推送到 origin/${currentBranch}` : "当前分支未知，暂不可提交并推送"}
+            >
+              {submitMode === "commit_push" ? "提交并推送中..." : "提交并推送"}
+            </Button>
+          )}
+        />
+      </Dialog>
+    );
+  }
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-lg">
@@ -288,40 +312,7 @@ export function ProjectGitRepoActionDialog({
           <div className="mt-1">已暂存文件：{stagedFileCount}</div>
         </div>
 
-        {action === "commit" ? (
-          <div className="space-y-1.5">
-            <div className="flex items-center justify-between gap-2">
-              <span className="text-xs font-medium text-muted-foreground">提交说明</span>
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon-sm"
-                onClick={() => void handleGenerateCommitMessage()}
-                disabled={submitting || generatingCommitMessage || stagedFileCount === 0}
-                title="AI 生成提交信息"
-              >
-                {generatingCommitMessage ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <Sparkles className="h-4 w-4" />
-                )}
-              </Button>
-            </div>
-            <Textarea
-              value={commitMessage}
-              onChange={(event) => setCommitMessage(event.target.value)}
-              disabled={submitting || generatingCommitMessage}
-              placeholder="输入提交信息…（Cmd/Ctrl+Enter 提交）"
-              className="min-h-28"
-              onKeyDown={(event) => {
-                if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
-                  event.preventDefault();
-                  void handleSubmit();
-                }
-              }}
-            />
-          </div>
-        ) : action === "push" ? (
+        {action === "push" ? (
           <div className="grid gap-3 sm:grid-cols-2">
             <label className="space-y-1.5">
               <span className="text-xs font-medium text-muted-foreground">远端名称</span>
@@ -459,7 +450,7 @@ export function ProjectGitRepoActionDialog({
           </div>
         ) : null}
 
-        {branchOptions.length === 0 && action !== "commit" && (
+        {branchOptions.length === 0 && (
           <div className="rounded-md border border-dashed border-border px-3 py-2 text-xs text-muted-foreground">
             当前没有可选分支，请先确认仓库处于正常分支状态后再执行此操作。
           </div>
@@ -480,17 +471,6 @@ export function ProjectGitRepoActionDialog({
           >
             取消
           </Button>
-          {action === "commit" && (
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => void handleSubmit("commit_push")}
-              disabled={submitting || commitDisabled || !currentBranch}
-              title={currentBranch ? `提交后推送到 origin/${currentBranch}` : "当前分支未知，暂不可提交并推送"}
-            >
-              {submitMode === "commit_push" ? "提交并推送中..." : "提交并推送"}
-            </Button>
-          )}
           <Button
             type="button"
             onClick={() => void handleSubmit("primary")}

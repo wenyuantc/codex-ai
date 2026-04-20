@@ -2,7 +2,16 @@ import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import type { CodexSessionKind, Task, TaskGitContext } from "@/lib/types";
+import type {
+  CodexSessionKind,
+  Task,
+  TaskGitCommitOverview,
+  TaskGitContext,
+} from "@/lib/types";
+import {
+  getTaskGitCommitOverview,
+  stageAllTaskGitFiles,
+} from "@/lib/backend";
 import {
   formatDate,
   getPriorityColor,
@@ -11,6 +20,7 @@ import {
   getTaskAutomationDisplayState,
   getTaskAutomationStatusLabel,
 } from "@/lib/utils";
+import { countStageableGitFiles } from "@/lib/gitWorkingTree";
 import { buildTaskExecutionInput } from "@/lib/taskPrompt";
 import {
   Bot,
@@ -111,6 +121,9 @@ export function TaskCard({
   const [showDeleteWorktreeDialog, setShowDeleteWorktreeDialog] = useState(false);
   const [showGitActionDialog, setShowGitActionDialog] = useState(false);
   const [showCommitDialog, setShowCommitDialog] = useState(false);
+  const [openingCommitDialog, setOpeningCommitDialog] = useState(false);
+  const [initialCommitOverview, setInitialCommitOverview] = useState<TaskGitCommitOverview | null>(null);
+  const [initialCommitError, setInitialCommitError] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [automationSubmitting, setAutomationSubmitting] = useState(false);
   const [automationRestarting, setAutomationRestarting] = useState(false);
@@ -173,7 +186,12 @@ export function TaskCard({
   const isReviewRunning = runtimeState.reviewActive;
   const isReviewTask = task.status === "review" || isReviewRunning;
   const hasActiveSession = isRunning || isReviewRunning;
-  const isActionLoading = executionActions.loading !== null || reviewActions.loading || automationSubmitting || automationRestarting;
+  const isActionLoading =
+    executionActions.loading !== null
+    || reviewActions.loading
+    || automationSubmitting
+    || automationRestarting
+    || openingCommitDialog;
   const shouldShowActionBar = !isOverlay && (isRunning || isReviewTask || !hideRunAction);
   const shouldShowPrimaryMenuAction = isRunning || isReviewTask || !hideRunAction;
   const isWorktreeModeEnabled = task.use_worktree;
@@ -203,6 +221,8 @@ export function TaskCard({
     && gitContext.state !== "action_pending"
     && (
       automationState.status === "commit_failed"
+      || automationState.status === "blocked"
+      || automationState.status === "manual_control"
       || !automationState.enabled
     ),
   );
@@ -360,12 +380,30 @@ export function TaskCard({
     setShowGitActionDialog(true);
   };
 
-  const openCommitDialog = () => {
-    if (!canCommitTaskCode) {
+  const openCommitDialog = async () => {
+    if (!canCommitTaskCode || !gitContext) {
       return;
     }
     setContextMenu(null);
-    setShowCommitDialog(true);
+    setOpeningCommitDialog(true);
+
+    let nextOverview = null;
+    let nextError: string | null = null;
+
+    try {
+      nextOverview = await getTaskGitCommitOverview(gitContext.id);
+      if (countStageableGitFiles(nextOverview.working_tree_changes) > 0) {
+        await stageAllTaskGitFiles(gitContext.id);
+        nextOverview = await getTaskGitCommitOverview(gitContext.id);
+      }
+    } catch (error) {
+      nextError = error instanceof Error ? error.message : String(error);
+    } finally {
+      setInitialCommitOverview(nextOverview);
+      setInitialCommitError(nextError);
+      setShowCommitDialog(true);
+      setOpeningCommitDialog(false);
+    }
   };
 
   const openDeleteWorktreeDialog = () => {
@@ -670,12 +708,16 @@ export function TaskCard({
               <button
                 type="button"
                 role="menuitem"
-                onClick={openCommitDialog}
+                onClick={() => void openCommitDialog()}
                 disabled={isActionLoading}
                 className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-left hover:bg-accent hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-50"
               >
-                <GitBranch className="h-4 w-4" />
-                提交代码
+                {openingCommitDialog ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <GitBranch className="h-4 w-4" />
+                )}
+                {openingCommitDialog ? "准备提交中" : "提交代码"}
               </button>
             )}
             {canDeleteWorktree && (
@@ -798,9 +840,17 @@ export function TaskCard({
       {!isOverlay && gitContext && (
         <TaskGitCommitDialog
           open={showCommitDialog}
-          onOpenChange={setShowCommitDialog}
+          onOpenChange={(open) => {
+            setShowCommitDialog(open);
+            if (!open) {
+              setInitialCommitOverview(null);
+              setInitialCommitError(null);
+            }
+          }}
           task={task}
           gitContext={gitContext}
+          initialOverview={initialCommitOverview}
+          initialError={initialCommitError}
           onCommitted={async (message) => {
             await onGitActionCompleted?.(task.project_id, message);
           }}
