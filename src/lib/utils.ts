@@ -100,6 +100,8 @@ export function getActivityActionLabel(action: string): string {
     task_worktree_cleanup_completed: "任务工作树清理完成",
     project_git_file_opened: "浏览工作区文件",
     project_git_file_previewed: "预览工作区文件",
+    project_git_commit_history_viewed: "浏览项目提交历史",
+    project_git_commit_detail_viewed: "查看提交详情",
     project_git_file_staged: "暂存工作区文件",
     project_git_file_unstaged: "取消暂存工作区文件",
     project_git_stage_all: "暂存全部工作区文件",

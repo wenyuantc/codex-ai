@@ -34,6 +34,33 @@ pub(crate) struct GitRuntimeCommit {
 }
 
 #[derive(Debug, Clone, Deserialize)]
+pub(crate) struct GitRuntimeCommitHistory {
+    pub commits: Vec<GitRuntimeCommit>,
+    pub has_more: bool,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub(crate) struct GitRuntimeCommitFileChange {
+    pub path: String,
+    pub previous_path: Option<String>,
+    pub change_type: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub(crate) struct GitRuntimeCommitDetail {
+    pub sha: String,
+    pub short_sha: String,
+    pub subject: String,
+    pub body: Option<String>,
+    pub author_name: String,
+    pub author_email: Option<String>,
+    pub authored_at: String,
+    pub diff_text: Option<String>,
+    pub diff_truncated: bool,
+    pub changed_files: Vec<GitRuntimeCommitFileChange>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
 pub(crate) struct GitRuntimeOverview {
     pub default_branch: String,
     pub current_branch: Option<String>,
@@ -478,6 +505,48 @@ pub(crate) async fn collect_git_overview<R: Runtime>(
             "command": "overview",
             "repoPath": repo_path,
             "recentCommitLimit": recent_commit_limit,
+        }),
+    )
+    .await
+}
+
+pub(crate) async fn collect_commit_history<R: Runtime>(
+    app: &AppHandle<R>,
+    execution_target: &str,
+    ssh_config_id: Option<&str>,
+    repo_path: &str,
+    offset: usize,
+    limit: usize,
+) -> Result<GitRuntimeCommitHistory, String> {
+    call_bridge(
+        app,
+        execution_target,
+        ssh_config_id,
+        serde_json::json!({
+            "command": "commit_history",
+            "repoPath": repo_path,
+            "offset": offset,
+            "limit": limit,
+        }),
+    )
+    .await
+}
+
+pub(crate) async fn collect_commit_detail<R: Runtime>(
+    app: &AppHandle<R>,
+    execution_target: &str,
+    ssh_config_id: Option<&str>,
+    repo_path: &str,
+    commit_sha: &str,
+) -> Result<GitRuntimeCommitDetail, String> {
+    call_bridge(
+        app,
+        execution_target,
+        ssh_config_id,
+        serde_json::json!({
+            "command": "commit_detail",
+            "repoPath": repo_path,
+            "commitSha": commit_sha,
         }),
     )
     .await

@@ -36,6 +36,9 @@ const TASK_GIT_STATE_COMPLETED: &str = "completed";
 const TASK_GIT_STATE_FAILED: &str = "failed";
 const TASK_GIT_STATE_DRIFTED: &str = "drifted";
 const PENDING_ACTION_TTL_MINUTES: i64 = 15;
+const PROJECT_GIT_RECENT_COMMIT_SUMMARY_LIMIT: usize = 5;
+const PROJECT_GIT_COMMIT_HISTORY_PAGE_LIMIT_DEFAULT: usize = 20;
+const PROJECT_GIT_COMMIT_HISTORY_PAGE_LIMIT_MAX: usize = 50;
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct TaskGitContextRecord {
@@ -147,6 +150,35 @@ pub struct ProjectGitCommit {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProjectGitCommitHistory {
+    pub commits: Vec<ProjectGitCommit>,
+    pub has_more: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProjectGitCommitFileChange {
+    pub path: String,
+    pub previous_path: Option<String>,
+    pub change_type: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProjectGitCommitDetail {
+    pub project_id: String,
+    pub execution_target: String,
+    pub sha: String,
+    pub short_sha: String,
+    pub subject: String,
+    pub body: Option<String>,
+    pub author_name: String,
+    pub author_email: Option<String>,
+    pub authored_at: String,
+    pub diff_text: Option<String>,
+    pub diff_truncated: bool,
+    pub changed_files: Vec<ProjectGitCommitFileChange>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProjectGitWorkingTreeChange {
     pub path: String,
     pub previous_path: Option<String>,
@@ -225,6 +257,12 @@ fn trim_optional(value: Option<String>) -> Option<String> {
     value
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty())
+}
+
+fn normalize_project_git_commit_history_limit(limit: Option<usize>) -> usize {
+    limit
+        .unwrap_or(PROJECT_GIT_COMMIT_HISTORY_PAGE_LIMIT_DEFAULT)
+        .clamp(1, PROJECT_GIT_COMMIT_HISTORY_PAGE_LIMIT_MAX)
 }
 
 fn sqlite_now_with_offset(minutes: i64) -> String {
@@ -1761,7 +1799,7 @@ pub async fn get_project_git_overview<R: Runtime>(
         &runtime.execution_target,
         runtime.ssh_config_id.as_deref(),
         &runtime.repo_path,
-        5,
+        PROJECT_GIT_RECENT_COMMIT_SUMMARY_LIMIT,
     )
     .await
     {
@@ -1830,6 +1868,111 @@ pub async fn get_project_git_overview<R: Runtime>(
             pending_action_contexts,
         }),
     }
+}
+
+#[tauri::command]
+pub async fn list_project_git_commits<R: Runtime>(
+    app: AppHandle<R>,
+    project_id: String,
+    offset: Option<usize>,
+    limit: Option<usize>,
+) -> Result<ProjectGitCommitHistory, String> {
+    let offset = offset.unwrap_or(0);
+    let limit = normalize_project_git_commit_history_limit(limit);
+    let (pool, project, runtime) =
+        resolve_project_runtime_for_git_overview(&app, &project_id).await?;
+    let history = git_runtime::collect_commit_history(
+        &app,
+        &runtime.execution_target,
+        runtime.ssh_config_id.as_deref(),
+        &runtime.repo_path,
+        offset,
+        limit,
+    )
+    .await?;
+
+    if offset == 0 {
+        insert_activity_log(
+            &pool,
+            "project_git_commit_history_viewed",
+            &format!("浏览项目提交历史：最近 {} 条", history.commits.len()),
+            None,
+            None,
+            Some(&project.id),
+        )
+        .await?;
+    }
+
+    Ok(ProjectGitCommitHistory {
+        commits: history
+            .commits
+            .into_iter()
+            .map(|commit| ProjectGitCommit {
+                sha: commit.sha,
+                short_sha: commit.short_sha,
+                subject: commit.subject,
+                author_name: commit.author_name,
+                authored_at: commit.authored_at,
+            })
+            .collect(),
+        has_more: history.has_more,
+    })
+}
+
+#[tauri::command]
+pub async fn get_project_git_commit_detail<R: Runtime>(
+    app: AppHandle<R>,
+    project_id: String,
+    commit_sha: String,
+) -> Result<ProjectGitCommitDetail, String> {
+    let trimmed_commit_sha = commit_sha.trim().to_string();
+    if trimmed_commit_sha.is_empty() {
+        return Err("提交 SHA 不能为空".to_string());
+    }
+
+    let (pool, project, runtime) =
+        resolve_project_runtime_for_git_overview(&app, &project_id).await?;
+    let detail = git_runtime::collect_commit_detail(
+        &app,
+        &runtime.execution_target,
+        runtime.ssh_config_id.as_deref(),
+        &runtime.repo_path,
+        &trimmed_commit_sha,
+    )
+    .await?;
+
+    insert_activity_log(
+        &pool,
+        "project_git_commit_detail_viewed",
+        &format!("查看提交详情：{} {}", detail.short_sha, detail.subject),
+        None,
+        None,
+        Some(&project.id),
+    )
+    .await?;
+
+    Ok(ProjectGitCommitDetail {
+        project_id: project.id,
+        execution_target: runtime.execution_target,
+        sha: detail.sha,
+        short_sha: detail.short_sha,
+        subject: detail.subject,
+        body: detail.body,
+        author_name: detail.author_name,
+        author_email: detail.author_email,
+        authored_at: detail.authored_at,
+        diff_text: detail.diff_text,
+        diff_truncated: detail.diff_truncated,
+        changed_files: detail
+            .changed_files
+            .into_iter()
+            .map(|change| ProjectGitCommitFileChange {
+                path: change.path,
+                previous_path: change.previous_path,
+                change_type: change.change_type,
+            })
+            .collect(),
+    })
 }
 
 #[tauri::command]

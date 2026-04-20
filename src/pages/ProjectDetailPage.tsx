@@ -1,12 +1,14 @@
-import { Suspense, lazy, startTransition, useEffect, useState } from "react";
+import { Suspense, lazy, startTransition, useEffect, useRef, useState } from "react";
 import { useParams, Link, useNavigate } from "react-router-dom";
 import { useProjectStore } from "@/stores/projectStore";
 import { useTaskStore } from "@/stores/taskStore";
 import { useEmployeeStore } from "@/stores/employeeStore";
 import {
   deleteTaskGitContextRecord,
+  getProjectGitCommitDetail,
   getProjectGitFilePreview,
   getProjectGitOverview,
+  listProjectGitCommits,
   reconcileTaskGitContext,
   stageAllProjectGitFiles,
   stageProjectGitFile,
@@ -16,6 +18,8 @@ import {
 import type {
   Employee,
   GitActionType,
+  ProjectGitCommit,
+  ProjectGitCommitDetail,
   ProjectGitFilePreview,
   ProjectGitOverview,
   ProjectGitRepoActionType,
@@ -29,6 +33,7 @@ import { EditProjectDialog } from "@/components/projects/EditProjectDialog";
 import { DeleteProjectDialog } from "@/components/projects/DeleteProjectDialog";
 import { DeleteTaskGitContextDialog } from "@/components/projects/DeleteTaskGitContextDialog";
 import { ProjectGitActionDialog } from "@/components/projects/ProjectGitActionDialog";
+import { ProjectGitCommitDetailDialog } from "@/components/projects/ProjectGitCommitDetailDialog";
 import { ProjectGitRepoActionDialog } from "@/components/projects/ProjectGitRepoActionDialog";
 import { RepoPathDisplay } from "@/components/projects/RepoPathDisplay";
 import { ArrowDown, ArrowLeft, ArrowUp, Edit2, GitBranch, Loader2, RefreshCw, ShieldAlert, Trash2 } from "lucide-react";
@@ -39,6 +44,9 @@ const ProjectGitFilePreviewDialog = lazy(async () => {
   const module = await import("@/components/projects/ProjectGitFilePreviewDialog");
   return { default: module.ProjectGitFilePreviewDialog };
 });
+
+const RECENT_COMMIT_SUMMARY_LIMIT = 5;
+const RECENT_COMMIT_PAGE_SIZE = 20;
 
 function getTaskGitContextStateLabel(state: string) {
   switch (state) {
@@ -169,12 +177,21 @@ export function ProjectDetailPage() {
   const [gitOverview, setGitOverview] = useState<ProjectGitOverview | null>(null);
   const [gitOverviewLoading, setGitOverviewLoading] = useState(false);
   const [gitOverviewError, setGitOverviewError] = useState<string | null>(null);
+  const [recentCommits, setRecentCommits] = useState<ProjectGitCommit[]>([]);
+  const [recentCommitsExpanded, setRecentCommitsExpanded] = useState(false);
+  const [recentCommitsHasMore, setRecentCommitsHasMore] = useState(false);
+  const [recentCommitsLoading, setRecentCommitsLoading] = useState(false);
+  const [recentCommitsError, setRecentCommitsError] = useState<string | null>(null);
   const [selectedGitContext, setSelectedGitContext] = useState<TaskGitContext | null>(null);
   const [selectedGitAction, setSelectedGitAction] = useState<GitActionType | null>(null);
   const [selectedWorkingTreeChange, setSelectedWorkingTreeChange] = useState<ProjectGitWorkingTreeChange | null>(null);
   const [workingTreePreview, setWorkingTreePreview] = useState<ProjectGitFilePreview | null>(null);
   const [workingTreePreviewLoading, setWorkingTreePreviewLoading] = useState(false);
   const [workingTreePreviewError, setWorkingTreePreviewError] = useState<string | null>(null);
+  const [selectedCommit, setSelectedCommit] = useState<ProjectGitCommit | null>(null);
+  const [commitDetail, setCommitDetail] = useState<ProjectGitCommitDetail | null>(null);
+  const [commitDetailLoading, setCommitDetailLoading] = useState(false);
+  const [commitDetailError, setCommitDetailError] = useState<string | null>(null);
   const [stagingFilePath, setStagingFilePath] = useState<string | null>(null);
   const [bulkStageAction, setBulkStageAction] = useState<"stage_all" | "unstage_all" | null>(null);
   const [gitActionNotice, setGitActionNotice] = useState<{
@@ -186,6 +203,8 @@ export function ProjectDetailPage() {
   const [deletingContextId, setDeletingContextId] = useState<string | null>(null);
   const [pendingDeleteContext, setPendingDeleteContext] = useState<TaskGitContext | null>(null);
   const [gitOverviewReloadNonce, setGitOverviewReloadNonce] = useState(0);
+  const recentCommitsRequestIdRef = useRef(0);
+  const commitDetailRequestIdRef = useRef(0);
 
   const project = projects.find((p) => p.id === id);
 
@@ -207,36 +226,71 @@ export function ProjectDetailPage() {
 
   useEffect(() => {
     if (!project) {
+      recentCommitsRequestIdRef.current += 1;
+      commitDetailRequestIdRef.current += 1;
       setGitOverview(null);
       setGitOverviewError(null);
       setGitOverviewLoading(false);
+      setRecentCommits([]);
+      setRecentCommitsExpanded(false);
+      setRecentCommitsHasMore(false);
+      setRecentCommitsLoading(false);
+      setRecentCommitsError(null);
       setSelectedGitContext(null);
       setSelectedGitAction(null);
       setSelectedWorkingTreeChange(null);
       setWorkingTreePreview(null);
       setWorkingTreePreviewLoading(false);
       setWorkingTreePreviewError(null);
+      setSelectedCommit(null);
+      setCommitDetail(null);
+      setCommitDetailLoading(false);
+      setCommitDetailError(null);
       setPendingDeleteContext(null);
       return;
     }
 
     let active = true;
+    recentCommitsRequestIdRef.current += 1;
     setGitOverviewLoading(true);
     setGitOverviewError(null);
+    setRecentCommitsLoading(false);
 
     void getProjectGitOverview(project.id)
       .then((overview) => {
         if (!active) {
           return;
         }
+        recentCommitsRequestIdRef.current += 1;
+        commitDetailRequestIdRef.current += 1;
         setGitOverview(overview);
+        setRecentCommits(overview.recent_commits);
+        setRecentCommitsExpanded(false);
+        setRecentCommitsHasMore(overview.recent_commits.length >= RECENT_COMMIT_SUMMARY_LIMIT);
+        setRecentCommitsLoading(false);
+        setRecentCommitsError(null);
+        setSelectedCommit(null);
+        setCommitDetail(null);
+        setCommitDetailLoading(false);
+        setCommitDetailError(null);
       })
       .catch((error) => {
         if (!active) {
           return;
         }
+        recentCommitsRequestIdRef.current += 1;
+        commitDetailRequestIdRef.current += 1;
         setGitOverview(null);
         setGitOverviewError(error instanceof Error ? error.message : String(error));
+        setRecentCommits([]);
+        setRecentCommitsExpanded(false);
+        setRecentCommitsHasMore(false);
+        setRecentCommitsLoading(false);
+        setRecentCommitsError(null);
+        setSelectedCommit(null);
+        setCommitDetail(null);
+        setCommitDetailLoading(false);
+        setCommitDetailError(null);
       })
       .finally(() => {
         if (active) {
@@ -332,6 +386,73 @@ export function ProjectDetailPage() {
       setWorkingTreePreviewError(error instanceof Error ? error.message : String(error));
     } finally {
       setWorkingTreePreviewLoading(false);
+    }
+  };
+
+  const handleLoadRecentCommits = async (reset = false) => {
+    if (!project || recentCommitsLoading) {
+      return;
+    }
+
+    const requestId = recentCommitsRequestIdRef.current + 1;
+    recentCommitsRequestIdRef.current = requestId;
+    const projectId = project.id;
+    const offset = reset ? 0 : recentCommits.length;
+
+    setRecentCommitsLoading(true);
+    setRecentCommitsError(null);
+    try {
+      const history = await listProjectGitCommits(projectId, offset, RECENT_COMMIT_PAGE_SIZE);
+      if (recentCommitsRequestIdRef.current !== requestId) {
+        return;
+      }
+      setRecentCommits((current) => (reset ? history.commits : [...current, ...history.commits]));
+      setRecentCommitsHasMore(history.has_more);
+    } catch (error) {
+      if (recentCommitsRequestIdRef.current !== requestId) {
+        return;
+      }
+      setRecentCommitsError(error instanceof Error ? error.message : String(error));
+    } finally {
+      if (recentCommitsRequestIdRef.current === requestId) {
+        setRecentCommitsLoading(false);
+      }
+    }
+  };
+
+  const handleExpandRecentCommits = () => {
+    setRecentCommitsExpanded(true);
+    if (recentCommits.length <= RECENT_COMMIT_SUMMARY_LIMIT && recentCommitsHasMore) {
+      void handleLoadRecentCommits(true);
+    }
+  };
+
+  const handleOpenCommitDetail = async (commit: ProjectGitCommit) => {
+    if (!project) {
+      return;
+    }
+
+    const requestId = commitDetailRequestIdRef.current + 1;
+    commitDetailRequestIdRef.current = requestId;
+    setSelectedCommit(commit);
+    setCommitDetail(null);
+    setCommitDetailError(null);
+    setCommitDetailLoading(true);
+    try {
+      const detail = await getProjectGitCommitDetail(project.id, commit.sha);
+      if (commitDetailRequestIdRef.current !== requestId) {
+        return;
+      }
+      setCommitDetail(detail);
+    } catch (error) {
+      if (commitDetailRequestIdRef.current !== requestId) {
+        return;
+      }
+      setCommitDetailError(error instanceof Error ? error.message : String(error));
+    } finally {
+      if (commitDetailRequestIdRef.current === requestId) {
+        setCommitDetailLoading(false);
+      }
     }
   };
 
@@ -469,6 +590,11 @@ export function ProjectDetailPage() {
   const gitRuntimeReady = gitOverview?.git_runtime_status === "ready";
   const aheadCommits = gitOverview?.ahead_commits ?? 0;
   const behindCommits = gitOverview?.behind_commits ?? 0;
+  const visibleRecentCommits = recentCommitsExpanded
+    ? recentCommits
+    : recentCommits.slice(0, RECENT_COMMIT_SUMMARY_LIMIT);
+  const canExpandRecentCommits =
+    recentCommits.length >= RECENT_COMMIT_SUMMARY_LIMIT || recentCommitsHasMore;
 
   return (
     <div className="space-y-6">
@@ -914,25 +1040,94 @@ export function ProjectDetailPage() {
 
             <div className="rounded-lg border border-border/60 p-3">
               <div className="mb-2 flex items-center justify-between">
-                <h4 className="text-sm font-medium">最近提交</h4>
-                <span className="text-xs text-muted-foreground">{gitOverview.recent_commits.length} 条</span>
+                <div>
+                  <h4 className="text-sm font-medium">最近提交</h4>
+                  <p className="text-[11px] text-muted-foreground">
+                    {recentCommitsExpanded
+                      ? `已加载 ${recentCommits.length} 条提交记录`
+                      : `默认展示最近 ${Math.min(recentCommits.length, RECENT_COMMIT_SUMMARY_LIMIT)} 条摘要`}
+                  </p>
+                </div>
+                <span className="text-xs text-muted-foreground">
+                  {recentCommitsExpanded ? `${recentCommits.length} 条` : `${visibleRecentCommits.length} 条`}
+                </span>
               </div>
-              {gitOverview.recent_commits.length === 0 ? (
+              {recentCommits.length === 0 ? (
                 <p className="text-xs text-muted-foreground">暂无最近提交记录。</p>
               ) : (
-                <div className="space-y-2">
-                  {gitOverview.recent_commits.slice(0, 5).map((commit) => (
-                    <div key={commit.sha} className="rounded-md bg-secondary/30 px-2.5 py-2 text-xs">
-                      <div className="flex items-center justify-between gap-3">
-                        <span className="font-medium">{commit.subject}</span>
-                        <span className="text-muted-foreground">{commit.short_sha ?? commit.sha.slice(0, 7)}</span>
-                      </div>
-                      <div className="mt-1 text-muted-foreground">
-                        {commit.author_name ?? "未知作者"} · {formatDate(commit.authored_at)}
-                      </div>
+                <>
+                  <div className="space-y-2">
+                    {visibleRecentCommits.map((commit) => (
+                      <button
+                        key={commit.sha}
+                        type="button"
+                        className="w-full rounded-md bg-secondary/30 px-2.5 py-2 text-left text-xs transition-colors hover:bg-secondary/50"
+                        onClick={() => {
+                          void handleOpenCommitDetail(commit);
+                        }}
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <span className="font-medium break-all">{commit.subject}</span>
+                          <span className="shrink-0 text-muted-foreground">
+                            {commit.short_sha ?? commit.sha.slice(0, 7)}
+                          </span>
+                        </div>
+                        <div className="mt-1 flex flex-wrap items-center justify-between gap-2 text-muted-foreground">
+                          <span>
+                            {commit.author_name ?? "未知作者"} · {formatDate(commit.authored_at)}
+                          </span>
+                          <span className="text-primary">查看详情</span>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+
+                  {recentCommitsError && (
+                    <div className="mt-3 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+                      {recentCommitsError}
                     </div>
-                  ))}
-                </div>
+                  )}
+
+                  {(canExpandRecentCommits || recentCommitsExpanded) && (
+                    <div className="mt-3 flex flex-wrap items-center gap-2">
+                      {!recentCommitsExpanded ? (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          disabled={recentCommitsLoading}
+                          onClick={handleExpandRecentCommits}
+                        >
+                          {recentCommitsLoading ? "加载中..." : "查看更多历史提交"}
+                        </Button>
+                      ) : (
+                        <>
+                          {recentCommitsHasMore && (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              disabled={recentCommitsLoading}
+                              onClick={() => {
+                                void handleLoadRecentCommits(false);
+                              }}
+                            >
+                              {recentCommitsLoading ? "加载中..." : "查看更多"}
+                            </Button>
+                          )}
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => setRecentCommitsExpanded(false)}
+                          >
+                            收起摘要
+                          </Button>
+                          {!recentCommitsHasMore && (
+                            <span className="text-[11px] text-muted-foreground">已显示全部可用提交记录</span>
+                          )}
+                        </>
+                      )}
+                    </div>
+                  )}
+                </>
               )}
             </div>
           </>
@@ -1046,6 +1241,23 @@ export function ProjectDetailPage() {
           />
         )}
       </Suspense>
+
+      <ProjectGitCommitDetailDialog
+        open={selectedCommit !== null}
+        loading={commitDetailLoading}
+        error={commitDetailError}
+        detail={commitDetail}
+        commit={selectedCommit}
+        onOpenChange={(open) => {
+          if (!open) {
+            commitDetailRequestIdRef.current += 1;
+            setSelectedCommit(null);
+            setCommitDetail(null);
+            setCommitDetailLoading(false);
+            setCommitDetailError(null);
+          }
+        }}
+      />
 
       <ProjectGitActionDialog
         open={selectedGitContext !== null}

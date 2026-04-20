@@ -23,6 +23,8 @@ import type {
   GitActionType,
   PreparedTaskGitExecution,
   Project,
+  ProjectGitCommitDetail,
+  ProjectGitCommitHistory,
   ProjectGitFilePreview,
   ProjectGitOverview,
   TaskGitCommitOverview,
@@ -318,6 +320,25 @@ export async function getCodexSessionLogLines(sessionId: string): Promise<CodexS
 
 export async function getProjectGitOverview(projectId: string): Promise<ProjectGitOverview> {
   return invoke("get_project_git_overview", { projectId });
+}
+
+export async function listProjectGitCommits(
+  projectId: string,
+  offset?: number | null,
+  limit?: number | null,
+): Promise<ProjectGitCommitHistory> {
+  return invoke("list_project_git_commits", {
+    projectId,
+    offset: offset ?? null,
+    limit: limit ?? null,
+  });
+}
+
+export async function getProjectGitCommitDetail(
+  projectId: string,
+  commitSha: string,
+): Promise<ProjectGitCommitDetail> {
+  return invoke("get_project_git_commit_detail", { projectId, commitSha });
 }
 
 export async function getProjectGitFilePreview(

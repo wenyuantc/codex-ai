@@ -346,6 +346,32 @@ export interface ProjectGitCommit {
   authored_at: string;
 }
 
+export interface ProjectGitCommitHistory {
+  commits: ProjectGitCommit[];
+  has_more: boolean;
+}
+
+export interface ProjectGitCommitFileChange {
+  path: string;
+  previous_path: string | null;
+  change_type: "added" | "modified" | "deleted" | "renamed";
+}
+
+export interface ProjectGitCommitDetail {
+  project_id: string;
+  execution_target: EnvironmentMode;
+  sha: string;
+  short_sha: string;
+  subject: string;
+  body: string | null;
+  author_name: string;
+  author_email: string | null;
+  authored_at: string;
+  diff_text: string | null;
+  diff_truncated: boolean;
+  changed_files: ProjectGitCommitFileChange[];
+}
+
 export interface ProjectGitWorkingTreeChange {
   path: string;
   previous_path: string | null;
