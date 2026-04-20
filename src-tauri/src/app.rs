@@ -34,7 +34,17 @@ use crate::db::models::{
     GlobalSearchResponse, PasswordAuthProbeResult, Project, ReviewVerdict, SearchGlobalPayload,
     SetTaskAutomationModePayload, SshConfig, SshConfigRecord, Subtask, Task, TaskAttachment,
     TaskAutomationState, TaskAutomationStateRecord, TaskExecutionChangeHistoryItem,
-    TaskLatestReview, UpdateEmployee, UpdateProject, UpdateSshConfig, UpdateTask,
+    TaskLatestReview, TransientNotification, UpdateEmployee, UpdateProject, UpdateSshConfig,
+    UpdateTask,
+};
+use crate::notifications::{
+    database_error_dedupe_key, emit_transient_notification, ensure_sticky_notification,
+    publish_one_time_notification, resolve_sticky_notification, sdk_unavailable_dedupe_key,
+    settings_route, ssh_health_check_dedupe_key, ssh_missing_selection_dedupe_key,
+    ssh_password_probe_dedupe_key, ssh_selected_config_dedupe_key, transient_notification_id,
+    NotificationDraft, NOTIFICATION_SEVERITY_CRITICAL, NOTIFICATION_SEVERITY_ERROR,
+    NOTIFICATION_SEVERITY_SUCCESS, NOTIFICATION_SEVERITY_WARNING, NOTIFICATION_TYPE_DATABASE_ERROR,
+    NOTIFICATION_TYPE_SDK_UNAVAILABLE, NOTIFICATION_TYPE_SSH_CONFIG_ERROR,
 };
 use crate::process_spawn::configure_std_command;
 
@@ -622,6 +632,109 @@ pub(crate) async fn log_database_startup_status<R: Runtime>(app: &AppHandle<R>) 
             eprintln!("[db] SQLite 未加载: path={path}, error={error}");
         }
     }
+}
+
+async fn sync_local_sdk_notification<R: Runtime>(
+    app: &AppHandle<R>,
+    sdk_health: &crate::codex::SdkRuntimeHealth,
+    task_sdk_enabled: bool,
+    one_shot_sdk_enabled: bool,
+) {
+    let sdk_expected = sdk_notification_expected(task_sdk_enabled, one_shot_sdk_enabled);
+    let sdk_unavailable = sdk_notification_unavailable(
+        task_sdk_enabled,
+        one_shot_sdk_enabled,
+        &sdk_health.task_execution_effective_provider,
+        &sdk_health.one_shot_effective_provider,
+    );
+    let dedupe_key = sdk_unavailable_dedupe_key("local");
+
+    if sdk_unavailable {
+        let mut draft = NotificationDraft::sticky(
+            NOTIFICATION_TYPE_SDK_UNAVAILABLE,
+            if sdk_health.node_available {
+                NOTIFICATION_SEVERITY_WARNING
+            } else {
+                NOTIFICATION_SEVERITY_ERROR
+            },
+            "sdk_health",
+            "本地 SDK 当前不可用",
+            sdk_health.status_message.clone(),
+        );
+        draft.recommendation =
+            Some("请前往设置页检查 Node、SDK 安装状态以及执行 provider 配置。".to_string());
+        draft.action_label = Some("打开设置".to_string());
+        draft.action_route = Some(settings_route("sdk", None));
+        draft.related_object_type = Some("environment".to_string());
+        draft.related_object_id = Some("local".to_string());
+        draft.dedupe_key = Some(dedupe_key);
+
+        let _ = ensure_sticky_notification(app, draft).await;
+    } else if sdk_expected
+        && resolve_sticky_notification(app, &dedupe_key, None)
+            .await
+            .ok()
+            .flatten()
+            .is_some()
+    {
+        let mut recovery = NotificationDraft::one_time(
+            NOTIFICATION_TYPE_SDK_UNAVAILABLE,
+            NOTIFICATION_SEVERITY_SUCCESS,
+            "sdk_health",
+            "本地 SDK 已恢复可用",
+            "本地 SDK 健康检查恢复正常，任务执行将按当前设置继续使用 SDK。",
+        );
+        recovery.action_label = Some("查看设置".to_string());
+        recovery.action_route = Some(settings_route("sdk", None));
+        recovery.related_object_type = Some("environment".to_string());
+        recovery.related_object_id = Some("local".to_string());
+        let _ = publish_one_time_notification(app, recovery).await;
+    } else if !sdk_expected {
+        let _ = resolve_sticky_notification(app, &dedupe_key, None).await;
+    }
+}
+
+fn sdk_notification_expected(task_sdk_enabled: bool, one_shot_sdk_enabled: bool) -> bool {
+    task_sdk_enabled || one_shot_sdk_enabled
+}
+
+fn sdk_notification_unavailable(
+    task_sdk_enabled: bool,
+    one_shot_sdk_enabled: bool,
+    task_execution_effective_provider: &str,
+    one_shot_effective_provider: &str,
+) -> bool {
+    (task_sdk_enabled && task_execution_effective_provider != "sdk")
+        || (one_shot_sdk_enabled && one_shot_effective_provider != "sdk")
+}
+
+fn emit_local_database_unavailable_notification<R: Runtime>(app: &AppHandle<R>, message: String) {
+    let now = now_sqlite();
+    emit_transient_notification(
+        app,
+        TransientNotification {
+            id: transient_notification_id(&database_error_dedupe_key("local")),
+            notification_type: NOTIFICATION_TYPE_DATABASE_ERROR.to_string(),
+            severity: NOTIFICATION_SEVERITY_CRITICAL.to_string(),
+            source_module: "database".to_string(),
+            title: "数据库当前不可用".to_string(),
+            message,
+            recommendation: Some("请前往设置页检查数据库文件、迁移状态和读写权限。".to_string()),
+            action_label: Some("打开设置".to_string()),
+            action_route: Some(settings_route("database", None)),
+            related_object_type: Some("environment".to_string()),
+            related_object_id: Some("local".to_string()),
+            project_id: None,
+            task_id: None,
+            ssh_config_id: None,
+            delivery_mode: "sticky".to_string(),
+            occurrence_count: 1,
+            first_triggered_at: now.clone(),
+            last_triggered_at: now,
+            is_read: false,
+            is_transient: true,
+        },
+    );
 }
 
 pub(crate) fn normalize_optional_text(value: Option<&str>) -> Option<String> {
@@ -2851,6 +2964,20 @@ pub async fn health_check<R: Runtime>(app: AppHandle<R>) -> Result<CodexHealthCh
         Err(error) => (false, Some(error)),
     };
     let sdk_health = inspect_sdk_runtime(&app, &codex_settings).await;
+    sync_local_sdk_notification(
+        &app,
+        &sdk_health,
+        codex_settings.task_sdk_enabled,
+        codex_settings.one_shot_sdk_enabled,
+    )
+    .await;
+
+    if !database_loaded {
+        emit_local_database_unavailable_notification(
+            &app,
+            "当前数据库未能正常加载，通知中心会先以临时提醒模式提示异常。".to_string(),
+        );
+    }
 
     Ok(CodexHealthCheck {
         execution_target: EXECUTION_TARGET_LOCAL.to_string(),
@@ -2883,6 +3010,404 @@ pub async fn health_check<R: Runtime>(app: AppHandle<R>) -> Result<CodexHealthCh
         last_session_error,
         checked_at: now_sqlite(),
     })
+}
+
+fn build_settings_section_route(section: &str, ssh_config_id: Option<&str>) -> String {
+    match ssh_config_id {
+        Some(ssh_config_id) => format!("/settings?section={section}&sshConfigId={ssh_config_id}"),
+        None => format!("/settings?section={section}"),
+    }
+}
+
+async fn sync_database_notifications<R: Runtime>(app: &AppHandle<R>) -> Result<(), String> {
+    let pool = match sqlite_pool(app).await {
+        Ok(pool) => pool,
+        Err(error) => {
+            let now = now_sqlite();
+            emit_transient_notification(
+                app,
+                TransientNotification {
+                    id: transient_notification_id(&database_error_dedupe_key("local")),
+                    notification_type: NOTIFICATION_TYPE_DATABASE_ERROR.to_string(),
+                    severity: NOTIFICATION_SEVERITY_CRITICAL.to_string(),
+                    source_module: "database".to_string(),
+                    title: "数据库连接异常".to_string(),
+                    message: format!("应用数据库当前不可用：{error}"),
+                    recommendation: Some(
+                        "请前往系统设置检查数据库文件、权限或恢复备份。".to_string(),
+                    ),
+                    action_label: Some("打开数据库维护".to_string()),
+                    action_route: Some(build_settings_section_route("database", None)),
+                    related_object_type: Some("system".to_string()),
+                    related_object_id: Some("database".to_string()),
+                    project_id: None,
+                    task_id: None,
+                    ssh_config_id: None,
+                    delivery_mode: "sticky".to_string(),
+                    occurrence_count: 1,
+                    first_triggered_at: now.clone(),
+                    last_triggered_at: now,
+                    is_read: false,
+                    is_transient: true,
+                },
+            );
+            return Ok(());
+        }
+    };
+
+    match fetch_database_migration_status(&pool).await {
+        Ok(_) => {
+            let _ = resolve_sticky_notification(
+                app,
+                "database_error:local",
+                Some(
+                    NotificationDraft::one_time(
+                        "database_error",
+                        "success",
+                        "数据库",
+                        "数据库连接已恢复",
+                        "数据库连接与迁移状态已恢复正常。",
+                    )
+                    .with_recommendation("如之前执行过导入或恢复，请再做一次关键路径冒烟验证。")
+                    .with_action(
+                        "打开数据库维护",
+                        build_settings_section_route("database", None),
+                    )
+                    .with_related_object("system", "database"),
+                ),
+            )
+            .await?;
+        }
+        Err(error) => {
+            let _ = ensure_sticky_notification(
+                app,
+                NotificationDraft::sticky(
+                    "database_error",
+                    "critical",
+                    "数据库",
+                    "数据库迁移状态异常",
+                    format!("数据库已连接，但迁移状态读取失败：{error}"),
+                )
+                .with_dedupe_key("database_error:local")
+                .with_recommendation("请先检查数据库完整性与迁移状态，再继续执行任务。")
+                .with_action(
+                    "打开数据库维护",
+                    build_settings_section_route("database", None),
+                )
+                .with_related_object("system", "database"),
+            )
+            .await?;
+        }
+    }
+
+    Ok(())
+}
+
+async fn sync_local_sdk_notifications<R: Runtime>(
+    app: &AppHandle<R>,
+    _pool: &SqlitePool,
+) -> Result<(), String> {
+    let settings = load_codex_settings(app)?;
+    let sdk_health = inspect_sdk_runtime(app, &settings).await;
+    let sdk_expected =
+        sdk_notification_expected(settings.task_sdk_enabled, settings.one_shot_sdk_enabled);
+    let sdk_unavailable = sdk_notification_unavailable(
+        settings.task_sdk_enabled,
+        settings.one_shot_sdk_enabled,
+        &sdk_health.task_execution_effective_provider,
+        &sdk_health.one_shot_effective_provider,
+    );
+    let dedupe_key = sdk_unavailable_dedupe_key("local");
+
+    if !sdk_expected {
+        let _ = resolve_sticky_notification(app, &dedupe_key, None).await?;
+        return Ok(());
+    }
+
+    if !sdk_unavailable {
+        let _ = resolve_sticky_notification(
+            app,
+            &dedupe_key,
+            Some(
+                NotificationDraft::one_time(
+                    "sdk_unavailable",
+                    "success",
+                    "SDK 健康检查",
+                    "本地 SDK 已恢复",
+                    "本地任务执行链路已恢复 SDK 可用状态。",
+                )
+                .with_recommendation("可以重新尝试任务执行或一次性 AI 调用。")
+                .with_action("打开 SDK 设置", build_settings_section_route("sdk", None))
+                .with_related_object("system", "local-sdk"),
+            ),
+        )
+        .await?;
+        return Ok(());
+    }
+
+    let _ = ensure_sticky_notification(
+        app,
+        NotificationDraft::sticky(
+            "sdk_unavailable",
+            "error",
+            "SDK 健康检查",
+            "本地 SDK 不可用",
+            format!("本地 SDK 当前不可用：{}", sdk_health.status_message),
+        )
+        .with_dedupe_key(dedupe_key)
+        .with_recommendation("请前往系统设置安装或修复 SDK，必要时临时关闭 SDK 优先开关。")
+        .with_action("打开 SDK 设置", build_settings_section_route("sdk", None))
+        .with_related_object("system", "local-sdk"),
+    )
+    .await?;
+
+    Ok(())
+}
+
+async fn sync_ssh_notifications<R: Runtime>(
+    app: &AppHandle<R>,
+    pool: &SqlitePool,
+    ssh_config_id: Option<&str>,
+) -> Result<(), String> {
+    let Some(ssh_config_id) = ssh_config_id else {
+        let _ = ensure_sticky_notification(
+            app,
+            NotificationDraft::sticky(
+                "ssh_config_error",
+                "warning",
+                "SSH 配置",
+                "SSH 配置缺失",
+                "当前处于 SSH 模式，但还没有可用的 SSH 配置。",
+            )
+            .with_dedupe_key(ssh_missing_selection_dedupe_key())
+            .with_recommendation("请先创建并选择 SSH 配置，再继续远程执行。")
+            .with_action("打开 SSH 配置", build_settings_section_route("ssh", None))
+            .with_related_object("system", "ssh"),
+        )
+        .await?;
+        return Ok(());
+    };
+
+    let _ = resolve_sticky_notification(app, ssh_missing_selection_dedupe_key(), None).await?;
+
+    let ssh_config = match fetch_ssh_config_record_by_id(pool, ssh_config_id).await {
+        Ok(config) => config,
+        Err(error) => {
+            let dedupe_key = ssh_selected_config_dedupe_key(ssh_config_id);
+            let _ = ensure_sticky_notification(
+                app,
+                NotificationDraft::sticky(
+                    "ssh_config_error",
+                    "error",
+                    "SSH 配置",
+                    "选中的 SSH 配置不可用",
+                    format!("当前选中的 SSH 配置无法读取：{error}"),
+                )
+                .with_dedupe_key(dedupe_key)
+                .with_recommendation("请重新选择或重建 SSH 配置。")
+                .with_action(
+                    "打开 SSH 配置",
+                    build_settings_section_route("ssh", Some(ssh_config_id)),
+                )
+                .with_related_object("ssh_config", ssh_config_id),
+            )
+            .await?;
+            return Ok(());
+        }
+    };
+
+    let selected_config_dedupe_key = ssh_selected_config_dedupe_key(ssh_config_id);
+    let _ = resolve_sticky_notification(app, &selected_config_dedupe_key, None).await?;
+
+    let host_label = ssh_config_target_host_label(&ssh_config);
+    let ssh_route = build_settings_section_route("ssh", Some(ssh_config_id));
+    let probe_dedupe_key = ssh_password_probe_dedupe_key(ssh_config_id);
+    let health_dedupe_key = ssh_health_check_dedupe_key(ssh_config_id);
+
+    let password_probe_ok = ssh_config.auth_type != "password"
+        || matches!(
+            ssh_config.password_probe_status.as_deref(),
+            Some("passed" | "available")
+        );
+
+    if password_probe_ok {
+        let _ = resolve_sticky_notification(
+            app,
+            &probe_dedupe_key,
+            Some(
+                NotificationDraft::one_time(
+                    "ssh_config_error",
+                    "success",
+                    "SSH 配置",
+                    "SSH 密码认证校验已恢复",
+                    format!("{host_label} 的密码认证校验已通过。"),
+                )
+                .with_recommendation("可以继续执行远程健康检查或远程任务。")
+                .with_action("打开 SSH 配置", ssh_route.clone())
+                .with_related_object("ssh_config", ssh_config_id),
+            ),
+        )
+        .await?;
+    } else {
+        let _ = ensure_sticky_notification(
+            app,
+            NotificationDraft::sticky(
+                "ssh_config_error",
+                "warning",
+                "SSH 配置",
+                "SSH 配置认证异常",
+                format!(
+                    "{} 的密码认证尚未通过测试：{}",
+                    host_label,
+                    ssh_config
+                        .password_probe_message
+                        .clone()
+                        .unwrap_or_else(|| "当前平台无法安全执行密码认证".to_string())
+                ),
+            )
+            .with_dedupe_key(probe_dedupe_key)
+            .with_recommendation("请先修复认证方式或改用密钥登录，再执行远程任务。")
+            .with_action("打开 SSH 配置", ssh_route.clone())
+            .with_related_object("ssh_config", ssh_config_id)
+            .with_ssh_config_id(ssh_config_id),
+        )
+        .await?;
+    }
+
+    match inspect_remote_codex_runtime(
+        app,
+        &ssh_config,
+        &load_remote_codex_settings(app, ssh_config_id)?,
+    )
+    .await
+    {
+        Ok(runtime) => {
+            let _ = resolve_sticky_notification(
+                app,
+                &health_dedupe_key,
+                Some(
+                    NotificationDraft::one_time(
+                        "ssh_config_error",
+                        "success",
+                        "SSH 配置",
+                        "SSH 连接已恢复",
+                        format!("{host_label} 的远程连通性与运行时校验已恢复正常。"),
+                    )
+                    .with_recommendation("可以重新尝试远程执行、校验和 SDK 安装。")
+                    .with_action("打开 SSH 配置", ssh_route.clone())
+                    .with_related_object("ssh_config", ssh_config_id)
+                    .with_ssh_config_id(ssh_config_id),
+                ),
+            )
+            .await?;
+
+            let remote_settings = load_remote_codex_settings(app, ssh_config_id)?;
+            let remote_sdk_expected = sdk_notification_expected(
+                remote_settings.task_sdk_enabled,
+                remote_settings.one_shot_sdk_enabled,
+            );
+            let remote_sdk_unavailable = sdk_notification_unavailable(
+                remote_settings.task_sdk_enabled,
+                remote_settings.one_shot_sdk_enabled,
+                &runtime.task_execution_effective_provider,
+                &runtime.one_shot_effective_provider,
+            );
+            let sdk_dedupe_key = sdk_unavailable_dedupe_key(&format!("ssh:{ssh_config_id}"));
+            let sdk_route = build_settings_section_route("sdk", Some(ssh_config_id));
+
+            if !remote_sdk_expected {
+                let _ = resolve_sticky_notification(app, &sdk_dedupe_key, None).await?;
+                return Ok(());
+            }
+
+            if !remote_sdk_unavailable {
+                let _ = resolve_sticky_notification(
+                    app,
+                    &sdk_dedupe_key,
+                    Some(
+                        NotificationDraft::one_time(
+                            "sdk_unavailable",
+                            "success",
+                            "SDK 健康检查",
+                            "远程 SDK 已恢复",
+                            format!("{host_label} 的远程 SDK 已恢复可用。"),
+                        )
+                        .with_recommendation("可以重新尝试远程任务执行或一次性 AI。")
+                        .with_action("打开 SDK 设置", sdk_route)
+                        .with_related_object("ssh_config", ssh_config_id)
+                        .with_ssh_config_id(ssh_config_id),
+                    ),
+                )
+                .await?;
+            } else {
+                let _ = ensure_sticky_notification(
+                    app,
+                    NotificationDraft::sticky(
+                        "sdk_unavailable",
+                        "error",
+                        "SDK 健康检查",
+                        "远程 SDK 不可用",
+                        format!(
+                            "{host_label} 的远程 SDK 当前不可用：{}",
+                            runtime.status_message
+                        ),
+                    )
+                    .with_dedupe_key(sdk_dedupe_key)
+                    .with_recommendation("请在 SSH 目标上安装或修复 SDK，必要时暂时切回 exec。")
+                    .with_action("打开 SDK 设置", sdk_route)
+                    .with_related_object("ssh_config", ssh_config_id)
+                    .with_ssh_config_id(ssh_config_id),
+                )
+                .await?;
+            }
+        }
+        Err(error) => {
+            let sdk_dedupe_key = sdk_unavailable_dedupe_key(&format!("ssh:{ssh_config_id}"));
+            let _ = resolve_sticky_notification(app, &sdk_dedupe_key, None).await?;
+            let _ = ensure_sticky_notification(
+                app,
+                NotificationDraft::sticky(
+                    "ssh_config_error",
+                    "error",
+                    "SSH 配置",
+                    "SSH 连接校验失败",
+                    format!("{host_label} 的远程校验失败：{error}"),
+                )
+                .with_dedupe_key(health_dedupe_key)
+                .with_recommendation("请检查主机地址、密钥/密码、known_hosts 和远程环境后重试。")
+                .with_action("打开 SSH 配置", ssh_route)
+                .with_related_object("ssh_config", ssh_config_id)
+                .with_ssh_config_id(ssh_config_id),
+            )
+            .await?;
+        }
+    }
+
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn sync_system_notifications<R: Runtime>(
+    app: AppHandle<R>,
+    environment_mode: Option<String>,
+    ssh_config_id: Option<String>,
+) -> Result<(), String> {
+    sync_database_notifications(&app).await?;
+
+    let pool = match sqlite_pool(&app).await {
+        Ok(pool) => pool,
+        Err(_) => return Ok(()),
+    };
+
+    sync_local_sdk_notifications(&app, &pool).await?;
+
+    if environment_mode.as_deref() == Some(EXECUTION_TARGET_SSH) {
+        sync_ssh_notifications(&app, &pool, ssh_config_id.as_deref()).await?;
+    } else {
+        let _ = resolve_sticky_notification(&app, ssh_missing_selection_dedupe_key(), None).await?;
+    }
+
+    Ok(())
 }
 
 #[tauri::command]
@@ -5127,6 +5652,47 @@ pub async fn probe_ssh_password_auth<R: Runtime>(
     .await
     .map_err(|error| format!("Failed to persist password probe: {}", error))?;
 
+    let dedupe_key = ssh_password_probe_dedupe_key(&ssh_config_id);
+    if supported {
+        if resolve_sticky_notification(&app, &dedupe_key, None)
+            .await
+            .ok()
+            .flatten()
+            .is_some()
+        {
+            let mut recovery = NotificationDraft::one_time(
+                NOTIFICATION_TYPE_SSH_CONFIG_ERROR,
+                NOTIFICATION_SEVERITY_SUCCESS,
+                "ssh_config",
+                format!("SSH 配置 {} 已恢复正常", current.name),
+                "密码认证探测已通过，可以继续使用该 SSH 配置执行远程任务。",
+            );
+            recovery.action_label = Some("查看设置".to_string());
+            recovery.action_route = Some(settings_route("ssh", Some(&ssh_config_id)));
+            recovery.related_object_type = Some("ssh_config".to_string());
+            recovery.related_object_id = Some(ssh_config_id.clone());
+            recovery.ssh_config_id = Some(ssh_config_id.clone());
+            let _ = publish_one_time_notification(&app, recovery).await;
+        }
+    } else {
+        let mut draft = NotificationDraft::sticky(
+            NOTIFICATION_TYPE_SSH_CONFIG_ERROR,
+            NOTIFICATION_SEVERITY_ERROR,
+            "ssh_config",
+            format!("SSH 配置 {} 认证失败", current.name),
+            message.clone(),
+        );
+        draft.recommendation =
+            Some("请检查密码、用户名和主机连通性，然后在设置页重新探测。".to_string());
+        draft.action_label = Some("查看 SSH 设置".to_string());
+        draft.action_route = Some(settings_route("ssh", Some(&ssh_config_id)));
+        draft.related_object_type = Some("ssh_config".to_string());
+        draft.related_object_id = Some(ssh_config_id.clone());
+        draft.ssh_config_id = Some(ssh_config_id.clone());
+        draft.dedupe_key = Some(dedupe_key);
+        let _ = ensure_sticky_notification(&app, draft).await;
+    }
+
     Ok(PasswordAuthProbeResult {
         ssh_config_id,
         target_host_label: ssh_config_target_host_label(&current),
@@ -5276,7 +5842,41 @@ pub async fn validate_remote_codex_health<R: Runtime>(
     let pool = sqlite_pool(&app).await?;
     let ssh_config = fetch_ssh_config_record_by_id(&pool, &ssh_config_id).await?;
     let remote_settings = load_remote_codex_settings(&app, &ssh_config_id)?;
-    let runtime = inspect_remote_codex_runtime(&app, &ssh_config, &remote_settings).await?;
+    let ssh_target_label = ssh_config_target_host_label(&ssh_config);
+    let ssh_issue_key = ssh_health_check_dedupe_key(&ssh_config_id);
+    let runtime = match inspect_remote_codex_runtime(&app, &ssh_config, &remote_settings).await {
+        Ok(runtime) => runtime,
+        Err(error) => {
+            let checked_at = now_sqlite();
+            let _ = sqlx::query(
+                "UPDATE ssh_configs SET last_checked_at = $2, last_check_status = 'failed', last_check_message = $3, updated_at = $4 WHERE id = $1",
+            )
+            .bind(&ssh_config_id)
+            .bind(&checked_at)
+            .bind(&error)
+            .bind(now_sqlite())
+            .execute(&pool)
+            .await;
+
+            let mut draft = NotificationDraft::sticky(
+                NOTIFICATION_TYPE_SSH_CONFIG_ERROR,
+                NOTIFICATION_SEVERITY_ERROR,
+                "ssh_config",
+                format!("SSH 主机 {} 连接异常", ssh_config.name),
+                error.clone(),
+            );
+            draft.recommendation =
+                Some("请检查主机地址、认证信息、网络连通性以及远端运行环境。".to_string());
+            draft.action_label = Some("查看 SSH 设置".to_string());
+            draft.action_route = Some(settings_route("ssh", Some(&ssh_config_id)));
+            draft.related_object_type = Some("ssh_config".to_string());
+            draft.related_object_id = Some(ssh_config_id.clone());
+            draft.ssh_config_id = Some(ssh_config_id.clone());
+            draft.dedupe_key = Some(ssh_issue_key);
+            let _ = ensure_sticky_notification(&app, draft).await;
+            return Err(error);
+        }
+    };
     let checked_at = now_sqlite();
     sqlx::query(
         "UPDATE ssh_configs SET last_checked_at = $2, last_check_status = $3, last_check_message = $4, updated_at = $5 WHERE id = $1",
@@ -5299,12 +5899,82 @@ pub async fn validate_remote_codex_health<R: Runtime>(
     )
     .await;
 
+    if resolve_sticky_notification(&app, &ssh_issue_key, None)
+        .await
+        .ok()
+        .flatten()
+        .is_some()
+    {
+        let mut recovery = NotificationDraft::one_time(
+            NOTIFICATION_TYPE_SSH_CONFIG_ERROR,
+            NOTIFICATION_SEVERITY_SUCCESS,
+            "ssh_config",
+            format!("SSH 主机 {} 已恢复正常", ssh_config.name),
+            "远程健康检查已恢复成功，可以继续使用该 SSH 主机。",
+        );
+        recovery.action_label = Some("查看 SSH 设置".to_string());
+        recovery.action_route = Some(settings_route("ssh", Some(&ssh_config_id)));
+        recovery.related_object_type = Some("ssh_config".to_string());
+        recovery.related_object_id = Some(ssh_config_id.clone());
+        recovery.ssh_config_id = Some(ssh_config_id.clone());
+        let _ = publish_one_time_notification(&app, recovery).await;
+    }
+
+    let sdk_issue_key = sdk_unavailable_dedupe_key(&format!("ssh:{ssh_config_id}"));
+    let sdk_unavailable = sdk_notification_unavailable(
+        remote_settings.task_sdk_enabled,
+        remote_settings.one_shot_sdk_enabled,
+        &runtime.task_execution_effective_provider,
+        &runtime.one_shot_effective_provider,
+    );
+    if sdk_unavailable {
+        let mut draft = NotificationDraft::sticky(
+            NOTIFICATION_TYPE_SDK_UNAVAILABLE,
+            if runtime.codex_available {
+                NOTIFICATION_SEVERITY_WARNING
+            } else {
+                NOTIFICATION_SEVERITY_ERROR
+            },
+            "sdk_health",
+            format!("远程主机 {} 的 SDK 当前不可用", ssh_config.name),
+            runtime.status_message.clone(),
+        );
+        draft.recommendation =
+            Some("请检查远程 Node、SDK 安装状态以及该主机的执行 provider 配置。".to_string());
+        draft.action_label = Some("查看远程设置".to_string());
+        draft.action_route = Some(settings_route("sdk", Some(&ssh_config_id)));
+        draft.related_object_type = Some("ssh_config".to_string());
+        draft.related_object_id = Some(ssh_config_id.clone());
+        draft.ssh_config_id = Some(ssh_config_id.clone());
+        draft.dedupe_key = Some(sdk_issue_key.clone());
+        let _ = ensure_sticky_notification(&app, draft).await;
+    } else if resolve_sticky_notification(&app, &sdk_issue_key, None)
+        .await
+        .ok()
+        .flatten()
+        .is_some()
+    {
+        let mut recovery = NotificationDraft::one_time(
+            NOTIFICATION_TYPE_SDK_UNAVAILABLE,
+            NOTIFICATION_SEVERITY_SUCCESS,
+            "sdk_health",
+            format!("远程主机 {} 的 SDK 已恢复可用", ssh_config.name),
+            "远程 SDK 健康检查恢复正常，后续任务将按当前设置继续使用 SDK。",
+        );
+        recovery.action_label = Some("查看远程设置".to_string());
+        recovery.action_route = Some(settings_route("sdk", Some(&ssh_config_id)));
+        recovery.related_object_type = Some("ssh_config".to_string());
+        recovery.related_object_id = Some(ssh_config_id.clone());
+        recovery.ssh_config_id = Some(ssh_config_id.clone());
+        let _ = publish_one_time_notification(&app, recovery).await;
+    }
+
     let latest_registered_version = crate::db::migrations::latest_migration_version();
     let migration_status = fetch_database_migration_status(&pool).await.ok();
     Ok(CodexHealthCheck {
         execution_target: EXECUTION_TARGET_SSH.to_string(),
         ssh_config_id: Some(ssh_config_id),
-        target_host_label: Some(ssh_config_target_host_label(&ssh_config)),
+        target_host_label: Some(ssh_target_label),
         codex_available: runtime.codex_available,
         codex_version: runtime.codex_version,
         node_available: runtime.node_available,
@@ -6085,9 +6755,44 @@ pub async fn update_task<R: Runtime>(
         )
         .await?;
 
+        if next_status == "review" {
+            let _ = publish_one_time_notification(
+                &app,
+                NotificationDraft::one_time(
+                    "review_pending",
+                    "warning",
+                    "任务审核",
+                    "有任务进入待审核",
+                    format!("任务“{}”已进入审核阶段，请尽快查看并处理。", current.title),
+                )
+                .with_recommendation("点击通知可直接跳转到任务详情。")
+                .with_action("查看任务", format!("/kanban?taskId={id}"))
+                .with_related_object("task", id.as_str())
+                .with_project_id(current.project_id.as_str())
+                .with_task_id(id.as_str()),
+            )
+            .await?;
+        }
+
         if current.status != "completed" && next_status == "completed" {
             let updated_task = fetch_task_by_id(&pool, &id).await?;
             record_completion_metric(&pool, &updated_task).await?;
+            let _ = publish_one_time_notification(
+                &app,
+                NotificationDraft::one_time(
+                    "task_completed",
+                    "success",
+                    "任务管理",
+                    "任务已完成",
+                    format!("任务“{}”已标记为完成。", updated_task.title),
+                )
+                .with_recommendation("如需继续跟进，可打开任务查看执行记录与产出。")
+                .with_action("查看任务", format!("/kanban?taskId={id}"))
+                .with_related_object("task", id.as_str())
+                .with_project_id(updated_task.project_id.as_str())
+                .with_task_id(updated_task.id.as_str()),
+            )
+            .await?;
         }
     }
 
@@ -6300,9 +7005,9 @@ mod tests {
         normalize_runtime_path_string, record_task_review_requested_activity,
         remote_shell_path_expression, remote_task_attachment_dir, remote_task_attachment_path,
         resolve_project_task_default_settings, resolve_session_resume_state,
-        rewrite_file_change_diff_labels, sanitize_sql_backup_script, validate_project_repo_path,
-        validate_runtime_working_dir, CodexSettings, Project, Task, TaskAttachment,
-        PROJECT_TYPE_LOCAL, PROJECT_TYPE_SSH,
+        rewrite_file_change_diff_labels, sanitize_sql_backup_script, sdk_notification_unavailable,
+        validate_project_repo_path, validate_runtime_working_dir, CodexSettings, Project, Task,
+        TaskAttachment, PROJECT_TYPE_LOCAL, PROJECT_TYPE_SSH,
     };
     use crate::db::models::GitPreferences;
 
@@ -6623,6 +7328,14 @@ mod tests {
     }
 
     #[test]
+    fn sdk_notification_unavailable_follows_effective_provider() {
+        assert!(sdk_notification_unavailable(true, false, "exec", "sdk"));
+        assert!(sdk_notification_unavailable(false, true, "sdk", "exec"));
+        assert!(!sdk_notification_unavailable(true, true, "sdk", "sdk"));
+        assert!(!sdk_notification_unavailable(false, false, "exec", "exec"));
+    }
+
+    #[test]
     fn remote_runtime_health_rejects_unsupported_node_versions() {
         let settings = CodexSettings {
             task_sdk_enabled: true,
@@ -6659,6 +7372,12 @@ mod tests {
         assert_eq!(runtime.task_execution_effective_provider, "exec");
         assert_eq!(runtime.one_shot_effective_provider, "exec");
         assert!(runtime.status_message.contains("Node 版本过低"));
+        assert!(sdk_notification_unavailable(
+            settings.task_sdk_enabled,
+            settings.one_shot_sdk_enabled,
+            &runtime.task_execution_effective_provider,
+            &runtime.one_shot_effective_provider,
+        ));
     }
 
     #[test]

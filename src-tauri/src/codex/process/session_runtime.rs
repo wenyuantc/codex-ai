@@ -11,6 +11,7 @@ use tokio::time::{sleep, Duration};
 
 use super::*;
 use crate::git_workflow::mark_task_git_context_session_finished;
+use crate::notifications::{publish_one_time_notification, NotificationDraft};
 
 fn push_captured_line(captured: &Arc<Mutex<Vec<String>>>, line: String) {
     let mut captured = captured.lock().unwrap();
@@ -494,6 +495,45 @@ fn spawn_exit_watcher(
                     project_id.as_deref(),
                 )
                 .await;
+            }
+        }
+
+        if session_kind == CodexSessionKind::Execution && final_status != "exited" {
+            if let Some(task_id) = task_id.as_deref() {
+                let task_context = sqlx::query_as::<_, (String, String)>(
+                    "SELECT title, project_id FROM tasks WHERE id = $1 LIMIT 1",
+                )
+                .bind(task_id)
+                .fetch_optional(&pool)
+                .await
+                .ok()
+                .flatten();
+                let task_title = task_context
+                    .as_ref()
+                    .map(|(title, _)| title.clone())
+                    .unwrap_or_else(|| task_id.to_string());
+                let project_id = task_context.map(|(_, project_id)| project_id);
+                let summary = exit_line.clone().unwrap_or_else(|| {
+                    format!("任务执行失败，exit_code={}", exit_code.unwrap_or_default())
+                });
+                let draft = NotificationDraft::one_time(
+                    "run_failed",
+                    "error",
+                    "任务执行",
+                    "任务运行失败",
+                    format!("任务“{}”执行失败：{}", task_title, summary),
+                )
+                .with_recommendation("请进入任务详情或会话日志查看失败原因，然后决定重试或修复。")
+                .with_action("查看任务", format!("/kanban?taskId={task_id}"))
+                .with_related_object("task", task_id)
+                .with_task_id(task_id);
+                let draft = if let Some(project_id) = project_id.as_deref() {
+                    draft.with_project_id(project_id)
+                } else {
+                    draft
+                };
+
+                let _ = publish_one_time_notification(&app, draft).await;
             }
         }
 

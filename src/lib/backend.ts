@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { normalizeProject } from "./projects";
 import type {
+  AppNotification,
   ArtifactCaptureMode,
   CodexHealthCheck,
   CodexSdkInstallResult,
@@ -299,6 +300,28 @@ export async function getEmployeeRuntimeStatus(employeeId: string): Promise<Empl
 
 export async function searchGlobal(input: SearchGlobalInput): Promise<GlobalSearchResponse> {
   return invoke("search_global", { payload: input });
+}
+
+export async function syncSystemNotifications(
+  environmentMode?: EnvironmentMode,
+  sshConfigId?: string | null,
+): Promise<void> {
+  return invoke("sync_system_notifications", {
+    environmentMode: environmentMode ?? null,
+    sshConfigId: sshConfigId ?? null,
+  });
+}
+
+export async function listNotifications(limit?: number): Promise<AppNotification[]> {
+  return invoke("list_notifications", { limit: limit ?? null });
+}
+
+export async function markNotificationRead(id: string): Promise<AppNotification> {
+  return invoke("mark_notification_read", { id });
+}
+
+export async function markAllNotificationsRead(): Promise<number> {
+  return invoke("mark_all_notifications_read");
 }
 
 export async function listCodexSessions(): Promise<CodexSessionListItem[]> {

@@ -312,6 +312,76 @@ export interface GlobalSearchResponse {
   items: GlobalSearchItem[];
 }
 
+export type NotificationType =
+  | "review_pending"
+  | "run_failed"
+  | "task_completed"
+  | "sdk_unavailable"
+  | "database_error"
+  | "ssh_config_error";
+export type NotificationSeverity = "info" | "success" | "warning" | "error" | "critical";
+export type NotificationDeliveryMode = "one_time" | "sticky";
+export type NotificationState = "active" | "resolved";
+
+export interface AppNotification {
+  id: string;
+  notification_type: NotificationType;
+  severity: NotificationSeverity;
+  source_module: string;
+  title: string;
+  message: string;
+  recommendation: string | null;
+  action_label: string | null;
+  action_route: string | null;
+  related_object_type: string | null;
+  related_object_id: string | null;
+  project_id: string | null;
+  task_id: string | null;
+  ssh_config_id: string | null;
+  delivery_mode: NotificationDeliveryMode;
+  state: NotificationState;
+  is_read: boolean;
+  dedupe_key: string | null;
+  occurrence_count: number;
+  first_triggered_at: string;
+  last_triggered_at: string;
+  read_at: string | null;
+  resolved_at: string | null;
+  created_at: string;
+  updated_at: string;
+  is_transient?: false;
+}
+
+export interface NotificationCenterChanged {
+  reason: string;
+  notification_id: string | null;
+}
+
+export interface TransientNotification {
+  id: string;
+  notification_type: NotificationType;
+  severity: NotificationSeverity;
+  source_module: string;
+  title: string;
+  message: string;
+  recommendation: string | null;
+  action_label: string | null;
+  action_route: string | null;
+  related_object_type: string | null;
+  related_object_id: string | null;
+  project_id: string | null;
+  task_id: string | null;
+  ssh_config_id: string | null;
+  delivery_mode: NotificationDeliveryMode;
+  occurrence_count: number;
+  first_triggered_at: string;
+  last_triggered_at: string;
+  is_read: boolean;
+  is_transient: true;
+}
+
+export type NotificationItem = AppNotification | TransientNotification;
+
 export interface TaskGitContext {
   id: string;
   task_id: string;

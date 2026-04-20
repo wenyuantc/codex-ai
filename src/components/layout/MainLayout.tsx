@@ -2,12 +2,19 @@ import { Outlet } from "react-router-dom";
 import { Sidebar } from "./Sidebar";
 import { Header } from "./Header";
 import { useEmployeeStore } from "@/stores/employeeStore";
+import { useProjectStore } from "@/stores/projectStore";
+import { useNotificationStore } from "@/stores/notificationStore";
 import { useTaskStore } from "@/stores/taskStore";
 import { useEffect } from "react";
 
 export function MainLayout() {
   const initCodexListeners = useEmployeeStore((s) => s.initCodexListeners);
   const initCodexSessionListeners = useTaskStore((s) => s.initCodexSessionListeners);
+  const environmentMode = useProjectStore((state) => state.environmentMode);
+  const selectedSshConfigId = useProjectStore((state) => state.selectedSshConfigId);
+  const initNotificationListeners = useNotificationStore((state) => state.initNotificationListeners);
+  const fetchNotifications = useNotificationStore((state) => state.fetchNotifications);
+  const syncSystemNotifications = useNotificationStore((state) => state.syncSystemNotifications);
 
   useEffect(() => {
     const cleanup = initCodexListeners();
@@ -18,6 +25,30 @@ export function MainLayout() {
     const cleanup = initCodexSessionListeners();
     return cleanup;
   }, [initCodexSessionListeners]);
+
+  useEffect(() => {
+    const cleanup = initNotificationListeners();
+    return cleanup;
+  }, [initNotificationListeners]);
+
+  useEffect(() => {
+    void syncSystemNotifications(environmentMode, selectedSshConfigId);
+    void fetchNotifications();
+
+    const sync = () => {
+      void syncSystemNotifications(environmentMode, selectedSshConfigId);
+      void fetchNotifications();
+    };
+
+    const interval = window.setInterval(sync, 60000);
+    const handleFocus = () => sync();
+
+    window.addEventListener("focus", handleFocus);
+    return () => {
+      window.clearInterval(interval);
+      window.removeEventListener("focus", handleFocus);
+    };
+  }, [environmentMode, fetchNotifications, selectedSshConfigId, syncSystemNotifications]);
 
   // Keyboard shortcuts
   useEffect(() => {

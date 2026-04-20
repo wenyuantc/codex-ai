@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { confirm, message, open, save } from "@tauri-apps/plugin-dialog";
+import { useSearchParams } from "react-router-dom";
 import {
   Download,
   FolderOpen,
@@ -36,6 +37,7 @@ import {
   installRemoteCodexSdk,
   openDatabaseFolder,
   restoreDatabase,
+  syncSystemNotifications,
   updateCodexSettings,
   updateRemoteCodexSettings,
   updateSshConfig as updateSshConfigCommand,
@@ -165,6 +167,7 @@ function buildSshConfigFormState(config: SshConfig | null): SshConfigFormState {
 }
 
 export function SettingsPage() {
+  const [searchParams] = useSearchParams();
   const environmentMode = useProjectStore((state) => state.environmentMode);
   const sshConfigs = useProjectStore((state) => state.sshConfigs);
   const selectedSshConfigId = useProjectStore((state) => state.selectedSshConfigId);
@@ -219,6 +222,9 @@ export function SettingsPage() {
   const [sshFormLoading, setSshFormLoading] = useState<"save" | "delete" | "probe" | null>(null);
   const [sshFormMessage, setSshFormMessage] = useState<string | null>(null);
   const [sshFormError, setSshFormError] = useState<string | null>(null);
+  const sdkSectionRef = useRef<HTMLDivElement | null>(null);
+  const sshSectionRef = useRef<HTMLDivElement | null>(null);
+  const databaseSectionRef = useRef<HTMLDivElement | null>(null);
 
   const selectedSshConfig = useMemo(
     () => sshConfigs.find((config) => config.id === selectedSshConfigId) ?? null,
@@ -233,6 +239,19 @@ export function SettingsPage() {
     && selectedSshConfig.auth_type === "password"
     && !selectedSshConfig.password_execution_allowed,
   );
+  const highlightedSection = (() => {
+    const section = searchParams.get("section");
+    return section === "sdk" || section === "ssh" || section === "database"
+      ? section
+      : null;
+  })();
+  const requestedSshConfigId = searchParams.get("sshConfigId");
+
+  function getSectionCardClass(section: "sdk" | "ssh" | "database") {
+    return highlightedSection === section
+      ? "ring-2 ring-primary/40 ring-offset-2 ring-offset-background"
+      : "";
+  }
 
   function applySettingsToFormState(settings: CodexSettings) {
     const gitPreferences = settings.git_preferences ?? DEFAULT_GIT_PREFERENCES;
@@ -259,6 +278,14 @@ export function SettingsPage() {
       normalizeReasoningEffort(gitPreferences.ai_commit_reasoning_effort),
     );
     setNodePathOverride(settings.node_path_override ?? "");
+  }
+
+  async function refreshNotificationHealth(nextSshConfigId = selectedSshConfigId) {
+    try {
+      await syncSystemNotifications(environmentMode, nextSshConfigId);
+    } catch (error) {
+      console.error("Failed to refresh notification health state:", error);
+    }
   }
 
   async function loadRuntimeState() {
@@ -305,6 +332,13 @@ export function SettingsPage() {
   }, [fetchSshConfigs]);
 
   useEffect(() => {
+    if (requestedSshConfigId) {
+      setSelectedSshConfigId(requestedSshConfigId);
+      setEditingSshConfigId(requestedSshConfigId);
+    }
+  }, [requestedSshConfigId, setSelectedSshConfigId]);
+
+  useEffect(() => {
     if (!editingSshConfigId) {
       setSshForm(EMPTY_SSH_CONFIG_FORM);
       return;
@@ -316,6 +350,27 @@ export function SettingsPage() {
   useEffect(() => {
     void loadRuntimeState();
   }, [environmentMode, selectedSshConfigId]);
+
+  useEffect(() => {
+    const sectionRef =
+      highlightedSection === "sdk"
+        ? sdkSectionRef
+        : highlightedSection === "ssh"
+          ? sshSectionRef
+          : highlightedSection === "database"
+            ? databaseSectionRef
+            : null;
+
+    if (!sectionRef?.current) {
+      return;
+    }
+
+    const frameId = window.requestAnimationFrame(() => {
+      sectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+
+    return () => window.cancelAnimationFrame(frameId);
+  }, [highlightedSection]);
 
   const themeOptions: { value: ThemeMode; label: string; icon: typeof Sun }[] = [
     { value: "light", label: "亮色", icon: Sun },
@@ -378,6 +433,7 @@ export function SettingsPage() {
       setCodexSettings(nextSettings);
       setSdkActionMessage(isRemoteMode ? `远程配置已保存到 ${remoteTargetName}` : "系统设置已保存");
       await loadRuntimeState();
+      await refreshNotificationHealth();
     } catch (error) {
       console.error("Failed to save codex sdk settings:", error);
       setSdkActionError(error instanceof Error ? error.message : "保存 Codex 配置失败");
@@ -406,6 +462,7 @@ export function SettingsPage() {
           : result.message,
       );
       await loadRuntimeState();
+      await refreshNotificationHealth();
     } catch (error) {
       console.error("Failed to install codex sdk:", error);
       setSdkActionError(error instanceof Error ? error.message : "安装 Codex SDK 失败");
@@ -487,6 +544,7 @@ export function SettingsPage() {
       const result = await restoreDatabase(selected);
       setDatabaseActionMessage(result.message);
       await loadRuntimeState();
+      await refreshNotificationHealth();
       await message(
         `${result.message}\n\n导入前自动备份：${result.backup_path}`,
         {
@@ -537,6 +595,7 @@ export function SettingsPage() {
       setEditingSshConfigId(sshConfig.id);
       setSshForm(buildSshConfigFormState(sshConfig));
       setSshFormMessage(editingSshConfigId ? "SSH 配置已更新。" : "SSH 配置已创建。");
+      await refreshNotificationHealth(sshConfig.id);
     } catch (error) {
       console.error("Failed to save SSH config:", error);
       setSshFormError(error instanceof Error ? error.message : "保存 SSH 配置失败");
@@ -568,6 +627,7 @@ export function SettingsPage() {
       await fetchSshConfigs();
       resetSshForm();
       setSshFormMessage("SSH 配置已删除。");
+      await refreshNotificationHealth(null);
     } catch (error) {
       console.error("Failed to delete SSH config:", error);
       setSshFormError(error instanceof Error ? error.message : "删除 SSH 配置失败");
@@ -598,6 +658,7 @@ export function SettingsPage() {
         );
       }
       await loadRuntimeState();
+      await refreshNotificationHealth();
     } catch (error) {
       console.error("Failed to test SSH connection:", error);
       setSshFormError(error instanceof Error ? error.message : "SSH 测试连接失败");
@@ -633,7 +694,10 @@ export function SettingsPage() {
         </p>
       </div>
 
-      <div className="space-y-4 rounded-lg border border-border bg-card p-4">
+      <div
+        ref={sdkSectionRef}
+        className={`space-y-4 rounded-lg border border-border bg-card p-4 ${getSectionCardClass("sdk")}`}
+      >
         <div>
           <h3 className="mb-1 text-sm font-medium">主题模式</h3>
           <p className="mb-3 text-xs text-muted-foreground">选择应用的显示主题</p>
@@ -1212,7 +1276,10 @@ export function SettingsPage() {
         </div>
       </div>
 
-      <div className="space-y-4 rounded-lg border border-border bg-card p-4">
+      <div
+        ref={sshSectionRef}
+        className={`space-y-4 rounded-lg border border-border bg-card p-4 ${getSectionCardClass("ssh")}`}
+      >
         <div className="flex items-center justify-between gap-4">
           <div>
             <h3 className="text-sm font-medium">SSH 配置管理</h3>
@@ -1469,7 +1536,10 @@ export function SettingsPage() {
         </div>
       </div>
 
-      <div className="space-y-4 rounded-lg border border-border bg-card p-4">
+      <div
+        ref={databaseSectionRef}
+        className={`space-y-4 rounded-lg border border-border bg-card p-4 ${getSectionCardClass("database")}`}
+      >
         <div>
           <h3 className="text-sm font-medium">数据库维护</h3>
           <p className="text-xs text-muted-foreground">

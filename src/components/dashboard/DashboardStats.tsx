@@ -1,5 +1,5 @@
 import { useDashboardStore } from "@/stores/dashboardStore";
-import { FolderKanban, ListTodo, Users, TrendingUp } from "lucide-react";
+import { BellRing, FolderKanban, ListTodo, TriangleAlert, TrendingUp, Users } from "lucide-react";
 import { Card } from "@/components/ui/card";
 
 export function DashboardStats() {
@@ -34,10 +34,24 @@ export function DashboardStats() {
       color: "text-purple-500",
       bg: "bg-purple-500/10",
     },
+    {
+      icon: BellRing,
+      label: "未读通知",
+      value: stats?.unreadNotifications ?? 0,
+      color: "text-sky-500",
+      bg: "bg-sky-500/10",
+    },
+    {
+      icon: TriangleAlert,
+      label: "高优先级告警",
+      value: stats?.highSeverityNotifications ?? 0,
+      color: "text-rose-500",
+      bg: "bg-rose-500/10",
+    },
   ];
 
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+    <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-6 gap-4">
       {cards.map((card) => (
         <Card key={card.label} className="p-4 flex items-center gap-4">
           <div className={`${card.bg} p-3 rounded-lg`}>

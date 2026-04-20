@@ -681,6 +681,68 @@ pub fn get_all_migrations() -> Vec<Migration> {
             "#,
             kind: tauri_plugin_sql::MigrationKind::Up,
         },
+        Migration {
+            version: 28,
+            description: "create notification center table",
+            sql: r#"
+                CREATE TABLE notifications (
+                    id TEXT PRIMARY KEY,
+                    notification_type TEXT NOT NULL
+                        CHECK (
+                            notification_type IN (
+                                'review_pending',
+                                'run_failed',
+                                'task_completed',
+                                'sdk_unavailable',
+                                'database_error',
+                                'ssh_config_error'
+                            )
+                        ),
+                    severity TEXT NOT NULL
+                        CHECK (severity IN ('info', 'success', 'warning', 'error', 'critical')),
+                    source_module TEXT NOT NULL,
+                    title TEXT NOT NULL,
+                    message TEXT NOT NULL,
+                    recommendation TEXT,
+                    action_label TEXT,
+                    action_route TEXT,
+                    related_object_type TEXT,
+                    related_object_id TEXT,
+                    project_id TEXT REFERENCES projects(id) ON DELETE SET NULL,
+                    task_id TEXT REFERENCES tasks(id) ON DELETE SET NULL,
+                    ssh_config_id TEXT REFERENCES ssh_configs(id) ON DELETE SET NULL,
+                    delivery_mode TEXT NOT NULL DEFAULT 'one_time'
+                        CHECK (delivery_mode IN ('one_time', 'sticky')),
+                    state TEXT NOT NULL DEFAULT 'active'
+                        CHECK (state IN ('active', 'resolved')),
+                    is_read INTEGER NOT NULL DEFAULT 0 CHECK (is_read IN (0, 1)),
+                    dedupe_key TEXT,
+                    occurrence_count INTEGER NOT NULL DEFAULT 1 CHECK (occurrence_count >= 1),
+                    first_triggered_at TEXT NOT NULL DEFAULT (datetime('now')),
+                    last_triggered_at TEXT NOT NULL DEFAULT (datetime('now')),
+                    read_at TEXT,
+                    resolved_at TEXT,
+                    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+                );
+
+                CREATE INDEX idx_notifications_last_triggered
+                    ON notifications(state, is_read, last_triggered_at DESC);
+                CREATE INDEX idx_notifications_project
+                    ON notifications(project_id, last_triggered_at DESC);
+                CREATE INDEX idx_notifications_task
+                    ON notifications(task_id, last_triggered_at DESC);
+                CREATE INDEX idx_notifications_ssh_config
+                    ON notifications(ssh_config_id, last_triggered_at DESC);
+                CREATE UNIQUE INDEX idx_notifications_active_dedupe
+                    ON notifications(dedupe_key)
+                    WHERE dedupe_key IS NOT NULL AND state = 'active';
+
+                CREATE TRIGGER update_notifications_updated_at AFTER UPDATE ON notifications
+                    FOR EACH ROW BEGIN UPDATE notifications SET updated_at = datetime('now') WHERE id = NEW.id; END;
+            "#,
+            kind: tauri_plugin_sql::MigrationKind::Up,
+        },
     ]
 }
 
@@ -713,8 +775,8 @@ mod tests {
     }
 
     #[test]
-    fn latest_migration_version_includes_task_worktree_preference() {
-        assert_eq!(latest_migration_version(), 27);
+    fn latest_migration_version_includes_notification_center() {
+        assert_eq!(latest_migration_version(), 28);
     }
 
     #[test]
