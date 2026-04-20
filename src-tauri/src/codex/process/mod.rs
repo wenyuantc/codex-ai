@@ -368,12 +368,47 @@ fn upsert_sdk_file_change_event(store: &SdkFileChangeStore, event: SdkFileChange
 }
 
 fn extract_tagged_block(raw: &str, start_tag: &str, end_tag: &str) -> Option<String> {
-    let start = raw.find(start_tag)?;
-    let content_start = start + start_tag.len();
-    let rest = &raw[content_start..];
-    let end = rest.find(end_tag)?;
-    let content = rest[..end].trim();
-    (!content.is_empty()).then(|| content.to_string())
+    let lines = raw.lines().collect::<Vec<_>>();
+    for end_index in (0..lines.len()).rev() {
+        let line = lines[end_index].trim();
+        let Some(end_prefix) = line.strip_suffix(end_tag) else {
+            continue;
+        };
+
+        if let Some(content) = end_prefix.trim().strip_prefix(start_tag) {
+            let content = content.trim();
+            if !content.is_empty() {
+                return Some(content.to_string());
+            }
+            continue;
+        }
+
+        let start_index = lines[..end_index].iter().rposition(|candidate| {
+            let candidate = candidate.trim();
+            candidate == start_tag || candidate.starts_with(start_tag)
+        })?;
+        let start_line = lines[start_index].trim();
+        let start_suffix = start_line
+            .strip_prefix(start_tag)
+            .map(str::trim)
+            .filter(|value| !value.is_empty());
+        let end_prefix = end_prefix.trim();
+        let mut parts = Vec::new();
+        if let Some(start_suffix) = start_suffix {
+            parts.push(start_suffix);
+        }
+        parts.extend(lines[start_index + 1..end_index].iter().copied());
+        if !end_prefix.is_empty() {
+            parts.push(end_prefix);
+        }
+        let content = parts.join("\n");
+        let content = content.trim();
+        if !content.is_empty() {
+            return Some(content.to_string());
+        }
+    }
+
+    None
 }
 
 fn extract_review_report(raw: &str) -> Option<String> {

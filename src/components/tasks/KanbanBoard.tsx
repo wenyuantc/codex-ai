@@ -1,12 +1,15 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   DndContext,
   DragEndEvent,
+  DragOverEvent,
   DragOverlay,
+  DragStartEvent,
   PointerSensor,
+  closestCorners,
+  pointerWithin,
   useSensor,
   useSensors,
-  closestCorners,
 } from "@dnd-kit/core";
 import { getProjectGitOverview, listTaskGitContexts } from "@/lib/backend";
 import { onCodexExit, onTaskAutomationStateChanged } from "@/lib/codex";
@@ -35,6 +38,7 @@ export function KanbanBoard({
   const employees = useEmployeeStore((s) => s.employees);
   const projects = useProjectStore((s) => s.projects);
   const [activeTask, setActiveTask] = useState<Task | null>(null);
+  const dragOriginStatusRef = useRef<TaskStatus | null>(null);
   const [searchTaskOpen, setSearchTaskOpen] = useState(false);
   const [gitOverviewByProjectId, setGitOverviewByProjectId] = useState<Record<string, ProjectGitOverview>>({});
   const [taskGitContextsByProjectId, setTaskGitContextsByProjectId] = useState<Record<string, TaskGitContext[]>>({});
@@ -171,53 +175,101 @@ export function KanbanBoard({
     })
   );
 
-  const handleDragStart = (event: DragEndEvent) => {
-    const task = tasks.find((t) => t.id === event.active.id);
-    if (task) setActiveTask(task);
+  const getTaskById = (taskId: string) =>
+    useTaskStore.getState().tasks.find((task) => task.id === taskId);
+
+  const resolveDropStatus = (overId: string): TaskStatus | null => {
+    const targetStatus = TASK_STATUSES.find((status) => status.value === overId)?.value;
+    if (targetStatus) {
+      return targetStatus;
+    }
+
+    return getTaskById(overId)?.status as TaskStatus | undefined ?? null;
+  };
+
+  const collisionDetection = (args: Parameters<typeof pointerWithin>[0]) => {
+    const pointerCollisions = pointerWithin(args);
+    if (pointerCollisions.length > 0) {
+      return pointerCollisions;
+    }
+
+    return closestCorners(args);
+  };
+
+  const handleDragStart = (event: DragStartEvent) => {
+    const task = getTaskById(event.active.id as string);
+    if (!task) {
+      return;
+    }
+
+    dragOriginStatusRef.current = task.status as TaskStatus;
+    setActiveTask(task);
+  };
+
+  const handleDragOver = (event: DragOverEvent) => {
+    const { active, over } = event;
+
+    if (!over) {
+      return;
+    }
+
+    const taskId = active.id as string;
+    const activeTask = getTaskById(taskId);
+    const targetStatus = resolveDropStatus(over.id as string);
+
+    if (!activeTask || !targetStatus || activeTask.status === targetStatus) {
+      return;
+    }
+
+    moveTask(taskId, targetStatus);
   };
 
   const handleDragEnd = (event: DragEndEvent) => {
     const { active, over } = event;
-    setActiveTask(null);
-
-    if (!over) return;
-
     const taskId = active.id as string;
-    const overId = over.id as string;
+    const originalStatus = dragOriginStatusRef.current;
+    const currentTask = getTaskById(taskId);
 
-    // Check if dropped on a column (status id like "todo", "in_progress", etc.)
-    const targetStatus = TASK_STATUSES.find((s) => s.value === overId)?.value;
-    if (targetStatus) {
-      const task = tasks.find((t) => t.id === taskId);
-      if (task && task.status !== targetStatus) {
-        const previousStatus = task.status;
-        moveTask(taskId, targetStatus as TaskStatus);
-        void updateTaskStatus(taskId, targetStatus as TaskStatus).catch((error) => {
-          console.error("Failed to update task status:", error);
-          moveTask(taskId, previousStatus as TaskStatus);
-          void fetchTasks(_projectId);
-        });
+    setActiveTask(null);
+    dragOriginStatusRef.current = null;
+
+    if (!currentTask || !originalStatus) {
+      return;
+    }
+
+    const targetStatus = over ? resolveDropStatus(over.id as string) : null;
+
+    if (!targetStatus) {
+      if (currentTask.status !== originalStatus) {
+        moveTask(taskId, originalStatus);
       }
       return;
     }
 
-    // Dropped on another task - find that task's column status
-    const targetTask = tasks.find((t) => t.id === overId);
-    if (targetTask) {
-      const task = tasks.find((t) => t.id === taskId);
-      if (task && task.status !== targetTask.status) {
-        const previousStatus = task.status;
-        moveTask(taskId, targetTask.status as TaskStatus);
-        void updateTaskStatus(taskId, targetTask.status as TaskStatus).catch((error) => {
-          console.error("Failed to update task status:", error);
-          moveTask(taskId, previousStatus as TaskStatus);
-          void fetchTasks(_projectId);
-        });
-      }
+    if (currentTask.status !== targetStatus) {
+      moveTask(taskId, targetStatus);
     }
+
+    if (originalStatus === targetStatus) {
+      return;
+    }
+
+    void updateTaskStatus(taskId, targetStatus).catch((error) => {
+      console.error("Failed to update task status:", error);
+      moveTask(taskId, originalStatus);
+      void fetchTasks(_projectId);
+    });
   };
 
   const handleDragCancel = () => {
+    if (activeTask && dragOriginStatusRef.current) {
+      const currentTask = getTaskById(activeTask.id);
+      if (currentTask && currentTask.status !== dragOriginStatusRef.current) {
+        moveTask(activeTask.id, dragOriginStatusRef.current);
+      }
+    }
+
+    dragOriginStatusRef.current = null;
     setActiveTask(null);
   };
 
@@ -366,8 +418,9 @@ export function KanbanBoard({
     <>
       <DndContext
         sensors={sensors}
-        collisionDetection={closestCorners}
+        collisionDetection={collisionDetection}
         onDragStart={handleDragStart}
+        onDragOver={handleDragOver}
         onDragEnd={handleDragEnd}
         onDragCancel={handleDragCancel}
       >

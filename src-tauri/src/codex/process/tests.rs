@@ -9,7 +9,8 @@ use super::{
     build_remote_codex_session_command, build_remote_sdk_bridge_command, build_session_exec_args,
     commit_message_uses_process_language, compose_codex_prompt,
     compute_execution_session_file_changes_from_entries, detect_exec_json_output_flag,
-    extract_session_id_from_output, format_session_prompt_log, hash_worktree_path, normalize_model,
+    extract_review_report, extract_review_verdict, extract_session_id_from_output,
+    format_session_prompt_log, hash_worktree_path, normalize_model,
     normalize_session_file_change_paths, parse_ai_subtasks_response, parse_cli_json_event_line,
     parse_sdk_bridge_output, parse_sdk_file_change_event, sdk_codex_path_override_allowed_for_os,
     should_capture_execution_change_baseline, validate_generated_commit_message, CliJsonOutputFlag,
@@ -192,6 +193,46 @@ fn leaves_prompt_unchanged_without_employee_system_prompt() {
     assert_eq!(
         compose_codex_prompt("只执行任务", Some("   ")),
         "只执行任务"
+    );
+}
+
+#[test]
+fn review_tag_extraction_ignores_source_code_tag_literals() {
+    let raw = r#"const REVIEW_VERDICT_START_TAG: &str = "<review_verdict>";
+const REVIEW_VERDICT_END_TAG: &str = "</review_verdict>";
+const REVIEW_REPORT_START_TAG: &str = "<review_report>";
+const REVIEW_REPORT_END_TAG: &str = "</review_report>";
+<review_verdict>
+{"passed":false,"needs_human":false,"blocking_issue_count":1,"summary":"发现 1 个阻断问题。"}
+</review_verdict>
+<review_report>
+## 结论
+未通过。
+</review_report>"#;
+
+    assert_eq!(
+        extract_review_verdict(raw).as_deref(),
+        Some(
+            r#"{"passed":false,"needs_human":false,"blocking_issue_count":1,"summary":"发现 1 个阻断问题。"}"#
+        )
+    );
+    assert_eq!(
+        extract_review_report(raw).as_deref(),
+        Some("## 结论\n未通过。")
+    );
+}
+
+#[test]
+fn review_tag_extraction_supports_single_line_blocks() {
+    let raw = "<review_verdict>{\"passed\":true,\"needs_human\":false,\"blocking_issue_count\":0,\"summary\":\"通过\"}</review_verdict>\n<review_report>## 结论\n通过。</review_report>";
+
+    assert_eq!(
+        extract_review_verdict(raw).as_deref(),
+        Some("{\"passed\":true,\"needs_human\":false,\"blocking_issue_count\":0,\"summary\":\"通过\"}")
+    );
+    assert_eq!(
+        extract_review_report(raw).as_deref(),
+        Some("## 结论\n通过。")
     );
 }
 
