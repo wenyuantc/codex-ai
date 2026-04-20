@@ -428,44 +428,29 @@ async fn git_ref_exists<R: Runtime>(
     .await
 }
 
-async fn determine_default_branch<R: Runtime>(
+#[cfg(test)]
+fn determine_current_branch_local(repo_path: &str) -> Result<String, String> {
+    let branch = run_git_text(repo_path, &["rev-parse", "--abbrev-ref", "HEAD"])?;
+    let branch = branch.trim();
+    if !branch.is_empty() && branch != "HEAD" {
+        Ok(branch.to_string())
+    } else {
+        Err("无法解析当前分支".to_string())
+    }
+}
+
+async fn determine_current_branch<R: Runtime>(
     app: &AppHandle<R>,
     runtime: &GitProjectRuntimeContext,
 ) -> Result<String, String> {
     #[cfg(test)]
     {
         if runtime.execution_target == EXECUTION_TARGET_LOCAL {
-            if let Ok(value) = run_git_text(
-                &runtime.repo_path,
-                &["symbolic-ref", "refs/remotes/origin/HEAD", "--short"],
-            ) {
-                let branch = value.rsplit('/').next().unwrap_or(value.as_str()).trim();
-                if !branch.is_empty() {
-                    return Ok(branch.to_string());
-                }
-            }
-
-            if let Ok(branch) =
-                run_git_text(&runtime.repo_path, &["rev-parse", "--abbrev-ref", "HEAD"])
-            {
-                let branch = branch.trim();
-                if !branch.is_empty() && branch != "HEAD" {
-                    return Ok(branch.to_string());
-                }
-            }
-
-            if git_ref_exists_local(&runtime.repo_path, "refs/heads/main") {
-                return Ok("main".to_string());
-            }
-            if git_ref_exists_local(&runtime.repo_path, "refs/heads/master") {
-                return Ok("master".to_string());
-            }
-
-            return Err("无法解析默认目标分支".to_string());
+            return determine_current_branch_local(&runtime.repo_path);
         }
     }
 
-    Ok(git_runtime::collect_git_overview(
+    git_runtime::collect_git_overview(
         app,
         &runtime.execution_target,
         runtime.ssh_config_id.as_deref(),
@@ -473,7 +458,8 @@ async fn determine_default_branch<R: Runtime>(
         1,
     )
     .await?
-    .default_branch)
+    .current_branch
+    .ok_or_else(|| "无法解析当前分支".to_string())
 }
 
 fn sanitize_git_fragment(value: &str) -> String {
@@ -630,7 +616,7 @@ async fn context_is_healthy<R: Runtime>(
         execution_target: runtime.execution_target.clone(),
         ssh_config_id: runtime.ssh_config_id.clone(),
     };
-    determine_default_branch(app, &worktree_runtime)
+    determine_current_branch(app, &worktree_runtime)
         .await
         .is_ok()
 }
@@ -1439,7 +1425,7 @@ async fn update_context_after_prepare<R: Runtime>(
     let git_preferences = resolve_project_git_preferences(app, project)?;
     let target_branch = match preferred_target_branch {
         Some(branch) => branch,
-        None => determine_default_branch(app, &runtime).await?,
+        None => determine_current_branch(app, &runtime).await?,
     };
     let task_branch = build_task_branch(&task.id);
     let worktree_path =
@@ -3048,21 +3034,7 @@ mod tests {
         ensure_git_repository(&repo_path)?;
         let target_branch = match preferred_target_branch {
             Some(branch) => branch,
-            None => {
-                if let Ok(value) = run_git_text(
-                    &repo_path,
-                    &["symbolic-ref", "refs/remotes/origin/HEAD", "--short"],
-                ) {
-                    let branch = value.rsplit('/').next().unwrap_or(value.as_str()).trim();
-                    if !branch.is_empty() {
-                        branch.to_string()
-                    } else {
-                        run_git_text(&repo_path, &["rev-parse", "--abbrev-ref", "HEAD"])?
-                    }
-                } else {
-                    run_git_text(&repo_path, &["rev-parse", "--abbrev-ref", "HEAD"])?
-                }
-            }
+            None => determine_current_branch_local(&repo_path)?,
         };
         let task_branch = build_task_branch(&task.id);
         let worktree_path = build_task_worktree_path_for_local_test(
@@ -3326,6 +3298,70 @@ mod tests {
                     .parent()
                     .unwrap_or(Path::new("")),
             );
+            pool.close().await;
+        });
+    }
+
+    #[test]
+    fn prepare_task_git_execution_prefers_current_branch_over_origin_head() {
+        tauri::async_runtime::block_on(async {
+            let pool = setup_test_pool().await;
+            let repo_path = init_git_repo();
+            let repo_root = PathBuf::from(&repo_path);
+            let remote_root = std::env::temp_dir().join(format!(
+                "codex-git-workflow-origin-{}-{}",
+                std::process::id(),
+                Uuid::new_v4()
+            ));
+            fs::create_dir_all(&remote_root).expect("create remote dir");
+            let remote_root_str = remote_root.to_string_lossy().to_string();
+            let run = |args: &[&str]| {
+                let status = Command::new("git")
+                    .arg("-C")
+                    .arg(&repo_path)
+                    .args(args)
+                    .status()
+                    .expect("run git");
+                assert!(status.success(), "git {:?} should succeed", args);
+            };
+
+            run(&["init", "--bare", "-q", &remote_root_str]);
+            run(&["remote", "add", "origin", &remote_root_str]);
+            run(&["push", "-u", "origin", "main"]);
+            run(&["remote", "set-head", "origin", "main"]);
+            run(&["checkout", "-q", "-b", "feature/current-base"]);
+
+            fs::write(repo_root.join("FEATURE.md"), "feature base\n").expect("write feature file");
+            run(&["add", "FEATURE.md"]);
+            run(&["commit", "-q", "-m", "feature base"]);
+
+            let main_head = run_git_text(&repo_path, &["rev-parse", "main"]).expect("main head");
+            let feature_head =
+                run_git_text(&repo_path, &["rev-parse", "HEAD"]).expect("feature head");
+            assert_ne!(main_head, feature_head);
+
+            let (project, task) = insert_project_and_task(&pool, &repo_path).await;
+            let context = update_context_after_prepare_for_test(&pool, &task, &project, None)
+                .await
+                .expect("prepare context");
+            let worktree_head = run_git_text(&context.worktree_path, &["rev-parse", "HEAD"])
+                .expect("worktree head");
+
+            assert_eq!(context.target_branch, "feature/current-base");
+            assert_eq!(context.base_branch, "feature/current-base");
+            assert_eq!(
+                context.repo_head_commit_at_prepare.as_deref(),
+                Some(feature_head.as_str())
+            );
+            assert_eq!(worktree_head, feature_head);
+
+            let _ = fs::remove_dir_all(PathBuf::from(&repo_path));
+            let _ = fs::remove_dir_all(
+                PathBuf::from(&context.worktree_path)
+                    .parent()
+                    .unwrap_or(Path::new("")),
+            );
+            let _ = fs::remove_dir_all(&remote_root);
             pool.close().await;
         });
     }
