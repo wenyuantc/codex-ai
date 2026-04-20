@@ -3,6 +3,7 @@ import { create } from "zustand";
 import { select } from "@/lib/database";
 import { filterProjectsByScope, normalizeProject } from "@/lib/projects";
 import type { ActivityLog, EnvironmentMode, Project, Task } from "@/lib/types";
+import { getActivityActionLabel, getActivityDetailsLabel, parseDateValue } from "@/lib/utils";
 
 const SSH_GLOBAL_ACTIVITY_ACTIONS = new Set([
   "environment_mode_switched",
@@ -36,6 +37,15 @@ interface DashboardStats {
 interface ActivityPageResult {
   items: ActivityLog[];
   total: number;
+  availableActions: string[];
+}
+
+export interface ActivityFilters {
+  projectId?: string;
+  action?: string;
+  keyword?: string;
+  startDate?: string;
+  endDate?: string;
 }
 
 interface EmployeeLookup {
@@ -60,7 +70,7 @@ interface DashboardStore {
     selectedSshConfigId?: string | null,
     page?: number,
     pageSize?: number,
-    projectId?: string,
+    filters?: ActivityFilters,
   ) => Promise<ActivityPageResult>;
 }
 
@@ -79,6 +89,92 @@ async function loadActivities() {
   return select<ActivityLog>(ACTIVITY_SELECT);
 }
 
+function normalizeSearchText(value: string | null | undefined) {
+  return (value ?? "").toLocaleLowerCase().trim();
+}
+
+function createDayBoundary(date: string | undefined, endOfDay: boolean) {
+  if (!date) {
+    return null;
+  }
+
+  const normalized = endOfDay ? `${date}T23:59:59.999` : `${date}T00:00:00.000`;
+  const parsed = new Date(normalized);
+
+  return Number.isNaN(parsed.getTime()) ? null : parsed.getTime();
+}
+
+function buildActivitySearchText(activity: ActivityLog) {
+  return [
+    getActivityActionLabel(activity.action),
+    activity.action,
+    getActivityDetailsLabel(activity.action, activity.details),
+    activity.details,
+    activity.project_name,
+    activity.employee_name,
+  ]
+    .map((value) => normalizeSearchText(value))
+    .filter(Boolean)
+    .join("\n");
+}
+
+function filterActivitiesByProject(activities: ActivityLog[], projectId?: string) {
+  if (!projectId) {
+    return activities;
+  }
+
+  return activities.filter((activity) => activity.project_id === projectId);
+}
+
+function filterActivitiesByCriteria(activities: ActivityLog[], filters: ActivityFilters) {
+  const normalizedKeyword = normalizeSearchText(filters.keyword);
+  const startTimestamp = createDayBoundary(filters.startDate, false);
+  const endTimestamp = createDayBoundary(filters.endDate, true);
+
+  if (
+    startTimestamp !== null
+    && endTimestamp !== null
+    && startTimestamp > endTimestamp
+  ) {
+    return [];
+  }
+
+  return activities.filter((activity) => {
+    if (filters.action && activity.action !== filters.action) {
+      return false;
+    }
+
+    if (normalizedKeyword && !buildActivitySearchText(activity).includes(normalizedKeyword)) {
+      return false;
+    }
+
+    if (startTimestamp === null && endTimestamp === null) {
+      return true;
+    }
+
+    const activityTimestamp = parseDateValue(activity.created_at)?.getTime();
+    if (activityTimestamp === undefined) {
+      return false;
+    }
+
+    if (startTimestamp !== null && activityTimestamp < startTimestamp) {
+      return false;
+    }
+
+    if (endTimestamp !== null && activityTimestamp > endTimestamp) {
+      return false;
+    }
+
+    return true;
+  });
+}
+
+function getAvailableActivityActions(activities: ActivityLog[]) {
+  return Array.from(new Set(activities.map((activity) => activity.action))).sort((left, right) => (
+    getActivityActionLabel(left).localeCompare(getActivityActionLabel(right), "zh-CN")
+  ));
+}
+
 function matchesEnvironmentActivity(
   activity: ActivityLog,
   visibleProjectIds: Set<string>,
@@ -93,6 +189,20 @@ function matchesEnvironmentActivity(
   }
 
   return true;
+}
+
+async function loadScopedActivities(
+  environmentMode: EnvironmentMode,
+  selectedSshConfigId?: string | null,
+) {
+  const projects = await loadProjects();
+  const visibleProjectIds = new Set(
+    filterProjectsByScope(projects, environmentMode, selectedSshConfigId).map((project) => project.id),
+  );
+
+  return (await loadActivities()).filter((activity) => (
+    matchesEnvironmentActivity(activity, visibleProjectIds, environmentMode)
+  ));
 }
 
 export const useDashboardStore = create<DashboardStore>((set) => ({
@@ -156,18 +266,10 @@ export const useDashboardStore = create<DashboardStore>((set) => ({
 
   fetchRecentActivities: async (environmentMode, selectedSshConfigId, limit = 20, projectId) => {
     try {
-      const projects = await loadProjects();
-      const visibleProjectIds = new Set(
-        filterProjectsByScope(projects, environmentMode, selectedSshConfigId).map((project) => project.id),
+      const activities = filterActivitiesByProject(
+        await loadScopedActivities(environmentMode, selectedSshConfigId),
+        projectId,
       );
-
-      const activities = (await loadActivities()).filter((activity) => {
-        if (projectId) {
-          return activity.project_id === projectId;
-        }
-
-        return matchesEnvironmentActivity(activity, visibleProjectIds, environmentMode);
-      });
 
       set({ recentActivities: activities.slice(0, limit) });
     } catch (error) {
@@ -176,25 +278,18 @@ export const useDashboardStore = create<DashboardStore>((set) => ({
     }
   },
 
-  fetchActivitiesPage: async (environmentMode, selectedSshConfigId, page = 1, pageSize = 20, projectId) => {
+  fetchActivitiesPage: async (environmentMode, selectedSshConfigId, page = 1, pageSize = 20, filters = {}) => {
     const safePage = Math.max(1, page);
     const safePageSize = Math.max(1, pageSize);
     const offset = (safePage - 1) * safePageSize;
-    const projects = await loadProjects();
-    const visibleProjectIds = new Set(
-      filterProjectsByScope(projects, environmentMode, selectedSshConfigId).map((project) => project.id),
-    );
-    const items = (await loadActivities()).filter((activity) => {
-      if (projectId) {
-        return activity.project_id === projectId;
-      }
-
-      return matchesEnvironmentActivity(activity, visibleProjectIds, environmentMode);
-    });
+    const scopedActivities = await loadScopedActivities(environmentMode, selectedSshConfigId);
+    const projectScopedActivities = filterActivitiesByProject(scopedActivities, filters.projectId);
+    const filteredItems = filterActivitiesByCriteria(projectScopedActivities, filters);
 
     return {
-      items: items.slice(offset, offset + safePageSize),
-      total: items.length,
+      items: filteredItems.slice(offset, offset + safePageSize),
+      total: filteredItems.length,
+      availableActions: getAvailableActivityActions(projectScopedActivities),
     };
   },
 }));
