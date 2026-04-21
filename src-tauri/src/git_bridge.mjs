@@ -499,9 +499,14 @@ async function captureWorktreeTextSnapshot(repoPath, relativePath) {
   }
 }
 
-async function captureHeadTextSnapshot(repoPath, relativePath) {
+async function captureRevisionTextSnapshot(repoPath, revision, relativePath) {
+  const normalizedRevision = optionalText(revision);
+  if (!normalizedRevision) {
+    throw new Error("revision 不能为空");
+  }
+
   try {
-    const output = await gitRaw(repoPath, ["show", `HEAD:${relativePath}`]);
+    const output = await gitRaw(repoPath, ["show", `${normalizedRevision}:${relativePath}`]);
     return captureTextSnapshotFromBuffer(
       Buffer.from(output, "utf8"),
       output.length > FILE_CHANGE_TEXT_SNAPSHOT_BYTE_LIMIT,
@@ -513,6 +518,10 @@ async function captureHeadTextSnapshot(repoPath, relativePath) {
       truncated: false,
     };
   }
+}
+
+async function captureHeadTextSnapshot(repoPath, relativePath) {
+  return captureRevisionTextSnapshot(repoPath, "HEAD", relativePath);
 }
 
 function shouldReadPreviousPath(statusX, statusY) {
@@ -1116,6 +1125,10 @@ async function executeCommand(input) {
     case "capture_head_text_snapshot":
       return {
         snapshot: await captureHeadTextSnapshot(repoPath, input.relativePath),
+      };
+    case "capture_revision_text_snapshot":
+      return {
+        snapshot: await captureRevisionTextSnapshot(repoPath, input.revision, input.relativePath),
       };
     default:
       throw new Error(`unsupported command: ${input.command}`);

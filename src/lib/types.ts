@@ -443,11 +443,13 @@ export interface ProjectGitCommitHistory {
   has_more: boolean;
 }
 
-export interface ProjectGitCommitFileChange {
+export interface ProjectGitFileChangeRef {
   path: string;
   previous_path: string | null;
   change_type: "added" | "modified" | "deleted" | "renamed";
 }
+
+export interface ProjectGitCommitFileChange extends ProjectGitFileChangeRef {}
 
 export interface ProjectGitCommitDetail {
   project_id: string;
@@ -464,10 +466,7 @@ export interface ProjectGitCommitDetail {
   changed_files: ProjectGitCommitFileChange[];
 }
 
-export interface ProjectGitWorkingTreeChange {
-  path: string;
-  previous_path: string | null;
-  change_type: "added" | "modified" | "deleted" | "renamed";
+export interface ProjectGitWorkingTreeChange extends ProjectGitFileChangeRef {
   stage_status: "staged" | "unstaged" | "partially_staged" | "untracked";
   can_open_file: boolean;
 }
@@ -480,9 +479,11 @@ export interface ProjectGitFilePreview {
   previous_absolute_path: string | null;
   execution_target: EnvironmentMode;
   change_type: ProjectGitWorkingTreeChange["change_type"];
+  before_label: string;
   before_status: "text" | "missing" | "binary" | "unavailable";
   before_text: string | null;
   before_truncated: boolean;
+  after_label: string;
   after_status: "text" | "missing" | "binary" | "unavailable";
   after_text: string | null;
   after_truncated: boolean;

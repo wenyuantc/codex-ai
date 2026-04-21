@@ -196,9 +196,11 @@ pub struct ProjectGitFilePreview {
     pub previous_absolute_path: Option<String>,
     pub execution_target: String,
     pub change_type: String,
+    pub before_label: String,
     pub before_status: String,
     pub before_text: Option<String>,
     pub before_truncated: bool,
+    pub after_label: String,
     pub after_status: String,
     pub after_text: Option<String>,
     pub after_truncated: bool,
@@ -264,6 +266,110 @@ fn normalize_project_git_commit_history_limit(limit: Option<usize>) -> usize {
     limit
         .unwrap_or(PROJECT_GIT_COMMIT_HISTORY_PAGE_LIMIT_DEFAULT)
         .clamp(1, PROJECT_GIT_COMMIT_HISTORY_PAGE_LIMIT_MAX)
+}
+
+fn normalize_project_git_relative_path(value: Option<String>) -> Option<String> {
+    value
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+}
+
+fn normalize_project_git_change_type(value: Option<String>) -> String {
+    value
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| "modified".to_string())
+}
+
+fn build_project_git_file_preview_message(
+    before_label: &str,
+    after_label: &str,
+    before_snapshot: &git_runtime::GitRuntimeTextSnapshot,
+    after_snapshot: &git_runtime::GitRuntimeTextSnapshot,
+) -> Option<String> {
+    if before_snapshot.status == "binary" || after_snapshot.status == "binary" {
+        Some("当前变更包含二进制文件，Diff 仅支持文本预览".to_string())
+    } else if before_snapshot.status == "unavailable" || after_snapshot.status == "unavailable" {
+        Some("当前目标不是普通文本文件，暂不支持完整 Diff 预览".to_string())
+    } else if before_snapshot.truncated || after_snapshot.truncated {
+        Some("文件内容较长，当前只展示截断后的 Diff 预览".to_string())
+    } else if before_snapshot.status == "missing" && after_snapshot.status == "missing" {
+        Some(format!(
+            "当前文件在 {} 和 {} 中都不可用，无法生成 Diff",
+            before_label, after_label
+        ))
+    } else {
+        None
+    }
+}
+
+fn build_project_git_file_preview(
+    project_id: String,
+    execution_target: String,
+    repo_path: &str,
+    relative_path: &str,
+    previous_path: Option<String>,
+    change_type: String,
+    before_label: String,
+    after_label: String,
+    before_snapshot: git_runtime::GitRuntimeTextSnapshot,
+    after_snapshot: git_runtime::GitRuntimeTextSnapshot,
+) -> ProjectGitFilePreview {
+    let absolute_path = Some(
+        Path::new(repo_path)
+            .join(relative_path)
+            .to_string_lossy()
+            .to_string(),
+    );
+    let previous_absolute_path = previous_path.as_ref().map(|path| {
+        Path::new(repo_path)
+            .join(path)
+            .to_string_lossy()
+            .to_string()
+    });
+    let message = build_project_git_file_preview_message(
+        &before_label,
+        &after_label,
+        &before_snapshot,
+        &after_snapshot,
+    );
+
+    ProjectGitFilePreview {
+        project_id,
+        relative_path: relative_path.to_string(),
+        previous_path,
+        absolute_path,
+        previous_absolute_path,
+        execution_target,
+        change_type,
+        before_label,
+        before_status: before_snapshot.status,
+        before_text: before_snapshot.text,
+        before_truncated: before_snapshot.truncated,
+        after_label,
+        after_status: after_snapshot.status,
+        after_text: after_snapshot.text,
+        after_truncated: after_snapshot.truncated,
+        message,
+    }
+}
+
+fn missing_project_git_text_snapshot() -> git_runtime::GitRuntimeTextSnapshot {
+    git_runtime::GitRuntimeTextSnapshot {
+        status: "missing".to_string(),
+        text: None,
+        truncated: false,
+    }
+}
+
+fn build_project_git_commit_preview_labels(commit_sha: &str) -> (String, String) {
+    let short_sha = commit_sha.chars().take(7).collect::<String>();
+    let commit_label = if short_sha.is_empty() {
+        commit_sha.to_string()
+    } else {
+        short_sha
+    };
+    ("父提交".to_string(), format!("当前提交 {commit_label}"))
 }
 
 fn sqlite_now_with_offset(minutes: i64) -> String {
@@ -2298,13 +2404,8 @@ pub async fn get_project_git_file_preview<R: Runtime>(
         return Err("文件路径不能为空".to_string());
     }
 
-    let normalized_previous_path = previous_path
-        .map(|value| value.trim().to_string())
-        .filter(|value| !value.is_empty());
-    let normalized_change_type = change_type
-        .map(|value| value.trim().to_string())
-        .filter(|value| !value.is_empty())
-        .unwrap_or_else(|| "modified".to_string());
+    let normalized_previous_path = normalize_project_git_relative_path(previous_path);
+    let normalized_change_type = normalize_project_git_change_type(change_type);
 
     let before_path = if normalized_change_type == "renamed" {
         normalized_previous_path.as_deref().unwrap_or(trimmed)
@@ -2312,11 +2413,7 @@ pub async fn get_project_git_file_preview<R: Runtime>(
         trimmed
     };
     let before_snapshot = if normalized_change_type == "added" {
-        git_runtime::GitRuntimeTextSnapshot {
-            status: "missing".to_string(),
-            text: None,
-            truncated: false,
-        }
+        missing_project_git_text_snapshot()
     } else {
         git_runtime::capture_head_text_snapshot(
             &app,
@@ -2328,11 +2425,7 @@ pub async fn get_project_git_file_preview<R: Runtime>(
         .await?
     };
     let after_snapshot = if normalized_change_type == "deleted" {
-        git_runtime::GitRuntimeTextSnapshot {
-            status: "missing".to_string(),
-            text: None,
-            truncated: false,
-        }
+        missing_project_git_text_snapshot()
     } else {
         git_runtime::capture_worktree_text_snapshot(
             &app,
@@ -2342,30 +2435,6 @@ pub async fn get_project_git_file_preview<R: Runtime>(
             trimmed,
         )
         .await?
-    };
-
-    let absolute_path = Some(
-        Path::new(&runtime.repo_path)
-            .join(trimmed)
-            .to_string_lossy()
-            .to_string(),
-    );
-    let previous_absolute_path = normalized_previous_path.as_ref().map(|path| {
-        Path::new(&runtime.repo_path)
-            .join(path)
-            .to_string_lossy()
-            .to_string()
-    });
-    let message = if before_snapshot.status == "binary" || after_snapshot.status == "binary" {
-        Some("当前变更包含二进制文件，Diff 仅支持文本预览".to_string())
-    } else if before_snapshot.status == "unavailable" || after_snapshot.status == "unavailable" {
-        Some("当前目标不是普通文本文件，暂不支持完整 Diff 预览".to_string())
-    } else if before_snapshot.truncated || after_snapshot.truncated {
-        Some("文件内容较长，当前只展示截断后的 Diff 预览".to_string())
-    } else if before_snapshot.status == "missing" && after_snapshot.status == "missing" {
-        Some("当前文件在基线和工作区中都不可用，无法生成 Diff".to_string())
-    } else {
-        None
     };
 
     insert_activity_log(
@@ -2378,22 +2447,100 @@ pub async fn get_project_git_file_preview<R: Runtime>(
     )
     .await?;
 
-    Ok(ProjectGitFilePreview {
-        project_id: project.id,
-        relative_path: trimmed.to_string(),
-        previous_path: normalized_previous_path,
-        absolute_path,
-        previous_absolute_path,
-        execution_target: runtime.execution_target,
-        change_type: normalized_change_type,
-        before_status: before_snapshot.status,
-        before_text: before_snapshot.text,
-        before_truncated: before_snapshot.truncated,
-        after_status: after_snapshot.status,
-        after_text: after_snapshot.text,
-        after_truncated: after_snapshot.truncated,
-        message,
-    })
+    Ok(build_project_git_file_preview(
+        project.id,
+        runtime.execution_target,
+        &runtime.repo_path,
+        trimmed,
+        normalized_previous_path,
+        normalized_change_type,
+        "HEAD 基线".to_string(),
+        "当前工作区".to_string(),
+        before_snapshot,
+        after_snapshot,
+    ))
+}
+
+#[tauri::command]
+pub async fn get_project_git_commit_file_preview<R: Runtime>(
+    app: AppHandle<R>,
+    project_id: String,
+    commit_sha: String,
+    relative_path: String,
+    previous_path: Option<String>,
+    change_type: Option<String>,
+) -> Result<ProjectGitFilePreview, String> {
+    let trimmed_commit_sha = commit_sha.trim().to_string();
+    if trimmed_commit_sha.is_empty() {
+        return Err("提交 SHA 不能为空".to_string());
+    }
+
+    let pool = sqlite_pool(&app).await?;
+    let project = fetch_project_by_id(&pool, &project_id).await?;
+    let runtime = resolve_project_runtime_context(&project)?;
+    let trimmed = relative_path.trim();
+    if trimmed.is_empty() {
+        return Err("文件路径不能为空".to_string());
+    }
+
+    let normalized_previous_path = normalize_project_git_relative_path(previous_path);
+    let normalized_change_type = normalize_project_git_change_type(change_type);
+    let parent_revision = format!("{trimmed_commit_sha}^1");
+    let before_path = if normalized_change_type == "renamed" {
+        normalized_previous_path.as_deref().unwrap_or(trimmed)
+    } else {
+        trimmed
+    };
+    let before_snapshot = if normalized_change_type == "added" {
+        missing_project_git_text_snapshot()
+    } else {
+        git_runtime::capture_revision_text_snapshot(
+            &app,
+            &runtime.execution_target,
+            runtime.ssh_config_id.as_deref(),
+            &runtime.repo_path,
+            &parent_revision,
+            before_path,
+        )
+        .await?
+    };
+    let after_snapshot = if normalized_change_type == "deleted" {
+        missing_project_git_text_snapshot()
+    } else {
+        git_runtime::capture_revision_text_snapshot(
+            &app,
+            &runtime.execution_target,
+            runtime.ssh_config_id.as_deref(),
+            &runtime.repo_path,
+            &trimmed_commit_sha,
+            trimmed,
+        )
+        .await?
+    };
+    let (before_label, after_label) = build_project_git_commit_preview_labels(&trimmed_commit_sha);
+
+    insert_activity_log(
+        &pool,
+        "project_git_commit_file_previewed",
+        &format!("预览提交文件对比：{} {}", after_label, trimmed),
+        None,
+        None,
+        Some(&project.id),
+    )
+    .await?;
+
+    Ok(build_project_git_file_preview(
+        project.id,
+        runtime.execution_target,
+        &runtime.repo_path,
+        trimmed,
+        normalized_previous_path,
+        normalized_change_type,
+        before_label,
+        after_label,
+        before_snapshot,
+        after_snapshot,
+    ))
 }
 
 async fn resolve_project_runtime_for_git_overview<R: Runtime>(
@@ -3143,6 +3290,108 @@ mod tests {
         (project, task)
     }
 
+    fn build_local_preview_project(repo_path: &str) -> Project {
+        Project {
+            id: "proj-preview".to_string(),
+            name: "Preview".to_string(),
+            description: None,
+            status: "active".to_string(),
+            repo_path: Some(repo_path.to_string()),
+            project_type: EXECUTION_TARGET_LOCAL.to_string(),
+            ssh_config_id: None,
+            remote_repo_path: None,
+            created_at: now_sqlite(),
+            updated_at: now_sqlite(),
+        }
+    }
+
+    fn capture_revision_text_snapshot_local(
+        repo_path: &str,
+        revision: &str,
+        relative_path: &str,
+    ) -> git_runtime::GitRuntimeTextSnapshot {
+        let output = Command::new("git")
+            .arg("-C")
+            .arg(repo_path)
+            .args(["show", &format!("{revision}:{relative_path}")])
+            .output();
+        match output {
+            Ok(output) if output.status.success() => {
+                if output.stdout.contains(&0) {
+                    git_runtime::GitRuntimeTextSnapshot {
+                        status: "binary".to_string(),
+                        text: None,
+                        truncated: false,
+                    }
+                } else {
+                    git_runtime::GitRuntimeTextSnapshot {
+                        status: "text".to_string(),
+                        text: Some(String::from_utf8_lossy(&output.stdout).to_string()),
+                        truncated: output.stdout.len() > 256 * 1024,
+                    }
+                }
+            }
+            _ => missing_project_git_text_snapshot(),
+        }
+    }
+
+    fn build_project_git_commit_file_preview_local(
+        project: &Project,
+        commit_sha: &str,
+        relative_path: &str,
+        previous_path: Option<String>,
+        change_type: Option<String>,
+    ) -> Result<ProjectGitFilePreview, String> {
+        let runtime = resolve_project_runtime_context(project)?;
+        let trimmed_commit_sha = commit_sha.trim().to_string();
+        if trimmed_commit_sha.is_empty() {
+            return Err("提交 SHA 不能为空".to_string());
+        }
+
+        let trimmed_path = relative_path.trim();
+        if trimmed_path.is_empty() {
+            return Err("文件路径不能为空".to_string());
+        }
+
+        let normalized_previous_path = normalize_project_git_relative_path(previous_path);
+        let normalized_change_type = normalize_project_git_change_type(change_type);
+        let parent_revision = format!("{trimmed_commit_sha}^1");
+        let before_path = if normalized_change_type == "renamed" {
+            normalized_previous_path.as_deref().unwrap_or(trimmed_path)
+        } else {
+            trimmed_path
+        };
+        let before_snapshot = if normalized_change_type == "added" {
+            missing_project_git_text_snapshot()
+        } else {
+            capture_revision_text_snapshot_local(&runtime.repo_path, &parent_revision, before_path)
+        };
+        let after_snapshot = if normalized_change_type == "deleted" {
+            missing_project_git_text_snapshot()
+        } else {
+            capture_revision_text_snapshot_local(
+                &runtime.repo_path,
+                &trimmed_commit_sha,
+                trimmed_path,
+            )
+        };
+        let (before_label, after_label) =
+            build_project_git_commit_preview_labels(&trimmed_commit_sha);
+
+        Ok(build_project_git_file_preview(
+            project.id.clone(),
+            runtime.execution_target,
+            &runtime.repo_path,
+            trimmed_path,
+            normalized_previous_path,
+            normalized_change_type,
+            before_label,
+            after_label,
+            before_snapshot,
+            after_snapshot,
+        ))
+    }
+
     fn init_git_repo() -> String {
         let repo_root = std::env::temp_dir().join(format!(
             "codex-git-workflow-{}-{}",
@@ -3763,6 +4012,148 @@ mod tests {
             );
             pool.close().await;
         });
+    }
+
+    #[test]
+    fn project_git_commit_file_preview_covers_root_modified_added_renamed_and_deleted() {
+        let repo_path = init_git_repo();
+        let repo_root = PathBuf::from(&repo_path);
+        let project = build_local_preview_project(&repo_path);
+        let root_commit =
+            run_git_text(&repo_path, &["rev-list", "--max-parents=0", "HEAD"]).expect("root sha");
+
+        fs::create_dir_all(repo_root.join("docs")).expect("create docs dir");
+        fs::write(repo_root.join("docs/guide.txt"), "base guide\n").expect("write base guide");
+        run_git_command(&repo_path, &["add", "docs/guide.txt"]).expect("stage base guide");
+        run_git_command(&repo_path, &["commit", "-q", "-m", "add guide"]).expect("commit guide");
+
+        fs::write(repo_root.join("docs/guide.txt"), "modified guide\n")
+            .expect("write modified guide");
+        run_git_command(&repo_path, &["add", "docs/guide.txt"]).expect("stage modified guide");
+        run_git_command(&repo_path, &["commit", "-q", "-m", "modify guide"])
+            .expect("commit modified guide");
+        let modified_commit =
+            run_git_text(&repo_path, &["rev-parse", "HEAD"]).expect("modified sha");
+
+        fs::write(
+            repo_root.join("src/feature.ts"),
+            "export const feature = true;\n",
+        )
+        .expect("write added file");
+        run_git_command(&repo_path, &["add", "src/feature.ts"]).expect("stage added file");
+        run_git_command(&repo_path, &["commit", "-q", "-m", "add feature"])
+            .expect("commit added file");
+        let added_commit = run_git_text(&repo_path, &["rev-parse", "HEAD"]).expect("added sha");
+
+        run_git_command(
+            &repo_path,
+            &["mv", "docs/guide.txt", "docs/guide-renamed.txt"],
+        )
+        .expect("rename guide");
+        run_git_command(&repo_path, &["commit", "-q", "-m", "rename guide"])
+            .expect("commit renamed file");
+        let renamed_commit = run_git_text(&repo_path, &["rev-parse", "HEAD"]).expect("renamed sha");
+
+        run_git_command(&repo_path, &["rm", "src/feature.ts"]).expect("delete feature");
+        run_git_command(&repo_path, &["commit", "-q", "-m", "delete feature"])
+            .expect("commit deleted file");
+        let deleted_commit = run_git_text(&repo_path, &["rev-parse", "HEAD"]).expect("deleted sha");
+
+        let root_preview = build_project_git_commit_file_preview_local(
+            &project,
+            &root_commit,
+            "src/main.ts",
+            None,
+            Some("modified".to_string()),
+        )
+        .expect("root preview");
+        assert_eq!(root_preview.before_status, "missing");
+        assert_eq!(root_preview.after_status, "text");
+        assert_eq!(root_preview.before_label, "父提交");
+        assert!(root_preview
+            .after_label
+            .contains(&root_commit.chars().take(7).collect::<String>()));
+        assert_eq!(
+            root_preview.after_text.as_deref(),
+            Some("console.log('hello');\n")
+        );
+
+        let modified_preview = build_project_git_commit_file_preview_local(
+            &project,
+            &modified_commit,
+            "docs/guide.txt",
+            None,
+            Some("modified".to_string()),
+        )
+        .expect("modified preview");
+        assert_eq!(modified_preview.before_status, "text");
+        assert_eq!(modified_preview.after_status, "text");
+        assert_eq!(
+            modified_preview.before_text.as_deref(),
+            Some("base guide\n")
+        );
+        assert_eq!(
+            modified_preview.after_text.as_deref(),
+            Some("modified guide\n")
+        );
+
+        let added_preview = build_project_git_commit_file_preview_local(
+            &project,
+            &added_commit,
+            "src/feature.ts",
+            None,
+            Some("added".to_string()),
+        )
+        .expect("added preview");
+        assert_eq!(added_preview.before_status, "missing");
+        assert_eq!(added_preview.after_status, "text");
+        assert_eq!(
+            added_preview.after_text.as_deref(),
+            Some("export const feature = true;\n")
+        );
+
+        let renamed_preview = build_project_git_commit_file_preview_local(
+            &project,
+            &renamed_commit,
+            "docs/guide-renamed.txt",
+            Some("docs/guide.txt".to_string()),
+            Some("renamed".to_string()),
+        )
+        .expect("renamed preview");
+        let expected_previous_absolute_path = repo_root.join("docs/guide.txt");
+        assert_eq!(
+            renamed_preview.previous_path.as_deref(),
+            Some("docs/guide.txt")
+        );
+        assert_eq!(
+            renamed_preview.previous_absolute_path.as_deref(),
+            Some(expected_previous_absolute_path.to_string_lossy().as_ref())
+        );
+        assert_eq!(
+            renamed_preview.before_text.as_deref(),
+            Some("modified guide\n")
+        );
+        assert_eq!(
+            renamed_preview.after_text.as_deref(),
+            Some("modified guide\n")
+        );
+
+        let deleted_preview = build_project_git_commit_file_preview_local(
+            &project,
+            &deleted_commit,
+            "src/feature.ts",
+            None,
+            Some("deleted".to_string()),
+        )
+        .expect("deleted preview");
+        assert_eq!(deleted_preview.before_status, "text");
+        assert_eq!(deleted_preview.after_status, "missing");
+        assert_eq!(
+            deleted_preview.before_text.as_deref(),
+            Some("export const feature = true;\n")
+        );
+
+        let _ = fs::remove_dir_all(PathBuf::from(&repo_path));
     }
 
     #[test]

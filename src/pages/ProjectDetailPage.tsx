@@ -6,6 +6,7 @@ import { useEmployeeStore } from "@/stores/employeeStore";
 import {
   deleteTaskGitContextRecord,
   getProjectGitCommitDetail,
+  getProjectGitCommitFilePreview,
   getProjectGitFilePreview,
   getProjectGitOverview,
   listProjectGitCommits,
@@ -19,7 +20,9 @@ import type {
   Employee,
   GitActionType,
   ProjectGitCommit,
+  ProjectGitCommitFileChange,
   ProjectGitCommitDetail,
+  ProjectGitFileChangeRef,
   ProjectGitFilePreview,
   ProjectGitOverview,
   ProjectGitRepoActionType,
@@ -47,6 +50,7 @@ const ProjectGitFilePreviewDialog = lazy(async () => {
 
 const RECENT_COMMIT_SUMMARY_LIMIT = 5;
 const RECENT_COMMIT_PAGE_SIZE = 20;
+type ProjectGitPreviewSource = "working_tree" | "commit";
 
 function getTaskGitContextStateLabel(state: string) {
   switch (state) {
@@ -184,10 +188,11 @@ export function ProjectDetailPage() {
   const [recentCommitsError, setRecentCommitsError] = useState<string | null>(null);
   const [selectedGitContext, setSelectedGitContext] = useState<TaskGitContext | null>(null);
   const [selectedGitAction, setSelectedGitAction] = useState<GitActionType | null>(null);
-  const [selectedWorkingTreeChange, setSelectedWorkingTreeChange] = useState<ProjectGitWorkingTreeChange | null>(null);
-  const [workingTreePreview, setWorkingTreePreview] = useState<ProjectGitFilePreview | null>(null);
-  const [workingTreePreviewLoading, setWorkingTreePreviewLoading] = useState(false);
-  const [workingTreePreviewError, setWorkingTreePreviewError] = useState<string | null>(null);
+  const [selectedFilePreviewSource, setSelectedFilePreviewSource] = useState<ProjectGitPreviewSource | null>(null);
+  const [selectedFilePreviewChange, setSelectedFilePreviewChange] = useState<ProjectGitFileChangeRef | null>(null);
+  const [gitFilePreview, setGitFilePreview] = useState<ProjectGitFilePreview | null>(null);
+  const [gitFilePreviewLoading, setGitFilePreviewLoading] = useState(false);
+  const [gitFilePreviewError, setGitFilePreviewError] = useState<string | null>(null);
   const [selectedCommit, setSelectedCommit] = useState<ProjectGitCommit | null>(null);
   const [commitDetail, setCommitDetail] = useState<ProjectGitCommitDetail | null>(null);
   const [commitDetailLoading, setCommitDetailLoading] = useState(false);
@@ -205,8 +210,18 @@ export function ProjectDetailPage() {
   const [gitOverviewReloadNonce, setGitOverviewReloadNonce] = useState(0);
   const recentCommitsRequestIdRef = useRef(0);
   const commitDetailRequestIdRef = useRef(0);
+  const filePreviewRequestIdRef = useRef(0);
 
   const project = projects.find((p) => p.id === id);
+
+  const resetGitFilePreviewState = (nextSource: ProjectGitPreviewSource | null = null) => {
+    filePreviewRequestIdRef.current += 1;
+    setSelectedFilePreviewSource(nextSource);
+    setSelectedFilePreviewChange(null);
+    setGitFilePreview(null);
+    setGitFilePreviewLoading(false);
+    setGitFilePreviewError(null);
+  };
 
   useEffect(() => {
     if (id) {
@@ -238,10 +253,7 @@ export function ProjectDetailPage() {
       setRecentCommitsError(null);
       setSelectedGitContext(null);
       setSelectedGitAction(null);
-      setSelectedWorkingTreeChange(null);
-      setWorkingTreePreview(null);
-      setWorkingTreePreviewLoading(false);
-      setWorkingTreePreviewError(null);
+      resetGitFilePreviewState(null);
       setSelectedCommit(null);
       setCommitDetail(null);
       setCommitDetailLoading(false);
@@ -269,6 +281,7 @@ export function ProjectDetailPage() {
         setRecentCommitsHasMore(overview.recent_commits_has_more);
         setRecentCommitsLoading(false);
         setRecentCommitsError(null);
+        resetGitFilePreviewState(null);
         setSelectedCommit(null);
         setCommitDetail(null);
         setCommitDetailLoading(false);
@@ -287,6 +300,7 @@ export function ProjectDetailPage() {
         setRecentCommitsHasMore(false);
         setRecentCommitsLoading(false);
         setRecentCommitsError(null);
+        resetGitFilePreviewState(null);
         setSelectedCommit(null);
         setCommitDetail(null);
         setCommitDetailLoading(false);
@@ -370,10 +384,13 @@ export function ProjectDetailPage() {
       return;
     }
 
-    setSelectedWorkingTreeChange(change);
-    setWorkingTreePreview(null);
-    setWorkingTreePreviewError(null);
-    setWorkingTreePreviewLoading(true);
+    const requestId = filePreviewRequestIdRef.current + 1;
+    filePreviewRequestIdRef.current = requestId;
+    setSelectedFilePreviewSource("working_tree");
+    setSelectedFilePreviewChange(change);
+    setGitFilePreview(null);
+    setGitFilePreviewError(null);
+    setGitFilePreviewLoading(true);
     try {
       const preview = await getProjectGitFilePreview(
         project.id,
@@ -381,11 +398,55 @@ export function ProjectDetailPage() {
         change.previous_path,
         change.change_type,
       );
-      setWorkingTreePreview(preview);
+      if (filePreviewRequestIdRef.current !== requestId) {
+        return;
+      }
+      setGitFilePreview(preview);
     } catch (error) {
-      setWorkingTreePreviewError(error instanceof Error ? error.message : String(error));
+      if (filePreviewRequestIdRef.current !== requestId) {
+        return;
+      }
+      setGitFilePreviewError(error instanceof Error ? error.message : String(error));
     } finally {
-      setWorkingTreePreviewLoading(false);
+      if (filePreviewRequestIdRef.current === requestId) {
+        setGitFilePreviewLoading(false);
+      }
+    }
+  };
+
+  const handleOpenCommitFileDiff = async (commit: ProjectGitCommit, change: ProjectGitCommitFileChange) => {
+    if (!project) {
+      return;
+    }
+
+    const requestId = filePreviewRequestIdRef.current + 1;
+    filePreviewRequestIdRef.current = requestId;
+    setSelectedFilePreviewSource("commit");
+    setSelectedFilePreviewChange(change);
+    setGitFilePreview(null);
+    setGitFilePreviewError(null);
+    setGitFilePreviewLoading(true);
+    try {
+      const preview = await getProjectGitCommitFilePreview(
+        project.id,
+        commit.sha,
+        change.path,
+        change.previous_path,
+        change.change_type,
+      );
+      if (filePreviewRequestIdRef.current !== requestId) {
+        return;
+      }
+      setGitFilePreview(preview);
+    } catch (error) {
+      if (filePreviewRequestIdRef.current !== requestId) {
+        return;
+      }
+      setGitFilePreviewError(error instanceof Error ? error.message : String(error));
+    } finally {
+      if (filePreviewRequestIdRef.current === requestId) {
+        setGitFilePreviewLoading(false);
+      }
     }
   };
 
@@ -434,6 +495,9 @@ export function ProjectDetailPage() {
 
     const requestId = commitDetailRequestIdRef.current + 1;
     commitDetailRequestIdRef.current = requestId;
+    if (selectedFilePreviewSource === "commit") {
+      resetGitFilePreviewState(null);
+    }
     setSelectedCommit(commit);
     setCommitDetail(null);
     setCommitDetailError(null);
@@ -469,7 +533,12 @@ export function ProjectDetailPage() {
           working_tree_changes: current.working_tree_changes.map(updater),
         };
       });
-      setSelectedWorkingTreeChange((current) => (current ? updater(current) : current));
+      setSelectedFilePreviewChange((current) => {
+        if (!current || selectedFilePreviewSource !== "working_tree") {
+          return current;
+        }
+        return updater(current as ProjectGitWorkingTreeChange);
+      });
     });
   };
 
@@ -1223,19 +1292,16 @@ export function ProjectDetailPage() {
       />
 
       <Suspense fallback={null}>
-        {selectedWorkingTreeChange && (
+        {selectedFilePreviewChange && (
           <ProjectGitFilePreviewDialog
-            open={selectedWorkingTreeChange !== null}
-            loading={workingTreePreviewLoading}
-            error={workingTreePreviewError}
-            preview={workingTreePreview}
-            change={selectedWorkingTreeChange}
+            open={selectedFilePreviewChange !== null}
+            loading={gitFilePreviewLoading}
+            error={gitFilePreviewError}
+            preview={gitFilePreview}
+            change={selectedFilePreviewChange}
             onOpenChange={(open) => {
               if (!open) {
-                setSelectedWorkingTreeChange(null);
-                setWorkingTreePreview(null);
-                setWorkingTreePreviewLoading(false);
-                setWorkingTreePreviewError(null);
+                resetGitFilePreviewState(null);
               }
             }}
           />
@@ -1248,9 +1314,18 @@ export function ProjectDetailPage() {
         error={commitDetailError}
         detail={commitDetail}
         commit={selectedCommit}
+        onOpenFileDiff={(changeIndex) => {
+          if (!selectedCommit || !commitDetail?.changed_files[changeIndex]) {
+            return;
+          }
+          void handleOpenCommitFileDiff(selectedCommit, commitDetail.changed_files[changeIndex]);
+        }}
         onOpenChange={(open) => {
           if (!open) {
             commitDetailRequestIdRef.current += 1;
+            if (selectedFilePreviewSource === "commit") {
+              resetGitFilePreviewState(null);
+            }
             setSelectedCommit(null);
             setCommitDetail(null);
             setCommitDetailLoading(false);

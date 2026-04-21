@@ -1008,3 +1008,26 @@ pub(crate) async fn capture_head_text_snapshot<R: Runtime>(
     .await?;
     Ok(result.snapshot)
 }
+
+pub(crate) async fn capture_revision_text_snapshot<R: Runtime>(
+    app: &AppHandle<R>,
+    execution_target: &str,
+    ssh_config_id: Option<&str>,
+    repo_path: &str,
+    revision: &str,
+    relative_path: &str,
+) -> Result<GitRuntimeTextSnapshot, String> {
+    let result: GitBridgeTextSnapshotResult = call_bridge(
+        app,
+        execution_target,
+        ssh_config_id,
+        serde_json::json!({
+            "command": "capture_revision_text_snapshot",
+            "repoPath": repo_path,
+            "revision": revision,
+            "relativePath": relative_path,
+        }),
+    )
+    .await?;
+    Ok(result.snapshot)
+}

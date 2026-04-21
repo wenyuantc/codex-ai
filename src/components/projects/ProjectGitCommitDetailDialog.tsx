@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 
 import type { ProjectGitCommit, ProjectGitCommitDetail } from "@/lib/types";
 import { formatDate } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -17,6 +18,7 @@ interface ProjectGitCommitDetailDialogProps {
   error: string | null;
   detail: ProjectGitCommitDetail | null;
   commit: ProjectGitCommit | null;
+  onOpenFileDiff: (changeIndex: number) => void;
   onOpenChange: (open: boolean) => void;
 }
 
@@ -47,6 +49,7 @@ export function ProjectGitCommitDetailDialog({
   error,
   detail,
   commit,
+  onOpenFileDiff,
   onOpenChange,
 }: ProjectGitCommitDetailDialogProps) {
   const displayTitle = detail?.subject ?? commit?.subject ?? "提交详情";
@@ -140,24 +143,58 @@ export function ProjectGitCommitDetailDialog({
                 {hasChangedFiles ? (
                   <ScrollArea className="h-[30rem] overflow-hidden rounded-md border bg-background/80">
                     <div className="space-y-2 p-3">
-                      {detail.changed_files.map((change) => (
+                      {detail.changed_files.map((change, index) => (
                         <div
                           key={`${change.change_type}:${change.previous_path ?? ""}:${change.path}`}
-                          className="rounded-md border border-border/70 bg-muted/20 px-3 py-2 text-xs"
+                          className="cursor-pointer rounded-md border border-border/70 bg-muted/20 px-3 py-2 text-xs transition-colors hover:border-primary/40 hover:bg-muted/30"
+                          role="button"
+                          tabIndex={0}
+                          onClick={() => onOpenFileDiff(index)}
+                          onKeyDown={(event) => {
+                            if (event.key === "Enter" || event.key === " ") {
+                              event.preventDefault();
+                              onOpenFileDiff(index);
+                            }
+                          }}
                         >
-                          <div className="flex flex-wrap items-center gap-2">
-                            <span
-                              className={`rounded-md border px-2 py-1 font-medium ${getExecutionChangeTypeClassName(change.change_type)}`}
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <div className="flex min-w-0 flex-wrap items-center gap-2">
+                              <span
+                                className={`rounded-md border px-2 py-1 font-medium ${getExecutionChangeTypeClassName(change.change_type)}`}
+                              >
+                                {getExecutionChangeTypeLabel(change.change_type)}
+                              </span>
+                              <button
+                                type="button"
+                                className="break-all font-mono text-left text-foreground transition-colors hover:text-primary"
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  onOpenFileDiff(index);
+                                }}
+                              >
+                                {change.path}
+                              </button>
+                            </div>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                onOpenFileDiff(index);
+                              }}
                             >
-                              {getExecutionChangeTypeLabel(change.change_type)}
-                            </span>
-                            <span className="break-all font-mono text-foreground">{change.path}</span>
+                              查看对比
+                            </Button>
                           </div>
                           {change.previous_path && (
                             <div className="mt-1 break-all font-mono text-muted-foreground">
                               原路径：{change.previous_path}
                             </div>
                           )}
+                          <div className="mt-1 text-[11px] text-primary">
+                            点击路径或按钮可查看该文件在父提交与当前提交之间的 Diff。
+                          </div>
                         </div>
                       ))}
                     </div>

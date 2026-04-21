@@ -382,6 +382,22 @@ export async function getProjectGitFilePreview(
   });
 }
 
+export async function getProjectGitCommitFilePreview(
+  projectId: string,
+  commitSha: string,
+  relativePath: string,
+  previousPath?: string | null,
+  changeType?: string | null,
+): Promise<ProjectGitFilePreview> {
+  return invoke("get_project_git_commit_file_preview", {
+    projectId,
+    commitSha,
+    relativePath,
+    previousPath: previousPath ?? null,
+    changeType: changeType ?? null,
+  });
+}
+
 export async function stageProjectGitFile(projectId: string, relativePath: string): Promise<string> {
   return invoke("stage_project_git_file", { projectId, relativePath });
 }

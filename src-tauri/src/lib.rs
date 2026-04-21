@@ -77,6 +77,7 @@ pub fn run() {
             git_workflow::reconcile_task_git_context,
             git_workflow::open_project_git_file,
             git_workflow::get_project_git_file_preview,
+            git_workflow::get_project_git_commit_file_preview,
             git_workflow::stage_project_git_file,
             git_workflow::unstage_project_git_file,
             git_workflow::stage_all_project_git_files,
