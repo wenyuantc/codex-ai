@@ -12,6 +12,7 @@ const REVIEW_DIFF_CHAR_LIMIT = 120_000;
 const REVIEW_UNTRACKED_FILE_LIMIT = 5;
 const REVIEW_UNTRACKED_FILE_SIZE_LIMIT = 16 * 1024;
 const REVIEW_UNTRACKED_TOTAL_CHAR_LIMIT = 48_000;
+const COMMIT_DETAIL_DIFF_CHAR_LIMIT = 120_000;
 
 async function readInput() {
   let raw = "";
@@ -341,6 +342,137 @@ async function recentCommits(repoPath, limit = 5) {
       authored_at: authoredAt.trim(),
     };
   });
+}
+
+function normalizeCommitChangeType(statusCode) {
+  const normalized = typeof statusCode === "string" ? statusCode.trim().toUpperCase() : "";
+  if (normalized.startsWith("A")) {
+    return "added";
+  }
+  if (normalized.startsWith("D")) {
+    return "deleted";
+  }
+  if (normalized.startsWith("R")) {
+    return "renamed";
+  }
+  return "modified";
+}
+
+function parseCommitFileChange(line) {
+  const trimmed = typeof line === "string" ? line.trim() : "";
+  if (!trimmed) {
+    return null;
+  }
+
+  const [statusCode = "", ...paths] = trimmed.split("\t");
+  if (!statusCode || paths.length === 0) {
+    return null;
+  }
+
+  const changeType = normalizeCommitChangeType(statusCode);
+  if (changeType === "renamed") {
+    const [previousPath = "", nextPath = ""] = paths;
+    return {
+      path: nextPath.trim() || previousPath.trim(),
+      previous_path: previousPath.trim() || null,
+      change_type: changeType,
+    };
+  }
+
+  return {
+    path: paths[0]?.trim() ?? "",
+    previous_path: null,
+    change_type: changeType,
+  };
+}
+
+async function listCommitHistory(repoPath, offset = 0, limit = 20) {
+  const normalizedOffset = Number.isFinite(offset) ? Math.max(0, Math.floor(offset)) : 0;
+  const normalizedLimit = Number.isFinite(limit) ? Math.max(1, Math.floor(limit)) : 20;
+  const output = (
+    await gitRaw(repoPath, [
+      "log",
+      "--format=%H%x1f%h%x1f%s%x1f%an%x1f%ad",
+      "--date=format:%Y-%m-%d %H:%M:%S",
+      `--skip=${normalizedOffset}`,
+      "-n",
+      String(normalizedLimit + 1),
+    ])
+  ).trim();
+
+  if (!output) {
+    return {
+      commits: [],
+      has_more: false,
+    };
+  }
+
+  const lines = output.split(/\r?\n/);
+  const hasMore = lines.length > normalizedLimit;
+  const commits = lines.slice(0, normalizedLimit).map((line) => {
+    const [sha = "", shortSha = "", subject = "", authorName = "", authoredAt = ""] = line.split("\u001f");
+    return {
+      sha: sha.trim(),
+      short_sha: shortSha.trim(),
+      subject: subject.trim(),
+      author_name: authorName.trim(),
+      authored_at: authoredAt.trim(),
+    };
+  });
+
+  return {
+    commits,
+    has_more: hasMore,
+  };
+}
+
+async function getCommitDetail(repoPath, commitRef) {
+  const normalizedCommitRef = optionalText(commitRef);
+  if (!normalizedCommitRef) {
+    throw new Error("commitSha 不能为空");
+  }
+
+  const metadataOutput = (
+    await gitRaw(repoPath, [
+      "log",
+      "-1",
+      "--format=%H%x1f%h%x1f%s%x1f%an%x1f%ae%x1f%ad%x1f%b",
+      "--date=format:%Y-%m-%d %H:%M:%S",
+      normalizedCommitRef,
+    ])
+  ).trimEnd();
+  if (!metadataOutput.trim()) {
+    throw new Error(`未找到提交 ${normalizedCommitRef}`);
+  }
+
+  const [sha = "", shortSha = "", subject = "", authorName = "", authorEmail = "", authoredAt = "", ...bodyParts] =
+    metadataOutput.split("\u001f");
+  const changedFilesOutput = (
+    await gitRaw(repoPath, ["show", "--format=", "--name-status", "--find-renames", normalizedCommitRef])
+  ).trim();
+  const rawDiffText = (
+    await gitRaw(repoPath, ["show", "--format=", "--no-ext-diff", normalizedCommitRef])
+  ).trimEnd();
+  const diffTruncated = rawDiffText.length > COMMIT_DETAIL_DIFF_CHAR_LIMIT;
+  const diffText = rawDiffText.slice(0, COMMIT_DETAIL_DIFF_CHAR_LIMIT).trim();
+
+  return {
+    sha: sha.trim(),
+    short_sha: shortSha.trim(),
+    subject: subject.trim(),
+    body: optionalText(bodyParts.join("\u001f")),
+    author_name: authorName.trim(),
+    author_email: optionalText(authorEmail),
+    authored_at: authoredAt.trim(),
+    diff_text: diffText || null,
+    diff_truncated: diffTruncated,
+    changed_files: changedFilesOutput
+      ? changedFilesOutput
+        .split(/\r?\n/)
+        .map(parseCommitFileChange)
+        .filter((item) => item !== null)
+      : [],
+  };
 }
 
 function captureTextSnapshotFromBuffer(buffer, truncatedHint) {
@@ -910,6 +1042,10 @@ async function executeCommand(input) {
         recent_commits: await recentCommits(repoPath, Number(input.recentCommitLimit ?? 5)),
       };
     }
+    case "commit_history":
+      return await listCommitHistory(repoPath, Number(input.offset ?? 0), Number(input.limit ?? 20));
+    case "commit_detail":
+      return await getCommitDetail(repoPath, input.commitSha);
     case "path_exists":
       return { exists: fs.existsSync(resolveTargetPath(repoPath, input.targetPath)) };
     case "git_common_dir":
