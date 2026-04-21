@@ -70,6 +70,7 @@ pub(crate) struct GitRuntimeOverview {
     pub ahead_commits: Option<u32>,
     pub behind_commits: Option<u32>,
     pub recent_commits: Vec<GitRuntimeCommit>,
+    pub recent_commits_has_more: bool,
 }
 
 #[derive(Debug, Clone, Deserialize)]

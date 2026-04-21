@@ -414,6 +414,7 @@ export interface ProjectGitOverview {
   working_tree_changes: ProjectGitWorkingTreeChange[];
   refreshed_at: string;
   recent_commits: ProjectGitCommit[];
+  recent_commits_has_more: boolean;
   active_contexts: TaskGitContext[];
   pending_action_contexts: TaskGitContext[];
 }

@@ -317,33 +317,6 @@ function summarizeWorkingTreeFromStatus(statusOutput) {
   return `共 ${total} 项变更（${parts.join("，")}）`;
 }
 
-async function recentCommits(repoPath, limit = 5) {
-  const output = (
-    await gitRaw(repoPath, [
-      "log",
-      "--format=%H%x1f%h%x1f%s%x1f%an%x1f%ad",
-      "--date=format:%Y-%m-%d %H:%M:%S",
-      "-n",
-      String(limit),
-    ])
-  ).trim();
-
-  if (!output) {
-    return [];
-  }
-
-  return output.split(/\r?\n/).map((line) => {
-    const [sha = "", shortSha = "", subject = "", authorName = "", authoredAt = ""] = line.split("\u001f");
-    return {
-      sha: sha.trim(),
-      short_sha: shortSha.trim(),
-      subject: subject.trim(),
-      author_name: authorName.trim(),
-      authored_at: authoredAt.trim(),
-    };
-  });
-}
-
 function normalizeCommitChangeType(statusCode) {
   const normalized = typeof statusCode === "string" ? statusCode.trim().toUpperCase() : "";
   if (normalized.startsWith("A")) {
@@ -1031,6 +1004,7 @@ async function executeCommand(input) {
       const statusOutput = await gitRaw(repoPath, ["status", "--short"]);
       const branchName = await currentBranch(repoPath);
       const syncCounts = await branchSyncCounts(repoPath, branchName);
+      const recentCommitHistory = await listCommitHistory(repoPath, 0, Number(input.recentCommitLimit ?? 5));
       return {
         default_branch: await determineDefaultBranch(repoPath),
         current_branch: branchName,
@@ -1039,7 +1013,8 @@ async function executeCommand(input) {
         working_tree_summary: summarizeWorkingTreeFromStatus(statusOutput),
         ahead_commits: syncCounts.ahead_commits,
         behind_commits: syncCounts.behind_commits,
-        recent_commits: await recentCommits(repoPath, Number(input.recentCommitLimit ?? 5)),
+        recent_commits: recentCommitHistory.commits,
+        recent_commits_has_more: recentCommitHistory.has_more,
       };
     }
     case "commit_history":
