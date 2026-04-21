@@ -74,6 +74,10 @@ export function useTaskExecutionActions({
     if (!assigneeId) {
       return;
     }
+    if (task.status === "archived") {
+      await handleExecutionError(new Error("已归档任务不可启动执行会话"), action);
+      return;
+    }
 
     setLoading(action);
     try {

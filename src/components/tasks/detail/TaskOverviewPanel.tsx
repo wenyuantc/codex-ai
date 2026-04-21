@@ -1,7 +1,7 @@
 import { Trash2 } from "lucide-react";
 
 import type { Employee, TaskStatus } from "@/lib/types";
-import { PRIORITIES, TASK_STATUSES } from "@/lib/types";
+import { ACTIVE_TASK_STATUSES, PRIORITIES, TASK_STATUSES } from "@/lib/types";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -78,7 +78,11 @@ export function TaskOverviewPanel({
       <div className="flex flex-wrap items-center gap-3">
         <div className="flex shrink-0 items-center gap-2">
           <span className="shrink-0 whitespace-nowrap text-xs text-muted-foreground">状态</span>
-          <Select value={status} onValueChange={(value) => value && onStatusChange(value as TaskStatus)}>
+          <Select
+            value={status}
+            disabled={status === "archived"}
+            onValueChange={(value) => value && onStatusChange(value as TaskStatus)}
+          >
             <SelectTrigger className="h-7 w-[104px] shrink-0 rounded-md px-2 text-xs">
               <SelectValue>
                 {(value) =>
@@ -89,7 +93,7 @@ export function TaskOverviewPanel({
               </SelectValue>
             </SelectTrigger>
             <SelectContent>
-              {TASK_STATUSES.map((item) => (
+              {ACTIVE_TASK_STATUSES.map((item) => (
                 <SelectItem key={item.value} value={item.value}>
                   {item.label}
                 </SelectItem>

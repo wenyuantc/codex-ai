@@ -684,6 +684,7 @@ export function TaskDetailDialog({
 
             <TabsContent value="execution">
               <TaskExecutionPanel
+                taskStatus={status}
                 assigneeId={assigneeId}
                 isRunning={isExecutionProcessRunning}
                 isExecutionActive={isRunning}

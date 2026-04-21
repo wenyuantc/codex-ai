@@ -865,6 +865,15 @@ pub fn get_all_migrations() -> Vec<Migration> {
             "#,
             kind: tauri_plugin_sql::MigrationKind::Up,
         },
+        Migration {
+            version: 30,
+            description: "add archived task management index",
+            sql: r#"
+                CREATE INDEX idx_tasks_project_status_updated
+                    ON tasks(project_id, status, updated_at DESC);
+            "#,
+            kind: tauri_plugin_sql::MigrationKind::Up,
+        },
     ]
 }
 
@@ -897,8 +906,8 @@ mod tests {
     }
 
     #[test]
-    fn latest_migration_version_includes_notification_center() {
-        assert_eq!(latest_migration_version(), 29);
+    fn latest_migration_version_includes_archived_task_index() {
+        assert_eq!(latest_migration_version(), 30);
     }
 
     #[test]

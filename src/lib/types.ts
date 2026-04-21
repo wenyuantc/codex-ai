@@ -681,7 +681,7 @@ export type CodexModelId =
   | "gpt-5.2"
   | "gpt-5.1-codex-mini";
 export type ReasoningEffort = "low" | "medium" | "high" | "xhigh";
-export type TaskStatus = "todo" | "in_progress" | "review" | "completed" | "blocked";
+export type TaskStatus = "todo" | "in_progress" | "review" | "completed" | "blocked" | "archived";
 export type TaskAutomationMode = "review_fix_loop_v1";
 export type TaskAutomationPhase =
   | "idle"
@@ -856,12 +856,21 @@ export function normalizeReasoningEffort(value: string | null | undefined): Reas
   return value && isSupportedReasoningEffort(value) ? value : "high";
 }
 
-export const TASK_STATUSES: { value: TaskStatus; label: string; color: string }[] = [
+export const ACTIVE_TASK_STATUSES: {
+  value: Exclude<TaskStatus, "archived">;
+  label: string;
+  color: string;
+}[] = [
   { value: "todo", label: "待办", color: "bg-slate-500" },
   { value: "in_progress", label: "进行中", color: "bg-blue-500" },
   { value: "review", label: "审核中", color: "bg-yellow-500" },
   { value: "completed", label: "已完成", color: "bg-green-500" },
   { value: "blocked", label: "已阻塞", color: "bg-red-500" },
+];
+
+export const TASK_STATUSES: { value: TaskStatus; label: string; color: string }[] = [
+  ...ACTIVE_TASK_STATUSES,
+  { value: "archived", label: "已归档", color: "bg-gray-500" },
 ];
 
 export const PRIORITIES: { value: Priority; label: string; color: string }[] = [
