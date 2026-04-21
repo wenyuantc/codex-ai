@@ -25,4 +25,3 @@ dist-ssr
 .omx/
 .playwright-cli
 output
-src-tauri/vendor/
