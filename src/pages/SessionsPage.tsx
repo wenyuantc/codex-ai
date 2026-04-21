@@ -123,6 +123,8 @@ export function SessionsPage() {
   const refreshEmployeeRuntimeStatus = useEmployeeStore((state) => state.refreshEmployeeRuntimeStatus);
 
   const environmentMode = useProjectStore((state) => state.environmentMode);
+  const currentProjectId = useProjectStore((state) => state.currentProject?.id);
+  const currentProjectName = useProjectStore((state) => state.currentProject?.name);
   const selectedSshConfigId = useProjectStore((state) => state.selectedSshConfigId);
   const [sessions, setSessions] = useState<CodexSessionListItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -150,6 +152,10 @@ export function SessionsPage() {
     const normalizedContentQuery = normalizeSearchText(contentQuery);
 
     return sessions.filter((session) => {
+      if (currentProjectId && session.project_id !== currentProjectId) {
+        return false;
+      }
+
       if (environmentMode === "ssh" && session.execution_target !== "ssh") {
         return false;
       }
@@ -189,7 +195,7 @@ export function SessionsPage() {
 
       return contentHaystack.includes(normalizedContentQuery);
     });
-  }, [contentQuery, environmentMode, selectedSshConfigId, sessionIdQuery, sessions]);
+  }, [contentQuery, currentProjectId, environmentMode, selectedSshConfigId, sessionIdQuery, sessions]);
 
   const totalPages = filteredSessions.length > 0 ? Math.ceil(filteredSessions.length / PAGE_SIZE) : 0;
   const pageSessions = useMemo(
@@ -201,7 +207,20 @@ export function SessionsPage() {
 
   useEffect(() => {
     setPage(1);
-  }, [contentQuery, sessionIdQuery]);
+  }, [contentQuery, currentProjectId, sessionIdQuery]);
+
+  useEffect(() => {
+    setContinueDialogOpen(false);
+    setContinueSession(null);
+    setContinueSubmitting(false);
+    setLogDialogOpen(false);
+    setLogTarget(null);
+    setChangeDialogOpen(false);
+    setChangeTarget(null);
+    setActiveSession(null);
+    setErrorMessage(null);
+    setInfoMessage(null);
+  }, [currentProjectId, environmentMode, selectedSshConfigId]);
 
   useEffect(() => {
     if (!highlightedSessionId) {
@@ -371,7 +390,8 @@ export function SessionsPage() {
           <div>
             <h2 className="text-lg font-semibold">对话列表</h2>
             <p className="text-sm text-muted-foreground">
-              当前仅展示{environmentMode === "ssh" ? " SSH " : "本地 "}执行链路下的对话。
+              当前仅展示{environmentMode === "ssh" ? " SSH " : "本地 "}执行链路下
+              {currentProjectName ? `项目“${currentProjectName}”` : "全部项目"}的对话。
             </p>
           </div>
           <Button
