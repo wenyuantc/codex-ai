@@ -223,6 +223,7 @@ pub struct ProjectGitOverview {
     pub working_tree_changes: Vec<ProjectGitWorkingTreeChange>,
     pub refreshed_at: String,
     pub recent_commits: Vec<ProjectGitCommit>,
+    pub recent_commits_has_more: bool,
     pub active_contexts: Vec<TaskGitContextSummary>,
     pub pending_action_contexts: Vec<TaskGitContextSummary>,
 }
@@ -1774,6 +1775,7 @@ pub async fn get_project_git_overview<R: Runtime>(
                 working_tree_changes: Vec::new(),
                 refreshed_at: now_sqlite(),
                 recent_commits: Vec::new(),
+                recent_commits_has_more: false,
                 active_contexts,
                 pending_action_contexts,
             });
@@ -1843,6 +1845,7 @@ pub async fn get_project_git_overview<R: Runtime>(
                         authored_at: commit.authored_at,
                     })
                     .collect(),
+                recent_commits_has_more: overview.recent_commits_has_more,
                 active_contexts,
                 pending_action_contexts,
             })
@@ -1864,6 +1867,7 @@ pub async fn get_project_git_overview<R: Runtime>(
             working_tree_changes: Vec::new(),
             refreshed_at: now_sqlite(),
             recent_commits: Vec::new(),
+            recent_commits_has_more: false,
             active_contexts,
             pending_action_contexts,
         }),

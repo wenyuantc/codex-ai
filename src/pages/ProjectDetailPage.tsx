@@ -266,7 +266,7 @@ export function ProjectDetailPage() {
         setGitOverview(overview);
         setRecentCommits(overview.recent_commits);
         setRecentCommitsExpanded(false);
-        setRecentCommitsHasMore(overview.recent_commits.length >= RECENT_COMMIT_SUMMARY_LIMIT);
+        setRecentCommitsHasMore(overview.recent_commits_has_more);
         setRecentCommitsLoading(false);
         setRecentCommitsError(null);
         setSelectedCommit(null);
@@ -594,7 +594,7 @@ export function ProjectDetailPage() {
     ? recentCommits
     : recentCommits.slice(0, RECENT_COMMIT_SUMMARY_LIMIT);
   const canExpandRecentCommits =
-    recentCommits.length >= RECENT_COMMIT_SUMMARY_LIMIT || recentCommitsHasMore;
+    recentCommits.length > RECENT_COMMIT_SUMMARY_LIMIT || recentCommitsHasMore;
 
   return (
     <div className="space-y-6">

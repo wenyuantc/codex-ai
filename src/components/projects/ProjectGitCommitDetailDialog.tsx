@@ -1,3 +1,5 @@
+import { useEffect, useState } from "react";
+
 import type { ProjectGitCommit, ProjectGitCommitDetail } from "@/lib/types";
 import { formatDate } from "@/lib/utils";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -17,6 +19,8 @@ interface ProjectGitCommitDetailDialogProps {
   commit: ProjectGitCommit | null;
   onOpenChange: (open: boolean) => void;
 }
+
+type CommitDetailTabValue = "diff" | "files";
 
 function DiffPreview({ text }: { text: string }) {
   const lines = text.split(/\r?\n/);
@@ -48,7 +52,15 @@ export function ProjectGitCommitDetailDialog({
   const displayTitle = detail?.subject ?? commit?.subject ?? "提交详情";
   const hasDiffText = detail?.diff_text !== null && detail?.diff_text !== undefined;
   const hasChangedFiles = (detail?.changed_files.length ?? 0) > 0;
-  const defaultTab = hasDiffText ? "diff" : "files";
+  const getDefaultTab = (): CommitDetailTabValue => (hasDiffText ? "diff" : "files");
+  const [activeTab, setActiveTab] = useState<CommitDetailTabValue>(getDefaultTab);
+
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+    setActiveTab(getDefaultTab());
+  }, [detail?.sha, hasChangedFiles, hasDiffText, open]);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -104,7 +116,7 @@ export function ProjectGitCommitDetailDialog({
               </div>
             )}
 
-            <Tabs defaultValue={defaultTab}>
+            <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as CommitDetailTabValue)}>
               <TabsList className="grid w-full grid-cols-2">
                 <TabsTrigger value="diff" disabled={!hasDiffText}>
                   Diff 预览
