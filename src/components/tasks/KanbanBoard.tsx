@@ -13,7 +13,14 @@ import {
 } from "@dnd-kit/core";
 import { getProjectGitOverview, listTaskGitContexts } from "@/lib/backend";
 import { onCodexExit, onTaskAutomationStateChanged } from "@/lib/codex";
-import { TASK_STATUSES, type CodexSessionKind, type ProjectGitOverview, type Task, type TaskGitContext, type TaskStatus } from "@/lib/types";
+import {
+  ACTIVE_TASK_STATUSES,
+  type CodexSessionKind,
+  type ProjectGitOverview,
+  type Task,
+  type TaskGitContext,
+  type TaskStatus,
+} from "@/lib/types";
 import { useTaskStore } from "@/stores/taskStore";
 import { useEmployeeStore } from "@/stores/employeeStore";
 import { useProjectStore } from "@/stores/projectStore";
@@ -47,31 +54,35 @@ export function KanbanBoard({
     sessionKind?: CodexSessionKind;
   } | null>(null);
   const targetTask = targetTaskId ? tasks.find((task) => task.id === targetTaskId) ?? null : null;
+  const activeTasks = useMemo(
+    () => tasks.filter((task) => task.status !== "archived"),
+    [tasks],
+  );
   const projectMap = useMemo(
     () => new Map(projects.map((project) => [project.id, project])),
     [projects],
   );
   const gitProjectIds = useMemo(() => {
     const ids = new Set<string>();
-    tasks.forEach((task) => {
+    activeTasks.forEach((task) => {
       if (projectMap.has(task.project_id)) {
         ids.add(task.project_id);
       }
     });
     return Array.from(ids).sort();
-  }, [projectMap, tasks]);
+  }, [activeTasks, projectMap]);
   const gitProjectIdsKey = gitProjectIds.join(",");
   const gitContextRefreshKey = useMemo(
     () =>
-      tasks
+      activeTasks
         .map((task) => `${task.id}:${task.status}:${task.last_codex_session_id ?? ""}:${task.updated_at}`)
         .sort()
         .join("|"),
-    [tasks],
+    [activeTasks],
   );
   const taskProjectMap = useMemo(
-    () => Object.fromEntries(tasks.map((task) => [task.id, task.project_id])),
-    [tasks],
+    () => Object.fromEntries(activeTasks.map((task) => [task.id, task.project_id])),
+    [activeTasks],
   );
   const taskGitContextMap = useMemo(
     () => {
@@ -176,10 +187,10 @@ export function KanbanBoard({
   );
 
   const getTaskById = (taskId: string) =>
-    useTaskStore.getState().tasks.find((task) => task.id === taskId);
+    useTaskStore.getState().tasks.find((task) => task.id === taskId && task.status !== "archived");
 
   const resolveDropStatus = (overId: string): TaskStatus | null => {
-    const targetStatus = TASK_STATUSES.find((status) => status.value === overId)?.value;
+    const targetStatus = ACTIVE_TASK_STATUSES.find((status) => status.value === overId)?.value;
     if (targetStatus) {
       return targetStatus;
     }
@@ -274,7 +285,7 @@ export function KanbanBoard({
   };
 
   const getTasksByStatus = (status: TaskStatus) =>
-    tasks.filter((t) => t.status === status);
+    activeTasks.filter((task) => task.status === status);
 
   const logTask = logRequest ? tasks.find((task) => task.id === logRequest.taskId) ?? null : null;
   const logAssigneeName = logTask?.assignee_id
@@ -425,7 +436,7 @@ export function KanbanBoard({
         onDragCancel={handleDragCancel}
       >
         <div className="flex gap-4 h-full overflow-x-auto pb-4">
-          {TASK_STATUSES.map((status) => (
+          {ACTIVE_TASK_STATUSES.map((status) => (
             <KanbanColumn
               key={status.value}
               status={status.value}

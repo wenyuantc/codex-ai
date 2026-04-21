@@ -58,6 +58,13 @@ pub(crate) const ARTIFACT_CAPTURE_MODE_LOCAL_FULL: &str = "local_full";
 pub(crate) const ARTIFACT_CAPTURE_MODE_SSH_FULL: &str = "ssh_full";
 pub(crate) const ARTIFACT_CAPTURE_MODE_SSH_GIT_STATUS: &str = "ssh_git_status";
 pub(crate) const ARTIFACT_CAPTURE_MODE_SSH_NONE: &str = "ssh_none";
+pub(crate) const TASK_STATUS_ARCHIVED: &str = "archived";
+const TASK_AUTOMATION_MODE_REVIEW_FIX_LOOP_V1: &str = "review_fix_loop_v1";
+const TASK_AUTOMATION_PHASE_LAUNCHING_REVIEW: &str = "launching_review";
+const TASK_AUTOMATION_PHASE_WAITING_REVIEW: &str = "waiting_review";
+const TASK_AUTOMATION_PHASE_LAUNCHING_FIX: &str = "launching_fix";
+const TASK_AUTOMATION_PHASE_WAITING_EXECUTION: &str = "waiting_execution";
+const TASK_AUTOMATION_PHASE_COMMITTING_CODE: &str = "committing_code";
 const DB_FILE_NAME: &str = "codex-ai.db";
 const DB_AUTO_IMPORT_BACKUP_PREFIX: &str = "codex-ai.pre-import-backup";
 const SQLITE_DATETIME_FORMAT: &str = "%Y-%m-%d %H:%M:%S";
@@ -5020,6 +5027,142 @@ pub async fn start_task_code_review(
     start_task_code_review_internal(app, state.inner().clone(), &task_id).await
 }
 
+async fn clear_task_automation_state_for_disabled_mode(
+    pool: &SqlitePool,
+    task_id: &str,
+) -> Result<(), String> {
+    sqlx::query(
+        r#"
+        UPDATE task_automation_state
+        SET pending_action = NULL,
+            pending_round_count = NULL,
+            last_verdict_json = NULL,
+            phase = CASE
+                WHEN phase IN ('review_launch_failed', 'fix_launch_failed') THEN 'idle'
+                ELSE phase
+            END,
+            updated_at = $2
+        WHERE task_id = $1
+        "#,
+    )
+    .bind(task_id)
+    .bind(now_sqlite())
+    .execute(pool)
+    .await
+    .map_err(|error| format!("Failed to clear pending automation state: {}", error))?;
+
+    Ok(())
+}
+
+async fn disable_task_automation_for_archived_task(
+    pool: &SqlitePool,
+    task: &Task,
+) -> Result<(), String> {
+    if task.automation_mode.as_deref() != Some(TASK_AUTOMATION_MODE_REVIEW_FIX_LOOP_V1) {
+        return Ok(());
+    }
+
+    clear_task_automation_state_for_disabled_mode(pool, &task.id).await?;
+    insert_activity_log(
+        pool,
+        "task_automation_disabled",
+        &format!("{}（任务归档时自动关闭）", task.title),
+        None,
+        Some(task.id.as_str()),
+        Some(task.project_id.as_str()),
+    )
+    .await?;
+
+    Ok(())
+}
+
+fn is_task_automation_active_for_archival(phase: &str) -> bool {
+    matches!(
+        phase,
+        TASK_AUTOMATION_PHASE_LAUNCHING_REVIEW
+            | TASK_AUTOMATION_PHASE_WAITING_REVIEW
+            | TASK_AUTOMATION_PHASE_LAUNCHING_FIX
+            | TASK_AUTOMATION_PHASE_WAITING_EXECUTION
+            | TASK_AUTOMATION_PHASE_COMMITTING_CODE
+    )
+}
+
+fn validate_task_archival_guard(
+    has_running_execution: bool,
+    has_running_review: bool,
+    automation_phase: Option<&str>,
+) -> Result<(), String> {
+    let mut blockers = Vec::new();
+
+    if has_running_execution {
+        blockers.push("执行");
+    }
+    if has_running_review {
+        blockers.push("审核");
+    }
+    if automation_phase.is_some_and(is_task_automation_active_for_archival) {
+        blockers.push("自动质控");
+    }
+
+    if blockers.is_empty() {
+        return Ok(());
+    }
+
+    Err(format!(
+        "任务仍有进行中的{}流程，不能归档，请先停止相关会话或等待流程结束",
+        blockers.join("、")
+    ))
+}
+
+async fn ensure_task_can_be_archived<R: Runtime>(
+    app: &AppHandle<R>,
+    pool: &SqlitePool,
+    task: &Task,
+) -> Result<(), String> {
+    let manager = app.state::<Arc<Mutex<CodexManager>>>().inner().clone();
+    let has_running_execution = crate::codex::get_live_task_process_by_task(
+        app,
+        &manager,
+        &task.id,
+        CodexSessionKind::Execution,
+    )
+    .await?
+    .is_some();
+    let has_running_review = crate::codex::get_live_task_process_by_task(
+        app,
+        &manager,
+        &task.id,
+        CodexSessionKind::Review,
+    )
+    .await?
+    .is_some();
+    let automation_phase = fetch_task_automation_state_record(pool, &task.id)
+        .await?
+        .map(|record| record.phase);
+
+    validate_task_archival_guard(
+        has_running_execution,
+        has_running_review,
+        automation_phase.as_deref(),
+    )
+}
+
+fn validate_task_automation_mode_change(
+    task: &Task,
+    automation_mode: Option<&str>,
+) -> Result<(), String> {
+    if let Some(mode) = automation_mode {
+        if mode != TASK_AUTOMATION_MODE_REVIEW_FIX_LOOP_V1 {
+            return Err(format!("不支持的自动质控模式: {}", mode));
+        }
+        if task.status == TASK_STATUS_ARCHIVED {
+            return Err("已归档任务不能开启自动质控".to_string());
+        }
+    }
+
+    Ok(())
+}
+
 #[tauri::command]
 pub async fn set_task_automation_mode<R: Runtime>(
     app: AppHandle<R>,
@@ -5033,11 +5176,7 @@ pub async fn set_task_automation_mode<R: Runtime>(
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty());
 
-    if let Some(mode) = normalized_mode.as_deref() {
-        if mode != "review_fix_loop_v1" {
-            return Err(format!("不支持的自动质控模式: {}", mode));
-        }
-    }
+    validate_task_automation_mode_change(&task, normalized_mode.as_deref())?;
 
     sqlx::query("UPDATE tasks SET automation_mode = $1 WHERE id = $2")
         .bind(&normalized_mode)
@@ -5079,25 +5218,7 @@ pub async fn set_task_automation_mode<R: Runtime>(
         .await
         .map_err(|error| format!("Failed to upsert task automation state: {}", error))?;
     } else {
-        sqlx::query(
-            r#"
-            UPDATE task_automation_state
-            SET pending_action = NULL,
-                pending_round_count = NULL,
-                last_verdict_json = NULL,
-                phase = CASE
-                    WHEN phase IN ('review_launch_failed', 'fix_launch_failed') THEN 'idle'
-                    ELSE phase
-                END,
-                updated_at = $2
-            WHERE task_id = $1
-            "#,
-        )
-        .bind(&payload.task_id)
-        .bind(now_sqlite())
-        .execute(&pool)
-        .await
-        .map_err(|error| format!("Failed to clear pending automation state: {}", error))?;
+        clear_task_automation_state_for_disabled_mode(&pool, &payload.task_id).await?;
     }
 
     insert_activity_log(
@@ -6661,12 +6782,17 @@ pub async fn update_task<R: Runtime>(
         .status
         .clone()
         .unwrap_or_else(|| current.status.clone());
+    let is_archiving =
+        next_status == TASK_STATUS_ARCHIVED && current.status != TASK_STATUS_ARCHIVED;
 
     if let Some(assignee_id) = updates.assignee_id.as_ref() {
         validate_assignee_for_project(&pool, assignee_id.as_deref(), &current.project_id).await?;
     }
     if let Some(reviewer_id) = updates.reviewer_id.as_ref() {
         validate_reviewer_for_project(&pool, reviewer_id.as_deref(), &current.project_id).await?;
+    }
+    if is_archiving {
+        ensure_task_can_be_archived(&app, &pool, &current).await?;
     }
 
     let mut builder = QueryBuilder::<Sqlite>::new("UPDATE tasks SET ");
@@ -6733,6 +6859,14 @@ pub async fn update_task<R: Runtime>(
             .push_bind_unseparated(last_review_session_id);
         touched = true;
     }
+    if is_archiving
+        && current.automation_mode.as_deref() == Some(TASK_AUTOMATION_MODE_REVIEW_FIX_LOOP_V1)
+    {
+        separated
+            .push("automation_mode = ")
+            .push_bind_unseparated(Option::<String>::None);
+        touched = true;
+    }
 
     if !touched {
         return Ok(current);
@@ -6744,6 +6878,10 @@ pub async fn update_task<R: Runtime>(
         .execute(&pool)
         .await
         .map_err(|error| format!("Failed to update task: {}", error))?;
+
+    if is_archiving {
+        disable_task_automation_for_archived_task(&pool, &current).await?;
+    }
 
     if next_status != current.status {
         insert_activity_log(
@@ -6972,14 +7110,20 @@ mod tests {
     use super::{
         build_current_migrator, build_remote_codex_runtime_health, build_remote_shell_command,
         build_task_review_context_from_git_outputs, build_task_review_prompt,
-        collect_local_task_review_context_for_task, ensure_statement_terminated,
-        fetch_execution_change_history_item_by_session_id, fetch_task_by_id, insert_task_record,
+        clear_task_automation_state_for_disabled_mode, collect_local_task_review_context_for_task,
+        disable_task_automation_for_archived_task, ensure_statement_terminated,
+        fetch_execution_change_history_item_by_session_id, fetch_task_automation_state_record,
+        fetch_task_by_id, insert_task_record, is_task_automation_active_for_archival,
         normalize_runtime_path_string, record_task_review_requested_activity,
         remote_shell_path_expression, remote_task_attachment_dir, remote_task_attachment_path,
         resolve_project_task_default_settings, resolve_session_resume_state,
         rewrite_file_change_diff_labels, sanitize_sql_backup_script, sdk_notification_unavailable,
-        validate_project_repo_path, validate_runtime_working_dir, CodexSettings, Project, Task,
-        TaskAttachment, PROJECT_TYPE_LOCAL, PROJECT_TYPE_SSH,
+        validate_project_repo_path, validate_runtime_working_dir, validate_task_archival_guard,
+        validate_task_automation_mode_change, CodexSettings, Project, Task, TaskAttachment,
+        PROJECT_TYPE_LOCAL, PROJECT_TYPE_SSH, TASK_AUTOMATION_MODE_REVIEW_FIX_LOOP_V1,
+        TASK_AUTOMATION_PHASE_COMMITTING_CODE, TASK_AUTOMATION_PHASE_LAUNCHING_FIX,
+        TASK_AUTOMATION_PHASE_LAUNCHING_REVIEW, TASK_AUTOMATION_PHASE_WAITING_EXECUTION,
+        TASK_AUTOMATION_PHASE_WAITING_REVIEW, TASK_STATUS_ARCHIVED,
     };
     use crate::db::models::GitPreferences;
 
@@ -7869,6 +8013,182 @@ mod tests {
 
             assert!(item.changes.is_empty());
             assert_eq!(item.capture_mode, "sdk_event");
+
+            pool.close().await;
+        });
+    }
+
+    #[test]
+    fn archived_task_rejects_enabling_automation() {
+        let task = Task {
+            id: "task-archived".to_string(),
+            title: "归档任务".to_string(),
+            description: None,
+            status: TASK_STATUS_ARCHIVED.to_string(),
+            priority: "medium".to_string(),
+            project_id: "proj-1".to_string(),
+            use_worktree: false,
+            assignee_id: None,
+            reviewer_id: None,
+            complexity: None,
+            ai_suggestion: None,
+            automation_mode: None,
+            last_codex_session_id: None,
+            last_review_session_id: None,
+            created_at: "2026-04-21 00:00:00".to_string(),
+            updated_at: "2026-04-21 00:00:00".to_string(),
+        };
+
+        let error = validate_task_automation_mode_change(
+            &task,
+            Some(TASK_AUTOMATION_MODE_REVIEW_FIX_LOOP_V1),
+        )
+        .expect_err("archived task should reject automation enable");
+        assert_eq!(error, "已归档任务不能开启自动质控");
+    }
+
+    #[test]
+    fn task_archival_guard_blocks_running_workflows() {
+        let error =
+            validate_task_archival_guard(true, true, Some(TASK_AUTOMATION_PHASE_WAITING_EXECUTION))
+                .expect_err("active execution/review/automation should block archiving");
+
+        assert!(error.contains("执行、审核、自动质控"));
+        assert!(error.contains("不能归档"));
+    }
+
+    #[test]
+    fn task_archival_guard_only_treats_active_automation_phases_as_blocking() {
+        for phase in [
+            TASK_AUTOMATION_PHASE_LAUNCHING_REVIEW,
+            TASK_AUTOMATION_PHASE_WAITING_REVIEW,
+            TASK_AUTOMATION_PHASE_LAUNCHING_FIX,
+            TASK_AUTOMATION_PHASE_WAITING_EXECUTION,
+            TASK_AUTOMATION_PHASE_COMMITTING_CODE,
+        ] {
+            assert!(
+                is_task_automation_active_for_archival(phase),
+                "phase {phase} should block archiving"
+            );
+        }
+
+        for phase in [
+            "idle",
+            "completed",
+            "blocked",
+            "manual_control",
+            "review_launch_failed",
+        ] {
+            assert!(
+                !is_task_automation_active_for_archival(phase),
+                "phase {phase} should not block archiving"
+            );
+        }
+
+        validate_task_archival_guard(false, false, Some("idle"))
+            .expect("idle automation state should allow archiving");
+        validate_task_archival_guard(false, false, None)
+            .expect("missing automation state should allow archiving");
+    }
+
+    #[test]
+    fn archiving_task_clears_pending_automation_state_and_logs_disable_activity() {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("build tokio runtime");
+
+        runtime.block_on(async {
+            let pool = setup_test_pool().await;
+            insert_project(&pool, "proj-1").await;
+
+            let task = Task {
+                id: "task-archive".to_string(),
+                title: "归档自动质控任务".to_string(),
+                description: None,
+                status: "review".to_string(),
+                priority: "medium".to_string(),
+                project_id: "proj-1".to_string(),
+                use_worktree: false,
+                assignee_id: None,
+                reviewer_id: None,
+                complexity: None,
+                ai_suggestion: None,
+                automation_mode: Some(TASK_AUTOMATION_MODE_REVIEW_FIX_LOOP_V1.to_string()),
+                last_codex_session_id: None,
+                last_review_session_id: None,
+                created_at: "2026-04-21 00:00:00".to_string(),
+                updated_at: "2026-04-21 00:00:00".to_string(),
+            };
+
+            let mut tx = pool.begin().await.expect("begin task transaction");
+            insert_task_record(&mut tx, &task)
+                .await
+                .expect("insert task record");
+            tx.commit().await.expect("commit task transaction");
+
+            sqlx::query(
+                r#"
+                INSERT INTO task_automation_state (
+                    task_id,
+                    phase,
+                    round_count,
+                    consumed_session_id,
+                    last_trigger_session_id,
+                    pending_action,
+                    pending_round_count,
+                    last_error,
+                    last_verdict_json,
+                    updated_at
+                ) VALUES (
+                    $1, 'review_launch_failed', 2, NULL, NULL, 'start_review', 2,
+                    'launch failed', '{"summary":"needs retry"}', '2026-04-21 00:00:00'
+                )
+                "#,
+            )
+            .bind(&task.id)
+            .execute(&pool)
+            .await
+            .expect("insert automation state");
+
+            sqlx::query("UPDATE tasks SET status = $1, automation_mode = NULL WHERE id = $2")
+                .bind(TASK_STATUS_ARCHIVED)
+                .bind(&task.id)
+                .execute(&pool)
+                .await
+                .expect("archive task record");
+
+            disable_task_automation_for_archived_task(&pool, &task)
+                .await
+                .expect("disable task automation for archive");
+
+            let saved_task = fetch_task_by_id(&pool, &task.id)
+                .await
+                .expect("fetch archived task");
+            assert_eq!(saved_task.status, TASK_STATUS_ARCHIVED);
+            assert_eq!(saved_task.automation_mode, None);
+
+            let state = fetch_task_automation_state_record(&pool, &task.id)
+                .await
+                .expect("fetch task automation state")
+                .expect("task automation state exists");
+            assert_eq!(state.phase, "idle");
+            assert_eq!(state.pending_action, None);
+            assert_eq!(state.pending_round_count, None);
+            assert_eq!(state.last_verdict_json, None);
+
+            let latest_action = sqlx::query_scalar::<_, Option<String>>(
+                "SELECT action FROM activity_logs WHERE task_id = $1 ORDER BY created_at DESC, id DESC LIMIT 1",
+            )
+            .bind(&task.id)
+            .fetch_one(&pool)
+            .await
+            .expect("fetch activity action");
+            assert_eq!(latest_action.as_deref(), Some("task_automation_disabled"));
+
+            clear_task_automation_state_for_disabled_mode(&pool, &task.id)
+                .await
+                .expect("re-clear disabled automation state");
 
             pool.close().await;
         });

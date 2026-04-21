@@ -9,6 +9,7 @@ import {
 import { TaskFileChangeHistoryPanel } from "./TaskFileChangeHistoryPanel";
 
 interface TaskExecutionPanelProps {
+  taskStatus: string;
   assigneeId: string;
   isRunning: boolean;
   isExecutionActive: boolean;
@@ -26,6 +27,7 @@ interface TaskExecutionPanelProps {
 }
 
 export function TaskExecutionPanel({
+  taskStatus,
   assigneeId,
   isRunning,
   isExecutionActive,
@@ -41,10 +43,14 @@ export function TaskExecutionPanel({
   onRefreshHistory,
   onOpenChangeDetail,
 }: TaskExecutionPanelProps) {
+  const isArchivedTask = taskStatus === "archived";
+
   return (
     <div className="space-y-4">
       <div className="flex items-center gap-2">
-        {assigneeId ? (
+        {isArchivedTask ? (
+          <span className="text-xs text-muted-foreground">已归档任务不可运行 Codex</span>
+        ) : assigneeId ? (
           isRunning ? (
             <button
               onClick={onStop}

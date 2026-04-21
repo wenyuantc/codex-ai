@@ -629,12 +629,13 @@ export function ProjectDetailPage() {
     }
   };
 
+  const activeTasks = tasks.filter((task) => task.status !== "archived");
   const tasksByStatus = {
-    todo: tasks.filter((t) => t.status === "todo"),
-    in_progress: tasks.filter((t) => t.status === "in_progress"),
-    review: tasks.filter((t) => t.status === "review"),
-    completed: tasks.filter((t) => t.status === "completed"),
-    blocked: tasks.filter((t) => t.status === "blocked"),
+    todo: activeTasks.filter((t) => t.status === "todo"),
+    in_progress: activeTasks.filter((t) => t.status === "in_progress"),
+    review: activeTasks.filter((t) => t.status === "review"),
+    completed: activeTasks.filter((t) => t.status === "completed"),
+    blocked: activeTasks.filter((t) => t.status === "blocked"),
   };
   const hasStageableFiles = Boolean(
     gitOverview?.working_tree_changes.some(
@@ -1221,11 +1222,11 @@ export function ProjectDetailPage() {
       {/* Task List */}
       <Card className="p-4">
         <h3 className="text-sm font-semibold mb-3">任务列表</h3>
-        {tasks.length === 0 ? (
-          <p className="text-sm text-muted-foreground text-center py-4">暂无任务</p>
+        {activeTasks.length === 0 ? (
+          <p className="text-sm text-muted-foreground text-center py-4">暂无活跃任务</p>
         ) : (
           <div className="space-y-2">
-            {tasks.map((task) => (
+            {activeTasks.map((task) => (
               <div
                 key={task.id}
                 className="flex items-center gap-3 p-2 rounded-md hover:bg-accent/50 text-sm"

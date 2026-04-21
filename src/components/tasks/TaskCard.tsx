@@ -23,6 +23,7 @@ import {
 import { countStageableGitFiles } from "@/lib/gitWorkingTree";
 import { buildTaskExecutionInput } from "@/lib/taskPrompt";
 import {
+  Archive,
   Bot,
   Clock,
   FolderKanban,
@@ -140,6 +141,7 @@ export function TaskCard({
   const setTaskAutomationMode = useTaskStore((s) => s.setTaskAutomationMode);
   const restartTaskAutomation = useTaskStore((s) => s.restartTaskAutomation);
   const deleteTask = useTaskStore((s) => s.deleteTask);
+  const updateTaskStatus = useTaskStore((s) => s.updateTaskStatus);
   const assignee = task.assignee_id ? employees.find((employee) => employee.id === task.assignee_id) : undefined;
   const reviewer = task.reviewer_id ? employees.find((employee) => employee.id === task.reviewer_id) : undefined;
   const automationState = getTaskAutomationDisplayState(task, persistedAutomationState ?? null);
@@ -201,6 +203,7 @@ export function TaskCard({
     && isWorktreeReady
     && !hasActiveSession,
   );
+  const canArchiveTask = !hasActiveSession && task.status !== "archived";
   const shouldShowTaskActionBar = shouldShowActionBar;
   const gitContextBadge = getGitContextBadge(gitContext);
   const canTriggerMergeAction = Boolean(
@@ -338,6 +341,20 @@ export function TaskCard({
     if (hasActiveSession) return;
     setContextMenu(null);
     setShowDeleteDialog(true);
+  };
+
+  const handleArchiveTask = async () => {
+    if (!canArchiveTask) {
+      return;
+    }
+
+    setContextMenu(null);
+
+    try {
+      await updateTaskStatus(task.id, "archived");
+    } catch (error) {
+      console.error("Failed to archive task:", error);
+    }
   };
 
   const openLogDialog = () => {
@@ -692,6 +709,17 @@ export function TaskCard({
                 </button>
               </>
             )}
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => void handleArchiveTask()}
+              disabled={!canArchiveTask || isActionLoading}
+              title={hasActiveSession ? "运行中的任务不能归档，请先停止相关会话" : "将任务移出主看板并保留记录"}
+              className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-left hover:bg-accent hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-50"
+            >
+              <Archive className="h-4 w-4" />
+              归档
+            </button>
             {canTriggerMergeAction && (
               <button
                 type="button"
