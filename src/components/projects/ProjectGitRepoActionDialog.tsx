@@ -261,6 +261,11 @@ export function ProjectGitRepoActionDialog({
   };
 
   const commitDisabled = action === "commit" && stagedFileCount === 0;
+  const shouldRenderDialog = open && Boolean(projectId) && action !== null;
+
+  if (!shouldRenderDialog) {
+    return null;
+  }
 
   if (action === "commit") {
     return (
