@@ -56,7 +56,15 @@ function buildDesktopNotificationKey(event: DesktopNotificationEvent) {
   return `${event.reason}:${event.notification_id}:${event.last_triggered_at}`;
 }
 
-async function shouldSendDesktopNotification() {
+function shouldBypassFocusSuppression(event: DesktopNotificationEvent) {
+  return Boolean(event.task_id);
+}
+
+async function shouldSendDesktopNotification(event: DesktopNotificationEvent) {
+  if (shouldBypassFocusSuppression(event)) {
+    return true;
+  }
+
   try {
     const window = getCurrentWindow();
     const [visible, focused] = await Promise.all([
@@ -97,7 +105,7 @@ async function deliverDesktopNotification(event: DesktopNotificationEvent) {
 
   deliveredDesktopNotificationKeys.add(deliveryKey);
 
-  if (!(await shouldSendDesktopNotification())) {
+  if (!(await shouldSendDesktopNotification(event))) {
     return;
   }
 
