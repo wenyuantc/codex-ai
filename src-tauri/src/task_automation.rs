@@ -71,6 +71,12 @@ struct AutomationExecutionContext {
     task_git_context_id: Option<String>,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum AutomationRestartTarget {
+    Review,
+    Fix,
+}
+
 #[derive(Clone, Debug, serde::Serialize)]
 struct TaskAutomationStateChangedEvent {
     task_id: String,
@@ -1302,6 +1308,46 @@ async fn restart_fix_step(
     Ok(())
 }
 
+async fn resolve_restart_target(
+    pool: &SqlitePool,
+    state_record: &TaskAutomationStateRecord,
+) -> Result<Option<AutomationRestartTarget>, String> {
+    let target = match state_record.phase.as_str() {
+        PHASE_WAITING_REVIEW | PHASE_LAUNCHING_REVIEW | PHASE_REVIEW_LAUNCH_FAILED => {
+            Some(AutomationRestartTarget::Review)
+        }
+        PHASE_WAITING_EXECUTION | PHASE_LAUNCHING_FIX | PHASE_FIX_LAUNCH_FAILED => {
+            Some(AutomationRestartTarget::Fix)
+        }
+        PHASE_BLOCKED | PHASE_MANUAL_CONTROL => {
+            let Some(session_id) = state_record
+                .consumed_session_id
+                .as_deref()
+                .or(state_record.last_trigger_session_id.as_deref())
+            else {
+                return Ok(None);
+            };
+            let session_kind = sqlx::query_scalar::<_, Option<String>>(
+                "SELECT session_kind FROM codex_sessions WHERE id = $1 LIMIT 1",
+            )
+            .bind(session_id)
+            .fetch_optional(pool)
+            .await
+            .map_err(|error| format!("Failed to resolve automation restart target: {}", error))?
+            .flatten();
+
+            match session_kind.as_deref() {
+                Some("review") => Some(AutomationRestartTarget::Review),
+                Some("execution") => Some(AutomationRestartTarget::Fix),
+                _ => None,
+            }
+        }
+        _ => None,
+    };
+
+    Ok(target)
+}
+
 pub async fn restart_task_automation_internal(
     app: &AppHandle,
     task_id: &str,
@@ -1314,14 +1360,14 @@ pub async fn restart_task_automation_internal(
         .await?
         .ok_or_else(|| "当前任务没有可重启的自动质控状态".to_string())?;
 
-    match state_record.phase.as_str() {
-        PHASE_WAITING_REVIEW | PHASE_LAUNCHING_REVIEW | PHASE_REVIEW_LAUNCH_FAILED => {
+    match resolve_restart_target(&pool, &state_record).await? {
+        Some(AutomationRestartTarget::Review) => {
             restart_review_step(app, &pool, &task, &state_record).await
         }
-        PHASE_WAITING_EXECUTION | PHASE_LAUNCHING_FIX | PHASE_FIX_LAUNCH_FAILED => {
+        Some(AutomationRestartTarget::Fix) => {
             restart_fix_step(app, &pool, &task, &state_record).await
         }
-        _ => Err(format!(
+        None => Err(format!(
             "当前自动质控阶段“{}”不支持重启，请在卡住或启动失败时使用",
             state_record.phase
         )),
@@ -1775,11 +1821,13 @@ mod automation_guard_tests {
     use sqlx::SqlitePool;
 
     use super::{
-        fetch_pending_automation_task_ids, validate_task_automation_restart,
-        AUTOMATION_MODE_REVIEW_FIX_LOOP_V1, PHASE_REVIEW_LAUNCH_FAILED,
+        fetch_pending_automation_task_ids, resolve_restart_target,
+        validate_task_automation_restart, AutomationRestartTarget,
+        AUTOMATION_MODE_REVIEW_FIX_LOOP_V1, PHASE_BLOCKED, PHASE_MANUAL_CONTROL,
+        PHASE_REVIEW_LAUNCH_FAILED,
     };
     use crate::app::{build_current_migrator, TASK_STATUS_ARCHIVED};
-    use crate::db::models::Task;
+    use crate::db::models::{Task, TaskAutomationStateRecord};
 
     async fn setup_test_pool() -> SqlitePool {
         let pool = SqlitePool::connect("sqlite::memory:")
@@ -1814,6 +1862,85 @@ mod automation_guard_tests {
             created_at: "2026-04-21 00:00:00".to_string(),
             updated_at: "2026-04-21 00:00:00".to_string(),
         }
+    }
+
+    async fn insert_project(pool: &SqlitePool) {
+        sqlx::query(
+            r#"
+            INSERT INTO projects (
+                id,
+                name,
+                description,
+                status,
+                repo_path,
+                created_at,
+                updated_at
+            ) VALUES ('project-1', 'demo', NULL, 'active', NULL, '2026-04-21 00:00:00', '2026-04-21 00:00:00')
+            "#,
+        )
+        .execute(pool)
+        .await
+        .expect("insert project");
+    }
+
+    async fn insert_task(pool: &SqlitePool, task: &Task) {
+        sqlx::query(
+            r#"
+            INSERT INTO tasks (
+                id,
+                title,
+                description,
+                status,
+                priority,
+                project_id,
+                use_worktree,
+                assignee_id,
+                reviewer_id,
+                automation_mode,
+                created_at,
+                updated_at
+            ) VALUES ($1, $2, NULL, $3, 'medium', $4, 0, NULL, NULL, $5, $6, $7)
+            "#,
+        )
+        .bind(&task.id)
+        .bind(&task.title)
+        .bind(&task.status)
+        .bind(&task.project_id)
+        .bind(task.automation_mode.as_deref())
+        .bind(&task.created_at)
+        .bind(&task.updated_at)
+        .execute(pool)
+        .await
+        .expect("insert task");
+    }
+
+    async fn insert_session(
+        pool: &SqlitePool,
+        session_id: &str,
+        task_id: &str,
+        session_kind: &str,
+    ) {
+        sqlx::query(
+            r#"
+            INSERT INTO codex_sessions (
+                id,
+                task_id,
+                project_id,
+                execution_target,
+                artifact_capture_mode,
+                session_kind,
+                status,
+                started_at,
+                created_at
+            ) VALUES ($1, $2, 'project-1', 'local', 'local_full', $3, 'exited', '2026-04-21 00:00:01', '2026-04-21 00:00:01')
+            "#,
+        )
+        .bind(session_id)
+        .bind(task_id)
+        .bind(session_kind)
+        .execute(pool)
+        .await
+        .expect("insert session");
     }
 
     #[test]
@@ -1913,6 +2040,81 @@ mod automation_guard_tests {
 
         let error = validate_task_automation_restart(&task).expect_err("archived task restart");
         assert_eq!(error, "已归档任务不能重启自动质控");
+    }
+
+    #[test]
+    fn blocked_review_state_resolves_review_restart_target() {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("build tokio runtime");
+
+        runtime.block_on(async {
+            let pool = setup_test_pool().await;
+            let task = build_task("task-review", "blocked");
+            insert_project(&pool).await;
+            insert_task(&pool, &task).await;
+            insert_session(&pool, "session-review", &task.id, "review").await;
+
+            let state = TaskAutomationStateRecord {
+                task_id: task.id.clone(),
+                phase: PHASE_BLOCKED.to_string(),
+                round_count: 0,
+                consumed_session_id: Some("session-review".to_string()),
+                last_trigger_session_id: None,
+                pending_action: None,
+                pending_round_count: None,
+                last_error: Some("审核结果结构化输出无效".to_string()),
+                last_verdict_json: None,
+                updated_at: "2026-04-21 00:00:02".to_string(),
+            };
+
+            let target = resolve_restart_target(&pool, &state)
+                .await
+                .expect("resolve blocked review target");
+            assert_eq!(target, Some(AutomationRestartTarget::Review));
+
+            pool.close().await;
+        });
+    }
+
+    #[test]
+    fn manual_control_execution_state_resolves_fix_restart_target() {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("build tokio runtime");
+
+        runtime.block_on(async {
+            let pool = setup_test_pool().await;
+            let task = build_task("task-execution", "blocked");
+            insert_project(&pool).await;
+            insert_task(&pool, &task).await;
+            insert_session(&pool, "session-execution", &task.id, "execution").await;
+
+            let state = TaskAutomationStateRecord {
+                task_id: task.id.clone(),
+                phase: PHASE_MANUAL_CONTROL.to_string(),
+                round_count: 1,
+                consumed_session_id: Some("session-execution".to_string()),
+                last_trigger_session_id: Some("session-execution".to_string()),
+                pending_action: None,
+                pending_round_count: None,
+                last_error: Some("执行已被人工停止".to_string()),
+                last_verdict_json: Some(
+                    r#"{"passed":false,"needs_human":false,"blocking_issue_count":1,"summary":"发现 1 个阻断问题。"}"#
+                        .to_string(),
+                ),
+                updated_at: "2026-04-21 00:00:02".to_string(),
+            };
+
+            let target = resolve_restart_target(&pool, &state)
+                .await
+                .expect("resolve manual control execution target");
+            assert_eq!(target, Some(AutomationRestartTarget::Fix));
+
+            pool.close().await;
+        });
     }
 }
 

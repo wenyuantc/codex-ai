@@ -52,7 +52,7 @@ fn spawn_stdout_reader(
     captured_output: Option<Arc<Mutex<Vec<String>>>>,
     session_emitted: Arc<AtomicBool>,
     sdk_file_change_store: Option<SdkFileChangeStore>,
-) {
+) -> tauri::async_runtime::JoinHandle<()> {
     tauri::async_runtime::spawn(async move {
         let reader = BufReader::new(stdout);
         let mut lines = reader.lines();
@@ -173,7 +173,7 @@ fn spawn_stdout_reader(
                 );
             }
         }
-    });
+    })
 }
 
 fn spawn_stderr_reader(
@@ -187,7 +187,7 @@ fn spawn_stderr_reader(
     seen: Option<Arc<Mutex<HashSet<String>>>>,
     captured_output: Option<Arc<Mutex<Vec<String>>>>,
     sdk_file_change_store: Option<SdkFileChangeStore>,
-) {
+) -> tauri::async_runtime::JoinHandle<()> {
     tauri::async_runtime::spawn(async move {
         let reader = BufReader::new(stderr);
         let mut lines = reader.lines();
@@ -252,7 +252,7 @@ fn spawn_stderr_reader(
                 );
             }
         }
-    });
+    })
 }
 
 fn spawn_exit_watcher(
@@ -270,6 +270,8 @@ fn spawn_exit_watcher(
     captured_output: Option<Arc<Mutex<Vec<String>>>>,
     execution_change_baseline: Option<ExecutionChangeBaseline>,
     sdk_file_change_store: Option<SdkFileChangeStore>,
+    stdout_reader: tauri::async_runtime::JoinHandle<()>,
+    stderr_reader: tauri::async_runtime::JoinHandle<()>,
 ) {
     tauri::async_runtime::spawn(async move {
         let exit_code = loop {
@@ -368,6 +370,9 @@ fn spawn_exit_watcher(
                 .await;
             }
         }
+
+        let _ = stdout_reader.await;
+        let _ = stderr_reader.await;
 
         let final_status = match fetch_codex_session_by_id(&app, &session_record_id).await {
             Ok(record) if record.status == "stopping" => "exited",
@@ -649,7 +654,7 @@ pub(super) async fn attach_session_runtime_tasks(
     let captured_output = (session_kind == CodexSessionKind::Review)
         .then(|| Arc::new(Mutex::new(Vec::<String>::new())));
 
-    spawn_stdout_reader(
+    let stdout_reader = spawn_stdout_reader(
         app.clone(),
         pool.clone(),
         employee_id.to_string(),
@@ -664,7 +669,7 @@ pub(super) async fn attach_session_runtime_tasks(
         sdk_file_change_store.clone(),
     );
 
-    spawn_stderr_reader(
+    let stderr_reader = spawn_stderr_reader(
         app.clone(),
         pool.clone(),
         employee_id.to_string(),
@@ -692,5 +697,7 @@ pub(super) async fn attach_session_runtime_tasks(
         captured_output,
         execution_change_baseline,
         sdk_file_change_store,
+        stdout_reader,
+        stderr_reader,
     );
 }

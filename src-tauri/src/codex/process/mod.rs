@@ -368,10 +368,17 @@ fn upsert_sdk_file_change_event(store: &SdkFileChangeStore, event: SdkFileChange
 }
 
 fn extract_tagged_block(raw: &str, start_tag: &str, end_tag: &str) -> Option<String> {
+    let escaped_end_tag = end_tag
+        .strip_prefix("</")
+        .map(|value| format!("<\\/{}", value));
     let lines = raw.lines().collect::<Vec<_>>();
     for end_index in (0..lines.len()).rev() {
         let line = lines[end_index].trim();
-        let Some(end_prefix) = line.strip_suffix(end_tag) else {
+        let Some(end_prefix) = line.strip_suffix(end_tag).or_else(|| {
+            escaped_end_tag
+                .as_deref()
+                .and_then(|tag| line.strip_suffix(tag))
+        }) else {
             continue;
         };
 

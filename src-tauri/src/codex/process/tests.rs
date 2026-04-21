@@ -237,6 +237,18 @@ fn review_tag_extraction_supports_single_line_blocks() {
 }
 
 #[test]
+fn review_verdict_extraction_supports_escaped_closing_tag() {
+    let raw = r#"<review_verdict>{"passed":false,"needs_human":true,"blocking_issue_count":2,"summary":"发现 2 个阻断问题。"}<\/review_verdict>"#;
+
+    assert_eq!(
+        extract_review_verdict(raw).as_deref(),
+        Some(
+            r#"{"passed":false,"needs_human":true,"blocking_issue_count":2,"summary":"发现 2 个阻断问题。"}"#
+        )
+    );
+}
+
+#[test]
 fn parses_subtasks_from_json_object() {
     let subtasks = parse_ai_subtasks_response(
         r#"{"subtasks":["整理需求说明","拆分前端交互","补充后端接口"]}"#,

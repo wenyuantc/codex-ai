@@ -241,6 +241,8 @@ export function TaskCard({
     "waiting_execution",
     "review_launch_failed",
     "fix_launch_failed",
+    "blocked",
+    "manual_control",
   ].includes(automationState.status);
 
   const {
@@ -438,12 +440,19 @@ export function TaskCard({
 
     try {
       await restartTaskAutomation(task.id);
-      onOpenLog?.(
-        task.id,
-        automationState.status === "waiting_review" || automationState.status === "launching_review" || automationState.status === "review_launch_failed"
-          ? "review"
-          : "execution",
-      );
+      if (
+        automationState.status === "waiting_review"
+        || automationState.status === "launching_review"
+        || automationState.status === "review_launch_failed"
+      ) {
+        onOpenLog?.(task.id, "review");
+      } else if (
+        automationState.status === "waiting_execution"
+        || automationState.status === "launching_fix"
+        || automationState.status === "fix_launch_failed"
+      ) {
+        onOpenLog?.(task.id, "execution");
+      }
     } catch (error) {
       console.error("Failed to restart task automation:", error);
     } finally {
