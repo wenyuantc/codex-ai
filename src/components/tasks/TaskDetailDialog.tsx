@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
-import { AlertTriangle, Bot } from "lucide-react";
+import { AlertTriangle, Bot, Check, Copy } from "lucide-react";
 
 import type {
   CodexSessionFileChange,
@@ -27,6 +27,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { buildTaskExecutionInput } from "@/lib/taskPrompt";
 import {
@@ -116,6 +117,7 @@ export function TaskDetailDialog({
   const [reviewFixSubmitting, setReviewFixSubmitting] = useState(false);
   const [latestReview, setLatestReview] = useState<TaskLatestReview | null>(null);
   const [latestReviewLoading, setLatestReviewLoading] = useState(false);
+  const [taskIdCopied, setTaskIdCopied] = useState(false);
   const [executionChangeHistory, setExecutionChangeHistory] = useState<TaskExecutionChangeHistoryItem[]>([]);
   const [executionChangeHistoryLoading, setExecutionChangeHistoryLoading] = useState(false);
   const [executionChangeHistoryError, setExecutionChangeHistoryError] = useState<string | null>(null);
@@ -126,6 +128,7 @@ export function TaskDetailDialog({
   const [executionChangeDetail, setExecutionChangeDetail] = useState<CodexSessionFileChangeDetail | null>(null);
   const latestReviewRequestIdRef = useRef(0);
   const executionChangeDetailRequestIdRef = useRef(0);
+  const taskIdCopyResetTimerRef = useRef<number | null>(null);
   const terminalRef = useRef<HTMLDivElement>(null);
   const aiLogRef = useRef<HTMLDivElement>(null);
   const assignee = assigneeId ? employees.find((employee) => employee.id === assigneeId) : undefined;
@@ -227,6 +230,14 @@ export function TaskDetailDialog({
       setDeleteDialogOpen(false);
     }
   }, [open]);
+
+  useEffect(() => {
+    return () => {
+      if (taskIdCopyResetTimerRef.current !== null) {
+        window.clearTimeout(taskIdCopyResetTimerRef.current);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     if (!open) {
@@ -493,6 +504,28 @@ export function TaskDetailDialog({
     }
   };
 
+  const handleCopyTaskId = async () => {
+    try {
+      if (!navigator.clipboard?.writeText) {
+        throw new Error("当前环境不支持剪贴板写入");
+      }
+
+      await navigator.clipboard.writeText(task.id);
+      setTaskIdCopied(true);
+
+      if (taskIdCopyResetTimerRef.current !== null) {
+        window.clearTimeout(taskIdCopyResetTimerRef.current);
+      }
+
+      taskIdCopyResetTimerRef.current = window.setTimeout(() => {
+        setTaskIdCopied(false);
+      }, 1600);
+    } catch (error) {
+      setTaskIdCopied(false);
+      setSaveError(error instanceof Error ? error.message : String(error));
+    }
+  };
+
   const handleConfirmReviewFix = async () => {
     const reviewReport = latestReview?.report?.trim();
     if (!reviewReport) {
@@ -580,6 +613,25 @@ export function TaskDetailDialog({
               查看和编辑任务详情
             </DialogDescription>
           </DialogHeader>
+
+          <div className="mb-4 flex flex-wrap items-center gap-2 rounded-lg border border-border/70 bg-background/80 px-4 py-3">
+            <span className="text-xs font-medium text-muted-foreground">任务 ID</span>
+            <button
+              type="button"
+              onClick={() => void handleCopyTaskId()}
+              className="inline-flex items-center gap-1.5 rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+              title={taskIdCopied ? "已复制任务 ID" : "点击复制任务 ID"}
+              aria-label={taskIdCopied ? "已复制任务 ID" : "点击复制任务 ID"}
+            >
+              <Badge
+                variant="outline"
+                className="h-6 cursor-pointer rounded-md px-2.5 font-mono text-[11px] transition-colors hover:border-primary/40 hover:bg-primary/5"
+              >
+                {task.id}
+                {taskIdCopied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+              </Badge>
+            </button>
+          </div>
 
           <Tabs defaultValue="overview" className="gap-4">
             <section className="space-y-3 rounded-lg border border-border/70 bg-muted/20 p-4">
