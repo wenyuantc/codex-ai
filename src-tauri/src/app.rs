@@ -38,12 +38,13 @@ use crate::db::models::{
     UpdateTask,
 };
 use crate::notifications::{
-    database_error_dedupe_key, emit_transient_notification, ensure_sticky_notification,
-    publish_one_time_notification, resolve_sticky_notification, sdk_unavailable_dedupe_key,
-    settings_route, ssh_health_check_dedupe_key, ssh_missing_selection_dedupe_key,
-    ssh_password_probe_dedupe_key, ssh_selected_config_dedupe_key, transient_notification_id,
-    NotificationDraft, NOTIFICATION_SEVERITY_CRITICAL, NOTIFICATION_SEVERITY_ERROR,
-    NOTIFICATION_SEVERITY_SUCCESS, NOTIFICATION_SEVERITY_WARNING, NOTIFICATION_TYPE_DATABASE_ERROR,
+    build_task_status_notification, database_error_dedupe_key, emit_transient_notification,
+    ensure_sticky_notification, publish_one_time_notification, resolve_sticky_notification,
+    sdk_unavailable_dedupe_key, settings_route, ssh_health_check_dedupe_key,
+    ssh_missing_selection_dedupe_key, ssh_password_probe_dedupe_key,
+    ssh_selected_config_dedupe_key, transient_notification_id, NotificationDraft,
+    NOTIFICATION_SEVERITY_CRITICAL, NOTIFICATION_SEVERITY_ERROR, NOTIFICATION_SEVERITY_SUCCESS,
+    NOTIFICATION_SEVERITY_WARNING, NOTIFICATION_TYPE_DATABASE_ERROR,
     NOTIFICATION_TYPE_SDK_UNAVAILABLE, NOTIFICATION_TYPE_SSH_CONFIG_ERROR,
 };
 use crate::process_spawn::configure_std_command;
@@ -6755,44 +6756,15 @@ pub async fn update_task<R: Runtime>(
         )
         .await?;
 
-        if next_status == "review" {
-            let _ = publish_one_time_notification(
-                &app,
-                NotificationDraft::one_time(
-                    "review_pending",
-                    "warning",
-                    "任务审核",
-                    "有任务进入待审核",
-                    format!("任务“{}”已进入审核阶段，请尽快查看并处理。", current.title),
-                )
-                .with_recommendation("点击通知可直接跳转到任务详情。")
-                .with_action("查看任务", format!("/kanban?taskId={id}"))
-                .with_related_object("task", id.as_str())
-                .with_project_id(current.project_id.as_str())
-                .with_task_id(id.as_str()),
-            )
-            .await?;
-        }
-
         if current.status != "completed" && next_status == "completed" {
             let updated_task = fetch_task_by_id(&pool, &id).await?;
             record_completion_metric(&pool, &updated_task).await?;
-            let _ = publish_one_time_notification(
-                &app,
-                NotificationDraft::one_time(
-                    "task_completed",
-                    "success",
-                    "任务管理",
-                    "任务已完成",
-                    format!("任务“{}”已标记为完成。", updated_task.title),
-                )
-                .with_recommendation("如需继续跟进，可打开任务查看执行记录与产出。")
-                .with_action("查看任务", format!("/kanban?taskId={id}"))
-                .with_related_object("task", id.as_str())
-                .with_project_id(updated_task.project_id.as_str())
-                .with_task_id(updated_task.id.as_str()),
-            )
-            .await?;
+        }
+
+        if let Some(draft) =
+            build_task_status_notification(&current, current.status.as_str(), &next_status)
+        {
+            let _ = publish_one_time_notification(&app, draft).await?;
         }
     }
 

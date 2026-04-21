@@ -3,7 +3,8 @@ use uuid::Uuid;
 
 use crate::app::{insert_activity_log, now_sqlite, sqlite_pool};
 use crate::db::models::{
-    AppNotification, DesktopNotificationEvent, NotificationCenterChanged, TransientNotification,
+    AppNotification, DesktopNotificationEvent, NotificationCenterChanged, Task,
+    TransientNotification,
 };
 
 pub const NOTIFICATION_TYPE_REVIEW_PENDING: &str = "review_pending";
@@ -33,6 +34,48 @@ pub fn settings_route(section: &str, ssh_config_id: Option<&str>) -> String {
 
 pub fn task_route(task_id: &str) -> String {
     format!("/kanban?taskId={task_id}")
+}
+
+pub fn build_task_status_notification(
+    task: &Task,
+    previous_status: &str,
+    next_status: &str,
+) -> Option<NotificationDraft> {
+    if previous_status != "review" && next_status == "review" {
+        return Some(
+            NotificationDraft::one_time(
+                NOTIFICATION_TYPE_REVIEW_PENDING,
+                NOTIFICATION_SEVERITY_WARNING,
+                "任务审核",
+                "有任务进入待审核",
+                format!("任务“{}”已进入审核阶段，请尽快查看并处理。", task.title),
+            )
+            .with_recommendation("点击通知可直接跳转到任务详情。")
+            .with_action("查看任务", task_route(&task.id))
+            .with_related_object("task", task.id.as_str())
+            .with_project_id(task.project_id.as_str())
+            .with_task_id(task.id.as_str()),
+        );
+    }
+
+    if previous_status != "completed" && next_status == "completed" {
+        return Some(
+            NotificationDraft::one_time(
+                NOTIFICATION_TYPE_TASK_COMPLETED,
+                NOTIFICATION_SEVERITY_SUCCESS,
+                "任务管理",
+                "任务已完成",
+                format!("任务“{}”已标记为完成。", task.title),
+            )
+            .with_recommendation("如需继续跟进，可打开任务查看执行记录与产出。")
+            .with_action("查看任务", task_route(&task.id))
+            .with_related_object("task", task.id.as_str())
+            .with_project_id(task.project_id.as_str())
+            .with_task_id(task.id.as_str()),
+        );
+    }
+
+    None
 }
 
 pub fn review_pending_dedupe_key(task_id: &str) -> String {
@@ -693,6 +736,28 @@ pub async fn mark_all_notifications_read<R: Runtime>(app: AppHandle<R>) -> Resul
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::db::models::Task;
+
+    fn sample_task(status: &str) -> Task {
+        Task {
+            id: "task-1".to_string(),
+            title: "示例任务".to_string(),
+            description: None,
+            status: status.to_string(),
+            priority: "medium".to_string(),
+            project_id: "project-1".to_string(),
+            use_worktree: false,
+            assignee_id: None,
+            reviewer_id: None,
+            complexity: None,
+            ai_suggestion: None,
+            automation_mode: None,
+            last_codex_session_id: None,
+            last_review_session_id: None,
+            created_at: "2026-04-20 10:00:00".to_string(),
+            updated_at: "2026-04-20 10:00:00".to_string(),
+        }
+    }
 
     fn sample_notification() -> AppNotification {
         AppNotification {
@@ -824,6 +889,43 @@ mod tests {
             "sdk_health｜SDK 不可用｜error"
         );
         assert_eq!(NOTIFICATION_TYPE_RUN_COMPLETED, "run_completed");
+    }
+
+    #[test]
+    fn task_status_notification_builds_review_pending_payload() {
+        let task = sample_task("in_progress");
+        let draft = build_task_status_notification(&task, "in_progress", "review")
+            .expect("review notification");
+
+        assert_eq!(draft.notification_type, NOTIFICATION_TYPE_REVIEW_PENDING);
+        assert_eq!(draft.severity, NOTIFICATION_SEVERITY_WARNING);
+        assert_eq!(draft.title, "有任务进入待审核");
+        assert_eq!(draft.action_route.as_deref(), Some("/kanban?taskId=task-1"));
+        assert_eq!(draft.task_id.as_deref(), Some("task-1"));
+        assert_eq!(draft.project_id.as_deref(), Some("project-1"));
+    }
+
+    #[test]
+    fn task_status_notification_builds_task_completed_payload() {
+        let task = sample_task("review");
+        let draft = build_task_status_notification(&task, "review", "completed")
+            .expect("task completed notification");
+
+        assert_eq!(draft.notification_type, NOTIFICATION_TYPE_TASK_COMPLETED);
+        assert_eq!(draft.severity, NOTIFICATION_SEVERITY_SUCCESS);
+        assert_eq!(draft.title, "任务已完成");
+        assert_eq!(draft.action_route.as_deref(), Some("/kanban?taskId=task-1"));
+        assert_eq!(draft.task_id.as_deref(), Some("task-1"));
+        assert_eq!(draft.project_id.as_deref(), Some("project-1"));
+    }
+
+    #[test]
+    fn task_status_notification_skips_irrelevant_transitions() {
+        let task = sample_task("todo");
+
+        assert!(build_task_status_notification(&task, "todo", "in_progress").is_none());
+        assert!(build_task_status_notification(&task, "review", "review").is_none());
+        assert!(build_task_status_notification(&task, "completed", "completed").is_none());
     }
 
     #[test]

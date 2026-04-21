@@ -19,6 +19,7 @@ use crate::db::models::{
     TaskAutomationStateRecord,
 };
 use crate::git_workflow::{auto_commit_task_worktree, TaskGitAutoCommitOutcome};
+use crate::notifications::{build_task_status_notification, publish_one_time_notification};
 
 const AUTOMATION_MODE_REVIEW_FIX_LOOP_V1: &str = "review_fix_loop_v1";
 const DEFAULT_MAX_FIX_ROUNDS: i32 = 3;
@@ -217,7 +218,7 @@ async fn finalize_terminal_failure(
         state_record,
     )
     .await?;
-    update_task_status_internal(pool, task, "blocked").await?;
+    update_task_status_internal(app, pool, task, "blocked").await?;
     insert_activity_log(
         pool,
         "task_automation_blocked",
@@ -472,7 +473,7 @@ async fn handle_review_exit(
         .map_err(|error| format!("Failed to serialize review verdict: {}", error))?;
 
     if verdict.passed {
-        update_task_status_internal(pool, task, "completed").await?;
+        update_task_status_internal(app, pool, task, "completed").await?;
         upsert_state_terminal(
             pool,
             &task.id,
@@ -647,7 +648,7 @@ async fn retry_pending_review(
     }
 
     let result = async {
-        update_task_status_internal(pool, &task, "review").await?;
+        update_task_status_internal(app, pool, &task, "review").await?;
         let before_sessions = fetch_task_session_ids(pool, task_id, "review").await?;
         let manager = app.state::<Arc<Mutex<CodexManager>>>().inner().clone();
         start_task_code_review_internal(app.clone(), manager, task_id).await?;
@@ -743,7 +744,7 @@ async fn start_automation_fix_round(
     let execution_input =
         prompt::build_automation_fix_prompt(task, &subtasks, &attachments, review_report, verdict);
 
-    update_task_status_internal(pool, task, "in_progress").await?;
+    update_task_status_internal(app, pool, task, "in_progress").await?;
     sqlx::query("UPDATE employees SET status = 'busy' WHERE id = $1")
         .bind(assignee_id)
         .execute(pool)
@@ -922,7 +923,8 @@ async fn handle_disabled_mode_exit(
     .await
 }
 
-async fn update_task_status_internal(
+async fn update_task_status_internal<R: Runtime>(
+    app: &AppHandle<R>,
     pool: &SqlitePool,
     current_task: &Task,
     next_status: &str,
@@ -951,6 +953,12 @@ async fn update_task_status_internal(
     if current_task.status != "completed" && next_status == "completed" {
         let updated_task = fetch_task_by_id(pool, &current_task.id).await?;
         record_completion_metric(pool, &updated_task).await?;
+    }
+
+    if let Some(draft) =
+        build_task_status_notification(current_task, current_task.status.as_str(), next_status)
+    {
+        let _ = publish_one_time_notification(app, draft).await?;
     }
 
     Ok(())
