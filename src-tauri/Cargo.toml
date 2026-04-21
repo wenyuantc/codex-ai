@@ -26,3 +26,4 @@ thiserror = "2"
 tokio = { version = "1", features = ["process", "io-util"] }
 sqlx = { version = "0.8.6", features = ["sqlite", "runtime-tokio", "macros"] }
 libc = "0.2"
+tauri-plugin-notification = "2"

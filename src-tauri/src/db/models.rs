@@ -849,6 +849,21 @@ pub struct NotificationCenterChanged {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DesktopNotificationEvent {
+    pub reason: String,
+    pub notification_id: String,
+    pub title: String,
+    pub message: String,
+    pub severity: String,
+    pub action_route: Option<String>,
+    pub project_id: Option<String>,
+    pub task_id: Option<String>,
+    pub ssh_config_id: Option<String>,
+    pub is_transient: bool,
+    pub last_triggered_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TransientNotification {
     pub id: String,
     pub notification_type: String,

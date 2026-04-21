@@ -282,6 +282,10 @@ export async function openDatabaseFolder(): Promise<void> {
   return invoke("open_database_folder");
 }
 
+export async function showMainWindow(): Promise<void> {
+  return invoke("show_main_window");
+}
+
 export async function readImageFile(path: string): Promise<number[]> {
   return invoke("read_image_file", { path });
 }

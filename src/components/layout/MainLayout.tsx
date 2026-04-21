@@ -1,13 +1,18 @@
-import { Outlet } from "react-router-dom";
+import { Outlet, useNavigate } from "react-router-dom";
 import { Sidebar } from "./Sidebar";
 import { Header } from "./Header";
 import { useEmployeeStore } from "@/stores/employeeStore";
 import { useProjectStore } from "@/stores/projectStore";
 import { useNotificationStore } from "@/stores/notificationStore";
 import { useTaskStore } from "@/stores/taskStore";
-import { useEffect } from "react";
+import { useEffect, useEffectEvent } from "react";
+import { showMainWindow } from "@/lib/backend";
+import { initDesktopNotificationBridge } from "@/lib/desktopNotifications";
+import { openNotificationTarget } from "@/lib/notificationNavigation";
+import type { DesktopNotificationExtra } from "@/lib/types";
 
 export function MainLayout() {
+  const navigate = useNavigate();
   const initCodexListeners = useEmployeeStore((s) => s.initCodexListeners);
   const initCodexSessionListeners = useTaskStore((s) => s.initCodexSessionListeners);
   const environmentMode = useProjectStore((state) => state.environmentMode);
@@ -30,6 +35,17 @@ export function MainLayout() {
     const cleanup = initNotificationListeners();
     return cleanup;
   }, [initNotificationListeners]);
+
+  const handleDesktopNotificationOpen = useEffectEvent(async (payload: DesktopNotificationExtra) => {
+    await useNotificationStore.getState().markRead(payload.notification_id);
+    await showMainWindow();
+    await openNotificationTarget(navigate, payload);
+  });
+
+  useEffect(() => {
+    const cleanup = initDesktopNotificationBridge(handleDesktopNotificationOpen);
+    return cleanup;
+  }, [handleDesktopNotificationOpen]);
 
   useEffect(() => {
     void syncSystemNotifications(environmentMode, selectedSshConfigId);

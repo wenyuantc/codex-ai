@@ -4,7 +4,7 @@
 
 通知中心当前统一使用如下字段：
 
-- 类型：`review_pending`、`run_failed`、`task_completed`、`sdk_unavailable`、`database_error`、`ssh_config_error`
+- 类型：`review_pending`、`run_failed`、`run_completed`、`task_completed`、`sdk_unavailable`、`database_error`、`ssh_config_error`
 - 严重级别：`info`、`success`、`warning`、`error`、`critical`
 - 展示形态：`one_time`、`sticky`
 - 状态：`active`、`resolved`
@@ -31,6 +31,7 @@
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | 审核待处理 | 任务状态更新 | 任务状态进入 `review` | “有任务进入待审核”，含任务标题与处理提示 | `warning` / `one_time` | 不做 sticky 去重，依赖状态切换边界触发 | `/kanban?taskId={taskId}` | 无 |
 | 运行失败 | 会话退出处理 | 执行类会话异常退出且状态不是正常 `exited` | “任务运行失败”，含任务标题与失败摘要 | `error` / `one_time` | 不做 sticky 去重，依赖单次失败事件 | `/kanban?taskId={taskId}` | 无 |
+| 运行完成 | 会话退出处理 | 普通任务的执行类会话成功退出，且任务未开启自动质控 | “任务运行完成”，含任务标题与查看建议 | `success` / `one_time` | 不做 sticky 去重，依赖单次成功退出事件 | `/kanban?taskId={taskId}` | 无 |
 | 任务完成 | 任务状态更新 | 任务从非 `completed` 进入 `completed` | “任务已完成”，含任务标题与后续查看建议 | `success` / `one_time` | 不做 sticky 去重，依赖完成状态跃迁 | `/kanban?taskId={taskId}` | 无 |
 | SDK 不可用（本地） | 本地健康检查 / 系统同步 | 本地启用 SDK 但实际 provider 退回非 `sdk` | “本地 SDK 当前不可用”，含修复建议 | `warning` 或 `error` / `sticky` | `sdk_unavailable:local` | `/settings?section=sdk` | 恢复后发“本地 SDK 已恢复可用” |
 | SDK 不可用（远程） | 远程健康检查 / 系统同步 | 远程配置启用 SDK 但远程 provider 退回非 `sdk` | “远程主机的 SDK 当前不可用”，含主机名与修复建议 | `warning` 或 `error` / `sticky` | `sdk_unavailable:ssh:{sshConfigId}` | `/settings?section=sdk&sshConfigId={sshConfigId}` | 恢复后发“远程 SDK 已恢复” |

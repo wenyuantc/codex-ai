@@ -2,10 +2,13 @@ use tauri::{AppHandle, Emitter, Runtime};
 use uuid::Uuid;
 
 use crate::app::{insert_activity_log, now_sqlite, sqlite_pool};
-use crate::db::models::{AppNotification, NotificationCenterChanged, TransientNotification};
+use crate::db::models::{
+    AppNotification, DesktopNotificationEvent, NotificationCenterChanged, TransientNotification,
+};
 
 pub const NOTIFICATION_TYPE_REVIEW_PENDING: &str = "review_pending";
 pub const NOTIFICATION_TYPE_RUN_FAILED: &str = "run_failed";
+pub const NOTIFICATION_TYPE_RUN_COMPLETED: &str = "run_completed";
 pub const NOTIFICATION_TYPE_TASK_COMPLETED: &str = "task_completed";
 pub const NOTIFICATION_TYPE_SDK_UNAVAILABLE: &str = "sdk_unavailable";
 pub const NOTIFICATION_TYPE_DATABASE_ERROR: &str = "database_error";
@@ -18,6 +21,7 @@ pub const NOTIFICATION_SEVERITY_ERROR: &str = "error";
 pub const NOTIFICATION_SEVERITY_CRITICAL: &str = "critical";
 
 const NOTIFICATION_CENTER_CHANGED_EVENT: &str = "notification-center-changed";
+const NOTIFICATION_CENTER_DELIVER_EVENT: &str = "notification-center-deliver";
 const TRANSIENT_NOTIFICATION_ID_PREFIX: &str = "transient:";
 
 pub fn settings_route(section: &str, ssh_config_id: Option<&str>) -> String {
@@ -61,6 +65,10 @@ pub fn ssh_health_check_dedupe_key(ssh_config_id: &str) -> String {
 
 pub fn transient_notification_id(dedupe_key: &str) -> String {
     format!("{TRANSIENT_NOTIFICATION_ID_PREFIX}{dedupe_key}")
+}
+
+fn should_emit_desktop_notification(reason: &str) -> bool {
+    matches!(reason, "created" | "reactivated" | "updated" | "transient")
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -217,11 +225,65 @@ async fn emit_notification_changed<R: Runtime>(
     );
 }
 
+fn build_desktop_notification_event(
+    notification: &AppNotification,
+    reason: &str,
+) -> DesktopNotificationEvent {
+    DesktopNotificationEvent {
+        reason: reason.to_string(),
+        notification_id: notification.id.clone(),
+        title: notification.title.clone(),
+        message: notification.message.clone(),
+        severity: notification.severity.clone(),
+        action_route: notification.action_route.clone(),
+        project_id: notification.project_id.clone(),
+        task_id: notification.task_id.clone(),
+        ssh_config_id: notification.ssh_config_id.clone(),
+        is_transient: false,
+        last_triggered_at: notification.last_triggered_at.clone(),
+    }
+}
+
+fn build_transient_desktop_notification_event(
+    notification: &TransientNotification,
+) -> DesktopNotificationEvent {
+    DesktopNotificationEvent {
+        reason: "transient".to_string(),
+        notification_id: notification.id.clone(),
+        title: notification.title.clone(),
+        message: notification.message.clone(),
+        severity: notification.severity.clone(),
+        action_route: notification.action_route.clone(),
+        project_id: notification.project_id.clone(),
+        task_id: notification.task_id.clone(),
+        ssh_config_id: notification.ssh_config_id.clone(),
+        is_transient: true,
+        last_triggered_at: notification.last_triggered_at.clone(),
+    }
+}
+
+async fn emit_desktop_notification_event<R: Runtime>(
+    app: &AppHandle<R>,
+    reason: &str,
+    notification: &AppNotification,
+) {
+    if !should_emit_desktop_notification(reason) {
+        return;
+    }
+
+    let _ = app.emit(
+        NOTIFICATION_CENTER_DELIVER_EVENT,
+        build_desktop_notification_event(notification, reason),
+    );
+}
+
 pub fn emit_transient_notification<R: Runtime>(
     app: &AppHandle<R>,
     notification: TransientNotification,
 ) {
+    let desktop_event = build_transient_desktop_notification_event(&notification);
     let _ = app.emit("notification-center-transient", notification);
+    let _ = app.emit(NOTIFICATION_CENTER_DELIVER_EVENT, desktop_event);
 }
 
 async fn fetch_notification_by_id(
@@ -356,6 +418,7 @@ async fn insert_notification_row<R: Runtime>(
         notification.project_id.as_deref(),
     )
     .await;
+    emit_desktop_notification_event(app, "created", &notification).await;
     emit_notification_changed(app, "created", Some(notification.id.as_str())).await;
     Ok(notification)
 }
@@ -436,6 +499,7 @@ pub async fn ensure_sticky_notification<R: Runtime>(
             .map_err(|error| format!("Failed to refresh sticky notification: {}", error))?;
 
             let notification = fetch_notification_by_id(&pool, &current.id).await?;
+            emit_desktop_notification_event(app, change_reason, &notification).await;
             emit_notification_changed(app, change_reason, Some(notification.id.as_str())).await;
             Ok(notification)
         }
@@ -497,6 +561,7 @@ pub async fn ensure_sticky_notification<R: Runtime>(
                 notification.project_id.as_deref(),
             )
             .await;
+            emit_desktop_notification_event(app, "reactivated", &notification).await;
             emit_notification_changed(app, "reactivated", Some(notification.id.as_str())).await;
             Ok(notification)
         }
@@ -758,6 +823,7 @@ mod tests {
             build_notification_activity_detail(&notification),
             "sdk_health｜SDK 不可用｜error"
         );
+        assert_eq!(NOTIFICATION_TYPE_RUN_COMPLETED, "run_completed");
     }
 
     #[test]
@@ -789,5 +855,72 @@ mod tests {
 
         assert_eq!(sticky_refresh_reason(&current, &same_draft), "retriggered");
         assert_eq!(sticky_refresh_reason(&current, &changed_draft), "updated");
+    }
+
+    #[test]
+    fn desktop_notification_reason_filter_matches_plan() {
+        assert!(should_emit_desktop_notification("created"));
+        assert!(should_emit_desktop_notification("reactivated"));
+        assert!(should_emit_desktop_notification("updated"));
+        assert!(should_emit_desktop_notification("transient"));
+        assert!(!should_emit_desktop_notification("retriggered"));
+        assert!(!should_emit_desktop_notification("resolved"));
+        assert!(!should_emit_desktop_notification("read"));
+        assert!(!should_emit_desktop_notification("all_read"));
+    }
+
+    #[test]
+    fn desktop_notification_payload_contains_navigation_context() {
+        let notification = sample_notification();
+        let payload = build_desktop_notification_event(&notification, "created");
+
+        assert_eq!(payload.reason, "created");
+        assert_eq!(payload.notification_id, notification.id);
+        assert_eq!(payload.title, "SDK 不可用");
+        assert_eq!(payload.message, "本地 SDK 当前不可用");
+        assert_eq!(payload.severity, NOTIFICATION_SEVERITY_ERROR);
+        assert_eq!(
+            payload.action_route.as_deref(),
+            Some("/settings?section=sdk")
+        );
+        assert_eq!(payload.project_id, None);
+        assert_eq!(payload.task_id, None);
+        assert_eq!(payload.ssh_config_id, None);
+        assert!(!payload.is_transient);
+        assert_eq!(payload.last_triggered_at, "2026-04-20 10:00:00");
+    }
+
+    #[test]
+    fn transient_desktop_notification_payload_marks_transient_state() {
+        let payload = build_transient_desktop_notification_event(&TransientNotification {
+            id: "transient:database_error:local".to_string(),
+            notification_type: NOTIFICATION_TYPE_DATABASE_ERROR.to_string(),
+            severity: NOTIFICATION_SEVERITY_CRITICAL.to_string(),
+            source_module: "database".to_string(),
+            title: "数据库异常".to_string(),
+            message: "数据库当前不可用".to_string(),
+            recommendation: Some("请检查数据库状态".to_string()),
+            action_label: Some("打开设置".to_string()),
+            action_route: Some(settings_route("database", None)),
+            related_object_type: Some("environment".to_string()),
+            related_object_id: Some("local".to_string()),
+            project_id: None,
+            task_id: None,
+            ssh_config_id: None,
+            delivery_mode: "sticky".to_string(),
+            occurrence_count: 1,
+            first_triggered_at: "2026-04-20 10:10:00".to_string(),
+            last_triggered_at: "2026-04-20 10:10:00".to_string(),
+            is_read: false,
+            is_transient: true,
+        });
+
+        assert_eq!(payload.reason, "transient");
+        assert_eq!(payload.notification_id, "transient:database_error:local");
+        assert!(payload.is_transient);
+        assert_eq!(
+            payload.action_route.as_deref(),
+            Some("/settings?section=database")
+        );
     }
 }

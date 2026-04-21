@@ -1,6 +1,10 @@
 import { listen } from "@tauri-apps/api/event";
 
-import type { NotificationCenterChanged, TransientNotification } from "./types";
+import type {
+  DesktopNotificationEvent,
+  NotificationCenterChanged,
+  TransientNotification,
+} from "./types";
 
 const TRANSIENT_NOTIFICATION_ID_PREFIXES = ["transient:", "transient-"];
 
@@ -22,6 +26,15 @@ export function onTransientNotification(
 ) {
   return listen<TransientNotification>(
     "notification-center-transient",
+    (event) => callback(event.payload),
+  );
+}
+
+export function onDesktopNotificationDeliver(
+  callback: (payload: DesktopNotificationEvent) => void,
+) {
+  return listen<DesktopNotificationEvent>(
+    "notification-center-deliver",
     (event) => callback(event.payload),
   );
 }

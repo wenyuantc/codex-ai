@@ -25,9 +25,9 @@ import type {
   NotificationSeverity,
   NotificationType,
 } from "@/lib/types";
+import { openNotificationTarget } from "@/lib/notificationNavigation";
 import { formatDate } from "@/lib/utils";
 import { useNotificationStore } from "@/stores/notificationStore";
-import { useProjectStore } from "@/stores/projectStore";
 
 const severityMeta: Record<NotificationSeverity, {
   label: string;
@@ -70,6 +70,7 @@ const severityMeta: Record<NotificationSeverity, {
 const typeLabels: Record<NotificationType, string> = {
   review_pending: "待审核",
   run_failed: "运行失败",
+  run_completed: "运行完成",
   task_completed: "任务完成",
   sdk_unavailable: "SDK 异常",
   database_error: "数据库异常",
@@ -179,11 +180,6 @@ function NotificationRow({
 
 export function NotificationCenter() {
   const navigate = useNavigate();
-  const allProjects = useProjectStore((state) => state.allProjects);
-  const environmentMode = useProjectStore((state) => state.environmentMode);
-  const setCurrentProject = useProjectStore((state) => state.setCurrentProject);
-  const setEnvironmentMode = useProjectStore((state) => state.setEnvironmentMode);
-  const setSelectedSshConfigId = useProjectStore((state) => state.setSelectedSshConfigId);
   const notifications = useNotificationStore((state) => state.notifications);
   const unreadCount = useNotificationStore((state) => state.unreadCount);
   const highestUnreadSeverity = useNotificationStore((state) => state.highestUnreadSeverity);
@@ -198,37 +194,8 @@ export function NotificationCenter() {
 
   const handleOpenNotification = async (notification: NotificationItem) => {
     await markRead(notification.id);
-
-    if (notification.ssh_config_id) {
-      if (environmentMode !== "ssh") {
-        await setEnvironmentMode("ssh");
-      }
-      setSelectedSshConfigId(notification.ssh_config_id);
-    }
-
-    if (notification.project_id) {
-      const targetProject = allProjects.find((project) => project.id === notification.project_id) ?? null;
-      if (targetProject?.project_type === "ssh") {
-        if (environmentMode !== "ssh") {
-          await setEnvironmentMode("ssh");
-        }
-        if (targetProject.ssh_config_id) {
-          setSelectedSshConfigId(targetProject.ssh_config_id);
-        }
-      } else if (targetProject?.project_type === "local" && environmentMode !== "local") {
-        await setEnvironmentMode("local");
-      }
-      setCurrentProject(targetProject);
-    }
-
-    if (!notification.action_route) {
-      return;
-    }
-
     setOpen(false);
-    navigate(notification.action_route, {
-      state: { notificationNonce: Date.now() },
-    });
+    await openNotificationTarget(navigate, notification);
   };
 
   return (

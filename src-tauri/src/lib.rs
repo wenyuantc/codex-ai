@@ -27,6 +27,7 @@ pub fn run() {
         )
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_opener::init())
         .setup(|app| {
             tray::create_tray(app)?;
@@ -53,6 +54,7 @@ pub fn run() {
             app::backup_database,
             app::restore_database,
             app::open_database_folder,
+            tray::show_main_window,
             app::get_employee_runtime_status,
             app::get_codex_session_status,
             app::sync_system_notifications,

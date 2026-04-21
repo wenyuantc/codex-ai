@@ -315,6 +315,7 @@ export interface GlobalSearchResponse {
 export type NotificationType =
   | "review_pending"
   | "run_failed"
+  | "run_completed"
   | "task_completed"
   | "sdk_unavailable"
   | "database_error"
@@ -322,6 +323,11 @@ export type NotificationType =
 export type NotificationSeverity = "info" | "success" | "warning" | "error" | "critical";
 export type NotificationDeliveryMode = "one_time" | "sticky";
 export type NotificationState = "active" | "resolved";
+export type DesktopNotificationDeliveryReason =
+  | "created"
+  | "reactivated"
+  | "updated"
+  | "transient";
 
 export interface AppNotification {
   id: string;
@@ -356,6 +362,22 @@ export interface NotificationCenterChanged {
   reason: string;
   notification_id: string | null;
 }
+
+export interface DesktopNotificationEvent {
+  reason: DesktopNotificationDeliveryReason;
+  notification_id: string;
+  title: string;
+  message: string;
+  severity: NotificationSeverity;
+  action_route: string | null;
+  project_id: string | null;
+  task_id: string | null;
+  ssh_config_id: string | null;
+  is_transient: boolean;
+  last_triggered_at: string;
+}
+
+export type DesktopNotificationExtra = DesktopNotificationEvent;
 
 export interface TransientNotification {
   id: string;
