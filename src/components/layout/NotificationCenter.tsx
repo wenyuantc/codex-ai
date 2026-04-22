@@ -221,8 +221,8 @@ export function NotificationCenter() {
 
       <Sheet open={open} onOpenChange={setOpen}>
         <SheetContent side="right" className="w-full sm:max-w-lg">
-          <SheetHeader className="border-b border-border/60">
-            <div className="flex items-center justify-between gap-3">
+          <SheetHeader className="border-b border-border/60 pr-14">
+            <div className="flex items-start justify-between gap-3">
               <div>
                 <SheetTitle>通知中心</SheetTitle>
                 <SheetDescription>
@@ -235,6 +235,7 @@ export function NotificationCenter() {
                 type="button"
                 variant="outline"
                 size="sm"
+                className="shrink-0"
                 disabled={unreadCount === 0}
                 onClick={() => void markAllRead()}
               >
