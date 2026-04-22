@@ -18,6 +18,8 @@ const SDK_RUNTIME_DIR_NAME: &str = "codex-sdk-runtime";
 const SDK_BRIDGE_FILE_NAME: &str = "sdk-bridge.mjs";
 const SDK_PACKAGE_NAME: &str = "@openai/codex-sdk";
 const SDK_CLI_PACKAGE_NAME: &str = "@openai/codex";
+pub const SDK_INSTALL_PACKAGE_SPECS: &[&str] =
+    &["@openai/codex-sdk@latest", "@openai/codex@latest"];
 const ONE_SHOT_PROVIDER_SDK: &str = "sdk";
 const ONE_SHOT_PROVIDER_EXEC: &str = "exec";
 const MINIMUM_NODE_MAJOR: u32 = 18;
@@ -1064,8 +1066,7 @@ pub async fn install_codex_sdk_runtime<R: Runtime>(
         .arg("--no-audit")
         .arg("--no-fund")
         .arg("--include=optional")
-        .arg(SDK_PACKAGE_NAME)
-        .arg(SDK_CLI_PACKAGE_NAME)
+        .args(SDK_INSTALL_PACKAGE_SPECS)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .output()
@@ -1216,7 +1217,7 @@ mod tests {
         normalize_remote_settings, normalize_task_automation_failure_strategy,
         normalize_task_automation_max_fix_rounds, parse_node_major_version,
         read_sdk_version_from_dir, sdk_platform_package_for_target, RawCodexSettings,
-        RawGitPreferences,
+        RawGitPreferences, SDK_INSTALL_PACKAGE_SPECS,
     };
     use crate::db::models::{CodexSettings, GitPreferences, UpdateGitPreferences};
     use std::fs;
@@ -1250,6 +1251,14 @@ mod tests {
         assert_eq!(version.as_deref(), Some("1.2.3"));
 
         fs::remove_dir_all(base).expect("remove temp dir");
+    }
+
+    #[test]
+    fn sdk_reinstall_targets_latest_packages() {
+        assert_eq!(
+            SDK_INSTALL_PACKAGE_SPECS,
+            &["@openai/codex-sdk@latest", "@openai/codex@latest"]
+        );
     }
 
     #[test]

@@ -22,7 +22,7 @@ use crate::codex::{
     delete_secret_value, determine_effective_provider, ensure_supported_node_version,
     inspect_sdk_runtime, load_codex_settings, load_remote_codex_settings, new_codex_command,
     new_ssh_command, resolve_secret_value, store_secret_value, sweep_orphan_secret_refs,
-    CodexManager, CodexSessionKind,
+    CodexManager, CodexSessionKind, SDK_INSTALL_PACKAGE_SPECS,
 };
 use crate::db::models::{
     CodexHealthCheck, CodexOutput, CodexRuntimeStatus, CodexSessionFileChange,
@@ -6173,10 +6173,11 @@ pub async fn install_remote_codex_sdk<R: Runtime>(
     let package_json = shell_escape_single_quoted(
         "{\"name\":\"codex-ai-sdk-runtime\",\"private\":true,\"type\":\"module\"}",
     );
+    let install_packages = SDK_INSTALL_PACKAGE_SPECS.join(" ");
     let remote_script = format!(
         "install_dir={install_dir}; mkdir -p \"$install_dir\" && cd \"$install_dir\" && \
 if [ ! -f package.json ]; then printf '%s' {package_json} > package.json; fi && \
-npm install --no-audit --no-fund --include=optional @openai/codex-sdk @openai/codex && \
+npm install --no-audit --no-fund --include=optional {install_packages} && \
 sdk_pkg=\"$install_dir\"/node_modules/@openai/codex-sdk/package.json && \
 sdk_version=$(sed -n 's/.*\"version\"[[:space:]]*:[[:space:]]*\"\\([^\"]*\\)\".*/\\1/p' \"$sdk_pkg\" | head -n 1) && \
 node_version=$(node --version 2>/dev/null || true) && \
