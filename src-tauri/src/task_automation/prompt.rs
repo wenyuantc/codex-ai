@@ -21,7 +21,11 @@ fn subtask_status_label(status: &str) -> &str {
 }
 
 fn attachment_is_image(attachment: &TaskAttachment) -> bool {
-    attachment.mime_type.trim().to_ascii_lowercase().starts_with("image/")
+    attachment
+        .mime_type
+        .trim()
+        .to_ascii_lowercase()
+        .starts_with("image/")
 }
 
 pub fn build_automation_fix_prompt(

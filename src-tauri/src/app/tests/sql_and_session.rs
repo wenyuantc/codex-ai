@@ -26,6 +26,88 @@ fn terminates_sql_statement_once() {
 }
 
 #[test]
+fn global_search_types_default_to_all_supported_kinds() {
+    let actual = normalize_global_search_types(None);
+    let expected = HashSet::from([
+        "project".to_string(),
+        "task".to_string(),
+        "employee".to_string(),
+        "session".to_string(),
+    ]);
+
+    assert_eq!(actual, expected);
+}
+
+#[test]
+fn global_search_types_ignore_unknown_values_and_keep_valid_entries() {
+    let actual = normalize_global_search_types(Some(vec![
+        " project ".to_string(),
+        "TASK".to_string(),
+        "unknown".to_string(),
+        "task".to_string(),
+    ]));
+
+    let expected = HashSet::from(["project".to_string(), "task".to_string()]);
+    assert_eq!(actual, expected);
+}
+
+#[test]
+fn global_search_item_sort_prefers_score_then_recency_then_title() {
+    let mut items = vec![
+        GlobalSearchItem {
+            item_type: "task".to_string(),
+            item_id: "task-2".to_string(),
+            title: "Bravo".to_string(),
+            subtitle: None,
+            summary: None,
+            navigation_path: "/kanban?taskId=task-2".to_string(),
+            score: 120,
+            updated_at: Some("2026-04-16 10:00:00".to_string()),
+            project_id: Some("proj-1".to_string()),
+            task_id: Some("task-2".to_string()),
+            employee_id: None,
+            session_id: None,
+        },
+        GlobalSearchItem {
+            item_type: "task".to_string(),
+            item_id: "task-1".to_string(),
+            title: "Alpha".to_string(),
+            subtitle: None,
+            summary: None,
+            navigation_path: "/kanban?taskId=task-1".to_string(),
+            score: 120,
+            updated_at: Some("2026-04-18 10:00:00".to_string()),
+            project_id: Some("proj-1".to_string()),
+            task_id: Some("task-1".to_string()),
+            employee_id: None,
+            session_id: None,
+        },
+        GlobalSearchItem {
+            item_type: "project".to_string(),
+            item_id: "proj-9".to_string(),
+            title: "Zulu".to_string(),
+            subtitle: None,
+            summary: None,
+            navigation_path: "/projects/proj-9".to_string(),
+            score: 180,
+            updated_at: Some("2026-04-10 10:00:00".to_string()),
+            project_id: Some("proj-9".to_string()),
+            task_id: None,
+            employee_id: None,
+            session_id: None,
+        },
+    ];
+
+    items.sort_by(compare_global_search_items);
+
+    let ordered_ids = items
+        .into_iter()
+        .map(|item| item.item_id)
+        .collect::<Vec<_>>();
+    assert_eq!(ordered_ids, vec!["proj-9", "task-1", "task-2"]);
+}
+
+#[test]
 fn session_resume_state_requires_cli_session_id() {
     let (status, message, can_resume) = resolve_session_resume_state(
         None,
@@ -54,6 +136,22 @@ fn session_resume_state_blocks_when_employee_missing() {
 
     assert_eq!(status, "missing_employee");
     assert!(!can_resume);
+}
+
+#[test]
+fn session_resume_state_blocks_when_session_is_stopping() {
+    let (status, message, can_resume) = resolve_session_resume_state(
+        Some("sess-1"),
+        Some("emp-1"),
+        Some("Alice"),
+        "stopping",
+        false,
+        "关联任务当前已有运行中的对话，请先停止后再继续。",
+    );
+
+    assert_eq!(status, "stopping");
+    assert!(!can_resume);
+    assert!(message.unwrap_or_default().contains("正在停止"));
 }
 
 #[test]
@@ -86,6 +184,12 @@ fn session_resume_state_allows_resumable_exited_session() {
     assert_eq!(status, "ready");
     assert!(can_resume);
     assert!(message.is_none());
+}
+
+#[test]
+fn running_conflict_message_distinguishes_task_and_employee_scope() {
+    assert!(resolve_running_conflict_message(Some("task-1")).contains("关联任务"));
+    assert!(resolve_running_conflict_message(None).contains("关联员工"));
 }
 
 #[test]
