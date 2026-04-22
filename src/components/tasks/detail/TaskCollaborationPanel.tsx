@@ -1,5 +1,5 @@
 import type { TaskAttachment } from "@/lib/types";
-import { ImagePlus, Loader2 } from "lucide-react";
+import { Loader2, Paperclip } from "lucide-react";
 
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { CommentList } from "@/components/tasks/CommentList";
@@ -35,10 +35,10 @@ export function TaskCollaborationPanel({
         <div className="flex items-start justify-between gap-3">
           <div>
             <label className="text-xs font-medium text-muted-foreground">
-              图片附件
+              附件
             </label>
             <p className="text-[11px] text-muted-foreground">
-              当前任务的图片会在每次启动和续聊时自动附带给 Codex。
+              当前任务的附件会随任务上下文保留，图片会在每次启动和续聊时自动附带给 Codex。
             </p>
           </div>
           <button
@@ -46,20 +46,20 @@ export function TaskCollaborationPanel({
             onClick={onSelectAttachments}
             disabled={!isTauriRuntime || attachmentLoading}
             className="flex items-center gap-1 rounded-md border border-input px-2.5 py-1.5 text-xs hover:bg-accent disabled:opacity-50"
-            title={isTauriRuntime ? "上传图片" : "仅桌面端支持上传图片"}
+            title={isTauriRuntime ? "上传附件" : "仅桌面端支持上传附件"}
           >
             {attachmentLoading ? (
               <Loader2 className="h-3.5 w-3.5 animate-spin" />
             ) : (
-              <ImagePlus className="h-3.5 w-3.5" />
+              <Paperclip className="h-3.5 w-3.5" />
             )}
-            添加图片
+            添加附件
           </button>
         </div>
 
         {!isTauriRuntime && (
           <div className="rounded-md border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
-            当前环境不支持任务图片上传，请在桌面端使用该功能。
+            当前环境不支持任务附件上传，请在桌面端使用该功能。
           </div>
         )}
 
@@ -70,7 +70,7 @@ export function TaskCollaborationPanel({
         )}
 
         <ErrorBoundary
-          fallbackTitle="图片附件区渲染失败"
+          fallbackTitle="附件区渲染失败"
           fallbackDescription="附件数据已保留，但缩略图区域发生了运行时异常。"
         >
           <TaskAttachmentGrid
@@ -86,7 +86,7 @@ export function TaskCollaborationPanel({
                 : undefined,
               onRemove: () => onDeleteAttachment(attachment.id),
             }))}
-            emptyText="当前任务还没有图片"
+            emptyText="当前任务还没有附件"
           />
         </ErrorBoundary>
       </div>

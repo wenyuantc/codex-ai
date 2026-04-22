@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
-import { ExternalLink, Image as ImageIcon, Trash2 } from "lucide-react";
+import { ExternalLink, File, Image as ImageIcon, Trash2 } from "lucide-react";
 
 import { readImageFile } from "@/lib/backend";
 import {
   formatAttachmentFileSize,
   guessImageMimeType,
+  isImageAttachment,
   isTauriRuntime,
 } from "@/lib/taskAttachments";
 
@@ -26,7 +27,7 @@ interface TaskAttachmentGridProps {
 
 export function TaskAttachmentGrid({
   items,
-  emptyText = "暂无图片",
+  emptyText = "暂无附件",
 }: TaskAttachmentGridProps) {
   const [previewUrls, setPreviewUrls] = useState<Record<string, string>>({});
   const previewKey = useMemo(
@@ -34,11 +35,13 @@ export function TaskAttachmentGrid({
     [items],
   );
   const previewItems = useMemo(
-    () => items.map((item) => ({
-      id: item.id,
-      path: item.path,
-      mimeType: item.mimeType,
-    })),
+    () => items
+      .filter((item) => isImageAttachment(item.path, item.mimeType))
+      .map((item) => ({
+        id: item.id,
+        path: item.path,
+        mimeType: item.mimeType,
+      })),
     [previewKey],
   );
 
@@ -100,6 +103,7 @@ export function TaskAttachmentGrid({
     <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-4">
       {items.map((item) => {
         const previewSrc = previewUrls[item.id];
+        const isImage = isImageAttachment(item.path, item.mimeType);
 
         return (
           <div
@@ -115,7 +119,7 @@ export function TaskAttachmentGrid({
                 />
               ) : (
                 <div className="flex h-full items-center justify-center text-muted-foreground">
-                  <ImageIcon className="h-8 w-8" />
+                  {isImage ? <ImageIcon className="h-8 w-8" /> : <File className="h-8 w-8" />}
                 </div>
               )}
 
@@ -125,7 +129,7 @@ export function TaskAttachmentGrid({
                     type="button"
                     onClick={item.onOpen}
                     className="rounded-full bg-black/65 p-1.5 text-white transition-colors hover:bg-black/80"
-                    title="打开图片"
+                    title="打开附件"
                   >
                     <ExternalLink className="h-3.5 w-3.5" />
                   </button>
@@ -135,7 +139,7 @@ export function TaskAttachmentGrid({
                     type="button"
                     onClick={item.onRemove}
                     className="rounded-full bg-black/65 p-1.5 text-white transition-colors hover:bg-red-600"
-                    title="移除图片"
+                    title="移除附件"
                   >
                     <Trash2 className="h-3.5 w-3.5" />
                   </button>

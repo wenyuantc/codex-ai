@@ -31,7 +31,6 @@ import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { buildTaskExecutionInput } from "@/lib/taskPrompt";
 import {
-  IMAGE_FILE_FILTERS,
   dedupePaths,
   isTauriRuntime,
   normalizeDialogSelection,
@@ -333,8 +332,7 @@ export function TaskDetailDialog({
     const selected = await openFileDialog({
       directory: false,
       multiple: true,
-      filters: IMAGE_FILE_FILTERS,
-      title: "选择任务图片",
+      title: "选择任务附件",
     });
     const sourcePaths = dedupePaths(normalizeDialogSelection(selected));
 

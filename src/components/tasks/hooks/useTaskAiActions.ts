@@ -13,7 +13,8 @@ import {
   getRemoteHealthCheck,
   healthCheck,
 } from "@/lib/backend";
-import type { Employee, Task } from "@/lib/types";
+import { isImageAttachment } from "@/lib/taskAttachments";
+import type { Employee, Task, TaskAttachment } from "@/lib/types";
 import { useProjectStore } from "@/stores/projectStore";
 import { useTaskStore } from "@/stores/taskStore";
 
@@ -118,9 +119,15 @@ export function useTaskAiActions({
     setAiLogs([`${formatLogTime()} [${operation}] 开始执行`]);
   };
 
-  const loadCurrentImagePaths = async () => {
+  const loadCurrentAttachments = async () => {
     await fetchAttachments(task.id);
     return (useTaskStore.getState().attachments[task.id] ?? [])
+      .filter((attachment) => attachment.stored_path.trim().length > 0);
+  };
+
+  const buildImagePaths = (attachments: TaskAttachment[]) => {
+    return attachments
+      .filter((attachment) => isImageAttachment(attachment.stored_path, attachment.mime_type))
       .map((attachment) => attachment.stored_path.trim())
       .filter((path) => path.length > 0);
   };
@@ -130,8 +137,12 @@ export function useTaskAiActions({
     workingDir: projectRepoPath ?? undefined,
   });
 
-  const logOneShotAiContext = async (operation: string, imagePaths: string[]) => {
-    appendAiLog(`[${operation}] 已载入任务图片 ${imagePaths.length} 张`);
+  const logOneShotAiContext = async (operation: string, attachments: TaskAttachment[]) => {
+    const imagePaths = buildImagePaths(attachments);
+    appendAiLog(`[${operation}] 已载入任务附件 ${attachments.length} 个（其中图片 ${imagePaths.length} 张）`);
+    if (attachments.length > imagePaths.length) {
+      appendAiLog(`[${operation}] 非图片附件会保留在任务协作区中，不会作为图片输入传给 AI`);
+    }
     if (environmentMode === "ssh") {
       appendAiLog(`[${operation}] 当前执行环境：SSH 远程运行`);
       if (selectedSshConfig) {
@@ -198,9 +209,10 @@ export function useTaskAiActions({
     setAiLoading("assignee");
     setAiResult(null);
     try {
-      appendAiLog("[AI建议指派] 正在准备任务图片与执行配置...");
-      const imagePaths = await loadCurrentImagePaths();
-      await logOneShotAiContext("AI建议指派", imagePaths);
+      appendAiLog("[AI建议指派] 正在准备任务附件与执行配置...");
+      const attachments = await loadCurrentAttachments();
+      const imagePaths = buildImagePaths(attachments);
+      await logOneShotAiContext("AI建议指派", attachments);
       const employeeList = employees
         .map((employee) => `${employee.id}: ${employee.name} (${employee.role}, ${employee.specialization ?? "general"})`)
         .join("; ");
@@ -228,9 +240,10 @@ export function useTaskAiActions({
     setAiLoading("complexity");
     setAiResult(null);
     try {
-      appendAiLog("[复杂度分析] 正在准备任务图片与执行配置...");
-      const imagePaths = await loadCurrentImagePaths();
-      await logOneShotAiContext("复杂度分析", imagePaths);
+      appendAiLog("[复杂度分析] 正在准备任务附件与执行配置...");
+      const attachments = await loadCurrentAttachments();
+      const imagePaths = buildImagePaths(attachments);
+      await logOneShotAiContext("复杂度分析", attachments);
       const desc = task.description ?? task.title;
       appendAiLog("[复杂度分析] 已提交给 AI，等待响应...");
       const result = await aiAnalyzeComplexity(desc, imagePaths, buildAiExecutionContext());
@@ -252,9 +265,10 @@ export function useTaskAiActions({
     resetAiLogs("AI生成评论");
     setAiLoading("comment");
     try {
-      appendAiLog("[AI生成评论] 正在准备任务图片与执行配置...");
-      const imagePaths = await loadCurrentImagePaths();
-      await logOneShotAiContext("AI生成评论", imagePaths);
+      appendAiLog("[AI生成评论] 正在准备任务附件与执行配置...");
+      const attachments = await loadCurrentAttachments();
+      const imagePaths = buildImagePaths(attachments);
+      await logOneShotAiContext("AI生成评论", attachments);
       appendAiLog("[AI生成评论] 已提交给 AI，等待响应...");
       const result = await aiGenerateComment(
         task.title,
@@ -286,9 +300,10 @@ export function useTaskAiActions({
     setAiLoading("subtasks");
     setAiResult(null);
     try {
-      appendAiLog("[AI拆分子任务] 正在准备任务图片与执行配置...");
-      const imagePaths = await loadCurrentImagePaths();
-      await logOneShotAiContext("AI拆分子任务", imagePaths);
+      appendAiLog("[AI拆分子任务] 正在准备任务附件与执行配置...");
+      const attachments = await loadCurrentAttachments();
+      const imagePaths = buildImagePaths(attachments);
+      await logOneShotAiContext("AI拆分子任务", attachments);
       appendAiLog("[AI拆分子任务] 已提交给 AI，等待响应...");
       const generatedSubtasks = await aiSplitSubtasks(
         taskTitle,
@@ -331,9 +346,10 @@ export function useTaskAiActions({
     setPlanNotice(null);
 
     try {
-      appendAiLog("[AI生成计划] 正在准备任务图片、子任务与执行配置...");
-      const [, imagePaths] = await Promise.all([fetchSubtasks(task.id), loadCurrentImagePaths()]);
-      await logOneShotAiContext("AI生成计划", imagePaths);
+      appendAiLog("[AI生成计划] 正在准备任务附件、子任务与执行配置...");
+      const [_, attachments] = await Promise.all([fetchSubtasks(task.id), loadCurrentAttachments()]);
+      const imagePaths = buildImagePaths(attachments);
+      await logOneShotAiContext("AI生成计划", attachments);
       const latestSubtasks = (useTaskStore.getState().subtasks[task.id] ?? []).map((subtask) => subtask.title);
       appendAiLog(`[AI生成计划] 已载入子任务 ${latestSubtasks.length} 个`);
       appendAiLog("[AI生成计划] 已提交给 AI，等待响应...");

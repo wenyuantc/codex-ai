@@ -19,7 +19,8 @@ use crate::app::{
     insert_codex_session_record, inspect_remote_codex_runtime, normalize_runtime_path_string,
     now_sqlite, parse_review_verdict_json, path_to_runtime_string, remote_sdk_bridge_path,
     remote_shell_path_expression, replace_codex_session_file_changes, sqlite_pool,
-    sync_task_attachments_to_remote, update_codex_session_record, validate_project_repo_path,
+    sync_task_image_attachments_to_remote, update_codex_session_record,
+    validate_project_repo_path,
     validate_runtime_working_dir, ARTIFACT_CAPTURE_MODE_LOCAL_FULL, ARTIFACT_CAPTURE_MODE_SSH_FULL,
     ARTIFACT_CAPTURE_MODE_SSH_GIT_STATUS, ARTIFACT_CAPTURE_MODE_SSH_NONE, EXECUTION_TARGET_LOCAL,
     EXECUTION_TARGET_SSH,
@@ -576,7 +577,8 @@ async fn prepare_execution_image_paths<R: Runtime>(
 ) -> Result<(Vec<String>, Vec<String>, usize), String> {
     if execution_target == EXECUTION_TARGET_SSH {
         if let (Some(task_id), Some(ssh_config_id)) = (task_id, ssh_config_id) {
-            let sync_result = sync_task_attachments_to_remote(app, ssh_config_id, task_id).await?;
+            let sync_result =
+                sync_task_image_attachments_to_remote(app, ssh_config_id, task_id).await?;
             return Ok((sync_result.remote_paths, sync_result.skipped_local_paths, 0));
         }
 

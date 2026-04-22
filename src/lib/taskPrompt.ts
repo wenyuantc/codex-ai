@@ -1,4 +1,5 @@
 import type { Subtask, TaskAttachment } from "@/lib/types";
+import { isImageAttachment } from "@/lib/taskAttachments";
 
 const SUBTASK_STATUS_LABELS: Record<string, string> = {
   todo: "待办",
@@ -49,7 +50,9 @@ export function buildTaskExecutionInput({
     const attachmentLines = validAttachments.map((attachment, index) => (
       `${index + 1}. ${attachment.original_name}`
     ));
-    sections.push(`任务图片:\n${attachmentLines.join("\n")}\n\n说明：以上图片文件已随本次任务一并附带。`);
+    sections.push(
+      `任务附件:\n${attachmentLines.join("\n")}\n\n说明：以上附件已绑定到当前任务；其中图片会随本次任务一并附带给 Codex。`,
+    );
   }
 
   if (trimmedFollowUpPrompt) {
@@ -58,7 +61,9 @@ export function buildTaskExecutionInput({
 
   return {
     prompt: sections.join("\n\n"),
-    imagePaths: validAttachments.map((attachment) => attachment.stored_path),
+    imagePaths: validAttachments
+      .filter((attachment) => isImageAttachment(attachment.stored_path, attachment.mime_type))
+      .map((attachment) => attachment.stored_path),
   };
 }
 

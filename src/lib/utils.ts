@@ -130,7 +130,7 @@ export function getActivityActionLabel(action: string): string {
     remote_git_runtime_install_failed: "远程 Git 运行时安装失败",
     remote_codex_validated: "远程校验Codex",
     remote_codex_verified: "远程校验Codex",
-    remote_task_attachments_synced: "同步远程图片附件",
+    remote_task_attachments_synced: "同步远程任务附件",
     remote_task_session_started: "启动远程任务会话",
     remote_session_artifact_captured: "远程会话变更明细已保存",
     remote_session_artifact_limited: "远程会话变更明细受限",

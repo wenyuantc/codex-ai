@@ -52,6 +52,19 @@ export function guessImageMimeType(path: string): string {
   }
 }
 
+export function isImageMimeType(mimeType?: string | null): boolean {
+  return typeof mimeType === "string" && mimeType.toLowerCase().startsWith("image/");
+}
+
+export function isImageAttachment(path: string, mimeType?: string | null): boolean {
+  if (isImageMimeType(mimeType)) {
+    return true;
+  }
+
+  const extension = path.split(".").pop()?.toLowerCase();
+  return Boolean(extension && IMAGE_FILE_EXTENSIONS.includes(extension));
+}
+
 export function formatAttachmentFileSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;

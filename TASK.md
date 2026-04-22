@@ -20,7 +20,6 @@
 - [ ] 项目详情 Git工作流增加 Git Worktree管理 显示所有Worktree可以删除，提交，点击可以查看修改文件列表展示 可以暂存和工作区文件 一样，可以将工作区文件拆分成组件复用
 -  [ ] Session管理 继续对话需要可以停止对话，继续对话后可以查看继续对话内容,继续内容要记录
 -  [ ] 员工 测试员感觉没有用到，这个测试员有什么不，或者你觉得测试员应该干什么好？
--  [ ] 员工 运行中的员工 停止按钮和重启按钮 宽度要调整一下，调宽20px
 -  [ ] 设置页面 需要分成不同的tab这样后面增加新的设置不会乱
 -  [ ] 设置页面增加 每个AI功能的提示词配置，如果用户配置不对，可以重置，点击重置就是原来的默认的提示词
 -  [ ] 仪表盘 最近活动 有些key没有转换 task_review_completed task_review_started task_review_requested employee_project_membership_conflict_migrated

@@ -28,7 +28,7 @@ export function ProjectCard({
   onDelete,
 }: ProjectCardProps) {
   return (
-    <div className="flex min-h-44 w-fit max-w-full min-w-[min(100%,22rem)] flex-col rounded-lg border border-border bg-card p-4 transition-shadow hover:shadow-sm">
+    <div className="flex h-full min-h-44 w-full min-w-0 flex-col rounded-lg border border-border bg-card p-4 transition-shadow hover:shadow-sm">
       <div className="flex flex-1 items-start justify-between gap-3">
         <div className="flex min-w-0 flex-1 items-start gap-3">
           <div className="h-9 w-9 rounded-md bg-primary/10 flex items-center justify-center shrink-0">
@@ -76,6 +76,7 @@ export function ProjectCard({
               repoPath={getProjectWorkingDir(project)}
               projectType={project.project_type}
               compact
+              showCopyAction
               className="mt-2"
             />
           </div>

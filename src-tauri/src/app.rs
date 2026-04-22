@@ -1823,17 +1823,57 @@ fn task_attachment_dir<R: Runtime>(app: &AppHandle<R>, task_id: &str) -> Result<
     Ok(task_attachments_root_dir(app)?.join(task_id))
 }
 
-fn task_attachment_mime_type(path: &Path) -> Option<&'static str> {
-    let extension = path.extension()?.to_string_lossy().to_ascii_lowercase();
-    match extension.as_str() {
-        "png" => Some("image/png"),
-        "jpg" | "jpeg" => Some("image/jpeg"),
-        "gif" => Some("image/gif"),
-        "webp" => Some("image/webp"),
-        "bmp" => Some("image/bmp"),
-        "svg" => Some("image/svg+xml"),
-        _ => None,
+fn task_attachment_mime_type(path: &Path) -> String {
+    let extension = path
+        .extension()
+        .map(|value| value.to_string_lossy().to_ascii_lowercase());
+    match extension.as_deref() {
+        Some("png") => "image/png",
+        Some("jpg") | Some("jpeg") => "image/jpeg",
+        Some("gif") => "image/gif",
+        Some("webp") => "image/webp",
+        Some("bmp") => "image/bmp",
+        Some("svg") => "image/svg+xml",
+        Some("pdf") => "application/pdf",
+        Some("txt") => "text/plain",
+        Some("md") => "text/markdown",
+        Some("json") => "application/json",
+        Some("csv") => "text/csv",
+        Some("tsv") => "text/tab-separated-values",
+        Some("yml") | Some("yaml") => "application/yaml",
+        Some("xml") => "application/xml",
+        Some("zip") => "application/zip",
+        Some("7z") => "application/x-7z-compressed",
+        Some("gz") => "application/gzip",
+        Some("tar") => "application/x-tar",
+        Some("doc") => "application/msword",
+        Some("docx") => "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        Some("xls") => "application/vnd.ms-excel",
+        Some("xlsx") => "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        Some("ppt") => "application/vnd.ms-powerpoint",
+        Some("pptx") => {
+            "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+        }
+        _ => "application/octet-stream",
     }
+    .to_string()
+}
+
+fn mime_type_is_image(mime_type: &str) -> bool {
+    mime_type.trim().to_ascii_lowercase().starts_with("image/")
+}
+
+fn task_attachment_is_image(attachment: &TaskAttachment) -> bool {
+    mime_type_is_image(&attachment.mime_type)
+        || mime_type_is_image(&task_attachment_mime_type(Path::new(&attachment.stored_path)))
+}
+
+fn filter_image_attachments(attachments: &[TaskAttachment]) -> Vec<TaskAttachment> {
+    attachments
+        .iter()
+        .filter(|attachment| task_attachment_is_image(attachment))
+        .cloned()
+        .collect()
 }
 
 fn validate_task_attachment_source_path(path: &str) -> Result<PathBuf, String> {
@@ -1848,13 +1888,6 @@ fn validate_task_attachment_source_path(path: &str) -> Result<PathBuf, String> {
 
     if !canonical.is_file() {
         return Err(format!("附件路径 {} 不是文件", canonical.display()));
-    }
-
-    if task_attachment_mime_type(&canonical).is_none() {
-        return Err(format!(
-            "附件 {} 不是支持的图片格式，仅支持 png/jpg/jpeg/gif/webp/bmp/svg",
-            canonical.display()
-        ));
     }
 
     Ok(canonical)
@@ -1922,9 +1955,7 @@ fn build_task_attachment_from_source<R: Runtime>(
         .map(|value| value.to_string_lossy().to_string())
         .filter(|value| !value.trim().is_empty())
         .ok_or_else(|| format!("无法解析附件文件名: {}", source.display()))?;
-    let mime_type = task_attachment_mime_type(&source)
-        .ok_or_else(|| format!("无法识别图片类型: {}", source.display()))?
-        .to_string();
+    let mime_type = task_attachment_mime_type(&source);
     let extension = source
         .extension()
         .map(|value| value.to_string_lossy().to_ascii_lowercase());
@@ -2181,14 +2212,15 @@ async fn sync_task_attachment_records_to_remote<R: Runtime>(
     })
 }
 
-pub(crate) async fn sync_task_attachments_to_remote<R: Runtime>(
+pub(crate) async fn sync_task_image_attachments_to_remote<R: Runtime>(
     app: &AppHandle<R>,
     ssh_config_id: &str,
     task_id: &str,
 ) -> Result<RemoteTaskAttachmentSyncResult, String> {
     let pool = sqlite_pool(app).await?;
     let attachments = fetch_task_attachments(&pool, task_id).await?;
-    sync_task_attachment_records_to_remote(app, ssh_config_id, &attachments, true).await
+    let image_attachments = filter_image_attachments(&attachments);
+    sync_task_attachment_records_to_remote(app, ssh_config_id, &image_attachments, true).await
 }
 
 async fn cleanup_remote_task_attachment_paths<R: Runtime>(
@@ -6485,13 +6517,19 @@ pub async fn create_task<R: Runtime>(
     let mut uploaded_remote_paths = Vec::new();
     let attachments = if let Some(source_paths) = payload.attachment_source_paths.as_ref() {
         let attachments = build_task_attachments_from_sources(&app, &task.id, source_paths, 1)?;
-        if project.project_type == PROJECT_TYPE_SSH && !attachments.is_empty() {
+        let image_attachments = filter_image_attachments(&attachments);
+        if project.project_type == PROJECT_TYPE_SSH && !image_attachments.is_empty() {
             let ssh_config_id = project
                 .ssh_config_id
                 .as_deref()
                 .ok_or_else(|| "当前 SSH 项目未绑定 SSH 配置，无法同步图片到远程".to_string())?;
-            match sync_task_attachment_records_to_remote(&app, ssh_config_id, &attachments, false)
-                .await
+            match sync_task_attachment_records_to_remote(
+                &app,
+                ssh_config_id,
+                &image_attachments,
+                false,
+            )
+            .await
             {
                 Ok(sync_result) => {
                     uploaded_remote_paths = sync_result.remote_paths;
@@ -6561,7 +6599,7 @@ pub async fn create_task<R: Runtime>(
             if attachments.is_empty() {
                 "".to_string()
             } else {
-                format!("（含 {} 张图片附件）", attachments.len())
+                format!("（含 {} 个附件）", attachments.len())
             }
         ),
         None,
@@ -6582,14 +6620,14 @@ pub async fn create_task<R: Runtime>(
         .await?;
     }
 
-    if project.project_type == PROJECT_TYPE_SSH && !attachments.is_empty() {
+    if project.project_type == PROJECT_TYPE_SSH && !uploaded_remote_paths.is_empty() {
         insert_activity_log(
             &pool,
             "remote_task_attachments_synced",
             &format!(
                 "{}（已同步 {} 张图片到远程）",
                 task.title,
-                attachments.len()
+                uploaded_remote_paths.len()
             ),
             None,
             Some(&task.id),
@@ -6652,13 +6690,20 @@ pub async fn add_task_attachments<R: Runtime>(
     let attachments =
         build_task_attachments_from_sources(&app, &task_id, &source_paths, start_sort_order)?;
     let mut uploaded_remote_paths = Vec::new();
+    let image_attachments = filter_image_attachments(&attachments);
 
-    if project.project_type == PROJECT_TYPE_SSH && !attachments.is_empty() {
+    if project.project_type == PROJECT_TYPE_SSH && !image_attachments.is_empty() {
         let ssh_config_id = project
             .ssh_config_id
             .as_deref()
             .ok_or_else(|| "当前 SSH 项目未绑定 SSH 配置，无法同步图片到远程".to_string())?;
-        match sync_task_attachment_records_to_remote(&app, ssh_config_id, &attachments, false).await
+        match sync_task_attachment_records_to_remote(
+            &app,
+            ssh_config_id,
+            &image_attachments,
+            false,
+        )
+        .await
         {
             Ok(sync_result) => {
                 uploaded_remote_paths = sync_result.remote_paths;
@@ -6716,14 +6761,14 @@ pub async fn add_task_attachments<R: Runtime>(
         return Err(format!("Failed to commit attachment create: {}", error));
     }
 
-    if project.project_type == PROJECT_TYPE_SSH && !attachments.is_empty() {
+    if project.project_type == PROJECT_TYPE_SSH && !uploaded_remote_paths.is_empty() {
         insert_activity_log(
             &pool,
             "remote_task_attachments_synced",
             &format!(
                 "{}（追加同步 {} 张图片到远程）",
                 task.title,
-                attachments.len()
+                uploaded_remote_paths.len()
             ),
             None,
             Some(&task.id),
@@ -7118,7 +7163,8 @@ mod tests {
         remote_shell_path_expression, remote_task_attachment_dir, remote_task_attachment_path,
         resolve_project_task_default_settings, resolve_session_resume_state,
         rewrite_file_change_diff_labels, sanitize_sql_backup_script, sdk_notification_unavailable,
-        validate_project_repo_path, validate_runtime_working_dir, validate_task_archival_guard,
+        filter_image_attachments, task_attachment_is_image, validate_project_repo_path,
+        validate_runtime_working_dir, validate_task_archival_guard,
         validate_task_automation_mode_change, CodexSettings, Project, Task, TaskAttachment,
         PROJECT_TYPE_LOCAL, PROJECT_TYPE_SSH, TASK_AUTOMATION_MODE_REVIEW_FIX_LOOP_V1,
         TASK_AUTOMATION_PHASE_COMMITTING_CODE, TASK_AUTOMATION_PHASE_LAUNCHING_FIX,
@@ -7557,6 +7603,62 @@ mod tests {
             remote_task_attachment_path("/home/demo", &attachment).expect("remote attachment path"),
             "/home/demo/.codex-ai/img/task-1/att-1.png"
         );
+    }
+
+    #[test]
+    fn task_attachment_is_image_accepts_image_records_and_rejects_non_image_records() {
+        let image_attachment = TaskAttachment {
+            id: "att-img".to_string(),
+            task_id: "task-1".to_string(),
+            original_name: "ui.png".to_string(),
+            stored_path: "/tmp/task-attachments/task-1/att-img.png".to_string(),
+            mime_type: "image/png".to_string(),
+            file_size: 123,
+            sort_order: 1,
+            created_at: "2026-04-16 10:00:00".to_string(),
+        };
+        let file_attachment = TaskAttachment {
+            id: "att-pdf".to_string(),
+            task_id: "task-1".to_string(),
+            original_name: "spec.pdf".to_string(),
+            stored_path: "/tmp/task-attachments/task-1/att-pdf.pdf".to_string(),
+            mime_type: "application/pdf".to_string(),
+            file_size: 456,
+            sort_order: 2,
+            created_at: "2026-04-16 10:00:00".to_string(),
+        };
+
+        assert!(task_attachment_is_image(&image_attachment));
+        assert!(!task_attachment_is_image(&file_attachment));
+    }
+
+    #[test]
+    fn filter_image_attachments_keeps_only_image_records() {
+        let image_attachment = TaskAttachment {
+            id: "att-img".to_string(),
+            task_id: "task-1".to_string(),
+            original_name: "ui.png".to_string(),
+            stored_path: "/tmp/task-attachments/task-1/att-img.png".to_string(),
+            mime_type: "image/png".to_string(),
+            file_size: 123,
+            sort_order: 1,
+            created_at: "2026-04-16 10:00:00".to_string(),
+        };
+        let file_attachment = TaskAttachment {
+            id: "att-pdf".to_string(),
+            task_id: "task-1".to_string(),
+            original_name: "spec.pdf".to_string(),
+            stored_path: "/tmp/task-attachments/task-1/att-pdf.pdf".to_string(),
+            mime_type: "application/pdf".to_string(),
+            file_size: 456,
+            sort_order: 2,
+            created_at: "2026-04-16 10:00:00".to_string(),
+        };
+
+        let filtered = filter_image_attachments(&[image_attachment.clone(), file_attachment]);
+
+        assert_eq!(filtered.len(), 1);
+        assert_eq!(filtered[0].id, image_attachment.id);
     }
 
     #[test]

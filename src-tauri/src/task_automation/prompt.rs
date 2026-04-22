@@ -20,6 +20,10 @@ fn subtask_status_label(status: &str) -> &str {
         .unwrap_or(status)
 }
 
+fn attachment_is_image(attachment: &TaskAttachment) -> bool {
+    attachment.mime_type.trim().to_ascii_lowercase().starts_with("image/")
+}
+
 pub fn build_automation_fix_prompt(
     task: &Task,
     subtasks: &[Subtask],
@@ -65,7 +69,7 @@ pub fn build_automation_fix_prompt(
             .map(|(index, attachment)| format!("{}. {}", index + 1, attachment.original_name))
             .collect::<Vec<_>>();
         sections.push(format!(
-            "任务图片:\n{}\n\n说明：以上图片文件已随本次任务一并附带。",
+            "任务附件:\n{}\n\n说明：以上附件已绑定到当前任务；其中图片会随本次任务一并附带给 Codex。",
             lines.join("\n")
         ));
     }
@@ -86,6 +90,7 @@ pub fn build_automation_fix_prompt(
         prompt: sections.join("\n\n"),
         image_paths: valid_attachments
             .into_iter()
+            .filter(|attachment| attachment_is_image(attachment))
             .map(|attachment| attachment.stored_path.clone())
             .collect(),
     }
@@ -161,7 +166,7 @@ mod tests {
         assert!(result
             .prompt
             .contains("子任务:\n1. [进行中] 修复 review verdict"));
-        assert!(result.prompt.contains("任务图片:\n1. ui.png"));
+        assert!(result.prompt.contains("任务附件:\n1. ui.png"));
         assert!(result
             .prompt
             .contains("本次补充指令:\n请基于同一个原任务继续修复"));

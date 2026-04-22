@@ -1,13 +1,13 @@
 import { useEffect, useState } from "react";
 import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
-import { ImagePlus, Loader2, Sparkles } from "lucide-react";
+import { Loader2, Paperclip, Sparkles } from "lucide-react";
 
 import { useTaskStore } from "@/stores/taskStore";
 import { useProjectStore } from "@/stores/projectStore";
 import { useEmployeeStore } from "@/stores/employeeStore";
 import { useAiOptimizePrompt } from "@/hooks/useAiOptimizePrompt";
 import { getEmployeeRoleLabel } from "@/lib/utils";
-import { IMAGE_FILE_FILTERS, dedupePaths, isTauriRuntime, normalizeDialogSelection } from "@/lib/taskAttachments";
+import { dedupePaths, isTauriRuntime, normalizeDialogSelection } from "@/lib/taskAttachments";
 import { PRIORITIES } from "@/lib/types";
 import { getCodexSettings, getRemoteCodexSettings } from "@/lib/backend";
 import { getProjectWorkingDir } from "@/lib/projects";
@@ -140,8 +140,7 @@ export function CreateTaskDialog({
     const selected = await openFileDialog({
       directory: false,
       multiple: true,
-      filters: IMAGE_FILE_FILTERS,
-      title: "选择任务图片",
+      title: "选择任务附件",
     });
 
     const nextPaths = dedupePaths([
@@ -475,10 +474,10 @@ export function CreateTaskDialog({
             <div className="flex items-center justify-between gap-3">
               <div>
                 <label className="text-xs font-medium text-muted-foreground">
-                  图片附件
+                  附件
                 </label>
                 <p className="text-[11px] text-muted-foreground">
-                  创建任务时会复制到应用托管目录，后续运行 Codex 会自动附带。
+                  创建任务时会复制到应用托管目录；图片会在后续运行 Codex 时自动附带，其他文件会作为任务附件保留。
                 </p>
               </div>
               <button
@@ -486,16 +485,16 @@ export function CreateTaskDialog({
                 onClick={() => void handleSelectAttachments()}
                 disabled={!isTauriRuntime() || saving}
                 className="flex items-center gap-1 rounded-md border border-input px-2.5 py-1.5 text-xs hover:bg-accent disabled:opacity-50"
-                title={isTauriRuntime() ? "选择图片" : "仅桌面端支持上传图片"}
+                title={isTauriRuntime() ? "选择附件" : "仅桌面端支持上传附件"}
               >
-                <ImagePlus className="h-3.5 w-3.5" />
-                添加图片
+                <Paperclip className="h-3.5 w-3.5" />
+                添加附件
               </button>
             </div>
 
             {!isTauriRuntime() && (
               <div className="rounded-md border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
-                当前环境不支持任务图片上传，请在桌面端使用该功能。
+                当前环境不支持任务附件上传，请在桌面端使用该功能。
               </div>
             )}
 
@@ -504,10 +503,10 @@ export function CreateTaskDialog({
                 id: path,
                 name: path.split(/[\\/]/).pop() ?? path,
                 path,
-                removable: true,
-                onRemove: () => setAttachmentPaths((current) => current.filter((item) => item !== path)),
+                  removable: true,
+                  onRemove: () => setAttachmentPaths((current) => current.filter((item) => item !== path)),
               }))}
-              emptyText="还没有添加图片"
+              emptyText="还没有添加附件"
             />
           </div>
 
