@@ -12,7 +12,8 @@ use crate::app::{
     record_completion_metric, sqlite_pool, start_task_code_review_internal, TASK_STATUS_ARCHIVED,
 };
 use crate::codex::{
-    load_codex_settings, start_codex_with_manager, stop_codex_for_automation_restart, CodexManager,
+    extract_review_report, extract_review_verdict, load_codex_settings, start_codex_with_manager,
+    stop_codex_for_automation_restart, CodexManager,
 };
 use crate::db::models::{
     CodexSessionRecord, Project, ReviewVerdict, Subtask, Task, TaskAttachment,
@@ -1277,6 +1278,14 @@ async fn restart_fix_step(
     )
     .await?;
 
+    let last_verdict_json = if let Some(verdict_json) = state_record.last_verdict_json.clone() {
+        Some(verdict_json)
+    } else if let Some(session_id) = state_record.consumed_session_id.as_deref() {
+        recover_review_verdict_json_for_session(pool, session_id).await?
+    } else {
+        None
+    };
+
     reserve_pending_action(
         pool,
         &task.id,
@@ -1288,7 +1297,7 @@ async fn restart_fix_step(
             .or(Some(state_record.round_count)),
         state_record.round_count,
         None,
-        state_record.last_verdict_json.as_deref(),
+        last_verdict_json.as_deref(),
     )
     .await?;
 
@@ -1337,7 +1346,17 @@ async fn resolve_restart_target(
             .flatten();
 
             match session_kind.as_deref() {
-                Some("review") => Some(AutomationRestartTarget::Review),
+                Some("review") => {
+                    let can_restart_fix = state_record.last_verdict_json.is_some()
+                        || recover_review_verdict_json_for_session(pool, session_id)
+                            .await?
+                            .is_some();
+                    if can_restart_fix {
+                        Some(AutomationRestartTarget::Fix)
+                    } else {
+                        Some(AutomationRestartTarget::Review)
+                    }
+                }
                 Some("execution") => Some(AutomationRestartTarget::Fix),
                 _ => None,
             }
@@ -1778,7 +1797,7 @@ async fn review_report_for_session(
     pool: &SqlitePool,
     session_id: &str,
 ) -> Result<Option<String>, String> {
-    sqlx::query_scalar::<_, Option<String>>(
+    let stored_report = sqlx::query_scalar::<_, Option<String>>(
         r#"
         SELECT message
         FROM codex_session_events
@@ -1792,7 +1811,81 @@ async fn review_report_for_session(
     .fetch_optional(pool)
     .await
     .map_err(|error| format!("Failed to fetch review report for session: {}", error))
-    .map(|value| value.flatten())
+    .map(|value| value.flatten())?;
+
+    let recovered_report = recover_review_report_for_session(pool, session_id).await?;
+    Ok(recovered_report.or(stored_report))
+}
+
+async fn review_raw_output_for_session(
+    pool: &SqlitePool,
+    session_id: &str,
+) -> Result<Option<String>, String> {
+    let lines = sqlx::query_scalar::<_, Option<String>>(
+        r#"
+        SELECT message
+        FROM codex_session_events
+        WHERE session_id = $1
+          AND event_type IN ('stdout', 'stderr')
+        ORDER BY created_at ASC, id ASC
+        "#,
+    )
+    .bind(session_id)
+    .fetch_all(pool)
+    .await
+    .map_err(|error| format!("Failed to fetch review raw output for session: {}", error))?;
+
+    let lines = lines
+        .into_iter()
+        .flatten()
+        .filter(|line| !line.trim().is_empty())
+        .collect::<Vec<_>>();
+    if lines.is_empty() {
+        return Ok(None);
+    }
+
+    Ok(Some(lines.join("\n")))
+}
+
+async fn recover_review_verdict_json_for_session(
+    pool: &SqlitePool,
+    session_id: &str,
+) -> Result<Option<String>, String> {
+    let stored_verdict = sqlx::query_scalar::<_, Option<String>>(
+        r#"
+        SELECT message
+        FROM codex_session_events
+        WHERE session_id = $1
+          AND event_type = 'review_verdict'
+        ORDER BY created_at DESC, id DESC
+        LIMIT 1
+        "#,
+    )
+    .bind(session_id)
+    .fetch_optional(pool)
+    .await
+    .map_err(|error| format!("Failed to fetch review verdict for session: {}", error))?
+    .flatten();
+    if let Some(verdict_json) = stored_verdict {
+        if parse_review_verdict_json(&verdict_json).is_ok() {
+            return Ok(Some(verdict_json));
+        }
+    }
+
+    let raw_output = review_raw_output_for_session(pool, session_id).await?;
+    let recovered = raw_output
+        .as_deref()
+        .and_then(extract_review_verdict)
+        .filter(|value| parse_review_verdict_json(value).is_ok());
+    Ok(recovered)
+}
+
+async fn recover_review_report_for_session(
+    pool: &SqlitePool,
+    session_id: &str,
+) -> Result<Option<String>, String> {
+    let raw_output = review_raw_output_for_session(pool, session_id).await?;
+    Ok(raw_output.as_deref().and_then(extract_review_report))
 }
 
 async fn fetch_task_subtasks(pool: &SqlitePool, task_id: &str) -> Result<Vec<Subtask>, String> {
@@ -1943,6 +2036,28 @@ mod automation_guard_tests {
         .expect("insert session");
     }
 
+    async fn insert_session_event(
+        pool: &SqlitePool,
+        event_id: &str,
+        session_id: &str,
+        event_type: &str,
+        message: &str,
+    ) {
+        sqlx::query(
+            r#"
+            INSERT INTO codex_session_events (id, session_id, event_type, message, created_at)
+            VALUES ($1, $2, $3, $4, '2026-04-21 00:00:02')
+            "#,
+        )
+        .bind(event_id)
+        .bind(session_id)
+        .bind(event_type)
+        .bind(message)
+        .execute(pool)
+        .await
+        .expect("insert session event");
+    }
+
     #[test]
     fn archived_tasks_are_excluded_from_pending_automation_resume_queue() {
         let runtime = tokio::runtime::Builder::new_current_thread()
@@ -2043,7 +2158,7 @@ mod automation_guard_tests {
     }
 
     #[test]
-    fn blocked_review_state_resolves_review_restart_target() {
+    fn blocked_review_state_with_recoverable_verdict_resolves_fix_restart_target() {
         let runtime = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()
@@ -2055,6 +2170,14 @@ mod automation_guard_tests {
             insert_project(&pool).await;
             insert_task(&pool, &task).await;
             insert_session(&pool, "session-review", &task.id, "review").await;
+            insert_session_event(
+                &pool,
+                "event-review-1",
+                "session-review",
+                "stdout",
+                r#"<review_verdict>{"passed":false,"needs_human":false,"blocking_issue_count":1,"summary":"发现 1 个阻断问题。"}<\/review_verdict>"#,
+            )
+            .await;
 
             let state = TaskAutomationStateRecord {
                 task_id: task.id.clone(),
@@ -2072,6 +2195,42 @@ mod automation_guard_tests {
             let target = resolve_restart_target(&pool, &state)
                 .await
                 .expect("resolve blocked review target");
+            assert_eq!(target, Some(AutomationRestartTarget::Fix));
+
+            pool.close().await;
+        });
+    }
+
+    #[test]
+    fn blocked_review_state_without_recoverable_verdict_resolves_review_restart_target() {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("build tokio runtime");
+
+        runtime.block_on(async {
+            let pool = setup_test_pool().await;
+            let task = build_task("task-review-fallback", "blocked");
+            insert_project(&pool).await;
+            insert_task(&pool, &task).await;
+            insert_session(&pool, "session-review-fallback", &task.id, "review").await;
+
+            let state = TaskAutomationStateRecord {
+                task_id: task.id.clone(),
+                phase: PHASE_BLOCKED.to_string(),
+                round_count: 0,
+                consumed_session_id: Some("session-review-fallback".to_string()),
+                last_trigger_session_id: None,
+                pending_action: None,
+                pending_round_count: None,
+                last_error: Some("审核结果结构化输出无效".to_string()),
+                last_verdict_json: None,
+                updated_at: "2026-04-21 00:00:02".to_string(),
+            };
+
+            let target = resolve_restart_target(&pool, &state)
+                .await
+                .expect("resolve blocked review fallback target");
             assert_eq!(target, Some(AutomationRestartTarget::Review));
 
             pool.close().await;

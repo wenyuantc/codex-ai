@@ -418,14 +418,14 @@ fn extract_tagged_block(raw: &str, start_tag: &str, end_tag: &str) -> Option<Str
     None
 }
 
-fn extract_review_report(raw: &str) -> Option<String> {
+pub(crate) fn extract_review_report(raw: &str) -> Option<String> {
     extract_tagged_block(raw, REVIEW_REPORT_START_TAG, REVIEW_REPORT_END_TAG).or_else(|| {
         let trimmed = raw.trim();
         (!trimmed.is_empty()).then(|| trimmed.to_string())
     })
 }
 
-fn extract_review_verdict(raw: &str) -> Option<String> {
+pub(crate) fn extract_review_verdict(raw: &str) -> Option<String> {
     extract_tagged_block(raw, REVIEW_VERDICT_START_TAG, REVIEW_VERDICT_END_TAG)
 }
 
