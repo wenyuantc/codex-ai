@@ -198,6 +198,9 @@ export function TaskCard({
   const shouldShowPrimaryMenuAction = isRunning || isReviewTask || !hideRunAction;
   const isWorktreeModeEnabled = task.use_worktree;
   const isWorktreeReady = Boolean(gitContext?.worktree_path) && !gitContext?.worktree_missing;
+  const complexityScore = typeof task.complexity === "number" && task.complexity > 0
+    ? Math.min(10, task.complexity)
+    : null;
   const canDeleteWorktree = Boolean(
     isWorktreeModeEnabled
     && isWorktreeReady
@@ -500,9 +503,9 @@ export function TaskCard({
               >
                 {getPriorityLabel(task.priority)}
               </span>
-              {task.complexity && (
+              {complexityScore !== null && (
                 <span className="text-xs text-muted-foreground">
-                  复杂度: {task.complexity}/10
+                  复杂度: {complexityScore}/10
                 </span>
               )}
               <span
