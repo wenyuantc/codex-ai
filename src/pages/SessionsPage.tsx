@@ -139,6 +139,7 @@ export function SessionsPage() {
   const [changeTarget, setChangeTarget] = useState<CodexSessionListItem | null>(null);
   const [activeSession, setActiveSession] = useState<SessionLogTarget | null>(null);
   const [sessionIdQuery, setSessionIdQuery] = useState("");
+  const [taskIdQuery, setTaskIdQuery] = useState("");
   const [contentQuery, setContentQuery] = useState("");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [infoMessage, setInfoMessage] = useState<string | null>(null);
@@ -149,6 +150,7 @@ export function SessionsPage() {
 
   const filteredSessions = useMemo(() => {
     const normalizedSessionIdQuery = normalizeSearchText(sessionIdQuery);
+    const normalizedTaskIdQuery = normalizeSearchText(taskIdQuery);
     const normalizedContentQuery = normalizeSearchText(contentQuery);
 
     return sessions.filter((session) => {
@@ -177,6 +179,13 @@ export function SessionsPage() {
         return false;
       }
 
+      const matchesTaskId = !normalizedTaskIdQuery
+        || normalizeSearchText(session.task_id).includes(normalizedTaskIdQuery);
+
+      if (!matchesTaskId) {
+        return false;
+      }
+
       if (!normalizedContentQuery) {
         return true;
       }
@@ -195,7 +204,7 @@ export function SessionsPage() {
 
       return contentHaystack.includes(normalizedContentQuery);
     });
-  }, [contentQuery, currentProjectId, environmentMode, selectedSshConfigId, sessionIdQuery, sessions]);
+  }, [contentQuery, currentProjectId, environmentMode, selectedSshConfigId, sessionIdQuery, sessions, taskIdQuery]);
 
   const totalPages = filteredSessions.length > 0 ? Math.ceil(filteredSessions.length / PAGE_SIZE) : 0;
   const pageSessions = useMemo(
@@ -207,7 +216,7 @@ export function SessionsPage() {
 
   useEffect(() => {
     setPage(1);
-  }, [contentQuery, currentProjectId, sessionIdQuery]);
+  }, [contentQuery, currentProjectId, sessionIdQuery, taskIdQuery]);
 
   useEffect(() => {
     setContinueDialogOpen(false);
@@ -228,6 +237,7 @@ export function SessionsPage() {
     }
 
     setSessionIdQuery(highlightedSessionId);
+    setTaskIdQuery("");
     setContentQuery("");
   }, [highlightedSessionId, highlightedSessionNonce]);
 
@@ -426,7 +436,7 @@ export function SessionsPage() {
 
         <Card>
           <CardContent className="space-y-4">
-            <div className="grid gap-3 md:grid-cols-2">
+            <div className="grid gap-3 md:grid-cols-3">
               <div className="space-y-2">
                 <label className="text-sm font-medium text-foreground" htmlFor="session-id-search">
                   对话 ID 搜索
@@ -436,6 +446,17 @@ export function SessionsPage() {
                   value={sessionIdQuery}
                   onChange={(event) => setSessionIdQuery(event.target.value)}
                   placeholder="输入对话 ID、记录 ID 或 CLI 对话 ID"
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-foreground" htmlFor="task-id-search">
+                  任务 ID 搜索
+                </label>
+                <Input
+                  id="task-id-search"
+                  value={taskIdQuery}
+                  onChange={(event) => setTaskIdQuery(event.target.value)}
+                  placeholder="输入关联任务 ID"
                 />
               </div>
               <div className="space-y-2">
@@ -515,6 +536,10 @@ export function SessionsPage() {
                           <td className="px-4 py-3">
                             <div className="space-y-1 text-xs">
                               <div>{session.task_title ?? "无关联任务"}</div>
+                              <div className="text-muted-foreground">
+                                任务ID：
+                                <span className="ml-1 font-mono">{session.task_id ?? "-"}</span>
+                              </div>
                               <div className="text-muted-foreground">{session.project_name ?? "无关联项目"}</div>
                               {session.target_host_label && (
                                 <div className="text-muted-foreground">主机：{session.target_host_label}</div>
