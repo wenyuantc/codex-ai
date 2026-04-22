@@ -585,6 +585,9 @@ fn builds_task_create_optimized_prompt_with_project_context() {
         None,
         None,
         None,
+        None,
+        None,
+        None,
     )
     .expect("should build task_create prompt");
 
@@ -611,6 +614,9 @@ fn builds_task_continue_optimized_prompt_with_follow_up_context() {
         Some("继续完成 AI 优化提示词能力，并补上错误提示"),
         Some("看板新建任务支持 AI 优化提示词"),
         None,
+        None,
+        None,
+        None,
     )
     .expect("should build task_continue prompt");
 
@@ -635,6 +641,9 @@ fn builds_session_continue_optimized_prompt_with_empty_placeholders() {
         None,
         Some("继续对话优化"),
         Some("最近一次处理了任务继续对话的续聊逻辑"),
+        None,
+        None,
+        None,
     )
     .expect("should build session_continue prompt");
 
@@ -646,6 +655,57 @@ fn builds_session_continue_optimized_prompt_with_empty_placeholders() {
     assert!(prompt.contains("任务标题：继续对话优化"));
     assert!(prompt.contains("Session 摘要：最近一次处理了任务继续对话的续聊逻辑"));
     assert!(prompt.contains("如果当前输入为空或信息不足"));
+}
+
+#[test]
+fn builds_employee_system_prompt_with_role_specialization_and_draft() {
+    let prompt = build_ai_optimize_prompt_prompt(
+        "employee_system_prompt",
+        "看板系统",
+        Some("桌面端任务协作应用"),
+        Some("/tmp/kanban"),
+        None,
+        None,
+        None,
+        None,
+        None,
+        Some("reviewer"),
+        Some("代码审查、质量把关"),
+        Some("你需要对前端改动保持严格审查"),
+    )
+    .expect("should build employee_system_prompt prompt");
+
+    assert!(prompt.contains("场景：员工系统提示词生成"));
+    assert!(prompt.contains("可直接作为 AI 员工 system prompt 使用的中文正文"));
+    assert!(prompt.contains("员工角色：reviewer"));
+    assert!(prompt.contains("员工专长：代码审查、质量把关"));
+    assert!(prompt.contains("用户已写系统提示词草稿：你需要对前端改动保持严格审查"));
+    assert!(prompt.contains("项目名称：看板系统"));
+}
+
+#[test]
+fn builds_employee_system_prompt_with_empty_placeholders() {
+    let prompt = build_ai_optimize_prompt_prompt(
+        "employee_system_prompt",
+        "通用 AI 员工",
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+    )
+    .expect("should build employee_system_prompt prompt with fallbacks");
+
+    assert!(prompt.contains("项目描述：未填写"));
+    assert!(prompt.contains("仓库路径：未填写"));
+    assert!(prompt.contains("员工角色：未填写"));
+    assert!(prompt.contains("员工专长：未填写"));
+    assert!(prompt.contains("用户已写系统提示词草稿：未填写"));
 }
 
 #[test]

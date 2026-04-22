@@ -116,6 +116,7 @@ fn resolve_ai_optimize_prompt_scene_label(scene: &str) -> Result<&'static str, S
         "task_create" => Ok("新建任务"),
         "task_continue" => Ok("任务继续对话"),
         "session_continue" => Ok("Session 继续对话"),
+        "employee_system_prompt" => Ok("员工系统提示词生成"),
         other => Err(format!("不支持的提示词优化场景: {}", other)),
     }
 }
@@ -499,6 +500,9 @@ pub async fn ai_optimize_prompt(
     session_summary: Option<String>,
     task_id: Option<String>,
     working_dir: Option<String>,
+    employee_role: Option<String>,
+    employee_specialization: Option<String>,
+    employee_draft_system_prompt: Option<String>,
 ) -> Result<String, String> {
     let prompt = build_ai_optimize_prompt_prompt(
         &scene,
@@ -510,6 +514,9 @@ pub async fn ai_optimize_prompt(
         current_prompt.as_deref(),
         task_title.as_deref(),
         session_summary.as_deref(),
+        employee_role.as_deref(),
+        employee_specialization.as_deref(),
+        employee_draft_system_prompt.as_deref(),
     )?;
 
     let result = run_ai_command(
@@ -610,6 +617,11 @@ mod tests {
         assert_eq!(
             resolve_ai_optimize_prompt_scene_label("session_continue").expect("session_continue"),
             "Session 继续对话"
+        );
+        assert_eq!(
+            resolve_ai_optimize_prompt_scene_label("employee_system_prompt")
+                .expect("employee_system_prompt"),
+            "员工系统提示词生成"
         );
     }
 

@@ -55,7 +55,8 @@ interface AiExecutionContext {
 export type AiOptimizePromptScene =
   | "task_create"
   | "task_continue"
-  | "session_continue";
+  | "session_continue"
+  | "employee_system_prompt";
 
 export interface AiOptimizePromptInput {
   scene: AiOptimizePromptScene;
@@ -70,6 +71,9 @@ export interface AiOptimizePromptInput {
   sessionSummary?: string | null;
   taskId?: string | null;
   workingDir?: string | null;
+  employeeRole?: string | null;
+  employeeSpecialization?: string | null;
+  employeeDraftSystemPrompt?: string | null;
 }
 
 export async function startCodex(employeeId: string, taskDescription: string, options: StartCodexOptions = {}): Promise<void> {
@@ -246,5 +250,8 @@ export async function aiOptimizePrompt(input: AiOptimizePromptInput): Promise<st
     sessionSummary: input.sessionSummary ?? null,
     taskId: input.taskId ?? null,
     workingDir: input.workingDir ?? null,
+    employeeRole: input.employeeRole ?? null,
+    employeeSpecialization: input.employeeSpecialization ?? null,
+    employeeDraftSystemPrompt: input.employeeDraftSystemPrompt ?? null,
   });
 }

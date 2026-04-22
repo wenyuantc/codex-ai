@@ -21,6 +21,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { EmployeeSystemPromptField } from "./EmployeeSystemPromptField";
 
 const EMPLOYEE_ROLE_OPTIONS = [
   { value: "developer", label: "开发者" },
@@ -207,15 +208,15 @@ export function CreateEmployeeDialog({
             />
           </div>
 
-          <div>
-            <label className="text-xs font-medium text-muted-foreground">系统提示词</label>
-            <textarea
-              value={systemPrompt}
-              onChange={(e) => setSystemPrompt(e.target.value)}
-              placeholder="AI 员工的系统提示词（可选）"
-              className="w-full mt-1 text-sm border border-input rounded-md p-2 bg-background min-h-[60px] resize-y"
-            />
-          </div>
+          <EmployeeSystemPromptField
+            open={open}
+            role={role}
+            specialization={specialization}
+            systemPrompt={systemPrompt}
+            projectId={projectId || undefined}
+            disabled={saving}
+            onSystemPromptChange={setSystemPrompt}
+          />
 
           <div>
             <label className="text-xs font-medium text-muted-foreground">关联项目</label>

@@ -120,6 +120,11 @@ fn resolve_ai_optimize_prompt_scene(
             "请输出一段适合作为续聊输入的中文正文，用于在既有 Session 上继续推进工作。",
             "可以结合 Session 摘要和关联任务，聚焦下一步动作、约束与期望结果，让续聊内容更便于延续上下文。",
         )),
+        "employee_system_prompt" => Ok((
+            "员工系统提示词生成",
+            "请输出一段可直接作为 AI 员工 system prompt 使用的中文正文。",
+            "必须结合员工角色职责、专长方向和用户已填写的系统提示词草稿进行融合；如果项目上下文存在，要体现项目领域；如果信息不足，也要给出通用但可执行的员工系统提示词。",
+        )),
         other => Err(format!("不支持的提示词优化场景: {}", other)),
     }
 }
@@ -134,6 +139,9 @@ pub(super) fn build_ai_optimize_prompt_prompt(
     current_prompt: Option<&str>,
     task_title: Option<&str>,
     session_summary: Option<&str>,
+    employee_role: Option<&str>,
+    employee_specialization: Option<&str>,
+    employee_draft_system_prompt: Option<&str>,
 ) -> Result<String, String> {
     let (scene_label, output_goal, scene_requirement) = resolve_ai_optimize_prompt_scene(scene)?;
 
@@ -160,7 +168,12 @@ pub(super) fn build_ai_optimize_prompt_prompt(
 - 描述：{}\n\
 - 当前续聊输入：{}\n\
 - 任务标题：{}\n\
-- Session 摘要：{}",
+- Session 摘要：{}\n\
+\n\
+员工上下文：\n\
+- 员工角色：{}\n\
+- 员工专长：{}\n\
+- 用户已写系统提示词草稿：{}",
         scene_label,
         output_goal,
         scene_requirement,
@@ -172,6 +185,9 @@ pub(super) fn build_ai_optimize_prompt_prompt(
         normalize_ai_optimize_prompt_field(current_prompt),
         normalize_ai_optimize_prompt_field(task_title),
         normalize_ai_optimize_prompt_field(session_summary),
+        normalize_ai_optimize_prompt_field(employee_role),
+        normalize_ai_optimize_prompt_field(employee_specialization),
+        normalize_ai_optimize_prompt_field(employee_draft_system_prompt),
     ))
 }
 
