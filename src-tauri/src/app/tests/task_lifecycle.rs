@@ -58,6 +58,7 @@ fn task_archival_guard_only_treats_active_automation_phases_as_blocking() {
         "blocked",
         "manual_control",
         "review_launch_failed",
+        "fix_launch_failed",
     ] {
         assert!(
             !is_task_automation_active_for_archival(phase),

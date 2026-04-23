@@ -227,6 +227,7 @@ async fn finalize_terminal_failure(
             Some(task.project_id.as_str()),
         )
         .await?;
+        emit_task_automation_state_changed(app, task, PHASE_MANUAL_CONTROL);
         return Ok(());
     }
 
@@ -251,6 +252,7 @@ async fn finalize_terminal_failure(
         Some(task.project_id.as_str()),
     )
     .await?;
+    emit_task_automation_state_changed(app, task, PHASE_BLOCKED);
 
     Ok(())
 }
@@ -287,7 +289,7 @@ async fn fetch_pending_automation_task_ids(pool: &SqlitePool) -> Result<Vec<Stri
         INNER JOIN tasks t ON t.id = tas.task_id
         WHERE t.automation_mode = $1
           AND t.status != $2
-          AND tas.phase IN ($3, $4, $5, $6, $7)
+          AND tas.phase IN ($3, $4, $5, $6, $7, $8)
         "#,
     )
     .bind(AUTOMATION_MODE_REVIEW_FIX_LOOP_V1)
@@ -297,6 +299,7 @@ async fn fetch_pending_automation_task_ids(pool: &SqlitePool) -> Result<Vec<Stri
     .bind(PHASE_LAUNCHING_FIX)
     .bind(PHASE_FIX_LAUNCH_FAILED)
     .bind(PHASE_COMMITTING_CODE)
+    .bind(PHASE_COMMIT_FAILED)
     .fetch_all(pool)
     .await
     .map_err(|error| format!("Failed to list pending automation tasks: {}", error))
@@ -318,7 +321,7 @@ pub async fn resume_pending_automation(app: &AppHandle) -> Result<(), String> {
             PHASE_LAUNCHING_FIX | PHASE_FIX_LAUNCH_FAILED => {
                 retry_pending_fix(app, &pool, &task_id, &state_record).await?;
             }
-            PHASE_COMMITTING_CODE => {
+            PHASE_COMMITTING_CODE | PHASE_COMMIT_FAILED => {
                 let task = fetch_task_by_id(&pool, &task_id).await?;
                 retry_pending_commit(app, &pool, &task, None).await?;
             }
@@ -1829,7 +1832,7 @@ async fn review_report_for_session(
     .map(|value| value.flatten())?;
 
     let recovered_report = recover_review_report_for_session(pool, session_id).await?;
-    Ok(recovered_report.or(stored_report))
+    Ok(stored_report.or(recovered_report))
 }
 
 async fn review_raw_output_for_session(
