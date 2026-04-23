@@ -28,6 +28,7 @@ import type {
 import { GitChangesPanel } from "@/components/git/GitChangesPanel";
 import { WorktreeCommitDialog } from "@/components/git/WorktreeCommitDialog";
 import { WorktreeMergeDialog } from "@/components/git/WorktreeMergeDialog";
+import { getGitActionButtonClassName } from "@/components/git/gitHelpers";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -499,6 +500,7 @@ export function ProjectWorktreeSection({
                           size="sm"
                           onClick={() => void loadWorktrees()}
                           disabled={loading}
+                          className={getGitActionButtonClassName("neutral")}
                         >
                           刷新
                         </Button>
@@ -509,6 +511,7 @@ export function ProjectWorktreeSection({
                           onClick={() => setSelectedMergePath(worktree.path)}
                           disabled={mergeDisabled}
                           title={mergeDisabled ? "当前 worktree 不支持直接合并" : undefined}
+                          className={getGitActionButtonClassName("merge")}
                         >
                           合并
                         </Button>
@@ -518,6 +521,7 @@ export function ProjectWorktreeSection({
                           size="sm"
                           onClick={() => setSelectedCommitPath(worktree.path)}
                           disabled={!hasStagedChanges || worktree.is_bare || worktree.is_prunable}
+                          className={getGitActionButtonClassName("positive")}
                         >
                           提交
                         </Button>
@@ -528,6 +532,7 @@ export function ProjectWorktreeSection({
                           onClick={() => handleRemoveClick(worktree)}
                           disabled={removeDisabled}
                           title={removeDisabled ? "主仓库 worktree 不可删除" : undefined}
+                          className={getGitActionButtonClassName("danger")}
                         >
                           <Trash2 className="mr-2 h-3.5 w-3.5" />
                           删除
@@ -537,6 +542,7 @@ export function ProjectWorktreeSection({
                           variant="outline"
                           size="sm"
                           onClick={() => setExpandedPath(isExpanded ? null : worktree.path)}
+                          className={getGitActionButtonClassName("neutral")}
                         >
                           {isExpanded ? "收起" : `展开${hasChanges ? `（${worktree.working_tree_changes.length}）` : ""}`}
                         </Button>

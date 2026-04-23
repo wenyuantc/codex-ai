@@ -54,6 +54,7 @@ import { ProjectGitCommitDetailDialog } from "@/components/projects/ProjectGitCo
 import { ProjectGitRepoActionDialog } from "@/components/projects/ProjectGitRepoActionDialog";
 import { ProjectGitBranchActionDialog } from "@/components/projects/ProjectGitBranchActionDialog";
 import { GitChangesPanel } from "@/components/git/GitChangesPanel";
+import { getGitActionButtonClassName } from "@/components/git/gitHelpers";
 import { ProjectWorktreeSection } from "@/components/git/ProjectWorktreeSection";
 import { RepoPathDisplay } from "@/components/projects/RepoPathDisplay";
 import { ArrowDown, ArrowLeft, ArrowUp, Edit2, GitBranch, Loader2, RefreshCw, ShieldAlert, Trash2 } from "lucide-react";
@@ -816,6 +817,7 @@ export function ProjectDetailPage() {
                     size="sm"
                     disabled={!gitRuntimeReady || !hasStagedFiles}
                     onClick={() => setSelectedRepoAction("commit")}
+                    className={getGitActionButtonClassName("positive")}
                   >
                     提交
                   </Button>
@@ -825,6 +827,7 @@ export function ProjectDetailPage() {
                     size="sm"
                     disabled={!gitRuntimeReady || !gitOverview.current_branch || aheadCommits === 0}
                     onClick={() => setSelectedRepoAction("push")}
+                    className={getGitActionButtonClassName("info")}
                   >
                     <span className="inline-flex items-center gap-1">
                       推送
@@ -840,6 +843,7 @@ export function ProjectDetailPage() {
                     size="sm"
                     disabled={!gitRuntimeReady || !gitOverview.current_branch || behindCommits === 0}
                     onClick={() => setSelectedRepoAction("pull")}
+                    className={getGitActionButtonClassName("warning")}
                   >
                     <span className="inline-flex items-center gap-1">
                       拉取
@@ -856,6 +860,7 @@ export function ProjectDetailPage() {
                     size="sm"
                     disabled={!gitRuntimeReady || gitOverview.project_branches.length < 2}
                     onClick={() => setSelectedBranchAction("switch")}
+                    className={getGitActionButtonClassName("neutral")}
                   >
                     切换分支
                   </Button>
@@ -865,6 +870,7 @@ export function ProjectDetailPage() {
                     size="sm"
                     disabled={!gitRuntimeReady}
                     onClick={() => setSelectedBranchAction("create")}
+                    className={getGitActionButtonClassName("create")}
                   >
                     新建分支
                   </Button>
@@ -874,6 +880,7 @@ export function ProjectDetailPage() {
                     size="sm"
                     disabled={!gitRuntimeReady || gitOverview.project_branches.length < 2}
                     onClick={() => setSelectedBranchAction("delete")}
+                    className={getGitActionButtonClassName("danger")}
                   >
                     删除分支
                   </Button>
@@ -883,6 +890,7 @@ export function ProjectDetailPage() {
                     size="sm"
                     disabled={!gitRuntimeReady || gitOverview.project_branches.length < 2}
                     onClick={() => setSelectedBranchAction("merge")}
+                    className={getGitActionButtonClassName("merge")}
                   >
                     合并分支
                   </Button>

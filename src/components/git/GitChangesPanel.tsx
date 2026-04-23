@@ -4,6 +4,7 @@ import { countStageableGitFiles, countStagedGitFiles } from "@/lib/gitWorkingTre
 import type { ProjectGitWorkingTreeChange } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import {
+  getGitActionButtonClassName,
   getWorkingTreeChangeClassName,
   getWorkingTreeChangeLabel,
   getWorkingTreeStageStatusClassName,
@@ -107,6 +108,7 @@ export function GitChangesPanel({
             size="sm"
             disabled={!hasStageableFiles || bulkStageAction !== null}
             onClick={() => onBulkStage("stage_all")}
+            className={getGitActionButtonClassName("positive")}
           >
             {bulkStageAction === "stage_all" ? "暂存中..." : "全部暂存"}
           </Button>
@@ -116,6 +118,7 @@ export function GitChangesPanel({
             size="sm"
             disabled={!hasStagedFiles || bulkStageAction !== null}
             onClick={() => onBulkStage("unstage_all")}
+            className={getGitActionButtonClassName("warning")}
           >
             {bulkStageAction === "unstage_all" ? "取消中..." : "全部取消暂存"}
           </Button>
@@ -126,6 +129,7 @@ export function GitChangesPanel({
               size="sm"
               disabled={selectedFilesStageAction !== null || rollbackInProgress}
               onClick={() => onStageSelected("stage", selectedPaths)}
+              className={getGitActionButtonClassName("positive")}
             >
               {selectedFilesStageAction === "stage" ? "暂存中..." : `暂存选中 (${selectedPaths.length})`}
             </Button>
@@ -137,6 +141,7 @@ export function GitChangesPanel({
               size="sm"
               disabled={selectedFilesStageAction !== null || rollbackInProgress}
               onClick={() => onStageSelected("unstage", selectedPaths)}
+              className={getGitActionButtonClassName("warning")}
             >
               {selectedFilesStageAction === "unstage" ? "取消中..." : `取消暂存选中 (${selectedPaths.length})`}
             </Button>
@@ -148,7 +153,7 @@ export function GitChangesPanel({
               size="sm"
               disabled={rollbackInProgress}
               onClick={() => onRollback("selected", selectedPaths)}
-              className="border-orange-500/50 text-orange-700 hover:bg-orange-50 hover:text-orange-800"
+              className={getGitActionButtonClassName("rollback")}
             >
               回滚选中 ({selectedPaths.length})
             </Button>
@@ -160,7 +165,7 @@ export function GitChangesPanel({
               size="sm"
               disabled={rollbackInProgress}
               onClick={() => onRollback("all")}
-              className="border-red-500/50 text-red-700 hover:bg-red-50 hover:text-red-800"
+              className={getGitActionButtonClassName("danger")}
             >
               全局回滚
             </Button>
@@ -244,6 +249,7 @@ export function GitChangesPanel({
                           ? "已删除文件无法直接浏览"
                           : "当前文件暂不可浏览"
                     }
+                    className={getGitActionButtonClassName("neutral")}
                   >
                     浏览文件
                   </Button>
@@ -256,6 +262,11 @@ export function GitChangesPanel({
                       onToggleStage(change);
                     }}
                     disabled={stagingFilePath === change.path || bulkStageAction !== null}
+                    className={getGitActionButtonClassName(
+                      change.stage_status === "staged" || change.stage_status === "partially_staged"
+                        ? "warning"
+                        : "positive",
+                    )}
                   >
                     {stagingFilePath === change.path
                       ? (change.stage_status === "staged" || change.stage_status === "partially_staged"
