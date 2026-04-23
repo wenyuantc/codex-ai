@@ -1,4 +1,4 @@
-use std::collections::hash_map::DefaultHasher;
+use std::collections::{hash_map::DefaultHasher, HashMap};
 #[cfg(test)]
 use std::fs;
 use std::hash::{Hash, Hasher};
@@ -231,6 +231,26 @@ pub struct ProjectGitOverview {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProjectGitWorktree {
+    pub path: String,
+    pub branch: Option<String>,
+    pub head_sha: Option<String>,
+    pub short_head_sha: Option<String>,
+    pub is_main: bool,
+    pub is_bare: bool,
+    pub is_detached: bool,
+    pub is_locked: bool,
+    pub lock_reason: Option<String>,
+    pub is_prunable: bool,
+    pub prunable_reason: Option<String>,
+    pub task_git_context_id: Option<String>,
+    pub task_id: Option<String>,
+    pub task_title: Option<String>,
+    pub working_tree_summary: Option<String>,
+    pub working_tree_changes: Vec<ProjectGitWorkingTreeChange>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TaskGitCommitOverview {
     pub task_git_context_id: String,
     pub project_id: String,
@@ -247,6 +267,35 @@ pub(crate) enum TaskGitAutoCommitOutcome {
     Committed { detail: String },
     MergeReady { detail: String },
     NoChanges { detail: String },
+}
+
+#[derive(Debug, Clone, Default)]
+struct RawWorktreeEntry {
+    path: String,
+    branch_ref: Option<String>,
+    head_sha: Option<String>,
+    is_bare: bool,
+    is_detached: bool,
+    is_locked: bool,
+    lock_reason: Option<String>,
+    is_prunable: bool,
+    prunable_reason: Option<String>,
+}
+
+impl RawWorktreeEntry {
+    fn branch_name(&self) -> Option<String> {
+        self.branch_ref
+            .as_deref()
+            .and_then(normalize_git_branch_ref)
+    }
+}
+
+#[derive(Debug, Clone, FromRow)]
+struct TaskGitContextWorktreeRow {
+    id: String,
+    task_id: String,
+    worktree_path: String,
+    task_title: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -372,6 +421,115 @@ fn build_project_git_commit_preview_labels(commit_sha: &str) -> (String, String)
     ("父提交".to_string(), format!("当前提交 {commit_label}"))
 }
 
+fn normalize_git_branch_ref(value: &str) -> Option<String> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    if let Some(branch) = trimmed.strip_prefix("refs/heads/") {
+        return Some(branch.to_string());
+    }
+    Some(trimmed.to_string())
+}
+
+fn normalize_worktree_path_key(value: &str) -> String {
+    let trimmed = value.trim();
+    if trimmed == "/" {
+        return "/".to_string();
+    }
+    trimmed.trim_end_matches('/').to_string()
+}
+
+fn short_git_sha(value: Option<&str>) -> Option<String> {
+    value
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| value.chars().take(7).collect::<String>())
+}
+
+fn parse_worktree_list_porcelain(output: &str) -> Result<Vec<RawWorktreeEntry>, String> {
+    let mut entries = Vec::new();
+    let mut current: Option<RawWorktreeEntry> = None;
+
+    for line in output.lines() {
+        let trimmed = line.trim_end();
+        if trimmed.is_empty() {
+            if let Some(entry) = current.take() {
+                if !entry.path.is_empty() {
+                    entries.push(entry);
+                }
+            }
+            continue;
+        }
+
+        if let Some(path) = trimmed.strip_prefix("worktree ") {
+            if let Some(entry) = current.take() {
+                if !entry.path.is_empty() {
+                    entries.push(entry);
+                }
+            }
+            current = Some(RawWorktreeEntry {
+                path: path.trim().to_string(),
+                ..RawWorktreeEntry::default()
+            });
+            continue;
+        }
+
+        let entry = current
+            .as_mut()
+            .ok_or_else(|| format!("无法解析 git worktree list 输出：{}", trimmed))?;
+        if let Some(head_sha) = trimmed.strip_prefix("HEAD ") {
+            entry.head_sha = trim_optional(Some(head_sha.to_string()));
+        } else if let Some(branch_ref) = trimmed.strip_prefix("branch ") {
+            entry.branch_ref = trim_optional(Some(branch_ref.to_string()));
+        } else if trimmed == "bare" {
+            entry.is_bare = true;
+        } else if trimmed == "detached" {
+            entry.is_detached = true;
+        } else if let Some(reason) = trimmed.strip_prefix("locked") {
+            entry.is_locked = true;
+            entry.lock_reason = trim_optional(Some(reason.to_string()));
+        } else if let Some(reason) = trimmed.strip_prefix("prunable") {
+            entry.is_prunable = true;
+            entry.prunable_reason = trim_optional(Some(reason.to_string()));
+        }
+    }
+
+    if let Some(entry) = current {
+        if !entry.path.is_empty() {
+            entries.push(entry);
+        }
+    }
+
+    Ok(entries)
+}
+
+fn ensure_worktree_allows_file_operations(entry: &RawWorktreeEntry) -> Result<(), String> {
+    if entry.is_bare {
+        return Err("裸仓库 worktree 不支持文件级操作".to_string());
+    }
+    if entry.is_prunable {
+        return Err("当前 worktree 已处于可清理状态，请先移除或修复后再操作".to_string());
+    }
+    Ok(())
+}
+
+fn resolve_branch_execution_worktree(
+    entries: &[RawWorktreeEntry],
+    fallback_repo_path: &str,
+    branch_name: &str,
+) -> String {
+    entries
+        .iter()
+        .find(|entry| {
+            !entry.is_bare
+                && !entry.is_prunable
+                && entry.branch_name().as_deref() == Some(branch_name)
+        })
+        .map(|entry| entry.path.clone())
+        .unwrap_or_else(|| fallback_repo_path.to_string())
+}
+
 fn sqlite_now_with_offset(minutes: i64) -> String {
     (Utc::now() + Duration::minutes(minutes))
         .format(SQLITE_DATETIME_FORMAT)
@@ -412,6 +570,16 @@ struct GitProjectRuntimeContext {
     repo_path: String,
     execution_target: String,
     ssh_config_id: Option<String>,
+}
+
+impl GitProjectRuntimeContext {
+    fn with_repo_path(&self, repo_path: impl Into<String>) -> Self {
+        Self {
+            repo_path: repo_path.into(),
+            execution_target: self.execution_target.clone(),
+            ssh_config_id: self.ssh_config_id.clone(),
+        }
+    }
 }
 
 fn run_git_text(repo_path: &str, args: &[&str]) -> Result<String, String> {
@@ -969,25 +1137,9 @@ async fn collect_task_git_commit_overview<R: Runtime>(
     runtime: &GitProjectRuntimeContext,
     context: &TaskGitContextRecord,
 ) -> Result<TaskGitCommitOverview, String> {
-    let overview = git_runtime::collect_git_overview(
-        app,
-        &runtime.execution_target,
-        runtime.ssh_config_id.as_deref(),
-        &context.worktree_path,
-        1,
-    )
-    .await?;
-    let working_tree_changes = build_working_tree_changes(
-        &context.worktree_path,
-        &runtime.execution_target,
-        git_runtime::collect_status_changes(
-            app,
-            &runtime.execution_target,
-            runtime.ssh_config_id.as_deref(),
-            &context.worktree_path,
-        )
-        .await?,
-    );
+    let overview = collect_git_overview_for_dir(app, runtime, &context.worktree_path, 1).await?;
+    let working_tree_changes =
+        collect_working_tree_changes(app, runtime, &context.worktree_path).await?;
 
     Ok(TaskGitCommitOverview {
         task_git_context_id: context.id.clone(),
@@ -1233,6 +1385,128 @@ fn build_working_tree_changes(
             stage_status: change.stage_status,
         })
         .collect()
+}
+
+async fn collect_working_tree_changes<R: Runtime>(
+    app: &AppHandle<R>,
+    runtime: &GitProjectRuntimeContext,
+    working_dir: &str,
+) -> Result<Vec<ProjectGitWorkingTreeChange>, String> {
+    let worktree_runtime = runtime.with_repo_path(working_dir);
+    let changes = git_runtime::collect_status_changes(
+        app,
+        &worktree_runtime.execution_target,
+        worktree_runtime.ssh_config_id.as_deref(),
+        &worktree_runtime.repo_path,
+    )
+    .await?;
+    Ok(build_working_tree_changes(
+        &worktree_runtime.repo_path,
+        &worktree_runtime.execution_target,
+        changes,
+    ))
+}
+
+async fn collect_git_overview_for_dir<R: Runtime>(
+    app: &AppHandle<R>,
+    runtime: &GitProjectRuntimeContext,
+    working_dir: &str,
+    recent_commit_limit: usize,
+) -> Result<git_runtime::GitRuntimeOverview, String> {
+    let worktree_runtime = runtime.with_repo_path(working_dir);
+    git_runtime::collect_git_overview(
+        app,
+        &worktree_runtime.execution_target,
+        worktree_runtime.ssh_config_id.as_deref(),
+        &worktree_runtime.repo_path,
+        recent_commit_limit,
+    )
+    .await
+}
+
+async fn list_worktrees_raw<R: Runtime>(
+    app: &AppHandle<R>,
+    runtime: &GitProjectRuntimeContext,
+) -> Result<Vec<RawWorktreeEntry>, String> {
+    let output = git_runtime::list_worktrees_porcelain(
+        app,
+        &runtime.execution_target,
+        runtime.ssh_config_id.as_deref(),
+        &runtime.repo_path,
+    )
+    .await?;
+    parse_worktree_list_porcelain(&output)
+}
+
+async fn lookup_task_contexts_for_worktrees(
+    pool: &SqlitePool,
+    project_id: &str,
+) -> Result<HashMap<String, TaskGitContextWorktreeRow>, String> {
+    let rows = sqlx::query_as::<_, TaskGitContextWorktreeRow>(
+        r#"
+        SELECT
+            c.id,
+            c.task_id,
+            c.worktree_path,
+            t.title AS task_title
+        FROM task_git_contexts c
+        LEFT JOIN tasks t ON t.id = c.task_id
+        WHERE c.project_id = $1
+        ORDER BY c.updated_at DESC, c.created_at DESC
+        "#,
+    )
+    .bind(project_id)
+    .fetch_all(pool)
+    .await
+    .map_err(|error| format!("查询项目 worktree 关联任务失败: {}", error))?;
+
+    let mut contexts = HashMap::with_capacity(rows.len());
+    for row in rows {
+        contexts
+            .entry(normalize_worktree_path_key(&row.worktree_path))
+            .or_insert(row);
+    }
+    Ok(contexts)
+}
+
+async fn enrich_worktree_with_status<R: Runtime>(
+    app: &AppHandle<R>,
+    runtime: &GitProjectRuntimeContext,
+    entry: &RawWorktreeEntry,
+    task_context: Option<&TaskGitContextWorktreeRow>,
+) -> ProjectGitWorktree {
+    let is_main =
+        normalize_worktree_path_key(&entry.path) == normalize_worktree_path_key(&runtime.repo_path);
+    let mut working_tree_summary = None;
+    let mut working_tree_changes = Vec::new();
+
+    if !entry.is_bare && !entry.is_prunable {
+        if let Ok(overview) = collect_git_overview_for_dir(app, runtime, &entry.path, 1).await {
+            working_tree_summary = overview.working_tree_summary;
+        }
+        if let Ok(changes) = collect_working_tree_changes(app, runtime, &entry.path).await {
+            working_tree_changes = changes;
+        }
+    }
+
+    ProjectGitWorktree {
+        path: entry.path.clone(),
+        branch: entry.branch_name(),
+        head_sha: entry.head_sha.clone(),
+        short_head_sha: short_git_sha(entry.head_sha.as_deref()),
+        is_main,
+        is_bare: entry.is_bare,
+        is_detached: entry.is_detached,
+        is_locked: entry.is_locked,
+        lock_reason: entry.lock_reason.clone(),
+        is_prunable: entry.is_prunable,
+        prunable_reason: entry.prunable_reason.clone(),
+        task_git_context_id: task_context.map(|value| value.id.clone()),
+        task_id: task_context.map(|value| value.task_id.clone()),
+        task_title: task_context.and_then(|value| value.task_title.clone()),
+        working_tree_summary,
+        working_tree_changes,
+    }
 }
 
 fn has_stageable_worktree_changes(changes: &[ProjectGitWorkingTreeChange]) -> bool {
@@ -1912,17 +2186,10 @@ pub async fn get_project_git_overview<R: Runtime>(
     .await
     {
         Ok(overview) => {
-            let working_tree_changes = git_runtime::collect_status_changes(
-                &app,
-                &runtime.execution_target,
-                runtime.ssh_config_id.as_deref(),
-                &runtime.repo_path,
-            )
-            .await
-            .map(|changes| {
-                build_working_tree_changes(&runtime.repo_path, &runtime.execution_target, changes)
-            })
-            .unwrap_or_default();
+            let working_tree_changes =
+                collect_working_tree_changes(&app, &runtime, &runtime.repo_path)
+                    .await
+                    .unwrap_or_default();
 
             Ok(ProjectGitOverview {
                 project_id: project.id,
@@ -2399,43 +2666,17 @@ pub async fn get_project_git_file_preview<R: Runtime>(
     let pool = sqlite_pool(&app).await?;
     let project = fetch_project_by_id(&pool, &project_id).await?;
     let runtime = resolve_project_runtime_context(&project)?;
-    let trimmed = relative_path.trim();
-    if trimmed.is_empty() {
-        return Err("文件路径不能为空".to_string());
-    }
-
-    let normalized_previous_path = normalize_project_git_relative_path(previous_path);
-    let normalized_change_type = normalize_project_git_change_type(change_type);
-
-    let before_path = if normalized_change_type == "renamed" {
-        normalized_previous_path.as_deref().unwrap_or(trimmed)
-    } else {
-        trimmed
-    };
-    let before_snapshot = if normalized_change_type == "added" {
-        missing_project_git_text_snapshot()
-    } else {
-        git_runtime::capture_head_text_snapshot(
-            &app,
-            &runtime.execution_target,
-            runtime.ssh_config_id.as_deref(),
-            &runtime.repo_path,
-            before_path,
-        )
-        .await?
-    };
-    let after_snapshot = if normalized_change_type == "deleted" {
-        missing_project_git_text_snapshot()
-    } else {
-        git_runtime::capture_worktree_text_snapshot(
-            &app,
-            &runtime.execution_target,
-            runtime.ssh_config_id.as_deref(),
-            &runtime.repo_path,
-            trimmed,
-        )
-        .await?
-    };
+    let trimmed = relative_path.trim().to_string();
+    let preview = file_preview_in_dir(
+        &app,
+        &project.id,
+        &runtime,
+        &runtime.repo_path,
+        &trimmed,
+        previous_path,
+        change_type,
+    )
+    .await?;
 
     insert_activity_log(
         &pool,
@@ -2447,18 +2688,487 @@ pub async fn get_project_git_file_preview<R: Runtime>(
     )
     .await?;
 
-    Ok(build_project_git_file_preview(
-        project.id,
-        runtime.execution_target,
+    Ok(preview)
+}
+
+#[tauri::command]
+pub async fn list_project_git_worktrees<R: Runtime>(
+    app: AppHandle<R>,
+    project_id: String,
+) -> Result<Vec<ProjectGitWorktree>, String> {
+    let (pool, project, runtime) =
+        resolve_project_runtime_for_git_overview(&app, &project_id).await?;
+    let entries = list_worktrees_raw(&app, &runtime).await?;
+    let context_map = lookup_task_contexts_for_worktrees(&pool, &project_id).await?;
+    let mut worktrees = Vec::with_capacity(entries.len());
+    for entry in &entries {
+        let key = normalize_worktree_path_key(&entry.path);
+        worktrees
+            .push(enrich_worktree_with_status(&app, &runtime, entry, context_map.get(&key)).await);
+    }
+
+    insert_activity_log(
+        &pool,
+        "project_git_worktrees_viewed",
+        &format!("浏览 Git worktree 列表：{} 条", worktrees.len()),
+        None,
+        None,
+        Some(&project.id),
+    )
+    .await?;
+
+    Ok(worktrees)
+}
+
+#[tauri::command]
+pub async fn get_project_worktree_file_preview<R: Runtime>(
+    app: AppHandle<R>,
+    project_id: String,
+    worktree_path: String,
+    relative_path: String,
+    previous_path: Option<String>,
+    change_type: Option<String>,
+) -> Result<ProjectGitFilePreview, String> {
+    let (pool, project, runtime, entry) =
+        resolve_project_worktree_target(&app, &project_id, &worktree_path).await?;
+    ensure_worktree_allows_file_operations(&entry)?;
+
+    let preview = file_preview_in_dir(
+        &app,
+        &project.id,
+        &runtime,
+        &entry.path,
+        &relative_path,
+        previous_path,
+        change_type,
+    )
+    .await?;
+
+    insert_activity_log(
+        &pool,
+        "project_git_worktree_file_previewed",
+        &format!(
+            "预览 worktree 文件：{} · {}",
+            entry.path,
+            relative_path.trim()
+        ),
+        None,
+        None,
+        Some(&project.id),
+    )
+    .await?;
+
+    Ok(preview)
+}
+
+#[tauri::command]
+pub async fn stage_project_worktree_file<R: Runtime>(
+    app: AppHandle<R>,
+    project_id: String,
+    worktree_path: String,
+    relative_path: String,
+) -> Result<String, String> {
+    let trimmed = relative_path.trim().to_string();
+    if trimmed.is_empty() {
+        return Err("文件路径不能为空".to_string());
+    }
+
+    let (pool, project, runtime, entry) =
+        resolve_project_worktree_target(&app, &project_id, &worktree_path).await?;
+    ensure_worktree_allows_file_operations(&entry)?;
+    stage_file_in_dir(&app, &runtime, &entry.path, &trimmed).await?;
+
+    let details = format!("已暂存 worktree 文件：{} · {}", entry.path, trimmed);
+    insert_activity_log(
+        &pool,
+        "project_git_worktree_file_staged",
+        &details,
+        None,
+        None,
+        Some(&project.id),
+    )
+    .await?;
+    Ok(details)
+}
+
+#[tauri::command]
+pub async fn unstage_project_worktree_file<R: Runtime>(
+    app: AppHandle<R>,
+    project_id: String,
+    worktree_path: String,
+    relative_path: String,
+) -> Result<String, String> {
+    let trimmed = relative_path.trim().to_string();
+    if trimmed.is_empty() {
+        return Err("文件路径不能为空".to_string());
+    }
+
+    let (pool, project, runtime, entry) =
+        resolve_project_worktree_target(&app, &project_id, &worktree_path).await?;
+    ensure_worktree_allows_file_operations(&entry)?;
+    unstage_file_in_dir(&app, &runtime, &entry.path, &trimmed).await?;
+
+    let details = format!("已取消暂存 worktree 文件：{} · {}", entry.path, trimmed);
+    insert_activity_log(
+        &pool,
+        "project_git_worktree_file_unstaged",
+        &details,
+        None,
+        None,
+        Some(&project.id),
+    )
+    .await?;
+    Ok(details)
+}
+
+#[tauri::command]
+pub async fn stage_all_project_worktree_files<R: Runtime>(
+    app: AppHandle<R>,
+    project_id: String,
+    worktree_path: String,
+) -> Result<String, String> {
+    let (pool, project, runtime, entry) =
+        resolve_project_worktree_target(&app, &project_id, &worktree_path).await?;
+    ensure_worktree_allows_file_operations(&entry)?;
+    stage_all_in_dir(&app, &runtime, &entry.path).await?;
+
+    let details = format!("已暂存 worktree 全部变更：{}", entry.path);
+    insert_activity_log(
+        &pool,
+        "project_git_worktree_stage_all",
+        &details,
+        None,
+        None,
+        Some(&project.id),
+    )
+    .await?;
+    Ok(details)
+}
+
+#[tauri::command]
+pub async fn unstage_all_project_worktree_files<R: Runtime>(
+    app: AppHandle<R>,
+    project_id: String,
+    worktree_path: String,
+) -> Result<String, String> {
+    let (pool, project, runtime, entry) =
+        resolve_project_worktree_target(&app, &project_id, &worktree_path).await?;
+    ensure_worktree_allows_file_operations(&entry)?;
+    unstage_all_in_dir(&app, &runtime, &entry.path).await?;
+
+    let details = format!("已取消暂存 worktree 全部变更：{}", entry.path);
+    insert_activity_log(
+        &pool,
+        "project_git_worktree_unstage_all",
+        &details,
+        None,
+        None,
+        Some(&project.id),
+    )
+    .await?;
+    Ok(details)
+}
+
+#[tauri::command]
+pub async fn rollback_project_worktree_files<R: Runtime>(
+    app: AppHandle<R>,
+    project_id: String,
+    worktree_path: String,
+    relative_paths: Vec<String>,
+) -> Result<String, String> {
+    let paths: Vec<String> = relative_paths
+        .into_iter()
+        .map(|path| path.trim().to_string())
+        .filter(|path| !path.is_empty())
+        .collect();
+    if paths.is_empty() {
+        return Err("至少需要指定一个文件路径".to_string());
+    }
+
+    let (pool, project, runtime, entry) =
+        resolve_project_worktree_target(&app, &project_id, &worktree_path).await?;
+    ensure_worktree_allows_file_operations(&entry)?;
+    rollback_files_in_dir(&app, &runtime, &entry.path, &paths).await?;
+
+    let details = format!("已回滚 worktree {} 中的 {} 个文件", entry.path, paths.len());
+    insert_activity_log(
+        &pool,
+        "project_git_worktree_rollback_files",
+        &details,
+        None,
+        None,
+        Some(&project.id),
+    )
+    .await?;
+    Ok(details)
+}
+
+#[tauri::command]
+pub async fn rollback_all_project_worktree_changes<R: Runtime>(
+    app: AppHandle<R>,
+    project_id: String,
+    worktree_path: String,
+) -> Result<String, String> {
+    let (pool, project, runtime, entry) =
+        resolve_project_worktree_target(&app, &project_id, &worktree_path).await?;
+    ensure_worktree_allows_file_operations(&entry)?;
+    rollback_all_in_dir(&app, &runtime, &entry.path).await?;
+
+    let details = format!("已回滚 worktree 全部变更：{}", entry.path);
+    insert_activity_log(
+        &pool,
+        "project_git_worktree_rollback_all",
+        &details,
+        None,
+        None,
+        Some(&project.id),
+    )
+    .await?;
+    Ok(details)
+}
+
+#[tauri::command]
+pub async fn commit_project_worktree_changes<R: Runtime>(
+    app: AppHandle<R>,
+    project_id: String,
+    worktree_path: String,
+    message: String,
+) -> Result<String, String> {
+    let trimmed = message.trim().to_string();
+    if trimmed.is_empty() {
+        return Err("提交说明不能为空".to_string());
+    }
+
+    let (pool, project, runtime, entry) =
+        resolve_project_worktree_target(&app, &project_id, &worktree_path).await?;
+    ensure_worktree_allows_file_operations(&entry)?;
+    let result = commit_in_dir(&app, &runtime, &entry.path, &trimmed).await?;
+
+    insert_activity_log(
+        &pool,
+        "project_git_worktree_committed",
+        &format!("{} · {}", entry.path, result),
+        None,
+        None,
+        Some(&project.id),
+    )
+    .await?;
+
+    Ok(result)
+}
+
+#[tauri::command]
+pub async fn generate_project_worktree_commit_message<R: Runtime>(
+    app: AppHandle<R>,
+    project_id: String,
+    worktree_path: String,
+) -> Result<String, String> {
+    let (pool, project, runtime, entry) =
+        resolve_project_worktree_target(&app, &project_id, &worktree_path).await?;
+    ensure_worktree_allows_file_operations(&entry)?;
+    let message = generate_commit_message_for_dir(&app, &project.id, &runtime, &entry.path).await?;
+
+    insert_activity_log(
+        &pool,
+        "project_git_worktree_commit_message_generated",
+        &format!(
+            "Worktree：{}；结果：{}",
+            entry.path,
+            message.lines().next().unwrap_or("未命名提交")
+        ),
+        None,
+        None,
+        Some(&project.id),
+    )
+    .await?;
+
+    Ok(message)
+}
+
+#[tauri::command]
+pub async fn remove_project_git_worktree<R: Runtime>(
+    app: AppHandle<R>,
+    project_id: String,
+    worktree_path: String,
+    force: bool,
+) -> Result<String, String> {
+    let (pool, project, runtime, entry) =
+        resolve_project_worktree_target(&app, &project_id, &worktree_path).await?;
+
+    if normalize_worktree_path_key(&entry.path) == normalize_worktree_path_key(&runtime.repo_path) {
+        return Err("主仓库 worktree 不允许删除".to_string());
+    }
+    if entry.is_locked {
+        return Err(entry
+            .lock_reason
+            .as_ref()
+            .map(|reason| format!("当前 worktree 已锁定，请先解锁：{}", reason))
+            .unwrap_or_else(|| "当前 worktree 已锁定，请先解锁后再删除".to_string()));
+    }
+
+    git_runtime::remove_worktree(
+        &app,
+        &runtime.execution_target,
+        runtime.ssh_config_id.as_deref(),
         &runtime.repo_path,
-        trimmed,
-        normalized_previous_path,
-        normalized_change_type,
-        "HEAD 基线".to_string(),
-        "当前工作区".to_string(),
-        before_snapshot,
-        after_snapshot,
-    ))
+        &entry.path,
+        force,
+        true,
+    )
+    .await?;
+
+    let details = format!("已删除 Git worktree：{}", entry.path);
+    insert_activity_log(
+        &pool,
+        "project_git_worktree_removed",
+        &details,
+        None,
+        None,
+        Some(&project.id),
+    )
+    .await?;
+
+    Ok(details)
+}
+
+#[tauri::command]
+pub async fn merge_project_git_worktree<R: Runtime>(
+    app: AppHandle<R>,
+    project_id: String,
+    worktree_path: String,
+    target_branch: String,
+    auto_stash: Option<bool>,
+    delete_worktree: Option<bool>,
+    delete_branch: Option<bool>,
+) -> Result<String, String> {
+    let normalized_worktree_path = normalize_worktree_path_key(&worktree_path);
+    if normalized_worktree_path.is_empty() {
+        return Err("worktree 路径不能为空".to_string());
+    }
+
+    let target_branch =
+        trim_optional(Some(target_branch)).ok_or_else(|| "目标分支不能为空".to_string())?;
+    let auto_stash = auto_stash.unwrap_or(true);
+    let delete_worktree = delete_worktree.unwrap_or(false);
+    let delete_branch = delete_branch.unwrap_or(false);
+
+    if delete_branch && !delete_worktree {
+        return Err("删除分支前需要先删除 worktree，请先勾选“删除 worktree”".to_string());
+    }
+
+    let (pool, project, runtime) =
+        resolve_project_runtime_for_git_overview(&app, &project_id).await?;
+    let entries = list_worktrees_raw(&app, &runtime).await?;
+    let entry = entries
+        .iter()
+        .find(|value| normalize_worktree_path_key(&value.path) == normalized_worktree_path)
+        .cloned()
+        .ok_or_else(|| "指定 worktree 不属于当前项目".to_string())?;
+
+    if normalize_worktree_path_key(&entry.path) == normalize_worktree_path_key(&runtime.repo_path) {
+        return Err("主仓库 worktree 请使用上方分支管理里的合并功能".to_string());
+    }
+
+    ensure_worktree_allows_file_operations(&entry)?;
+    if entry.is_detached {
+        return Err("detached HEAD worktree 无法直接作为合并来源".to_string());
+    }
+    let source_branch = entry
+        .branch_name()
+        .ok_or_else(|| "当前 worktree 未绑定本地分支，无法合并".to_string())?;
+    if source_branch == target_branch {
+        return Err("源分支和目标分支不能相同".to_string());
+    }
+    if delete_worktree && entry.is_locked {
+        return Err(entry
+            .lock_reason
+            .as_ref()
+            .map(|reason| format!("当前 worktree 已锁定，请先解锁：{}", reason))
+            .unwrap_or_else(|| "当前 worktree 已锁定，请先解锁后再删除".to_string()));
+    }
+
+    let working_tree_changes = collect_working_tree_changes(&app, &runtime, &entry.path).await?;
+    let has_working_tree_changes = !working_tree_changes.is_empty();
+    if has_working_tree_changes && delete_worktree && !auto_stash {
+        return Err("当前 worktree 存在未提交改动；如需合并后删除，请勾选“自动暂存未提交的更改”".to_string());
+    }
+
+    let mut detail_parts = Vec::new();
+
+    if has_working_tree_changes && auto_stash {
+        let stash_payload = serde_json::json!({
+            "include_untracked": true,
+            "message": format!("codex-ai merge worktree {} into {}", source_branch, target_branch),
+        });
+        let stash_payload_json = stash_payload.to_string();
+        git_runtime::execute_action(
+            &app,
+            &runtime.execution_target,
+            runtime.ssh_config_id.as_deref(),
+            &runtime.repo_path,
+            &entry.path,
+            &source_branch,
+            "stash",
+            &stash_payload_json,
+        )
+        .await?;
+        detail_parts.push("已自动暂存当前 worktree 的未提交改动".to_string());
+    }
+
+    let merge_repo_path =
+        resolve_branch_execution_worktree(&entries, &runtime.repo_path, &target_branch);
+    let merge_result = git_runtime::merge_branches(
+        &app,
+        &runtime.execution_target,
+        runtime.ssh_config_id.as_deref(),
+        &merge_repo_path,
+        &source_branch,
+        &target_branch,
+        "ff",
+        None,
+    )
+    .await?;
+    detail_parts.push(merge_result);
+
+    if delete_worktree {
+        git_runtime::remove_worktree(
+            &app,
+            &runtime.execution_target,
+            runtime.ssh_config_id.as_deref(),
+            &runtime.repo_path,
+            &entry.path,
+            false,
+            true,
+        )
+        .await?;
+        detail_parts.push(format!("已删除 Git worktree：{}", entry.path));
+    }
+
+    if delete_branch {
+        let delete_result = git_runtime::delete_branch(
+            &app,
+            &runtime.execution_target,
+            runtime.ssh_config_id.as_deref(),
+            &runtime.repo_path,
+            &source_branch,
+            false,
+        )
+        .await?;
+        detail_parts.push(delete_result);
+    }
+
+    let details = detail_parts.join("；");
+    insert_activity_log(
+        &pool,
+        "project_git_worktree_merged",
+        &details,
+        None,
+        None,
+        Some(&project.id),
+    )
+    .await?;
+
+    Ok(details)
 }
 
 #[tauri::command]
@@ -2553,99 +3263,240 @@ async fn resolve_project_runtime_for_git_overview<R: Runtime>(
     Ok((pool, project, runtime))
 }
 
-async fn mutate_project_git_stage<R: Runtime>(
+async fn resolve_project_worktree_target<R: Runtime>(
     app: &AppHandle<R>,
     project_id: &str,
-    target_path: Option<&str>,
-    stage: bool,
-) -> Result<String, String> {
+    worktree_path: &str,
+) -> Result<
+    (
+        SqlitePool,
+        Project,
+        GitProjectRuntimeContext,
+        RawWorktreeEntry,
+    ),
+    String,
+> {
+    let normalized_worktree_path = normalize_worktree_path_key(worktree_path);
+    if normalized_worktree_path.is_empty() {
+        return Err("worktree 路径不能为空".to_string());
+    }
+
     let (pool, project, runtime) =
         resolve_project_runtime_for_git_overview(app, project_id).await?;
-    let message = match (stage, target_path) {
-        (true, Some(path)) => {
-            git_runtime::stage_path(
-                app,
-                &runtime.execution_target,
-                runtime.ssh_config_id.as_deref(),
-                &runtime.repo_path,
-                path,
-            )
-            .await?;
-            let details = format!("已暂存工作区文件：{}", path);
-            insert_activity_log(
-                &pool,
-                "project_git_file_staged",
-                &details,
-                None,
-                None,
-                Some(&project.id),
-            )
-            .await?;
-            details
-        }
-        (false, Some(path)) => {
-            git_runtime::unstage_path(
-                app,
-                &runtime.execution_target,
-                runtime.ssh_config_id.as_deref(),
-                &runtime.repo_path,
-                path,
-            )
-            .await?;
-            let details = format!("已取消暂存工作区文件：{}", path);
-            insert_activity_log(
-                &pool,
-                "project_git_file_unstaged",
-                &details,
-                None,
-                None,
-                Some(&project.id),
-            )
-            .await?;
-            details
-        }
-        (true, None) => {
-            git_runtime::stage_all(
-                app,
-                &runtime.execution_target,
-                runtime.ssh_config_id.as_deref(),
-                &runtime.repo_path,
-            )
-            .await?;
-            let details = "已暂存当前项目全部工作区变更".to_string();
-            insert_activity_log(
-                &pool,
-                "project_git_stage_all",
-                &details,
-                None,
-                None,
-                Some(&project.id),
-            )
-            .await?;
-            details
-        }
-        (false, None) => {
-            git_runtime::unstage_all(
-                app,
-                &runtime.execution_target,
-                runtime.ssh_config_id.as_deref(),
-                &runtime.repo_path,
-            )
-            .await?;
-            let details = "已取消暂存当前项目全部工作区变更".to_string();
-            insert_activity_log(
-                &pool,
-                "project_git_unstage_all",
-                &details,
-                None,
-                None,
-                Some(&project.id),
-            )
-            .await?;
-            details
-        }
+    let entries = list_worktrees_raw(app, &runtime).await?;
+    let entry = entries
+        .into_iter()
+        .find(|value| normalize_worktree_path_key(&value.path) == normalized_worktree_path)
+        .ok_or_else(|| "指定 worktree 不属于当前项目".to_string())?;
+    Ok((pool, project, runtime, entry))
+}
+
+async fn stage_file_in_dir<R: Runtime>(
+    app: &AppHandle<R>,
+    runtime: &GitProjectRuntimeContext,
+    working_dir: &str,
+    relative_path: &str,
+) -> Result<(), String> {
+    let worktree_runtime = runtime.with_repo_path(working_dir);
+    git_runtime::stage_path(
+        app,
+        &worktree_runtime.execution_target,
+        worktree_runtime.ssh_config_id.as_deref(),
+        &worktree_runtime.repo_path,
+        relative_path,
+    )
+    .await?;
+    Ok(())
+}
+
+async fn unstage_file_in_dir<R: Runtime>(
+    app: &AppHandle<R>,
+    runtime: &GitProjectRuntimeContext,
+    working_dir: &str,
+    relative_path: &str,
+) -> Result<(), String> {
+    let worktree_runtime = runtime.with_repo_path(working_dir);
+    git_runtime::unstage_path(
+        app,
+        &worktree_runtime.execution_target,
+        worktree_runtime.ssh_config_id.as_deref(),
+        &worktree_runtime.repo_path,
+        relative_path,
+    )
+    .await?;
+    Ok(())
+}
+
+async fn stage_all_in_dir<R: Runtime>(
+    app: &AppHandle<R>,
+    runtime: &GitProjectRuntimeContext,
+    working_dir: &str,
+) -> Result<(), String> {
+    let worktree_runtime = runtime.with_repo_path(working_dir);
+    git_runtime::stage_all(
+        app,
+        &worktree_runtime.execution_target,
+        worktree_runtime.ssh_config_id.as_deref(),
+        &worktree_runtime.repo_path,
+    )
+    .await?;
+    Ok(())
+}
+
+async fn unstage_all_in_dir<R: Runtime>(
+    app: &AppHandle<R>,
+    runtime: &GitProjectRuntimeContext,
+    working_dir: &str,
+) -> Result<(), String> {
+    let worktree_runtime = runtime.with_repo_path(working_dir);
+    git_runtime::unstage_all(
+        app,
+        &worktree_runtime.execution_target,
+        worktree_runtime.ssh_config_id.as_deref(),
+        &worktree_runtime.repo_path,
+    )
+    .await?;
+    Ok(())
+}
+
+async fn rollback_files_in_dir<R: Runtime>(
+    app: &AppHandle<R>,
+    runtime: &GitProjectRuntimeContext,
+    working_dir: &str,
+    relative_paths: &[String],
+) -> Result<(), String> {
+    let worktree_runtime = runtime.with_repo_path(working_dir);
+    for path in relative_paths {
+        git_runtime::restore_path(
+            app,
+            &worktree_runtime.execution_target,
+            worktree_runtime.ssh_config_id.as_deref(),
+            &worktree_runtime.repo_path,
+            path,
+        )
+        .await?;
+    }
+    Ok(())
+}
+
+async fn rollback_all_in_dir<R: Runtime>(
+    app: &AppHandle<R>,
+    runtime: &GitProjectRuntimeContext,
+    working_dir: &str,
+) -> Result<(), String> {
+    let worktree_runtime = runtime.with_repo_path(working_dir);
+    git_runtime::restore_all(
+        app,
+        &worktree_runtime.execution_target,
+        worktree_runtime.ssh_config_id.as_deref(),
+        &worktree_runtime.repo_path,
+    )
+    .await?;
+    Ok(())
+}
+
+async fn commit_in_dir<R: Runtime>(
+    app: &AppHandle<R>,
+    runtime: &GitProjectRuntimeContext,
+    working_dir: &str,
+    message: &str,
+) -> Result<String, String> {
+    let worktree_runtime = runtime.with_repo_path(working_dir);
+    git_runtime::commit_changes(
+        app,
+        &worktree_runtime.execution_target,
+        worktree_runtime.ssh_config_id.as_deref(),
+        &worktree_runtime.repo_path,
+        message,
+    )
+    .await
+}
+
+async fn generate_commit_message_for_dir<R: Runtime>(
+    app: &AppHandle<R>,
+    project_id: &str,
+    runtime: &GitProjectRuntimeContext,
+    working_dir: &str,
+) -> Result<String, String> {
+    let overview = collect_git_overview_for_dir(app, runtime, working_dir, 1).await?;
+    let staged_change_prompts = collect_staged_change_prompts(
+        &collect_working_tree_changes(app, runtime, working_dir).await?,
+    );
+    if staged_change_prompts.is_empty() {
+        return Err("当前没有可用于生成提交信息的已暂存文件".to_string());
+    }
+
+    Ok(generate_commit_message_for_project(
+        app,
+        project_id,
+        overview.current_branch.as_deref(),
+        overview.working_tree_summary.as_deref(),
+        &staged_change_prompts,
+    )
+    .await?
+    .message)
+}
+
+async fn file_preview_in_dir<R: Runtime>(
+    app: &AppHandle<R>,
+    project_id: &str,
+    runtime: &GitProjectRuntimeContext,
+    working_dir: &str,
+    relative_path: &str,
+    previous_path: Option<String>,
+    change_type: Option<String>,
+) -> Result<ProjectGitFilePreview, String> {
+    let trimmed = relative_path.trim();
+    if trimmed.is_empty() {
+        return Err("文件路径不能为空".to_string());
+    }
+
+    let worktree_runtime = runtime.with_repo_path(working_dir);
+    let normalized_previous_path = normalize_project_git_relative_path(previous_path);
+    let normalized_change_type = normalize_project_git_change_type(change_type);
+
+    let before_path = if normalized_change_type == "renamed" {
+        normalized_previous_path.as_deref().unwrap_or(trimmed)
+    } else {
+        trimmed
     };
-    Ok(message)
+    let before_snapshot = if normalized_change_type == "added" {
+        missing_project_git_text_snapshot()
+    } else {
+        git_runtime::capture_head_text_snapshot(
+            app,
+            &worktree_runtime.execution_target,
+            worktree_runtime.ssh_config_id.as_deref(),
+            &worktree_runtime.repo_path,
+            before_path,
+        )
+        .await?
+    };
+    let after_snapshot = if normalized_change_type == "deleted" {
+        missing_project_git_text_snapshot()
+    } else {
+        git_runtime::capture_worktree_text_snapshot(
+            app,
+            &worktree_runtime.execution_target,
+            worktree_runtime.ssh_config_id.as_deref(),
+            &worktree_runtime.repo_path,
+            trimmed,
+        )
+        .await?
+    };
+
+    Ok(build_project_git_file_preview(
+        project_id.to_string(),
+        worktree_runtime.execution_target,
+        &worktree_runtime.repo_path,
+        trimmed,
+        normalized_previous_path,
+        normalized_change_type,
+        "HEAD 基线".to_string(),
+        "当前工作区".to_string(),
+        before_snapshot,
+        after_snapshot,
+    ))
 }
 
 fn normalize_project_git_push_force_mode(value: Option<String>) -> Result<String, String> {
@@ -2695,7 +3546,21 @@ pub async fn stage_project_git_file<R: Runtime>(
     if trimmed.is_empty() {
         return Err("文件路径不能为空".to_string());
     }
-    mutate_project_git_stage(&app, &project_id, Some(&trimmed), true).await
+    let (pool, project, runtime) =
+        resolve_project_runtime_for_git_overview(&app, &project_id).await?;
+    stage_file_in_dir(&app, &runtime, &runtime.repo_path, &trimmed).await?;
+
+    let details = format!("已暂存工作区文件：{}", trimmed);
+    insert_activity_log(
+        &pool,
+        "project_git_file_staged",
+        &details,
+        None,
+        None,
+        Some(&project.id),
+    )
+    .await?;
+    Ok(details)
 }
 
 #[tauri::command]
@@ -2708,7 +3573,21 @@ pub async fn unstage_project_git_file<R: Runtime>(
     if trimmed.is_empty() {
         return Err("文件路径不能为空".to_string());
     }
-    mutate_project_git_stage(&app, &project_id, Some(&trimmed), false).await
+    let (pool, project, runtime) =
+        resolve_project_runtime_for_git_overview(&app, &project_id).await?;
+    unstage_file_in_dir(&app, &runtime, &runtime.repo_path, &trimmed).await?;
+
+    let details = format!("已取消暂存工作区文件：{}", trimmed);
+    insert_activity_log(
+        &pool,
+        "project_git_file_unstaged",
+        &details,
+        None,
+        None,
+        Some(&project.id),
+    )
+    .await?;
+    Ok(details)
 }
 
 #[tauri::command]
@@ -2716,7 +3595,21 @@ pub async fn stage_all_project_git_files<R: Runtime>(
     app: AppHandle<R>,
     project_id: String,
 ) -> Result<String, String> {
-    mutate_project_git_stage(&app, &project_id, None, true).await
+    let (pool, project, runtime) =
+        resolve_project_runtime_for_git_overview(&app, &project_id).await?;
+    stage_all_in_dir(&app, &runtime, &runtime.repo_path).await?;
+
+    let details = "已暂存当前项目全部工作区变更".to_string();
+    insert_activity_log(
+        &pool,
+        "project_git_stage_all",
+        &details,
+        None,
+        None,
+        Some(&project.id),
+    )
+    .await?;
+    Ok(details)
 }
 
 #[tauri::command]
@@ -2724,7 +3617,21 @@ pub async fn unstage_all_project_git_files<R: Runtime>(
     app: AppHandle<R>,
     project_id: String,
 ) -> Result<String, String> {
-    mutate_project_git_stage(&app, &project_id, None, false).await
+    let (pool, project, runtime) =
+        resolve_project_runtime_for_git_overview(&app, &project_id).await?;
+    unstage_all_in_dir(&app, &runtime, &runtime.repo_path).await?;
+
+    let details = "已取消暂存当前项目全部工作区变更".to_string();
+    insert_activity_log(
+        &pool,
+        "project_git_unstage_all",
+        &details,
+        None,
+        None,
+        Some(&project.id),
+    )
+    .await?;
+    Ok(details)
 }
 
 #[tauri::command]
@@ -2743,16 +3650,7 @@ pub async fn rollback_project_git_files<R: Runtime>(
     }
     let (pool, project, runtime) =
         resolve_project_runtime_for_git_overview(&app, &project_id).await?;
-    for path in &paths {
-        git_runtime::restore_path(
-            &app,
-            &runtime.execution_target,
-            runtime.ssh_config_id.as_deref(),
-            &runtime.repo_path,
-            path,
-        )
-        .await?;
-    }
+    rollback_files_in_dir(&app, &runtime, &runtime.repo_path, &paths).await?;
     let details = format!("已回滚 {} 个工作区文件", paths.len());
     insert_activity_log(
         &pool,
@@ -2773,13 +3671,7 @@ pub async fn rollback_all_project_git_changes<R: Runtime>(
 ) -> Result<String, String> {
     let (pool, project, runtime) =
         resolve_project_runtime_for_git_overview(&app, &project_id).await?;
-    git_runtime::restore_all(
-        &app,
-        &runtime.execution_target,
-        runtime.ssh_config_id.as_deref(),
-        &runtime.repo_path,
-    )
-    .await?;
+    rollback_all_in_dir(&app, &runtime, &runtime.repo_path).await?;
     let details = "已回滚当前项目全部工作区变更".to_string();
     insert_activity_log(
         &pool,
@@ -2806,14 +3698,7 @@ pub async fn commit_project_git_changes<R: Runtime>(
 
     let (pool, project, runtime) =
         resolve_project_runtime_for_git_overview(&app, &project_id).await?;
-    let result = git_runtime::commit_changes(
-        &app,
-        &runtime.execution_target,
-        runtime.ssh_config_id.as_deref(),
-        &runtime.repo_path,
-        &trimmed,
-    )
-    .await?;
+    let result = commit_in_dir(&app, &runtime, &runtime.repo_path, &trimmed).await?;
 
     insert_activity_log(
         &pool,
@@ -2913,8 +3798,8 @@ pub async fn checkout_project_git_branch<R: Runtime>(
     project_id: String,
     branch_name: String,
 ) -> Result<String, String> {
-    let branch_name = trim_optional(Some(branch_name))
-        .ok_or_else(|| "分支名不能为空".to_string())?;
+    let branch_name =
+        trim_optional(Some(branch_name)).ok_or_else(|| "分支名不能为空".to_string())?;
     let (pool, project, runtime) =
         resolve_project_runtime_for_git_overview(&app, &project_id).await?;
 
@@ -2948,8 +3833,8 @@ pub async fn create_project_git_branch<R: Runtime>(
     base_branch: Option<String>,
     checkout: Option<bool>,
 ) -> Result<String, String> {
-    let branch_name = trim_optional(Some(branch_name))
-        .ok_or_else(|| "新分支名不能为空".to_string())?;
+    let branch_name =
+        trim_optional(Some(branch_name)).ok_or_else(|| "新分支名不能为空".to_string())?;
     let base_branch = trim_optional(base_branch);
     let checkout = checkout.unwrap_or(false);
     let (pool, project, runtime) =
@@ -2986,8 +3871,8 @@ pub async fn delete_project_git_branch<R: Runtime>(
     branch_name: String,
     force: Option<bool>,
 ) -> Result<String, String> {
-    let branch_name = trim_optional(Some(branch_name))
-        .ok_or_else(|| "待删除分支名不能为空".to_string())?;
+    let branch_name =
+        trim_optional(Some(branch_name)).ok_or_else(|| "待删除分支名不能为空".to_string())?;
     let force = force.unwrap_or(false);
     let (pool, project, runtime) =
         resolve_project_runtime_for_git_overview(&app, &project_id).await?;
@@ -3024,10 +3909,10 @@ pub async fn merge_project_git_branches<R: Runtime>(
     fast_forward: Option<String>,
     strategy: Option<String>,
 ) -> Result<String, String> {
-    let source_branch = trim_optional(Some(source_branch))
-        .ok_or_else(|| "源分支不能为空".to_string())?;
-    let target_branch = trim_optional(Some(target_branch))
-        .ok_or_else(|| "目标分支不能为空".to_string())?;
+    let source_branch =
+        trim_optional(Some(source_branch)).ok_or_else(|| "源分支不能为空".to_string())?;
+    let target_branch =
+        trim_optional(Some(target_branch)).ok_or_else(|| "目标分支不能为空".to_string())?;
     if source_branch == target_branch {
         return Err("源分支和目标分支不能相同".to_string());
     }
@@ -3898,6 +4783,87 @@ mod tests {
             "unexpected child path: {}",
             child_path.to_string_lossy()
         );
+
+        let _ = fs::remove_dir_all(linked_worktree);
+        let _ = fs::remove_dir_all(PathBuf::from(&repo_path));
+    }
+
+    #[test]
+    fn parse_worktree_list_porcelain_handles_flags_and_reasons() {
+        let parsed = parse_worktree_list_porcelain(
+            r#"worktree /tmp/demo
+HEAD 0123456789abcdef
+branch refs/heads/main
+
+worktree /tmp/demo-feature
+HEAD fedcba9876543210
+branch refs/heads/feature/demo
+locked manual keep
+
+worktree /tmp/demo-stale
+HEAD 1111111111111111
+detached
+prunable gitdir file points to non-existent location
+"#,
+        )
+        .expect("parse worktree list");
+
+        assert_eq!(parsed.len(), 3);
+        assert_eq!(parsed[0].path, "/tmp/demo");
+        assert_eq!(parsed[0].branch_name().as_deref(), Some("main"));
+        assert!(!parsed[0].is_locked);
+        assert!(!parsed[0].is_prunable);
+
+        assert_eq!(parsed[1].branch_name().as_deref(), Some("feature/demo"));
+        assert!(parsed[1].is_locked);
+        assert_eq!(parsed[1].lock_reason.as_deref(), Some("manual keep"));
+
+        assert!(parsed[2].is_detached);
+        assert!(parsed[2].is_prunable);
+        assert_eq!(
+            parsed[2].prunable_reason.as_deref(),
+            Some("gitdir file points to non-existent location")
+        );
+    }
+
+    #[test]
+    fn parse_worktree_list_porcelain_reads_real_git_output() {
+        let repo_path = init_git_repo();
+        let linked_worktree = PathBuf::from(&repo_path)
+            .parent()
+            .expect("repo parent")
+            .join(format!("linked-worktree-parse-{}", Uuid::new_v4()));
+        run_git_command(
+            &repo_path,
+            &[
+                "worktree",
+                "add",
+                "-b",
+                "feature/parse",
+                linked_worktree.to_string_lossy().as_ref(),
+                "main",
+            ],
+        )
+        .expect("create linked worktree");
+
+        let output =
+            run_git_text(&repo_path, &["worktree", "list", "--porcelain"]).expect("list worktrees");
+        let parsed = parse_worktree_list_porcelain(&output).expect("parse real worktree output");
+        let linked_worktree_canonical = linked_worktree
+            .canonicalize()
+            .expect("canonical linked worktree path");
+
+        assert_eq!(parsed.len(), 2);
+        assert!(parsed
+            .iter()
+            .any(|entry| entry.branch_name().as_deref() == Some("main")));
+        assert!(parsed.iter().any(|entry| {
+            entry.branch_name().as_deref() == Some("feature/parse")
+                && PathBuf::from(&entry.path)
+                    .canonicalize()
+                    .map(|path| path == linked_worktree_canonical)
+                    .unwrap_or(false)
+        }));
 
         let _ = fs::remove_dir_all(linked_worktree);
         let _ = fs::remove_dir_all(PathBuf::from(&repo_path));

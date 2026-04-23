@@ -18,6 +18,9 @@ import {
   unstageAllProjectGitFiles,
   unstageProjectGitFile,
 } from "@/lib/backend";
+import {
+  countStagedGitFiles,
+} from "@/lib/gitWorkingTree";
 import type {
   Employee,
   GitActionType,
@@ -50,6 +53,8 @@ import { ProjectGitActionDialog } from "@/components/projects/ProjectGitActionDi
 import { ProjectGitCommitDetailDialog } from "@/components/projects/ProjectGitCommitDetailDialog";
 import { ProjectGitRepoActionDialog } from "@/components/projects/ProjectGitRepoActionDialog";
 import { ProjectGitBranchActionDialog } from "@/components/projects/ProjectGitBranchActionDialog";
+import { GitChangesPanel } from "@/components/git/GitChangesPanel";
+import { ProjectWorktreeSection } from "@/components/git/ProjectWorktreeSection";
 import { RepoPathDisplay } from "@/components/projects/RepoPathDisplay";
 import { ArrowDown, ArrowLeft, ArrowUp, Edit2, GitBranch, Loader2, RefreshCw, ShieldAlert, Trash2 } from "lucide-react";
 import { getStatusLabel, getStatusColor, getPriorityLabel, formatDate } from "@/lib/utils";
@@ -121,65 +126,6 @@ function getGitRuntimeStatusLabel(status: string) {
   }
 }
 
-function getWorkingTreeChangeLabel(changeType: ProjectGitWorkingTreeChange["change_type"]) {
-  switch (changeType) {
-    case "added":
-      return "新增";
-    case "modified":
-      return "修改";
-    case "deleted":
-      return "删除";
-    case "renamed":
-      return "重命名";
-    default:
-      return changeType;
-  }
-}
-
-function getWorkingTreeChangeClassName(changeType: ProjectGitWorkingTreeChange["change_type"]) {
-  switch (changeType) {
-    case "added":
-      return "border-emerald-500/30 bg-emerald-500/10 text-emerald-700";
-    case "modified":
-      return "border-sky-500/30 bg-sky-500/10 text-sky-700";
-    case "deleted":
-      return "border-rose-500/30 bg-rose-500/10 text-rose-700";
-    case "renamed":
-      return "border-amber-500/30 bg-amber-500/10 text-amber-700";
-    default:
-      return "border-border/60 bg-secondary/40 text-foreground";
-  }
-}
-
-function getWorkingTreeStageStatusLabel(stageStatus: ProjectGitWorkingTreeChange["stage_status"]) {
-  switch (stageStatus) {
-    case "staged":
-      return "已暂存";
-    case "unstaged":
-      return "未暂存";
-    case "partially_staged":
-      return "部分暂存";
-    case "untracked":
-      return "未跟踪";
-    default:
-      return stageStatus;
-  }
-}
-
-function getWorkingTreeStageStatusClassName(stageStatus: ProjectGitWorkingTreeChange["stage_status"]) {
-  switch (stageStatus) {
-    case "staged":
-      return "border-emerald-500/30 bg-emerald-500/10 text-emerald-700";
-    case "partially_staged":
-      return "border-amber-500/30 bg-amber-500/10 text-amber-700";
-    case "untracked":
-      return "border-violet-500/30 bg-violet-500/10 text-violet-700";
-    case "unstaged":
-    default:
-      return "border-border/60 bg-secondary/40 text-foreground";
-  }
-}
-
 export function ProjectDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -221,9 +167,11 @@ export function ProjectDetailPage() {
   const [deletingContextId, setDeletingContextId] = useState<string | null>(null);
   const [pendingDeleteContext, setPendingDeleteContext] = useState<TaskGitContext | null>(null);
   const [gitOverviewReloadNonce, setGitOverviewReloadNonce] = useState(0);
-  const [selectedFiles, setSelectedFiles] = useState<Set<string>>(new Set());
   const [selectedFilesStageAction, setSelectedFilesStageAction] = useState<"stage" | "unstage" | null>(null);
-  const [rollbackConfirm, setRollbackConfirm] = useState<{ target: "selected" | "all" } | null>(null);
+  const [rollbackConfirm, setRollbackConfirm] = useState<{
+    target: "selected" | "all";
+    paths: string[];
+  } | null>(null);
   const [rollbackInProgress, setRollbackInProgress] = useState(false);
   const recentCommitsRequestIdRef = useRef(0);
   const commitDetailRequestIdRef = useRef(0);
@@ -624,14 +572,13 @@ export function ProjectDetailPage() {
     }
   };
 
-  const handleStageSelectedFiles = async (action: "stage" | "unstage") => {
-    if (!project || selectedFiles.size === 0) {
+  const handleStageSelectedFiles = async (action: "stage" | "unstage", paths: string[]) => {
+    if (!project || paths.length === 0) {
       return;
     }
     setSelectedFilesStageAction(action);
     setGitActionNotice(null);
     try {
-      const paths = Array.from(selectedFiles);
       for (const path of paths) {
         if (action === "stage") {
           await stageProjectGitFile(project.id, path);
@@ -640,7 +587,7 @@ export function ProjectDetailPage() {
         }
       }
       updateWorkingTreeStageStatuses((change) => {
-        if (!selectedFiles.has(change.path)) return change;
+        if (!paths.includes(change.path)) return change;
         return {
           ...change,
           stage_status:
@@ -667,6 +614,9 @@ export function ProjectDetailPage() {
     if (!project) {
       return;
     }
+    if (target === "selected" && (rollbackConfirm?.paths.length ?? 0) === 0) {
+      return;
+    }
     setRollbackInProgress(true);
     setGitActionNotice(null);
     try {
@@ -674,8 +624,7 @@ export function ProjectDetailPage() {
       if (target === "all") {
         message = await rollbackAllProjectGitChanges(project.id);
       } else {
-        message = await rollbackProjectGitFiles(project.id, Array.from(selectedFiles));
-        setSelectedFiles(new Set());
+        message = await rollbackProjectGitFiles(project.id, rollbackConfirm?.paths ?? []);
       }
       setGitActionNotice({ tone: "success", message });
       setRollbackConfirm(null);
@@ -720,26 +669,8 @@ export function ProjectDetailPage() {
     completed: activeTasks.filter((t) => t.status === "completed"),
     blocked: activeTasks.filter((t) => t.status === "blocked"),
   };
-  const hasStageableFiles = Boolean(
-    gitOverview?.working_tree_changes.some(
-      (change) =>
-        change.stage_status === "unstaged"
-        || change.stage_status === "untracked"
-        || change.stage_status === "partially_staged",
-    ),
-  );
-  const hasStagedFiles = Boolean(
-    gitOverview?.working_tree_changes.some(
-      (change) =>
-        change.stage_status === "staged"
-        || change.stage_status === "partially_staged",
-    ),
-  );
-  const stagedFileCount = gitOverview?.working_tree_changes.filter(
-    (change) =>
-      change.stage_status === "staged"
-      || change.stage_status === "partially_staged",
-  ).length ?? 0;
+  const hasStagedFiles = countStagedGitFiles(gitOverview?.working_tree_changes ?? []) > 0;
+  const stagedFileCount = countStagedGitFiles(gitOverview?.working_tree_changes ?? []);
   const gitRuntimeReady = gitOverview?.git_runtime_status === "ready";
   const aheadCommits = gitOverview?.ahead_commits ?? 0;
   const behindCommits = gitOverview?.behind_commits ?? 0;
@@ -958,210 +889,33 @@ export function ProjectDetailPage() {
                 </div>
               </div>
 
-              <div className="mb-2 flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  {gitOverview.working_tree_changes.length > 0 && (
-                    <input
-                      type="checkbox"
-                      className="h-3.5 w-3.5 cursor-pointer rounded"
-                      checked={
-                        gitOverview.working_tree_changes.length > 0 &&
-                        gitOverview.working_tree_changes.slice(0, 20).every((c) => selectedFiles.has(c.path))
-                      }
-                      onChange={(e) => {
-                        const paths = gitOverview.working_tree_changes.slice(0, 20).map((c) => c.path);
-                        setSelectedFiles(e.target.checked ? new Set(paths) : new Set());
-                      }}
-                      title="全选/取消全选"
-                    />
-                  )}
-                  <div>
-                    <h4 className="text-sm font-medium">工作区文件</h4>
-                    <p className="text-[11px] text-muted-foreground">
-                      当前仓库实时变更文件列表，可直接在应用内预览文件内容。
-                    </p>
-                  </div>
-                </div>
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="text-xs text-muted-foreground">{gitOverview.working_tree_changes.length} 条</span>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    disabled={!hasStageableFiles || bulkStageAction !== null}
-                    onClick={() => {
-                      void handleBulkStageAction("stage_all");
-                    }}
-                  >
-                    {bulkStageAction === "stage_all" ? "暂存中..." : "全部暂存"}
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    disabled={!hasStagedFiles || bulkStageAction !== null}
-                    onClick={() => {
-                      void handleBulkStageAction("unstage_all");
-                    }}
-                  >
-                    {bulkStageAction === "unstage_all" ? "取消中..." : "全部取消暂存"}
-                  </Button>
-                  {selectedFiles.size > 0 && (
-                    <>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        disabled={selectedFilesStageAction !== null || rollbackInProgress}
-                        onClick={() => void handleStageSelectedFiles("stage")}
-                      >
-                        {selectedFilesStageAction === "stage" ? "暂存中..." : `暂存选中 (${selectedFiles.size})`}
-                      </Button>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        disabled={selectedFilesStageAction !== null || rollbackInProgress}
-                        onClick={() => void handleStageSelectedFiles("unstage")}
-                      >
-                        {selectedFilesStageAction === "unstage" ? "取消中..." : `取消暂存选中 (${selectedFiles.size})`}
-                      </Button>
-                    </>
-                  )}
-                  {selectedFiles.size > 0 && (
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      disabled={rollbackInProgress}
-                      onClick={() => setRollbackConfirm({ target: "selected" })}
-                      className="border-orange-500/50 text-orange-700 hover:bg-orange-50 hover:text-orange-800"
-                    >
-                      回滚选中 ({selectedFiles.size})
-                    </Button>
-                  )}
-                  {gitOverview.working_tree_changes.length > 0 && (
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      disabled={rollbackInProgress}
-                      onClick={() => setRollbackConfirm({ target: "all" })}
-                      className="border-red-500/50 text-red-700 hover:bg-red-50 hover:text-red-800"
-                    >
-                      全局回滚
-                    </Button>
-                  )}
-                </div>
-              </div>
-              {gitOverview.working_tree_changes.length === 0 ? (
-                <div className="rounded-md border border-dashed border-border px-3 py-4 text-center text-xs text-muted-foreground">
-                  当前没有可展示的工作区文件变更。
-                </div>
-              ) : (
-                <div className="space-y-2">
-                  {gitOverview.working_tree_changes.slice(0, 20).map((change) => (
-                    <div
-                      key={`${change.change_type}:${change.previous_path ?? ""}:${change.path}`}
-                      className={`rounded-md border border-border/60 bg-secondary/20 px-3 py-2 text-xs ${change.can_open_file ? "cursor-pointer transition-colors hover:border-primary/40 hover:bg-secondary/30" : ""}`}
-                      role={change.can_open_file ? "button" : undefined}
-                      tabIndex={change.can_open_file ? 0 : undefined}
-                      onClick={() => {
-                        if (change.can_open_file) {
-                          void handleOpenProjectGitFile(change);
-                        }
-                      }}
-                      onKeyDown={(event) => {
-                        if (!change.can_open_file) {
-                          return;
-                        }
-                        if (event.key === "Enter" || event.key === " ") {
-                          event.preventDefault();
-                          void handleOpenProjectGitFile(change);
-                        }
-                      }}
-                    >
-                      <div className="flex flex-wrap items-center justify-between gap-2">
-                        <div className="flex min-w-0 flex-wrap items-center gap-2">
-                          <input
-                            type="checkbox"
-                            className="h-3.5 w-3.5 cursor-pointer rounded"
-                            checked={selectedFiles.has(change.path)}
-                            onChange={(e) => {
-                              e.stopPropagation();
-                              setSelectedFiles((prev) => {
-                                const next = new Set(prev);
-                                if (e.target.checked) {
-                                  next.add(change.path);
-                                } else {
-                                  next.delete(change.path);
-                                }
-                                return next;
-                              });
-                            }}
-                            onClick={(e) => e.stopPropagation()}
-                          />
-                          <span
-                            className={`rounded-md border px-1.5 py-0.5 text-[11px] font-medium ${getWorkingTreeChangeClassName(change.change_type)}`}
-                          >
-                            {getWorkingTreeChangeLabel(change.change_type)}
-                          </span>
-                          <span
-                            className={`rounded-md border px-1.5 py-0.5 text-[11px] font-medium ${getWorkingTreeStageStatusClassName(change.stage_status)}`}
-                          >
-                            {getWorkingTreeStageStatusLabel(change.stage_status)}
-                          </span>
-                          <span className="break-all font-mono text-foreground">{change.path}</span>
-                        </div>
-                        <div className="flex flex-wrap items-center gap-2">
-                          <Button
-                            type="button"
-                            variant="outline"
-                            size="sm"
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              void handleOpenProjectGitFile(change);
-                            }}
-                            disabled={!change.can_open_file}
-                            title={
-                              change.can_open_file
-                                ? "使用内置代码预览浏览当前文件"
-                                : change.change_type === "deleted"
-                                    ? "已删除文件无法直接浏览"
-                                    : "当前文件暂不可浏览"
-                            }
-                          >
-                            浏览文件
-                          </Button>
-                          <Button
-                            type="button"
-                            variant="outline"
-                            size="sm"
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              void handleToggleStageFile(change);
-                            }}
-                            disabled={stagingFilePath === change.path || bulkStageAction !== null}
-                          >
-                            {stagingFilePath === change.path
-                              ? (change.stage_status === "staged" || change.stage_status === "partially_staged"
-                                  ? "取消中..."
-                                  : "暂存中...")
-                              : (change.stage_status === "staged" || change.stage_status === "partially_staged"
-                                  ? "取消暂存"
-                                  : "暂存")}
-                          </Button>
-                        </div>
-                      </div>
-                      {change.previous_path && (
-                        <div className="mt-1 text-[11px] text-muted-foreground">
-                          原路径：<span className="break-all font-mono">{change.previous_path}</span>
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              )}
+              <GitChangesPanel
+                title="工作区文件"
+                description="当前仓库实时变更文件列表，可直接在应用内预览文件内容。"
+                changes={gitOverview.working_tree_changes}
+                stagingFilePath={stagingFilePath}
+                bulkStageAction={bulkStageAction}
+                selectedFilesStageAction={selectedFilesStageAction}
+                rollbackInProgress={rollbackInProgress}
+                onToggleStage={(change) => {
+                  void handleToggleStageFile(change);
+                }}
+                onBulkStage={(action) => {
+                  void handleBulkStageAction(action);
+                }}
+                onStageSelected={(action, paths) => {
+                  void handleStageSelectedFiles(action, paths);
+                }}
+                onRollback={(target, paths) => {
+                  setRollbackConfirm({
+                    target,
+                    paths: paths ?? [],
+                  });
+                }}
+                onPreview={(change) => {
+                  void handleOpenProjectGitFile(change);
+                }}
+              />
             </div>
 
             {gitOverview.git_runtime_message && (
@@ -1179,6 +933,16 @@ export function ProjectDetailPage() {
                 <p className="mt-1">{gitOverview.git_runtime_message}</p>
               </div>
             )}
+
+            <ProjectWorktreeSection
+              projectId={project.id}
+              currentBranch={gitOverview.current_branch}
+              defaultBranch={gitOverview.default_branch}
+              projectBranches={gitOverview.project_branches}
+              onChanged={async () => {
+                handleGitOverviewRefresh();
+              }}
+            />
 
             <div className="grid gap-3 md:grid-cols-2">
               <div className="rounded-lg border border-border/60 p-3">
@@ -1600,16 +1364,18 @@ export function ProjectDetailPage() {
         <DialogContent className="max-w-md" showCloseButton={!rollbackInProgress}>
           <DialogHeader>
             <DialogTitle>
-              {rollbackConfirm?.target === "all" ? "确认全局回滚" : `确认回滚 ${selectedFiles.size} 个文件`}
+              {rollbackConfirm?.target === "all"
+                ? "确认全局回滚"
+                : `确认回滚 ${rollbackConfirm?.paths.length ?? 0} 个文件`}
             </DialogTitle>
             <DialogDescription>
               此操作将丢弃所有本地未提交的变更，且无法撤销。请确认后再继续。
             </DialogDescription>
           </DialogHeader>
 
-          {rollbackConfirm?.target === "selected" && selectedFiles.size > 0 && (
+          {rollbackConfirm?.target === "selected" && (rollbackConfirm.paths.length ?? 0) > 0 && (
             <div className="max-h-40 overflow-y-auto rounded-md border border-border/60 bg-secondary/30 px-3 py-2 text-xs text-muted-foreground">
-              {Array.from(selectedFiles).map((path) => (
+              {rollbackConfirm?.paths.map((path) => (
                 <div key={path} className="break-all font-mono py-0.5">{path}</div>
               ))}
             </div>

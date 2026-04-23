@@ -275,6 +275,10 @@ async function listBranches(repoPath) {
   return [...summary.all].sort((left, right) => left.localeCompare(right));
 }
 
+async function listWorktreesPorcelain(repoPath) {
+  return await gitRaw(repoPath, ["worktree", "list", "--porcelain"]);
+}
+
 async function headCommit(repoPath, revision = "HEAD") {
   return (await gitRaw(repoPath, ["rev-parse", revision])).trim();
 }
@@ -705,6 +709,31 @@ async function commitChanges(repoPath, message) {
   await gitRaw(repoPath, ["commit", "-m", trimmed]);
   const head = (await gitRaw(repoPath, ["log", "-1", "--format=%h %s"])).trim();
   return head ? `已创建提交 ${head}` : "已创建提交";
+}
+
+async function removeWorktree(repoPath, worktreePath, force, prune = true) {
+  const resolvedWorktreePath = resolveTargetPath(repoPath, worktreePath);
+  const worktreeRegistered = fs.existsSync(path.join(resolvedWorktreePath, ".git"));
+
+  try {
+    const args = ["worktree", "remove", resolvedWorktreePath];
+    if (force) {
+      args.push("--force");
+    }
+    await gitRaw(repoPath, args);
+  } catch (error) {
+    if (worktreeRegistered) {
+      throw error;
+    }
+    // worktree 已经漂移或目录缺失时，允许继续 prune 清理注册信息
+  }
+
+  if (prune) {
+    await gitRaw(repoPath, ["worktree", "prune"]);
+  }
+
+  await fsp.rm(resolvedWorktreePath, { recursive: true, force: true });
+  return "已删除 Git worktree";
 }
 
 async function pushBranch(repoPath, remoteName, branchName, forceMode) {
@@ -1172,6 +1201,8 @@ async function executeCommand(input) {
         recent_commits_has_more: recentCommitHistory.has_more,
       };
     }
+    case "worktree_list":
+      return { text: await listWorktreesPorcelain(repoPath) };
     case "commit_history":
       return await listCommitHistory(repoPath, Number(input.offset ?? 0), Number(input.limit ?? 20));
     case "commit_detail":
@@ -1202,6 +1233,15 @@ async function executeCommand(input) {
       return { message: "已回滚全部工作区变更" };
     case "commit_changes":
       return { message: await commitChanges(repoPath, input.message) };
+    case "remove_worktree":
+      return {
+        message: await removeWorktree(
+          repoPath,
+          requiredText(input, ["worktreePath", "worktree_path"], "worktreePath"),
+          Boolean(input.force),
+          input.prune !== false,
+        ),
+      };
     case "push_branch":
       return {
         message: await pushBranch(repoPath, input.remoteName, input.branchName, input.forceMode),

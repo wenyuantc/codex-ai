@@ -28,6 +28,7 @@ import type {
   ProjectGitCommitHistory,
   ProjectGitFilePreview,
   ProjectGitOverview,
+  ProjectGitWorktree,
   TaskGitCommitOverview,
   RemoteCodexHealthCheck,
   RemoteCodexSdkInstallResult,
@@ -398,6 +399,10 @@ export async function getProjectGitCommitFilePreview(
   });
 }
 
+export async function listProjectGitWorktrees(projectId: string): Promise<ProjectGitWorktree[]> {
+  return invoke("list_project_git_worktrees", { projectId });
+}
+
 export async function stageProjectGitFile(projectId: string, relativePath: string): Promise<string> {
   return invoke("stage_project_git_file", { projectId, relativePath });
 }
@@ -424,6 +429,112 @@ export async function rollbackAllProjectGitChanges(projectId: string): Promise<s
 
 export async function commitProjectGitChanges(projectId: string, message: string): Promise<string> {
   return invoke("commit_project_git_changes", { projectId, message });
+}
+
+export async function getProjectWorktreeFilePreview(
+  projectId: string,
+  worktreePath: string,
+  relativePath: string,
+  previousPath?: string | null,
+  changeType?: string | null,
+): Promise<ProjectGitFilePreview> {
+  return invoke("get_project_worktree_file_preview", {
+    projectId,
+    worktreePath,
+    relativePath,
+    previousPath: previousPath ?? null,
+    changeType: changeType ?? null,
+  });
+}
+
+export async function stageProjectWorktreeFile(
+  projectId: string,
+  worktreePath: string,
+  relativePath: string,
+): Promise<string> {
+  return invoke("stage_project_worktree_file", { projectId, worktreePath, relativePath });
+}
+
+export async function unstageProjectWorktreeFile(
+  projectId: string,
+  worktreePath: string,
+  relativePath: string,
+): Promise<string> {
+  return invoke("unstage_project_worktree_file", { projectId, worktreePath, relativePath });
+}
+
+export async function stageAllProjectWorktreeFiles(
+  projectId: string,
+  worktreePath: string,
+): Promise<string> {
+  return invoke("stage_all_project_worktree_files", { projectId, worktreePath });
+}
+
+export async function unstageAllProjectWorktreeFiles(
+  projectId: string,
+  worktreePath: string,
+): Promise<string> {
+  return invoke("unstage_all_project_worktree_files", { projectId, worktreePath });
+}
+
+export async function rollbackProjectWorktreeFiles(
+  projectId: string,
+  worktreePath: string,
+  relativePaths: string[],
+): Promise<string> {
+  return invoke("rollback_project_worktree_files", {
+    projectId,
+    worktreePath,
+    relativePaths,
+  });
+}
+
+export async function rollbackAllProjectWorktreeChanges(
+  projectId: string,
+  worktreePath: string,
+): Promise<string> {
+  return invoke("rollback_all_project_worktree_changes", { projectId, worktreePath });
+}
+
+export async function commitProjectWorktreeChanges(
+  projectId: string,
+  worktreePath: string,
+  message: string,
+): Promise<string> {
+  return invoke("commit_project_worktree_changes", { projectId, worktreePath, message });
+}
+
+export async function generateProjectWorktreeCommitMessage(
+  projectId: string,
+  worktreePath: string,
+): Promise<string> {
+  return invoke("generate_project_worktree_commit_message", { projectId, worktreePath });
+}
+
+export async function removeProjectGitWorktree(
+  projectId: string,
+  worktreePath: string,
+  force: boolean,
+): Promise<string> {
+  return invoke("remove_project_git_worktree", { projectId, worktreePath, force });
+}
+
+export async function mergeProjectGitWorktree(
+  projectId: string,
+  worktreePath: string,
+  targetBranch: string,
+  autoStash?: boolean | null,
+  deleteWorktree?: boolean | null,
+  deleteBranch?: boolean | null,
+): Promise<string> {
+  return invoke("merge_project_git_worktree", {
+    projectId,
+    worktreePath,
+    targetBranch,
+    autoStash: autoStash ?? null,
+    deleteWorktree: deleteWorktree ?? null,
+    deleteBranch: deleteBranch ?? null,
+  });
 }
 
 export async function pushProjectGitBranch(

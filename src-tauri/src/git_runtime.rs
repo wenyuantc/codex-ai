@@ -132,6 +132,11 @@ struct GitBridgeMessageResult {
 }
 
 #[derive(Debug, Deserialize)]
+struct GitBridgeTextResult {
+    text: String,
+}
+
+#[derive(Debug, Deserialize)]
 struct GitBridgeReviewContextResult {
     context: String,
 }
@@ -511,6 +516,25 @@ pub(crate) async fn collect_git_overview<R: Runtime>(
     .await
 }
 
+pub(crate) async fn list_worktrees_porcelain<R: Runtime>(
+    app: &AppHandle<R>,
+    execution_target: &str,
+    ssh_config_id: Option<&str>,
+    repo_path: &str,
+) -> Result<String, String> {
+    let result: GitBridgeTextResult = call_bridge(
+        app,
+        execution_target,
+        ssh_config_id,
+        serde_json::json!({
+            "command": "worktree_list",
+            "repoPath": repo_path,
+        }),
+    )
+    .await?;
+    Ok(result.text)
+}
+
 pub(crate) async fn collect_commit_history<R: Runtime>(
     app: &AppHandle<R>,
     execution_target: &str,
@@ -709,6 +733,31 @@ pub(crate) async fn commit_changes<R: Runtime>(
             "command": "commit_changes",
             "repoPath": repo_path,
             "message": message,
+        }),
+    )
+    .await?;
+    Ok(result.message)
+}
+
+pub(crate) async fn remove_worktree<R: Runtime>(
+    app: &AppHandle<R>,
+    execution_target: &str,
+    ssh_config_id: Option<&str>,
+    repo_path: &str,
+    worktree_path: &str,
+    force: bool,
+    prune: bool,
+) -> Result<String, String> {
+    let result: GitBridgeMessageResult = call_bridge(
+        app,
+        execution_target,
+        ssh_config_id,
+        serde_json::json!({
+            "command": "remove_worktree",
+            "repoPath": repo_path,
+            "worktreePath": worktree_path,
+            "force": force,
+            "prune": prune,
         }),
     )
     .await?;

@@ -515,6 +515,25 @@ export interface ProjectGitOverview {
   pending_action_contexts: TaskGitContext[];
 }
 
+export interface ProjectGitWorktree {
+  path: string;
+  branch: string | null;
+  head_sha: string | null;
+  short_head_sha: string | null;
+  is_main: boolean;
+  is_bare: boolean;
+  is_detached: boolean;
+  is_locked: boolean;
+  lock_reason: string | null;
+  is_prunable: boolean;
+  prunable_reason: string | null;
+  task_git_context_id: string | null;
+  task_id: string | null;
+  task_title: string | null;
+  working_tree_summary: string | null;
+  working_tree_changes: ProjectGitWorkingTreeChange[];
+}
+
 export interface TaskGitCommitOverview {
   task_git_context_id: string;
   project_id: string;
