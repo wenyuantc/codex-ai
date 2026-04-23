@@ -28,6 +28,7 @@ import type {
   ProjectGitFilePreview,
   ProjectGitOverview,
   ProjectGitRepoActionType,
+  ProjectGitBranchActionType,
   ProjectGitWorkingTreeChange,
   TaskGitContext,
 } from "@/lib/types";
@@ -48,6 +49,7 @@ import { DeleteTaskGitContextDialog } from "@/components/projects/DeleteTaskGitC
 import { ProjectGitActionDialog } from "@/components/projects/ProjectGitActionDialog";
 import { ProjectGitCommitDetailDialog } from "@/components/projects/ProjectGitCommitDetailDialog";
 import { ProjectGitRepoActionDialog } from "@/components/projects/ProjectGitRepoActionDialog";
+import { ProjectGitBranchActionDialog } from "@/components/projects/ProjectGitBranchActionDialog";
 import { RepoPathDisplay } from "@/components/projects/RepoPathDisplay";
 import { ArrowDown, ArrowLeft, ArrowUp, Edit2, GitBranch, Loader2, RefreshCw, ShieldAlert, Trash2 } from "lucide-react";
 import { getStatusLabel, getStatusColor, getPriorityLabel, formatDate } from "@/lib/utils";
@@ -214,6 +216,7 @@ export function ProjectDetailPage() {
     message: string;
   } | null>(null);
   const [selectedRepoAction, setSelectedRepoAction] = useState<ProjectGitRepoActionType | null>(null);
+  const [selectedBranchAction, setSelectedBranchAction] = useState<ProjectGitBranchActionType | null>(null);
   const [reconcilingContextId, setReconcilingContextId] = useState<string | null>(null);
   const [deletingContextId, setDeletingContextId] = useState<string | null>(null);
   const [pendingDeleteContext, setPendingDeleteContext] = useState<TaskGitContext | null>(null);
@@ -915,6 +918,43 @@ export function ProjectDetailPage() {
                       </span>
                     </span>
                   </Button>
+                  <span className="mx-1 h-5 w-px bg-border/60" aria-hidden />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={!gitRuntimeReady || gitOverview.project_branches.length < 2}
+                    onClick={() => setSelectedBranchAction("switch")}
+                  >
+                    切换分支
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={!gitRuntimeReady}
+                    onClick={() => setSelectedBranchAction("create")}
+                  >
+                    新建分支
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={!gitRuntimeReady || gitOverview.project_branches.length < 2}
+                    onClick={() => setSelectedBranchAction("delete")}
+                  >
+                    删除分支
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={!gitRuntimeReady || gitOverview.project_branches.length < 2}
+                    onClick={() => setSelectedBranchAction("merge")}
+                  >
+                    合并分支
+                  </Button>
                 </div>
               </div>
 
@@ -1528,6 +1568,22 @@ export function ProjectDetailPage() {
         onOpenChange={(open) => {
           if (!open) {
             setSelectedRepoAction(null);
+          }
+        }}
+        onActionCompleted={handleRepoActionCompleted}
+      />
+
+      <ProjectGitBranchActionDialog
+        open={selectedBranchAction !== null}
+        action={selectedBranchAction}
+        projectId={project.id}
+        currentBranch={gitOverview?.current_branch}
+        defaultBranch={gitOverview?.default_branch}
+        projectBranches={gitOverview?.project_branches ?? []}
+        workingTreeSummary={gitOverview?.working_tree_summary ?? null}
+        onOpenChange={(open) => {
+          if (!open) {
+            setSelectedBranchAction(null);
           }
         }}
         onActionCompleted={handleRepoActionCompleted}

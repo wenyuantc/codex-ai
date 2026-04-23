@@ -21,6 +21,9 @@ export type GitActionType =
   | "unstash"
   | "cleanup_worktree";
 export type ProjectGitRepoActionType = "commit" | "push" | "pull";
+export type ProjectGitBranchActionType = "switch" | "create" | "delete" | "merge";
+export type GitMergeFastForwardMode = "ff" | "no_ff" | "ff_only";
+export type GitMergeStrategy = "ort" | "recursive" | "resolve" | "ours" | "subtree";
 
 export interface Project {
   id: string;

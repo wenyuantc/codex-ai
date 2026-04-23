@@ -456,6 +456,55 @@ export async function pullProjectGitBranch(
   });
 }
 
+export async function checkoutProjectGitBranch(
+  projectId: string,
+  branchName: string,
+): Promise<string> {
+  return invoke("checkout_project_git_branch", { projectId, branchName });
+}
+
+export async function createProjectGitBranch(
+  projectId: string,
+  branchName: string,
+  baseBranch?: string | null,
+  checkout?: boolean | null,
+): Promise<string> {
+  return invoke("create_project_git_branch", {
+    projectId,
+    branchName,
+    baseBranch: baseBranch ?? null,
+    checkout: checkout ?? null,
+  });
+}
+
+export async function deleteProjectGitBranch(
+  projectId: string,
+  branchName: string,
+  force?: boolean | null,
+): Promise<string> {
+  return invoke("delete_project_git_branch", {
+    projectId,
+    branchName,
+    force: force ?? null,
+  });
+}
+
+export async function mergeProjectGitBranches(
+  projectId: string,
+  sourceBranch: string,
+  targetBranch: string,
+  fastForward?: "ff" | "no_ff" | "ff_only" | null,
+  strategy?: "ort" | "recursive" | "resolve" | "ours" | "subtree" | null,
+): Promise<string> {
+  return invoke("merge_project_git_branches", {
+    projectId,
+    sourceBranch,
+    targetBranch,
+    fastForward: fastForward ?? null,
+    strategy: strategy ?? null,
+  });
+}
+
 export async function listTaskGitContexts(projectId: string): Promise<TaskGitContext[]> {
   return invoke("list_task_git_contexts", { projectId });
 }

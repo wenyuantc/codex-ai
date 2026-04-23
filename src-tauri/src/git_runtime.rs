@@ -767,6 +767,102 @@ pub(crate) async fn pull_branch<R: Runtime>(
     Ok(result.message)
 }
 
+pub(crate) async fn checkout_branch<R: Runtime>(
+    app: &AppHandle<R>,
+    execution_target: &str,
+    ssh_config_id: Option<&str>,
+    repo_path: &str,
+    branch_name: &str,
+) -> Result<String, String> {
+    let result: GitBridgeMessageResult = call_bridge(
+        app,
+        execution_target,
+        ssh_config_id,
+        serde_json::json!({
+            "command": "checkout_branch",
+            "repoPath": repo_path,
+            "branchName": branch_name,
+        }),
+    )
+    .await?;
+    Ok(result.message)
+}
+
+pub(crate) async fn create_branch<R: Runtime>(
+    app: &AppHandle<R>,
+    execution_target: &str,
+    ssh_config_id: Option<&str>,
+    repo_path: &str,
+    branch_name: &str,
+    base_branch: Option<&str>,
+    checkout: bool,
+) -> Result<String, String> {
+    let result: GitBridgeMessageResult = call_bridge(
+        app,
+        execution_target,
+        ssh_config_id,
+        serde_json::json!({
+            "command": "create_branch",
+            "repoPath": repo_path,
+            "branchName": branch_name,
+            "baseBranch": base_branch,
+            "checkout": checkout,
+        }),
+    )
+    .await?;
+    Ok(result.message)
+}
+
+pub(crate) async fn delete_branch<R: Runtime>(
+    app: &AppHandle<R>,
+    execution_target: &str,
+    ssh_config_id: Option<&str>,
+    repo_path: &str,
+    branch_name: &str,
+    force: bool,
+) -> Result<String, String> {
+    let result: GitBridgeMessageResult = call_bridge(
+        app,
+        execution_target,
+        ssh_config_id,
+        serde_json::json!({
+            "command": "delete_branch",
+            "repoPath": repo_path,
+            "branchName": branch_name,
+            "force": force,
+        }),
+    )
+    .await?;
+    Ok(result.message)
+}
+
+pub(crate) async fn merge_branches<R: Runtime>(
+    app: &AppHandle<R>,
+    execution_target: &str,
+    ssh_config_id: Option<&str>,
+    repo_path: &str,
+    source_branch: &str,
+    target_branch: &str,
+    fast_forward: &str,
+    strategy: Option<&str>,
+) -> Result<String, String> {
+    let result: GitBridgeMessageResult = call_bridge(
+        app,
+        execution_target,
+        ssh_config_id,
+        serde_json::json!({
+            "command": "merge_branches",
+            "repoPath": repo_path,
+            "sourceBranch": source_branch,
+            "targetBranch": target_branch,
+            "fastForward": fast_forward,
+            "strategy": strategy,
+        }),
+    )
+    .await?;
+    Ok(result.message)
+}
+
 pub(crate) async fn path_exists<R: Runtime>(
     app: &AppHandle<R>,
     execution_target: &str,

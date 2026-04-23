@@ -748,6 +748,115 @@ async function pullBranch(repoPath, remoteName, branchName, mode, autoStash) {
     : `已拉取 ${remote}/${branch}`;
 }
 
+const BRANCH_NAME_INVALID_PATTERN = /[\s~^:?*[\]\\]/;
+
+function validateBranchName(value, label = "分支名") {
+  const normalized = typeof value === "string" ? value.trim() : "";
+  if (!normalized) {
+    throw new Error(`${label}不能为空`);
+  }
+  if (BRANCH_NAME_INVALID_PATTERN.test(normalized)) {
+    throw new Error(`${label}包含非法字符`);
+  }
+  if (normalized.startsWith("-") || normalized.startsWith("/") || normalized.endsWith("/") || normalized.includes("..")) {
+    throw new Error(`${label}格式非法`);
+  }
+  return normalized;
+}
+
+async function checkoutBranch(repoPath, branchName) {
+  const target = validateBranchName(branchName, "目标分支");
+  if (!(await isWorkingTreeClean(repoPath))) {
+    throw new Error("工作区存在未提交改动，请先提交、回滚或暂存后再切换分支");
+  }
+  const current = await currentBranch(repoPath);
+  if (current === target) {
+    return `当前已在分支 ${target}`;
+  }
+  await gitCli(repoPath, ["checkout", target]);
+  return `已切换到分支 ${target}`;
+}
+
+async function createBranch(repoPath, branchName, baseBranch, checkout) {
+  const target = validateBranchName(branchName, "新分支名");
+  const base = optionalText(baseBranch);
+  if (base) {
+    validateBranchName(base, "基准分支");
+  }
+  if (checkout) {
+    if (!(await isWorkingTreeClean(repoPath))) {
+      throw new Error("工作区存在未提交改动，无法在创建后自动切换到新分支");
+    }
+    const args = ["checkout", "-b", target];
+    if (base) {
+      args.push(base);
+    }
+    await gitCli(repoPath, args);
+    return `已创建并切换到分支 ${target}${base ? `（基于 ${base}）` : ""}`;
+  }
+  const args = ["branch", target];
+  if (base) {
+    args.push(base);
+  }
+  await gitCli(repoPath, args);
+  return `已创建分支 ${target}${base ? `（基于 ${base}）` : ""}`;
+}
+
+async function deleteBranch(repoPath, branchName, force) {
+  const target = validateBranchName(branchName, "待删除分支");
+  const current = await currentBranch(repoPath);
+  if (current === target) {
+    throw new Error("无法删除当前所在分支，请先切换到其他分支");
+  }
+  const flag = force ? "-D" : "-d";
+  await gitCli(repoPath, ["branch", flag, target]);
+  return force ? `已强制删除分支 ${target}` : `已删除分支 ${target}`;
+}
+
+async function mergeBranches(repoPath, sourceBranch, targetBranch, fastForward, strategy) {
+  const source = validateBranchName(sourceBranch, "源分支");
+  const target = validateBranchName(targetBranch, "目标分支");
+  if (source === target) {
+    throw new Error("源分支和目标分支不能相同");
+  }
+  if (!(await isWorkingTreeClean(repoPath))) {
+    throw new Error("工作区存在未提交改动，请先提交或暂存后再执行合并");
+  }
+
+  const current = await currentBranch(repoPath);
+  if (current !== target) {
+    await gitCli(repoPath, ["checkout", target]);
+  }
+
+  const args = ["merge"];
+  const mode = typeof fastForward === "string" ? fastForward : "ff";
+  if (mode === "no_ff") {
+    args.push("--no-ff");
+  } else if (mode === "ff_only") {
+    args.push("--ff-only");
+  }
+  const strategyText = optionalText(strategy);
+  if (strategyText) {
+    args.push(`--strategy=${strategyText}`);
+  }
+  args.push(source);
+
+  try {
+    await gitCli(repoPath, args);
+  } catch (error) {
+    try {
+      await gitCli(repoPath, ["merge", "--abort"]);
+    } catch {}
+    if (current && current !== target) {
+      try {
+        await gitCli(repoPath, ["checkout", current]);
+      } catch {}
+    }
+    throw error;
+  }
+  return `已将 ${source} 合并到 ${target}`;
+}
+
 async function hashWorktreePath(repoPath, relativePath) {
   const targetPath = resolveTargetPath(repoPath, relativePath);
   if (!fs.existsSync(targetPath)) {
@@ -1105,6 +1214,33 @@ async function executeCommand(input) {
           input.branchName,
           input.mode,
           Boolean(input.autoStash),
+        ),
+      };
+    case "checkout_branch":
+      return {
+        message: await checkoutBranch(repoPath, input.branchName),
+      };
+    case "create_branch":
+      return {
+        message: await createBranch(
+          repoPath,
+          input.branchName,
+          input.baseBranch,
+          Boolean(input.checkout),
+        ),
+      };
+    case "delete_branch":
+      return {
+        message: await deleteBranch(repoPath, input.branchName, Boolean(input.force)),
+      };
+    case "merge_branches":
+      return {
+        message: await mergeBranches(
+          repoPath,
+          input.sourceBranch,
+          input.targetBranch,
+          input.fastForward,
+          input.strategy,
         ),
       };
     case "ensure_task_branch":

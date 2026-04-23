@@ -2665,6 +2665,26 @@ fn normalize_project_git_pull_mode(value: Option<String>) -> Result<String, Stri
     }
 }
 
+fn normalize_project_git_merge_fast_forward(value: Option<String>) -> Result<String, String> {
+    match trim_optional(value).as_deref() {
+        None | Some("ff") => Ok("ff".to_string()),
+        Some("no_ff") => Ok("no_ff".to_string()),
+        Some("ff_only") => Ok("ff_only".to_string()),
+        Some(other) => Err(format!("不支持的合并模式：{}", other)),
+    }
+}
+
+fn normalize_project_git_merge_strategy(value: Option<String>) -> Result<Option<String>, String> {
+    let trimmed = trim_optional(value);
+    match trimmed.as_deref() {
+        None => Ok(None),
+        Some("ort") | Some("recursive") | Some("resolve") | Some("ours") | Some("subtree") => {
+            Ok(trimmed)
+        }
+        Some(other) => Err(format!("不支持的合并策略：{}", other)),
+    }
+}
+
 #[tauri::command]
 pub async fn stage_project_git_file<R: Runtime>(
     app: AppHandle<R>,
@@ -2877,6 +2897,160 @@ pub async fn pull_project_git_branch<R: Runtime>(
     insert_activity_log(
         &pool,
         "project_git_pulled",
+        &result,
+        None,
+        None,
+        Some(&project.id),
+    )
+    .await?;
+
+    Ok(result)
+}
+
+#[tauri::command]
+pub async fn checkout_project_git_branch<R: Runtime>(
+    app: AppHandle<R>,
+    project_id: String,
+    branch_name: String,
+) -> Result<String, String> {
+    let branch_name = trim_optional(Some(branch_name))
+        .ok_or_else(|| "分支名不能为空".to_string())?;
+    let (pool, project, runtime) =
+        resolve_project_runtime_for_git_overview(&app, &project_id).await?;
+
+    let result = git_runtime::checkout_branch(
+        &app,
+        &runtime.execution_target,
+        runtime.ssh_config_id.as_deref(),
+        &runtime.repo_path,
+        &branch_name,
+    )
+    .await?;
+
+    insert_activity_log(
+        &pool,
+        "project_git_branch_checked_out",
+        &result,
+        None,
+        None,
+        Some(&project.id),
+    )
+    .await?;
+
+    Ok(result)
+}
+
+#[tauri::command]
+pub async fn create_project_git_branch<R: Runtime>(
+    app: AppHandle<R>,
+    project_id: String,
+    branch_name: String,
+    base_branch: Option<String>,
+    checkout: Option<bool>,
+) -> Result<String, String> {
+    let branch_name = trim_optional(Some(branch_name))
+        .ok_or_else(|| "新分支名不能为空".to_string())?;
+    let base_branch = trim_optional(base_branch);
+    let checkout = checkout.unwrap_or(false);
+    let (pool, project, runtime) =
+        resolve_project_runtime_for_git_overview(&app, &project_id).await?;
+
+    let result = git_runtime::create_branch(
+        &app,
+        &runtime.execution_target,
+        runtime.ssh_config_id.as_deref(),
+        &runtime.repo_path,
+        &branch_name,
+        base_branch.as_deref(),
+        checkout,
+    )
+    .await?;
+
+    insert_activity_log(
+        &pool,
+        "project_git_branch_created",
+        &result,
+        None,
+        None,
+        Some(&project.id),
+    )
+    .await?;
+
+    Ok(result)
+}
+
+#[tauri::command]
+pub async fn delete_project_git_branch<R: Runtime>(
+    app: AppHandle<R>,
+    project_id: String,
+    branch_name: String,
+    force: Option<bool>,
+) -> Result<String, String> {
+    let branch_name = trim_optional(Some(branch_name))
+        .ok_or_else(|| "待删除分支名不能为空".to_string())?;
+    let force = force.unwrap_or(false);
+    let (pool, project, runtime) =
+        resolve_project_runtime_for_git_overview(&app, &project_id).await?;
+
+    let result = git_runtime::delete_branch(
+        &app,
+        &runtime.execution_target,
+        runtime.ssh_config_id.as_deref(),
+        &runtime.repo_path,
+        &branch_name,
+        force,
+    )
+    .await?;
+
+    insert_activity_log(
+        &pool,
+        "project_git_branch_deleted",
+        &result,
+        None,
+        None,
+        Some(&project.id),
+    )
+    .await?;
+
+    Ok(result)
+}
+
+#[tauri::command]
+pub async fn merge_project_git_branches<R: Runtime>(
+    app: AppHandle<R>,
+    project_id: String,
+    source_branch: String,
+    target_branch: String,
+    fast_forward: Option<String>,
+    strategy: Option<String>,
+) -> Result<String, String> {
+    let source_branch = trim_optional(Some(source_branch))
+        .ok_or_else(|| "源分支不能为空".to_string())?;
+    let target_branch = trim_optional(Some(target_branch))
+        .ok_or_else(|| "目标分支不能为空".to_string())?;
+    if source_branch == target_branch {
+        return Err("源分支和目标分支不能相同".to_string());
+    }
+    let fast_forward = normalize_project_git_merge_fast_forward(fast_forward)?;
+    let strategy = normalize_project_git_merge_strategy(strategy)?;
+    let (pool, project, runtime) =
+        resolve_project_runtime_for_git_overview(&app, &project_id).await?;
+
+    let result = git_runtime::merge_branches(
+        &app,
+        &runtime.execution_target,
+        runtime.ssh_config_id.as_deref(),
+        &runtime.repo_path,
+        &source_branch,
+        &target_branch,
+        &fast_forward,
+        strategy.as_deref(),
+    )
+    .await?;
+
+    insert_activity_log(
+        &pool,
+        "project_git_branches_merged",
         &result,
         None,
         None,
