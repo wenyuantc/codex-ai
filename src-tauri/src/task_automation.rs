@@ -1317,7 +1317,10 @@ async fn restart_fix_step(
 }
 
 fn restart_fix_round_state(state_record: &TaskAutomationStateRecord) -> (Option<i32>, i32) {
-    if state_record.phase == PHASE_BLOCKED {
+    if matches!(
+        state_record.phase.as_str(),
+        PHASE_BLOCKED | PHASE_MANUAL_CONTROL
+    ) {
         (Some(0), 0)
     } else {
         (
@@ -2318,7 +2321,7 @@ mod tests {
     }
 
     #[test]
-    fn non_blocked_fix_restart_keeps_existing_round_count() {
+    fn manual_control_fix_restart_resets_round_count() {
         let state = TaskAutomationStateRecord {
             task_id: "task-1".to_string(),
             phase: "manual_control".to_string(),
@@ -2328,6 +2331,24 @@ mod tests {
             pending_action: None,
             pending_round_count: Some(4),
             last_error: Some("manual".to_string()),
+            last_verdict_json: None,
+            updated_at: "2026-04-22 00:00:00".to_string(),
+        };
+
+        assert_eq!(restart_fix_round_state(&state), (Some(0), 0));
+    }
+
+    #[test]
+    fn non_terminal_fix_restart_keeps_existing_round_count() {
+        let state = TaskAutomationStateRecord {
+            task_id: "task-1".to_string(),
+            phase: "launching_fix".to_string(),
+            round_count: 3,
+            consumed_session_id: Some("session-1".to_string()),
+            last_trigger_session_id: Some("session-1".to_string()),
+            pending_action: None,
+            pending_round_count: Some(4),
+            last_error: Some("launching".to_string()),
             last_verdict_json: None,
             updated_at: "2026-04-22 00:00:00".to_string(),
         };
