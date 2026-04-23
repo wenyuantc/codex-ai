@@ -82,6 +82,8 @@ pub fn run() {
             git_workflow::unstage_project_git_file,
             git_workflow::stage_all_project_git_files,
             git_workflow::unstage_all_project_git_files,
+            git_workflow::rollback_project_git_files,
+            git_workflow::rollback_all_project_git_changes,
             git_workflow::stage_all_task_git_files,
             git_workflow::commit_project_git_changes,
             git_workflow::commit_task_git_changes,

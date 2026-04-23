@@ -654,6 +654,46 @@ pub(crate) async fn unstage_all<R: Runtime>(
     Ok(result.message)
 }
 
+pub(crate) async fn restore_path<R: Runtime>(
+    app: &AppHandle<R>,
+    execution_target: &str,
+    ssh_config_id: Option<&str>,
+    repo_path: &str,
+    target_path: &str,
+) -> Result<String, String> {
+    let result: GitBridgeMessageResult = call_bridge(
+        app,
+        execution_target,
+        ssh_config_id,
+        serde_json::json!({
+            "command": "restore_path",
+            "repoPath": repo_path,
+            "targetPath": target_path,
+        }),
+    )
+    .await?;
+    Ok(result.message)
+}
+
+pub(crate) async fn restore_all<R: Runtime>(
+    app: &AppHandle<R>,
+    execution_target: &str,
+    ssh_config_id: Option<&str>,
+    repo_path: &str,
+) -> Result<String, String> {
+    let result: GitBridgeMessageResult = call_bridge(
+        app,
+        execution_target,
+        ssh_config_id,
+        serde_json::json!({
+            "command": "restore_all",
+            "repoPath": repo_path,
+        }),
+    )
+    .await?;
+    Ok(result.message)
+}
+
 pub(crate) async fn commit_changes<R: Runtime>(
     app: &AppHandle<R>,
     execution_target: &str,

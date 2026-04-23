@@ -2708,6 +2708,72 @@ pub async fn unstage_all_project_git_files<R: Runtime>(
 }
 
 #[tauri::command]
+pub async fn rollback_project_git_files<R: Runtime>(
+    app: AppHandle<R>,
+    project_id: String,
+    relative_paths: Vec<String>,
+) -> Result<String, String> {
+    let paths: Vec<String> = relative_paths
+        .into_iter()
+        .map(|p| p.trim().to_string())
+        .filter(|p| !p.is_empty())
+        .collect();
+    if paths.is_empty() {
+        return Err("至少需要指定一个文件路径".to_string());
+    }
+    let (pool, project, runtime) =
+        resolve_project_runtime_for_git_overview(&app, &project_id).await?;
+    for path in &paths {
+        git_runtime::restore_path(
+            &app,
+            &runtime.execution_target,
+            runtime.ssh_config_id.as_deref(),
+            &runtime.repo_path,
+            path,
+        )
+        .await?;
+    }
+    let details = format!("已回滚 {} 个工作区文件", paths.len());
+    insert_activity_log(
+        &pool,
+        "project_git_rollback_files",
+        &details,
+        None,
+        None,
+        Some(&project.id),
+    )
+    .await?;
+    Ok(details)
+}
+
+#[tauri::command]
+pub async fn rollback_all_project_git_changes<R: Runtime>(
+    app: AppHandle<R>,
+    project_id: String,
+) -> Result<String, String> {
+    let (pool, project, runtime) =
+        resolve_project_runtime_for_git_overview(&app, &project_id).await?;
+    git_runtime::restore_all(
+        &app,
+        &runtime.execution_target,
+        runtime.ssh_config_id.as_deref(),
+        &runtime.repo_path,
+    )
+    .await?;
+    let details = "已回滚当前项目全部工作区变更".to_string();
+    insert_activity_log(
+        &pool,
+        "project_git_rollback_all",
+        &details,
+        None,
+        None,
+        Some(&project.id),
+    )
+    .await?;
+    Ok(details)
+}
+
+#[tauri::command]
 pub async fn commit_project_git_changes<R: Runtime>(
     app: AppHandle<R>,
     project_id: String,

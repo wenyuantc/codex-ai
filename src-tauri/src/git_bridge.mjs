@@ -649,6 +649,43 @@ async function unstageAll(repoPath) {
   await gitRaw(repoPath, ["rm", "--cached", "-r", "--ignore-unmatch", "--", "."]);
 }
 
+async function restorePath(repoPath, targetPath) {
+  const normalizedPath = normalizeGitPathArg(repoPath, targetPath);
+  if (await hasHeadCommit(repoPath)) {
+    try {
+      await gitRaw(repoPath, ["restore", "--staged", "--", normalizedPath]);
+    } catch { /* file may not be staged or not tracked by HEAD */ }
+    try {
+      await gitRaw(repoPath, ["restore", "--", normalizedPath]);
+    } catch { /* file may be untracked */ }
+  } else {
+    try {
+      await gitRaw(repoPath, ["rm", "--cached", "-r", "--ignore-unmatch", "--", normalizedPath]);
+    } catch { /* ignore */ }
+  }
+  try {
+    await gitRaw(repoPath, ["clean", "-fd", "--", normalizedPath]);
+  } catch { /* ignore */ }
+}
+
+async function restoreAll(repoPath) {
+  if (await hasHeadCommit(repoPath)) {
+    try {
+      await gitRaw(repoPath, ["restore", "--staged", "--", "."]);
+    } catch { /* ignore */ }
+    try {
+      await gitRaw(repoPath, ["restore", "--", "."]);
+    } catch { /* ignore */ }
+  } else {
+    try {
+      await gitRaw(repoPath, ["rm", "--cached", "-r", "--ignore-unmatch", "--", "."]);
+    } catch { /* ignore */ }
+  }
+  try {
+    await gitRaw(repoPath, ["clean", "-fd"]);
+  } catch { /* ignore */ }
+}
+
 async function hasStagedChanges(repoPath) {
   const statusOutput = await gitRaw(repoPath, ["status", "--porcelain=v1", "-z", "--untracked-files=all"]);
   return parseStatusEntries(statusOutput).some((entry) => {
@@ -1048,6 +1085,12 @@ async function executeCommand(input) {
     case "unstage_all":
       await unstageAll(repoPath);
       return { message: "已取消暂存全部文件" };
+    case "restore_path":
+      await restorePath(repoPath, input.targetPath);
+      return { message: "已回滚文件" };
+    case "restore_all":
+      await restoreAll(repoPath);
+      return { message: "已回滚全部工作区变更" };
     case "commit_changes":
       return { message: await commitChanges(repoPath, input.message) };
     case "push_branch":

@@ -11,6 +11,8 @@ import {
   getProjectGitOverview,
   listProjectGitCommits,
   reconcileTaskGitContext,
+  rollbackAllProjectGitChanges,
+  rollbackProjectGitFiles,
   stageAllProjectGitFiles,
   stageProjectGitFile,
   unstageAllProjectGitFiles,
@@ -32,6 +34,14 @@ import type {
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { EditProjectDialog } from "@/components/projects/EditProjectDialog";
 import { DeleteProjectDialog } from "@/components/projects/DeleteProjectDialog";
 import { DeleteTaskGitContextDialog } from "@/components/projects/DeleteTaskGitContextDialog";
@@ -208,6 +218,10 @@ export function ProjectDetailPage() {
   const [deletingContextId, setDeletingContextId] = useState<string | null>(null);
   const [pendingDeleteContext, setPendingDeleteContext] = useState<TaskGitContext | null>(null);
   const [gitOverviewReloadNonce, setGitOverviewReloadNonce] = useState(0);
+  const [selectedFiles, setSelectedFiles] = useState<Set<string>>(new Set());
+  const [selectedFilesStageAction, setSelectedFilesStageAction] = useState<"stage" | "unstage" | null>(null);
+  const [rollbackConfirm, setRollbackConfirm] = useState<{ target: "selected" | "all" } | null>(null);
+  const [rollbackInProgress, setRollbackInProgress] = useState(false);
   const recentCommitsRequestIdRef = useRef(0);
   const commitDetailRequestIdRef = useRef(0);
   const filePreviewRequestIdRef = useRef(0);
@@ -607,6 +621,72 @@ export function ProjectDetailPage() {
     }
   };
 
+  const handleStageSelectedFiles = async (action: "stage" | "unstage") => {
+    if (!project || selectedFiles.size === 0) {
+      return;
+    }
+    setSelectedFilesStageAction(action);
+    setGitActionNotice(null);
+    try {
+      const paths = Array.from(selectedFiles);
+      for (const path of paths) {
+        if (action === "stage") {
+          await stageProjectGitFile(project.id, path);
+        } else {
+          await unstageProjectGitFile(project.id, path);
+        }
+      }
+      updateWorkingTreeStageStatuses((change) => {
+        if (!selectedFiles.has(change.path)) return change;
+        return {
+          ...change,
+          stage_status:
+            action === "stage"
+              ? "staged"
+              : (change.change_type === "added" && !change.previous_path ? "untracked" : "unstaged"),
+        };
+      });
+      setGitActionNotice({
+        tone: "success",
+        message: `已${action === "stage" ? "暂存" : "取消暂存"} ${paths.length} 个文件`,
+      });
+    } catch (error) {
+      setGitActionNotice({
+        tone: "error",
+        message: error instanceof Error ? error.message : String(error),
+      });
+    } finally {
+      setSelectedFilesStageAction(null);
+    }
+  };
+
+  const handleRollback = async (target: "selected" | "all") => {
+    if (!project) {
+      return;
+    }
+    setRollbackInProgress(true);
+    setGitActionNotice(null);
+    try {
+      let message: string;
+      if (target === "all") {
+        message = await rollbackAllProjectGitChanges(project.id);
+      } else {
+        message = await rollbackProjectGitFiles(project.id, Array.from(selectedFiles));
+        setSelectedFiles(new Set());
+      }
+      setGitActionNotice({ tone: "success", message });
+      setRollbackConfirm(null);
+      handleGitOverviewRefresh();
+    } catch (error) {
+      setGitActionNotice({
+        tone: "error",
+        message: error instanceof Error ? error.message : String(error),
+      });
+    } finally {
+      setRollbackInProgress(false);
+    }
+  };
+
   if (!project) {
     return (
       <div className="text-center py-12">
@@ -839,11 +919,28 @@ export function ProjectDetailPage() {
               </div>
 
               <div className="mb-2 flex items-center justify-between">
-                <div>
-                  <h4 className="text-sm font-medium">工作区文件</h4>
-                  <p className="text-[11px] text-muted-foreground">
-                    当前仓库实时变更文件列表，可直接在应用内预览文件内容。
-                  </p>
+                <div className="flex items-center gap-2">
+                  {gitOverview.working_tree_changes.length > 0 && (
+                    <input
+                      type="checkbox"
+                      className="h-3.5 w-3.5 cursor-pointer rounded"
+                      checked={
+                        gitOverview.working_tree_changes.length > 0 &&
+                        gitOverview.working_tree_changes.slice(0, 20).every((c) => selectedFiles.has(c.path))
+                      }
+                      onChange={(e) => {
+                        const paths = gitOverview.working_tree_changes.slice(0, 20).map((c) => c.path);
+                        setSelectedFiles(e.target.checked ? new Set(paths) : new Set());
+                      }}
+                      title="全选/取消全选"
+                    />
+                  )}
+                  <div>
+                    <h4 className="text-sm font-medium">工作区文件</h4>
+                    <p className="text-[11px] text-muted-foreground">
+                      当前仓库实时变更文件列表，可直接在应用内预览文件内容。
+                    </p>
+                  </div>
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="text-xs text-muted-foreground">{gitOverview.working_tree_changes.length} 条</span>
@@ -869,6 +966,52 @@ export function ProjectDetailPage() {
                   >
                     {bulkStageAction === "unstage_all" ? "取消中..." : "全部取消暂存"}
                   </Button>
+                  {selectedFiles.size > 0 && (
+                    <>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        disabled={selectedFilesStageAction !== null || rollbackInProgress}
+                        onClick={() => void handleStageSelectedFiles("stage")}
+                      >
+                        {selectedFilesStageAction === "stage" ? "暂存中..." : `暂存选中 (${selectedFiles.size})`}
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        disabled={selectedFilesStageAction !== null || rollbackInProgress}
+                        onClick={() => void handleStageSelectedFiles("unstage")}
+                      >
+                        {selectedFilesStageAction === "unstage" ? "取消中..." : `取消暂存选中 (${selectedFiles.size})`}
+                      </Button>
+                    </>
+                  )}
+                  {selectedFiles.size > 0 && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      disabled={rollbackInProgress}
+                      onClick={() => setRollbackConfirm({ target: "selected" })}
+                      className="border-orange-500/50 text-orange-700 hover:bg-orange-50 hover:text-orange-800"
+                    >
+                      回滚选中 ({selectedFiles.size})
+                    </Button>
+                  )}
+                  {gitOverview.working_tree_changes.length > 0 && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      disabled={rollbackInProgress}
+                      onClick={() => setRollbackConfirm({ target: "all" })}
+                      className="border-red-500/50 text-red-700 hover:bg-red-50 hover:text-red-800"
+                    >
+                      全局回滚
+                    </Button>
+                  )}
                 </div>
               </div>
               {gitOverview.working_tree_changes.length === 0 ? (
@@ -900,6 +1043,24 @@ export function ProjectDetailPage() {
                     >
                       <div className="flex flex-wrap items-center justify-between gap-2">
                         <div className="flex min-w-0 flex-wrap items-center gap-2">
+                          <input
+                            type="checkbox"
+                            className="h-3.5 w-3.5 cursor-pointer rounded"
+                            checked={selectedFiles.has(change.path)}
+                            onChange={(e) => {
+                              e.stopPropagation();
+                              setSelectedFiles((prev) => {
+                                const next = new Set(prev);
+                                if (e.target.checked) {
+                                  next.add(change.path);
+                                } else {
+                                  next.delete(change.path);
+                                }
+                                return next;
+                              });
+                            }}
+                            onClick={(e) => e.stopPropagation()}
+                          />
                           <span
                             className={`rounded-md border px-1.5 py-0.5 text-[11px] font-medium ${getWorkingTreeChangeClassName(change.change_type)}`}
                           >
@@ -1371,6 +1532,53 @@ export function ProjectDetailPage() {
         }}
         onActionCompleted={handleRepoActionCompleted}
       />
+
+      <Dialog
+        open={rollbackConfirm !== null}
+        onOpenChange={(open) => {
+          if (!open && !rollbackInProgress) {
+            setRollbackConfirm(null);
+          }
+        }}
+      >
+        <DialogContent className="max-w-md" showCloseButton={!rollbackInProgress}>
+          <DialogHeader>
+            <DialogTitle>
+              {rollbackConfirm?.target === "all" ? "确认全局回滚" : `确认回滚 ${selectedFiles.size} 个文件`}
+            </DialogTitle>
+            <DialogDescription>
+              此操作将丢弃所有本地未提交的变更，且无法撤销。请确认后再继续。
+            </DialogDescription>
+          </DialogHeader>
+
+          {rollbackConfirm?.target === "selected" && selectedFiles.size > 0 && (
+            <div className="max-h-40 overflow-y-auto rounded-md border border-border/60 bg-secondary/30 px-3 py-2 text-xs text-muted-foreground">
+              {Array.from(selectedFiles).map((path) => (
+                <div key={path} className="break-all font-mono py-0.5">{path}</div>
+              ))}
+            </div>
+          )}
+
+          <DialogFooter className="mt-2">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setRollbackConfirm(null)}
+              disabled={rollbackInProgress}
+            >
+              取消
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              onClick={() => void handleRollback(rollbackConfirm?.target ?? "all")}
+              disabled={rollbackInProgress}
+            >
+              {rollbackInProgress ? "回滚中..." : "确认回滚"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

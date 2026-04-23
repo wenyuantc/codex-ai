@@ -414,6 +414,14 @@ export async function unstageAllProjectGitFiles(projectId: string): Promise<stri
   return invoke("unstage_all_project_git_files", { projectId });
 }
 
+export async function rollbackProjectGitFiles(projectId: string, relativePaths: string[]): Promise<string> {
+  return invoke("rollback_project_git_files", { projectId, relativePaths });
+}
+
+export async function rollbackAllProjectGitChanges(projectId: string): Promise<string> {
+  return invoke("rollback_all_project_git_changes", { projectId });
+}
+
 export async function commitProjectGitChanges(projectId: string, message: string): Promise<string> {
   return invoke("commit_project_git_changes", { projectId, message });
 }
