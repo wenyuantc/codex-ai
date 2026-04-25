@@ -60,6 +60,7 @@ use self::{
 };
 
 const SUPPORTED_MODELS: &[&str] = &[
+    "gpt-5.5",
     "gpt-5.4",
     "gpt-5.2-codex",
     "gpt-5.1-codex-max",
@@ -197,9 +198,19 @@ fn normalize_session_kind(session_kind: Option<&str>) -> CodexSessionKind {
     }
 }
 
+fn codex_session_kind_to_claude(
+    session_kind: CodexSessionKind,
+) -> crate::claude::ClaudeSessionKind {
+    match session_kind {
+        CodexSessionKind::Execution => crate::claude::ClaudeSessionKind::Execution,
+        CodexSessionKind::Review => crate::claude::ClaudeSessionKind::Review,
+    }
+}
+
 fn normalize_model(model: Option<&str>) -> &'static str {
     match model {
         Some(value) if SUPPORTED_MODELS.contains(&value) => match value {
+            "gpt-5.5" => "gpt-5.5",
             "gpt-5.4" => "gpt-5.4",
             "gpt-5.2-codex" => "gpt-5.2-codex",
             "gpt-5.1-codex-max" => "gpt-5.1-codex-max",
@@ -567,7 +578,7 @@ fn collect_available_image_paths(image_paths: Option<Vec<String>>) -> (Vec<Strin
     (available, missing)
 }
 
-async fn prepare_execution_image_paths<R: Runtime>(
+pub(crate) async fn prepare_execution_image_paths<R: Runtime>(
     app: &AppHandle<R>,
     task_id: Option<&str>,
     execution_target: &str,
@@ -681,6 +692,39 @@ pub async fn get_live_task_process_by_task<R: Runtime>(
     get_live_task_process_by_task_with_manager(app, manager_state, task_id, session_kind).await
 }
 
+pub(crate) fn capture_external_execution_change_baseline(
+    repo_path: &str,
+) -> Result<ExecutionChangeBaseline, String> {
+    capture_execution_change_baseline(repo_path)
+}
+
+pub(crate) async fn capture_external_remote_execution_change_baseline<R: Runtime>(
+    app: &AppHandle<R>,
+    ssh_config: &SshConfigRecord,
+    working_dir: &str,
+) -> Result<ExecutionChangeBaseline, String> {
+    capture_remote_execution_change_baseline(app, ssh_config, working_dir).await
+}
+
+pub(crate) async fn persist_external_execution_change_history<R: Runtime>(
+    app: &AppHandle<R>,
+    session_record_id: &str,
+    session_kind: CodexSessionKind,
+    provider: CodexExecutionProvider,
+    execution_change_baseline: Option<&ExecutionChangeBaseline>,
+    sdk_file_change_store: Option<&SdkFileChangeStore>,
+) {
+    persist_execution_change_history(
+        app,
+        session_record_id,
+        session_kind,
+        provider,
+        execution_change_baseline,
+        sdk_file_change_store,
+    )
+    .await;
+}
+
 pub async fn start_codex_with_manager(
     app: AppHandle,
     manager_state: Arc<Mutex<CodexManager>>,
@@ -709,6 +753,21 @@ pub async fn start_codex_with_manager(
                 session_kind.as_str()
             ));
         }
+        if let Some(claude_state) =
+            app.try_state::<Arc<tokio::sync::Mutex<crate::claude::ClaudeManager>>>()
+        {
+            let manager = claude_state.lock().await;
+            if manager
+                .get_task_process_any(task_id, codex_session_kind_to_claude(session_kind))
+                .is_some()
+            {
+                return Err(format!(
+                    "任务{}的{}会话已在运行",
+                    task_id,
+                    session_kind.as_str()
+                ));
+            }
+        }
     } else if get_live_managed_process_with_manager(&app, &manager_state, &employee_id)
         .await?
         .is_some()
@@ -717,6 +776,16 @@ pub async fn start_codex_with_manager(
             "员工{}已有未绑定任务的 Codex 会话在运行",
             employee_id
         ));
+    } else if let Some(claude_state) =
+        app.try_state::<Arc<tokio::sync::Mutex<crate::claude::ClaudeManager>>>()
+    {
+        let manager = claude_state.lock().await;
+        if manager.has_employee_processes(&employee_id) {
+            return Err(format!(
+                "员工{}已有未绑定任务的 Claude 会话在运行",
+                employee_id
+            ));
+        }
     }
 
     let execution_context =
@@ -791,6 +860,8 @@ pub async fn start_codex_with_manager(
         execution_context.ssh_config_id.as_deref(),
         execution_context.target_host_label.as_deref(),
         &execution_context.artifact_capture_mode,
+        None,
+        None,
     )
     .await?;
     let pool = sqlite_pool(&app).await?;

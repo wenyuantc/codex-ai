@@ -1,4 +1,5 @@
 mod app;
+mod claude;
 mod codex;
 mod db;
 mod git_runtime;
@@ -12,6 +13,7 @@ mod window_state;
 
 use std::sync::{Arc, Mutex};
 
+use claude::ClaudeManager;
 use codex::CodexManager;
 use tauri::Manager;
 
@@ -32,6 +34,7 @@ pub fn run() {
         .setup(|app| {
             tray::create_tray(app)?;
             app.manage(Arc::new(Mutex::new(CodexManager::new())));
+            app.manage(Arc::new(tokio::sync::Mutex::new(ClaudeManager::new())));
             let app_handle = app.handle().clone();
             if let Err(error) = window_state::restore_main_window_size(&app_handle) {
                 eprintln!("恢复主窗口尺寸失败: {error}");
@@ -160,6 +163,13 @@ pub fn run() {
             codex::ai_optimize_prompt,
             codex::ai_generate_plan,
             codex::ai_split_subtasks,
+            claude::get_claude_settings,
+            claude::update_claude_settings,
+            claude::check_claude_sdk_health,
+            claude::install_claude_sdk,
+            claude::start_claude,
+            claude::stop_claude_session,
+            claude::stop_claude,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

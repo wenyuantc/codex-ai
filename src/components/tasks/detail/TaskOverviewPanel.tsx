@@ -130,14 +130,15 @@ export function TaskOverviewPanel({
             value={assigneeId || UNASSIGNED_VALUE}
             onValueChange={(value) => onAssigneeChange(!value || value === UNASSIGNED_VALUE ? "" : value)}
           >
-            <SelectTrigger className="h-7 w-[176px] shrink-0 rounded-md px-2 text-xs">
+            <SelectTrigger className="h-7 w-[240px] shrink-0 rounded-md px-2 text-xs">
               <SelectValue>
                 {(value) => {
                   if (!value || value === UNASSIGNED_VALUE) {
                     return "未指派";
                   }
 
-                  return employees.find((emp) => emp.id === value)?.name ?? "未指派";
+                  const emp = employees.find((e) => e.id === value);
+                  return emp ? `${emp.name} · ${emp.ai_provider === "claude" ? "Claude" : "Codex"}` : "未指派";
                 }}
               </SelectValue>
             </SelectTrigger>
@@ -145,7 +146,7 @@ export function TaskOverviewPanel({
               <SelectItem value={UNASSIGNED_VALUE}>未指派</SelectItem>
               {employees.map((emp) => (
                 <SelectItem key={emp.id} value={emp.id}>
-                  {emp.name}
+                  {emp.name} · {emp.ai_provider === "claude" ? "Claude" : "Codex"}
                 </SelectItem>
               ))}
             </SelectContent>
@@ -158,14 +159,15 @@ export function TaskOverviewPanel({
             value={reviewerId || UNASSIGNED_VALUE}
             onValueChange={(value) => onReviewerChange(!value || value === UNASSIGNED_VALUE ? "" : value)}
           >
-            <SelectTrigger className="h-7 w-[176px] shrink-0 rounded-md px-2 text-xs">
+            <SelectTrigger className="h-7 w-[240px] shrink-0 rounded-md px-2 text-xs">
               <SelectValue>
                 {(value) => {
                   if (!value || value === UNASSIGNED_VALUE) {
                     return "未指定";
                   }
 
-                  return employees.find((emp) => emp.id === value)?.name ?? "未指定";
+                  const emp = employees.find((e) => e.id === value);
+                  return emp ? `${emp.name} · ${emp.ai_provider === "claude" ? "Claude" : "Codex"}` : "未指定";
                 }}
               </SelectValue>
             </SelectTrigger>
@@ -173,7 +175,7 @@ export function TaskOverviewPanel({
               <SelectItem value={UNASSIGNED_VALUE}>未指定</SelectItem>
               {reviewerCandidates.map((emp) => (
                 <SelectItem key={emp.id} value={emp.id}>
-                  {emp.name}
+                  {emp.name} · {emp.ai_provider === "claude" ? "Claude" : "Codex"}
                 </SelectItem>
               ))}
             </SelectContent>

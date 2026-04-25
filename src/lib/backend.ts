@@ -1,8 +1,12 @@
 import { invoke } from "@tauri-apps/api/core";
 import { normalizeProject } from "./projects";
 import type {
+  AiProvider,
   AppNotification,
   ArtifactCaptureMode,
+  ClaudeHealthCheck,
+  ClaudeSettings,
+  ClaudeSdkInstallResult,
   CodexHealthCheck,
   CodexSdkInstallResult,
   CodexSettings,
@@ -204,6 +208,7 @@ export interface CreateEmployeeInput {
   specialization?: string | null;
   system_prompt?: string | null;
   project_id?: string | null;
+  ai_provider?: AiProvider;
 }
 
 export interface UpdateEmployeeInput {
@@ -214,6 +219,7 @@ export interface UpdateEmployeeInput {
   specialization?: string | null;
   system_prompt?: string | null;
   project_id?: string | null;
+  ai_provider?: AiProvider;
   status?: string;
 }
 
@@ -757,6 +763,24 @@ export async function installRemoteCodexSdk(
   sshConfigId: string,
 ): Promise<RemoteCodexSdkInstallResult> {
   return invoke("install_remote_codex_sdk", { sshConfigId });
+}
+
+export async function getClaudeSettings(): Promise<ClaudeSettings> {
+  return invoke("get_claude_settings");
+}
+
+export async function updateClaudeSettings(
+  updates: Partial<ClaudeSettings>,
+): Promise<ClaudeSettings> {
+  return invoke("update_claude_settings", { updates });
+}
+
+export async function checkClaudeSdkHealth(): Promise<ClaudeHealthCheck> {
+  return invoke("check_claude_sdk_health");
+}
+
+export async function installClaudeSdk(): Promise<ClaudeSdkInstallResult> {
+  return invoke("install_claude_sdk");
 }
 
 export async function createProject(input: CreateProjectInput): Promise<Project> {

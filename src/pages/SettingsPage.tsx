@@ -17,17 +17,21 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   backupDatabase,
+  checkClaudeSdkHealth,
   createSshConfig as createSshConfigCommand,
   deleteSshConfig as deleteSshConfigCommand,
+  getClaudeSettings,
   getCodexSettings,
   getRemoteCodexSettings,
   getRemoteHealthCheck,
   healthCheck,
+  installClaudeSdk,
   installCodexSdk,
   installRemoteCodexSdk,
   openDatabaseFolder,
   restoreDatabase,
   syncSystemNotifications,
+  updateClaudeSettings,
   updateCodexSettings,
   updateRemoteCodexSettings,
   updateSshConfig as updateSshConfigCommand,
@@ -44,6 +48,7 @@ import {
   normalizeWorktreeLocationMode,
   type AiCommitMessageLength,
   type AiCommitModelSource,
+  type ClaudeHealthCheck,
   type CodexHealthCheck,
   type CodexModelId,
   type CodexSettings,
@@ -81,6 +86,26 @@ const DEFAULT_GIT_PREFERENCES: GitPreferences = {
   ai_commit_model: "gpt-5.4",
   ai_commit_reasoning_effort: "high",
 };
+
+const CLAUDE_DEFAULT_EFFORT_TO_BUDGET: Record<string, number> = {
+  low: 5000,
+  medium: 10000,
+  high: 16000,
+  xhigh: 32000,
+  max: 128000,
+};
+
+function claudeBudgetToDefaultEffort(budget: number): string {
+  if (budget >= CLAUDE_DEFAULT_EFFORT_TO_BUDGET.max) return "max";
+  if (budget >= CLAUDE_DEFAULT_EFFORT_TO_BUDGET.xhigh) return "xhigh";
+  if (budget >= CLAUDE_DEFAULT_EFFORT_TO_BUDGET.high) return "high";
+  if (budget >= CLAUDE_DEFAULT_EFFORT_TO_BUDGET.medium) return "medium";
+  return "low";
+}
+
+function claudeDefaultEffortToBudget(effort: string): number {
+  return CLAUDE_DEFAULT_EFFORT_TO_BUDGET[effort] ?? CLAUDE_DEFAULT_EFFORT_TO_BUDGET.medium;
+}
 
 function formatBackupTimestamp(date = new Date()) {
   const year = date.getFullYear();
@@ -163,6 +188,15 @@ export function SettingsPage() {
   const [sshFormLoading, setSshFormLoading] = useState<"save" | "delete" | "probe" | null>(null);
   const [sshFormMessage, setSshFormMessage] = useState<string | null>(null);
   const [sshFormError, setSshFormError] = useState<string | null>(null);
+  const [claudeHealth, setClaudeHealth] = useState<ClaudeHealthCheck | null>(null);
+  const [claudeSdkEnabled, setClaudeSdkEnabled] = useState(false);
+  const [claudeDefaultModel, setClaudeDefaultModel] = useState("claude-sonnet-4-6");
+  const [claudeDefaultEffort, setClaudeDefaultEffort] = useState("medium");
+  const [claudeNodePathOverride, setClaudeNodePathOverride] = useState("");
+  const [claudeCliPathOverride, setClaudeCliPathOverride] = useState("");
+  const [claudeActionLoading, setClaudeActionLoading] = useState<"save" | "install" | null>(null);
+  const [claudeActionMessage, setClaudeActionMessage] = useState<string | null>(null);
+  const [claudeActionError, setClaudeActionError] = useState<string | null>(null);
 
   const selectedSshConfig = useMemo(
     () => sshConfigs.find((config) => config.id === selectedSshConfigId) ?? null,
@@ -271,6 +305,35 @@ export function SettingsPage() {
     }
   }
 
+  async function loadClaudeState() {
+    if (isRemoteMode) {
+      setClaudeHealth(null);
+      setClaudeSdkEnabled(false);
+      setClaudeDefaultModel("claude-sonnet-4-6");
+      setClaudeDefaultEffort("medium");
+      setClaudeNodePathOverride("");
+      setClaudeCliPathOverride("");
+      setClaudeActionError(null);
+      setClaudeActionMessage(null);
+      return;
+    }
+
+    try {
+      const [health, settings] = await Promise.all([
+        checkClaudeSdkHealth(),
+        getClaudeSettings(),
+      ]);
+      setClaudeHealth(health);
+      setClaudeSdkEnabled(settings.sdk_enabled);
+      setClaudeDefaultModel(settings.default_model);
+      setClaudeDefaultEffort(claudeBudgetToDefaultEffort(settings.default_thinking_budget));
+      setClaudeNodePathOverride(settings.node_path_override ?? "");
+      setClaudeCliPathOverride(settings.cli_path_override ?? "");
+    } catch (error) {
+      console.error("Failed to load Claude settings:", error);
+    }
+  }
+
   useEffect(() => {
     applyTheme(themeMode);
   }, [themeMode]);
@@ -297,6 +360,7 @@ export function SettingsPage() {
 
   useEffect(() => {
     void loadRuntimeState();
+    void loadClaudeState();
   }, [environmentMode, selectedSshConfigId]);
 
   const resetSshForm = () => {
@@ -406,6 +470,58 @@ export function SettingsPage() {
       setSdkActionError(error instanceof Error ? error.message : "安装 Codex SDK 失败");
     } finally {
       setSdkActionLoading(null);
+    }
+  }
+
+  async function handleSaveClaudeSettings() {
+    if (isRemoteMode) {
+      setClaudeActionError("Claude SDK 配置仅适用于本地执行目标，SSH 目标会使用远端 Claude CLI。");
+      setClaudeActionMessage(null);
+      return;
+    }
+
+    setClaudeActionLoading("save");
+    setClaudeActionError(null);
+    setClaudeActionMessage(null);
+    try {
+      await updateClaudeSettings({
+        sdk_enabled: claudeSdkEnabled,
+        default_model: claudeDefaultModel,
+        default_thinking_budget: claudeDefaultEffortToBudget(claudeDefaultEffort),
+        node_path_override: claudeNodePathOverride.trim() || null,
+        cli_path_override: claudeCliPathOverride.trim() || null,
+      });
+      setClaudeActionMessage("Claude 设置已保存");
+      await loadClaudeState();
+    } catch (error) {
+      setClaudeActionError(error instanceof Error ? error.message : "保存 Claude 设置失败");
+    } finally {
+      setClaudeActionLoading(null);
+    }
+  }
+
+  async function handleInstallClaudeSdk() {
+    if (isRemoteMode) {
+      setClaudeActionError("Claude SDK 安装仅适用于本地执行目标，SSH 目标请在远端安装 Claude CLI。");
+      setClaudeActionMessage(null);
+      return;
+    }
+
+    setClaudeActionLoading("install");
+    setClaudeActionError(null);
+    setClaudeActionMessage(null);
+    try {
+      const result = await installClaudeSdk();
+      setClaudeActionMessage(
+        result.sdk_version
+          ? `Claude SDK 安装完成，版本 ${result.sdk_version}`
+          : result.message,
+      );
+      await loadClaudeState();
+    } catch (error) {
+      setClaudeActionError(error instanceof Error ? error.message : "安装 Claude SDK 失败");
+    } finally {
+      setClaudeActionLoading(null);
     }
   }
 
@@ -675,6 +791,23 @@ export function SettingsPage() {
             onSave={() => void handleSaveSdkSettings()}
             onInstall={() => void handleInstallSdk()}
             onRefresh={() => void loadRuntimeState()}
+            claudeHealth={claudeHealth}
+            claudeSdkEnabled={claudeSdkEnabled}
+            claudeDefaultModel={claudeDefaultModel}
+            claudeDefaultEffort={claudeDefaultEffort}
+            claudeNodePathOverride={claudeNodePathOverride}
+            claudeCliPathOverride={claudeCliPathOverride}
+            claudeActionLoading={claudeActionLoading}
+            claudeActionMessage={claudeActionMessage}
+            claudeActionError={claudeActionError}
+            onClaudeSdkEnabledChange={setClaudeSdkEnabled}
+            onClaudeDefaultModelChange={setClaudeDefaultModel}
+            onClaudeDefaultEffortChange={setClaudeDefaultEffort}
+            onClaudeNodePathOverrideChange={setClaudeNodePathOverride}
+            onClaudeCliPathOverrideChange={setClaudeCliPathOverride}
+            onClaudeSave={() => void handleSaveClaudeSettings()}
+            onClaudeInstall={() => void handleInstallClaudeSdk()}
+            onClaudeRefresh={() => void loadClaudeState()}
           />
         </TabsContent>
 

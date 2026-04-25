@@ -11,6 +11,7 @@ use crate::app::{
     fetch_task_by_id, insert_activity_log, now_sqlite, parse_review_verdict_json,
     record_completion_metric, sqlite_pool, start_task_code_review_internal, TASK_STATUS_ARCHIVED,
 };
+use crate::claude::{start_claude_with_manager, stop_claude_for_automation_restart, ClaudeManager};
 use crate::codex::{
     extract_review_report, extract_review_verdict, load_codex_settings, start_codex_with_manager,
     stop_codex_for_automation_restart, CodexManager,
@@ -41,6 +42,8 @@ const PHASE_COMPLETED: &str = "completed";
 const PENDING_ACTION_START_REVIEW: &str = "start_review";
 const PENDING_ACTION_START_FIX: &str = "start_fix";
 const SESSION_EVENT_AUTOMATION_RESTART_REQUESTED: &str = "automation_restart_requested";
+const NO_REVIEWABLE_CODE_CHANGES_MESSAGE: &str =
+    "执行完成但没有产生可审核的代码改动，自动质控无法进入审核，需人工补充任务或重新执行";
 
 #[derive(Clone, Debug)]
 struct SessionExitFacts {
@@ -116,6 +119,13 @@ fn load_task_automation_policy(app: &AppHandle) -> TaskAutomationPolicy {
 fn task_automation_enabled(task: &Task) -> bool {
     task.status != TASK_STATUS_ARCHIVED
         && task.automation_mode.as_deref() == Some(AUTOMATION_MODE_REVIEW_FIX_LOOP_V1)
+}
+
+fn is_no_reviewable_code_changes_error(error: &str) -> bool {
+    matches!(
+        error,
+        "当前工作区没有可审核的代码改动" | "当前工作区没有可审核的代码 diff"
+    )
 }
 
 fn validate_task_automation_restart(task: &Task) -> Result<(), String> {
@@ -440,16 +450,18 @@ async fn handle_execution_exit(
     let reserved_state = fetch_task_automation_state_record(pool, &task.id)
         .await?
         .ok_or_else(|| "自动质控状态写入后丢失，无法发起审核".to_string())?;
-    retry_pending_review(app, pool, &task.id, &reserved_state).await?;
-    insert_activity_log(
-        pool,
-        "task_automation_review_started",
-        "执行完成，已自动发起代码审核",
-        facts.employee_id.as_deref(),
-        Some(task.id.as_str()),
-        Some(task.project_id.as_str()),
-    )
-    .await?;
+    let review_launched = retry_pending_review(app, pool, &task.id, &reserved_state).await?;
+    if review_launched {
+        insert_activity_log(
+            pool,
+            "task_automation_review_started",
+            "执行完成，已自动发起代码审核",
+            facts.employee_id.as_deref(),
+            Some(task.id.as_str()),
+            Some(task.project_id.as_str()),
+        )
+        .await?;
+    }
     Ok(())
 }
 
@@ -673,10 +685,10 @@ async fn retry_pending_review(
     pool: &SqlitePool,
     task_id: &str,
     state_record: &TaskAutomationStateRecord,
-) -> Result<(), String> {
+) -> Result<bool, String> {
     let task = fetch_task_by_id(pool, task_id).await?;
     if !task_automation_enabled(&task) {
-        return Ok(());
+        return Ok(false);
     }
 
     let result = async {
@@ -700,11 +712,15 @@ async fn retry_pending_review(
     .await;
 
     if let Err(error) = result {
+        if is_no_reviewable_code_changes_error(&error) {
+            finalize_no_reviewable_changes(app, pool, &task, state_record).await?;
+            return Ok(false);
+        }
         mark_launch_failure(pool, task_id, PHASE_REVIEW_LAUNCH_FAILED, &error).await?;
         return Err(error);
     }
 
-    Ok(())
+    Ok(true)
 }
 
 async fn retry_pending_fix(
@@ -783,23 +799,46 @@ async fn start_automation_fix_round(
         .await
         .map_err(|error| format!("Failed to update assignee busy status: {}", error))?;
 
-    let manager = app.state::<Arc<Mutex<CodexManager>>>().inner().clone();
-    start_codex_with_manager(
-        app.clone(),
-        manager,
-        assignee.id.clone(),
-        execution_input.prompt,
-        Some(assignee.model.clone()),
-        Some(assignee.reasoning_effort.clone()),
-        assignee.system_prompt.clone(),
-        Some(execution_context.working_dir),
-        Some(task.id.clone()),
-        execution_context.task_git_context_id,
-        None,
-        Some(execution_input.image_paths),
-        Some("execution".to_string()),
-    )
-    .await
+    if assignee.ai_provider == "claude" {
+        let manager = app
+            .state::<Arc<tokio::sync::Mutex<ClaudeManager>>>()
+            .inner()
+            .clone();
+        start_claude_with_manager(
+            app.clone(),
+            manager,
+            assignee.id.clone(),
+            execution_input.prompt,
+            Some(assignee.model.clone()),
+            Some(assignee.reasoning_effort.clone()),
+            assignee.system_prompt.clone(),
+            Some(execution_context.working_dir),
+            Some(task.id.clone()),
+            execution_context.task_git_context_id,
+            None,
+            Some(execution_input.image_paths),
+            Some("execution".to_string()),
+        )
+        .await
+    } else {
+        let manager = app.state::<Arc<Mutex<CodexManager>>>().inner().clone();
+        start_codex_with_manager(
+            app.clone(),
+            manager,
+            assignee.id.clone(),
+            execution_input.prompt,
+            Some(assignee.model.clone()),
+            Some(assignee.reasoning_effort.clone()),
+            assignee.system_prompt.clone(),
+            Some(execution_context.working_dir),
+            Some(task.id.clone()),
+            execution_context.task_git_context_id,
+            None,
+            Some(execution_input.image_paths),
+            Some("execution".to_string()),
+        )
+        .await
+    }
 }
 
 async fn resolve_automation_execution_context(
@@ -900,6 +939,56 @@ async fn mark_launch_failure(
     .execute(pool)
     .await
     .map_err(|error| format!("Failed to mark automation launch failure: {}", error))?;
+
+    Ok(())
+}
+
+async fn finalize_no_reviewable_changes(
+    app: &AppHandle,
+    pool: &SqlitePool,
+    task: &Task,
+    state_record: &TaskAutomationStateRecord,
+) -> Result<(), String> {
+    let policy = load_task_automation_policy(app);
+    let phase = if policy.failure_strategy == FAILURE_STRATEGY_MANUAL_CONTROL {
+        PHASE_MANUAL_CONTROL
+    } else {
+        PHASE_BLOCKED
+    };
+
+    upsert_state_terminal(
+        pool,
+        &task.id,
+        state_record.consumed_session_id.as_deref(),
+        phase,
+        state_record.last_verdict_json.as_deref(),
+        None,
+        Some(NO_REVIEWABLE_CODE_CHANGES_MESSAGE),
+        Some(state_record),
+    )
+    .await?;
+
+    let current_task = fetch_task_by_id(pool, &task.id).await?;
+    if phase == PHASE_BLOCKED {
+        update_task_status_internal(app, pool, &current_task, "blocked").await?;
+    } else if current_task.status == "review" && task.status != "review" {
+        update_task_status_internal(app, pool, &current_task, &task.status).await?;
+    }
+
+    insert_activity_log(
+        pool,
+        if phase == PHASE_MANUAL_CONTROL {
+            "task_automation_manual_control"
+        } else {
+            "task_automation_blocked"
+        },
+        NO_REVIEWABLE_CODE_CHANGES_MESSAGE,
+        None,
+        Some(task.id.as_str()),
+        Some(task.project_id.as_str()),
+    )
+    .await?;
+    emit_task_automation_state_changed(app, task, phase);
 
     Ok(())
 }
@@ -1214,6 +1303,31 @@ async fn fetch_session_exit_facts(
     }))
 }
 
+async fn stop_running_session_for_automation_restart(
+    app: &AppHandle,
+    employee_id: &str,
+    expected_session_record_id: Option<&str>,
+    message: &str,
+) -> Result<bool, String> {
+    let Some(expected_session_record_id) = expected_session_record_id else {
+        return Err("当前自动化步骤缺少会话标识，无法安全重启".to_string());
+    };
+
+    if stop_codex_for_automation_restart(
+        app,
+        employee_id,
+        Some(expected_session_record_id),
+        message,
+    )
+    .await?
+    {
+        return Ok(true);
+    }
+
+    stop_claude_for_automation_restart(app, employee_id, Some(expected_session_record_id), message)
+        .await
+}
+
 async fn restart_review_step(
     app: &AppHandle,
     pool: &SqlitePool,
@@ -1225,7 +1339,7 @@ async fn restart_review_step(
         .as_deref()
         .ok_or_else(|| "当前任务未指定审查员，无法重启自动审核".to_string())?;
 
-    let _ = stop_codex_for_automation_restart(
+    let _ = stop_running_session_for_automation_restart(
         app,
         reviewer_id,
         state_record.last_trigger_session_id.as_deref(),
@@ -1249,16 +1363,18 @@ async fn restart_review_step(
     let reserved_state = fetch_task_automation_state_record(pool, &task.id)
         .await?
         .ok_or_else(|| "自动质控状态不存在，无法重启审核步骤".to_string())?;
-    retry_pending_review(app, pool, &task.id, &reserved_state).await?;
-    insert_activity_log(
-        pool,
-        "task_automation_restart_requested",
-        "已重启自动质控审核步骤",
-        Some(reviewer_id),
-        Some(task.id.as_str()),
-        Some(task.project_id.as_str()),
-    )
-    .await?;
+    let review_launched = retry_pending_review(app, pool, &task.id, &reserved_state).await?;
+    if review_launched {
+        insert_activity_log(
+            pool,
+            "task_automation_restart_requested",
+            "已重启自动质控审核步骤",
+            Some(reviewer_id),
+            Some(task.id.as_str()),
+            Some(task.project_id.as_str()),
+        )
+        .await?;
+    }
     Ok(())
 }
 
@@ -1273,7 +1389,7 @@ async fn restart_fix_step(
         .as_deref()
         .ok_or_else(|| "当前任务未指定开发负责人，无法重启自动修复".to_string())?;
 
-    let _ = stop_codex_for_automation_restart(
+    let _ = stop_running_session_for_automation_restart(
         app,
         assignee_id,
         state_record.last_trigger_session_id.as_deref(),
@@ -2297,12 +2413,23 @@ mod automation_guard_tests {
 
 #[cfg(test)]
 mod tests {
-    use super::{restart_fix_round_state, PHASE_BLOCKED};
+    use super::{is_no_reviewable_code_changes_error, restart_fix_round_state, PHASE_BLOCKED};
     use crate::db::models::TaskAutomationStateRecord;
 
     #[test]
     fn blocked_phase_constant_kept_stable() {
         assert_eq!(PHASE_BLOCKED, "blocked");
+    }
+
+    #[test]
+    fn no_reviewable_code_changes_errors_are_terminal_automation_outcomes() {
+        assert!(is_no_reviewable_code_changes_error(
+            "当前工作区没有可审核的代码改动"
+        ));
+        assert!(is_no_reviewable_code_changes_error(
+            "当前工作区没有可审核的代码 diff"
+        ));
+        assert!(!is_no_reviewable_code_changes_error("审核员启动失败"));
     }
 
     #[test]

@@ -18,6 +18,10 @@ function formatSessionKind(sessionKind: EmployeeRunningSession["session_kind"]) 
   return sessionKind === "review" ? "审核" : "执行";
 }
 
+function formatAiProvider(provider: EmployeeRunningSession["ai_provider"]) {
+  return provider === "claude" ? "Claude" : "Codex";
+}
+
 export function EmployeeRunningSessionsDialog({
   open,
   employee,
@@ -120,6 +124,9 @@ export function EmployeeRunningSessionsDialog({
                 <div className="mb-3 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                   <span className="rounded-full bg-secondary px-2 py-0.5 text-foreground">
                     {formatSessionKind(session.session_kind)}
+                  </span>
+                  <span className="rounded-full bg-secondary px-2 py-0.5 text-foreground">
+                    {formatAiProvider(session.ai_provider)}
                   </span>
                   <span className="font-medium text-foreground">
                     {session.task_title ?? session.task_id ?? "未关联任务"}

@@ -115,6 +115,7 @@ pub struct Employee {
     pub specialization: Option<String>,
     pub system_prompt: Option<String>,
     pub project_id: Option<String>,
+    pub ai_provider: String,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -222,6 +223,8 @@ pub struct CodexSessionRecord {
     pub ended_at: Option<String>,
     pub exit_code: Option<i32>,
     pub resume_session_id: Option<String>,
+    pub ai_provider: String,
+    pub thinking_budget_tokens: Option<i32>,
     pub created_at: String,
 }
 
@@ -373,6 +376,7 @@ pub struct EmployeeRunningSession {
     pub cli_session_id: Option<String>,
     pub task_id: Option<String>,
     pub task_title: Option<String>,
+    pub ai_provider: String,
     pub session_kind: String,
     pub started_at: String,
     pub status: String,
@@ -527,6 +531,7 @@ pub struct CodexSessionListItem {
     pub session_record_id: String,
     pub session_id: String,
     pub cli_session_id: Option<String>,
+    pub ai_provider: String,
     pub session_kind: String,
     pub status: String,
     pub last_updated_at: String,
@@ -555,6 +560,7 @@ pub struct CodexSessionResumePreview {
     pub requested_session_id: String,
     pub resolved_session_id: Option<String>,
     pub session_record_id: Option<String>,
+    pub ai_provider: Option<String>,
     pub session_kind: Option<String>,
     pub session_status: Option<String>,
     pub display_name: Option<String>,
@@ -661,6 +667,7 @@ pub struct CreateEmployee {
     pub specialization: Option<String>,
     pub system_prompt: Option<String>,
     pub project_id: Option<String>,
+    pub ai_provider: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -676,6 +683,7 @@ pub struct UpdateEmployee {
     pub system_prompt: Option<Option<String>>,
     #[serde(default, deserialize_with = "deserialize_explicit_nullable")]
     pub project_id: Option<Option<String>>,
+    pub ai_provider: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -888,6 +896,85 @@ pub struct TransientNotification {
 }
 
 // ========== Event Payloads ==========
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ClaudeSettings {
+    pub sdk_enabled: bool,
+    pub default_model: String,
+    pub default_thinking_budget: i32,
+    pub sdk_install_dir: String,
+    pub node_path_override: Option<String>,
+    pub cli_path_override: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UpdateClaudeSettings {
+    pub sdk_enabled: Option<bool>,
+    pub default_model: Option<String>,
+    pub default_thinking_budget: Option<i32>,
+    #[serde(default, deserialize_with = "deserialize_explicit_nullable")]
+    pub node_path_override: Option<Option<String>>,
+    #[serde(default, deserialize_with = "deserialize_explicit_nullable")]
+    pub sdk_install_dir: Option<Option<String>>,
+    #[serde(default, deserialize_with = "deserialize_explicit_nullable")]
+    pub cli_path_override: Option<Option<String>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ClaudeHealthCheck {
+    pub cli_available: bool,
+    pub cli_version: Option<String>,
+    pub sdk_installed: bool,
+    pub sdk_version: Option<String>,
+    pub node_available: bool,
+    pub node_version: Option<String>,
+    pub sdk_install_dir: String,
+    pub effective_provider: String,
+    pub sdk_status_message: String,
+    pub checked_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ClaudeSdkInstallResult {
+    pub sdk_installed: bool,
+    pub sdk_version: Option<String>,
+    pub install_dir: String,
+    pub node_version: Option<String>,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ClaudeOutput {
+    pub employee_id: String,
+    pub task_id: Option<String>,
+    pub session_kind: String,
+    pub session_record_id: String,
+    pub session_event_id: Option<String>,
+    pub line: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ClaudeExit {
+    pub employee_id: String,
+    pub task_id: Option<String>,
+    pub session_kind: String,
+    pub session_record_id: String,
+    pub session_event_id: Option<String>,
+    pub status: String,
+    pub line: Option<String>,
+    pub code: Option<i32>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ClaudeSession {
+    pub employee_id: String,
+    pub task_id: Option<String>,
+    pub session_kind: String,
+    pub session_record_id: String,
+    pub session_id: String,
+}
+
+// ========== Codex Event Payloads ==========
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CodexOutput {

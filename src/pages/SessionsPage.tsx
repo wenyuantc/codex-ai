@@ -11,6 +11,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { listCodexSessions, prepareCodexSessionResume } from "@/lib/backend";
 import { startCodex } from "@/lib/codex";
+import { startClaude } from "@/lib/claude";
 import type { CodexSessionListItem, CodexSessionResumeStatus } from "@/lib/types";
 import { formatDate, isArtifactCaptureLimited } from "@/lib/utils";
 import { useEmployeeStore } from "@/stores/employeeStore";
@@ -349,7 +350,8 @@ export function SessionsPage() {
 
       const employee = employees.find((item) => item.id === preview.employee_id);
       await updateEmployeeStatus(preview.employee_id, "busy");
-      await startCodex(preview.employee_id, prompt, {
+
+      const startOptions = {
         model: employee?.model,
         reasoningEffort: employee?.reasoning_effort,
         systemPrompt: employee?.system_prompt,
@@ -358,7 +360,13 @@ export function SessionsPage() {
         taskGitContextId: preview.task_git_context_id ?? undefined,
         resumeSessionId: preview.resolved_session_id,
         sessionKind: preview.session_kind ?? undefined,
-      });
+      };
+
+      if (preview.ai_provider === "claude") {
+        await startClaude(preview.employee_id, prompt, startOptions);
+      } else {
+        await startCodex(preview.employee_id, prompt, startOptions);
+      }
       await refreshEmployeeRuntimeStatus(preview.employee_id);
 
       const sessionItems = await loadSessions(true);

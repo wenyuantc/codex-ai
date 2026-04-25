@@ -1,6 +1,7 @@
 import { useState } from "react";
 
 import { startCodex, stopCodexSession } from "@/lib/codex";
+import { startClaude, stopClaudeSession } from "@/lib/claude";
 import { prepareTaskGitExecution } from "@/lib/backend";
 import type { Employee, ProjectType, Task } from "@/lib/types";
 import { buildTaskLogKey, useEmployeeStore } from "@/stores/employeeStore";
@@ -103,7 +104,8 @@ export function useTaskExecutionActions({
 
       await updateEmployeeStatus(assigneeId, "busy");
       await updateTaskStatus(task.id, "in_progress");
-      await startCodex(assigneeId, executionInput.prompt, {
+
+      const startOptions = {
         model: assignee?.model,
         reasoningEffort: assignee?.reasoning_effort,
         systemPrompt: assignee?.system_prompt,
@@ -112,7 +114,13 @@ export function useTaskExecutionActions({
         taskGitContextId,
         resumeSessionId: executionInput.resumeSessionId,
         imagePaths: executionInput.imagePaths,
-      });
+      };
+
+      if (assignee?.ai_provider === "claude") {
+        await startClaude(assigneeId, executionInput.prompt, startOptions);
+      } else {
+        await startCodex(assigneeId, executionInput.prompt, startOptions);
+      }
       await refreshEmployeeRuntimeStatus(assigneeId);
       onStarted?.(action);
     } catch (error) {
@@ -140,7 +148,11 @@ export function useTaskExecutionActions({
 
     setLoading("stop");
     try {
-      await stopCodexSession(runningSession.session_record_id);
+      if (runningSession.ai_provider === "claude") {
+        await stopClaudeSession(runningSession.session_record_id);
+      } else {
+        await stopCodexSession(runningSession.session_record_id);
+      }
       const runtime = await refreshEmployeeRuntimeStatus(assigneeId);
       if (!runtime?.running) {
         await updateEmployeeStatus(assigneeId, "offline");

@@ -874,6 +874,30 @@ pub fn get_all_migrations() -> Vec<Migration> {
             "#,
             kind: tauri_plugin_sql::MigrationKind::Up,
         },
+        Migration {
+            version: 31,
+            description: "add ai_provider column to employees",
+            sql: r#"
+                ALTER TABLE employees ADD COLUMN ai_provider TEXT NOT NULL DEFAULT 'codex';
+            "#,
+            kind: tauri_plugin_sql::MigrationKind::Up,
+        },
+        Migration {
+            version: 32,
+            description: "add ai_provider column to codex_sessions",
+            sql: r#"
+                ALTER TABLE codex_sessions ADD COLUMN ai_provider TEXT NOT NULL DEFAULT 'codex';
+            "#,
+            kind: tauri_plugin_sql::MigrationKind::Up,
+        },
+        Migration {
+            version: 33,
+            description: "add thinking_budget_tokens column to codex_sessions for Claude",
+            sql: r#"
+                ALTER TABLE codex_sessions ADD COLUMN thinking_budget_tokens INTEGER;
+            "#,
+            kind: tauri_plugin_sql::MigrationKind::Up,
+        },
     ]
 }
 
@@ -907,7 +931,7 @@ mod tests {
 
     #[test]
     fn latest_migration_version_includes_archived_task_index() {
-        assert_eq!(latest_migration_version(), 30);
+        assert_eq!(latest_migration_version(), 33);
     }
 
     #[test]

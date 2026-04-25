@@ -31,6 +31,7 @@ const DEFAULT_WORKTREE_LOCATION_MODE: &str = "repo_sibling_hidden";
 const DEFAULT_AI_COMMIT_MESSAGE_LENGTH: &str = "title_with_body";
 const DEFAULT_AI_COMMIT_MODEL_SOURCE: &str = "inherit_one_shot";
 const SUPPORTED_MODELS: &[&str] = &[
+    "gpt-5.5",
     "gpt-5.4",
     "gpt-5.2-codex",
     "gpt-5.1-codex-max",

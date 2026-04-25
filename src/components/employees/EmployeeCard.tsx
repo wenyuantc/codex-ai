@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { CODEX_MODEL_OPTIONS, REASONING_EFFORT_OPTIONS, type Employee } from "@/lib/types";
+import { CODEX_MODEL_OPTIONS, CLAUDE_MODEL_OPTIONS, REASONING_EFFORT_OPTIONS, CLAUDE_THINKING_BUDGET_OPTIONS, type Employee } from "@/lib/types";
 import { useEmployeeStore } from "@/stores/employeeStore";
 import { EmployeeStatusBadge } from "./EmployeeStatusBadge";
 import { DeleteEmployeeDialog } from "./DeleteEmployeeDialog";
@@ -45,8 +45,11 @@ export function EmployeeCard({ employee, taskCount = 0, highlighted = false }: E
     tester: "测试员",
     coordinator: "协调员",
   };
-  const modelLabel = CODEX_MODEL_OPTIONS.find((option) => option.value === employee.model)?.label ?? employee.model;
-  const reasoningLabel = REASONING_EFFORT_OPTIONS.find((option) => option.value === employee.reasoning_effort)?.label ?? employee.reasoning_effort;
+  const allModelOptions = employee.ai_provider === "claude" ? CLAUDE_MODEL_OPTIONS : CODEX_MODEL_OPTIONS;
+  const allEffortOptions = employee.ai_provider === "claude" ? CLAUDE_THINKING_BUDGET_OPTIONS : REASONING_EFFORT_OPTIONS;
+  const modelLabel = allModelOptions.find((option) => option.value === employee.model)?.label ?? employee.model;
+  const reasoningLabel = allEffortOptions.find((option) => option.value === employee.reasoning_effort)?.label ?? employee.reasoning_effort;
+  const providerLabel = employee.ai_provider === "claude" ? "Claude" : "Codex";
 
   return (
     <div
@@ -68,7 +71,8 @@ export function EmployeeCard({ employee, taskCount = 0, highlighted = false }: E
               {employee.specialization && ` · ${employee.specialization}`}
             </div>
             <div className="text-[11px] text-muted-foreground/80 truncate">
-              {modelLabel} · 推理{reasoningLabel}
+              <span className={employee.ai_provider === "claude" ? "text-orange-500" : "text-green-500"}>{providerLabel}</span>
+              {" · "}{modelLabel} · 推理{reasoningLabel}
             </div>
           </div>
           <EmployeeStatusBadge status={employee.status} />
@@ -95,6 +99,7 @@ export function EmployeeCard({ employee, taskCount = 0, highlighted = false }: E
           model={employee.model}
           reasoningEffort={employee.reasoning_effort}
           systemPrompt={employee.system_prompt}
+          aiProvider={employee.ai_provider}
         />
       </div>
 

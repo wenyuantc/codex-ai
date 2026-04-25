@@ -3090,7 +3090,10 @@ pub async fn merge_project_git_worktree<R: Runtime>(
     let working_tree_changes = collect_working_tree_changes(&app, &runtime, &entry.path).await?;
     let has_working_tree_changes = !working_tree_changes.is_empty();
     if has_working_tree_changes && delete_worktree && !auto_stash {
-        return Err("当前 worktree 存在未提交改动；如需合并后删除，请勾选“自动暂存未提交的更改”".to_string());
+        return Err(
+            "当前 worktree 存在未提交改动；如需合并后删除，请勾选“自动暂存未提交的更改”"
+                .to_string(),
+        );
     }
 
     let mut detail_parts = Vec::new();

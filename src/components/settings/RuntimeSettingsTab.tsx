@@ -11,9 +11,12 @@ import {
 } from "@/components/ui/select";
 import {
   CODEX_MODEL_OPTIONS,
+  CLAUDE_MODEL_OPTIONS,
+  CLAUDE_THINKING_BUDGET_OPTIONS,
   REASONING_EFFORT_OPTIONS,
   normalizeCodexModel,
   normalizeReasoningEffort,
+  type ClaudeHealthCheck,
   type CodexHealthCheck,
   type CodexModelId,
   type CodexSettings,
@@ -50,6 +53,23 @@ interface RuntimeSettingsTabProps {
   onSave: () => void;
   onInstall: () => void;
   onRefresh: () => void;
+  claudeHealth: ClaudeHealthCheck | null;
+  claudeSdkEnabled: boolean;
+  claudeDefaultModel: string;
+  claudeDefaultEffort: string;
+  claudeNodePathOverride: string;
+  claudeCliPathOverride: string;
+  claudeActionLoading: "save" | "install" | null;
+  claudeActionMessage: string | null;
+  claudeActionError: string | null;
+  onClaudeSdkEnabledChange: (enabled: boolean) => void;
+  onClaudeDefaultModelChange: (model: string) => void;
+  onClaudeDefaultEffortChange: (effort: string) => void;
+  onClaudeNodePathOverrideChange: (path: string) => void;
+  onClaudeCliPathOverrideChange: (path: string) => void;
+  onClaudeSave: () => void;
+  onClaudeInstall: () => void;
+  onClaudeRefresh: () => void;
 }
 
 const themeOptions: { value: ThemeMode; label: string; icon: LucideIcon }[] = [
@@ -57,6 +77,10 @@ const themeOptions: { value: ThemeMode; label: string; icon: LucideIcon }[] = [
   { value: "dark", label: "暗色", icon: Moon },
   { value: "system", label: "跟随系统", icon: Monitor },
 ];
+
+const CLAUDE_DEFAULT_THINKING_BUDGET_OPTIONS = CLAUDE_THINKING_BUDGET_OPTIONS.filter(
+  (option) => option.value !== "auto",
+);
 
 export function RuntimeSettingsTab({
   codexHealth,
@@ -85,6 +109,23 @@ export function RuntimeSettingsTab({
   onSave,
   onInstall,
   onRefresh,
+  claudeHealth,
+  claudeSdkEnabled,
+  claudeDefaultModel,
+  claudeDefaultEffort,
+  claudeNodePathOverride,
+  claudeCliPathOverride,
+  claudeActionLoading,
+  claudeActionMessage,
+  claudeActionError,
+  onClaudeSdkEnabledChange,
+  onClaudeDefaultModelChange,
+  onClaudeDefaultEffortChange,
+  onClaudeNodePathOverrideChange,
+  onClaudeCliPathOverrideChange,
+  onClaudeSave,
+  onClaudeInstall,
+  onClaudeRefresh,
 }: RuntimeSettingsTabProps) {
   const taskProviderLabel =
     codexHealth?.task_execution_effective_provider === "sdk" ? "SDK" : "exec（自动回退）";
@@ -351,6 +392,184 @@ export function RuntimeSettingsTab({
             {actionError && <p className="text-xs text-destructive">{actionError}</p>}
           </div>
         </div>
+      </div>
+
+      <div className="space-y-4 rounded-lg border border-border bg-card p-4">
+        <div className="flex items-start justify-between gap-4">
+          <div className="space-y-1">
+            <h3 className="text-sm font-medium">
+              {isRemoteMode ? "Claude（仅本地配置）" : "Claude SDK 配置"}
+            </h3>
+            <p className="text-xs text-muted-foreground">
+              {isRemoteMode
+                ? "SSH 模式下 Claude 任务会在远端通过 Claude CLI 执行，本地 SDK 配置不会应用到当前 SSH 目标。"
+                : "Claude SDK 用于运行 Anthropic Claude 模型的任务与 AI 功能。"}
+            </p>
+          </div>
+          <span
+            className={`rounded px-2 py-1 text-xs ${
+              !isRemoteMode && claudeHealth?.sdk_installed
+                ? "bg-green-100 text-green-700"
+                : "bg-slate-100 text-slate-700"
+            }`}
+          >
+            {isRemoteMode ? "本地设置已禁用" : claudeHealth?.sdk_installed ? "已安装" : "未安装"}
+          </span>
+        </div>
+
+        {isRemoteMode ? (
+          <div className="rounded-md border border-dashed border-border px-3 py-3 text-sm text-muted-foreground">
+            当前 SSH 配置不会读取本机 Claude SDK 设置。请在远端主机安装并配置 Claude CLI 后，再运行 Claude 员工任务。
+          </div>
+        ) : (
+          <div className="mt-4 space-y-4">
+            <label className="flex items-start gap-3 rounded-md border border-border px-3 py-2">
+              <input
+                type="checkbox"
+                className="mt-0.5 h-4 w-4 rounded border-input"
+                checked={claudeSdkEnabled}
+                onChange={(event) => onClaudeSdkEnabledChange(event.target.checked)}
+                disabled={claudeActionLoading !== null}
+              />
+              <div className="space-y-1">
+                <p className="text-sm font-medium">启用 Claude SDK</p>
+                <p className="text-xs text-muted-foreground">
+                  启用后，使用 Claude 作为 AI 提供商的员工将通过 SDK 运行任务。
+                </p>
+              </div>
+            </label>
+
+            <div className="grid gap-3 md:grid-cols-2">
+              <div className="space-y-2">
+                <label className="text-sm font-medium">默认模型</label>
+                <Select
+                  value={claudeDefaultModel}
+                  onValueChange={(value) => {
+                    if (value) {
+                      onClaudeDefaultModelChange(value);
+                    }
+                  }}
+                  disabled={claudeActionLoading !== null}
+                >
+                  <SelectTrigger className="bg-background">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {CLAUDE_MODEL_OPTIONS.map((option) => (
+                      <SelectItem key={option.value} value={option.value}>
+                        {option.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-sm font-medium">默认推理强度</label>
+                <Select
+                  value={claudeDefaultEffort}
+                  onValueChange={(value) => {
+                    if (value) {
+                      onClaudeDefaultEffortChange(value);
+                    }
+                  }}
+                  disabled={claudeActionLoading !== null}
+                >
+                  <SelectTrigger className="bg-background">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {CLAUDE_DEFAULT_THINKING_BUDGET_OPTIONS.map((option) => (
+                      <SelectItem key={option.value} value={option.value}>
+                        {option.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            <div className="grid gap-3 md:grid-cols-2">
+              <div className="space-y-2">
+                <label htmlFor="claude-node-path-override" className="text-sm font-medium">
+                  Node 路径覆盖（可选）
+                </label>
+                <Input
+                  id="claude-node-path-override"
+                  value={claudeNodePathOverride}
+                  onChange={(event) => onClaudeNodePathOverrideChange(event.target.value)}
+                  placeholder="/opt/homebrew/bin/node"
+                  disabled={claudeActionLoading !== null}
+                />
+                <p className="text-xs text-muted-foreground">留空时自动从系统 PATH 中查找 Node。</p>
+              </div>
+
+              <div className="space-y-2">
+                <label htmlFor="claude-cli-path-override" className="text-sm font-medium">
+                  Claude CLI 路径覆盖（可选）
+                </label>
+                <Input
+                  id="claude-cli-path-override"
+                  value={claudeCliPathOverride}
+                  onChange={(event) => onClaudeCliPathOverrideChange(event.target.value)}
+                  placeholder="/opt/homebrew/bin/claude"
+                  disabled={claudeActionLoading !== null}
+                />
+                <p className="text-xs text-muted-foreground">SDK 不可用时会回退到该 CLI。</p>
+              </div>
+            </div>
+
+            <div className="grid gap-2 rounded-md border border-border px-3 py-3 text-xs text-muted-foreground">
+              <p className="break-all">安装目录：{claudeHealth?.sdk_install_dir ?? "检测中"}</p>
+              <p>
+                Node：{claudeHealth?.node_available ? "可用" : "不可用"}
+                {claudeHealth?.node_version ? `（${claudeHealth.node_version}）` : ""}
+              </p>
+              <p>
+                SDK：{claudeHealth?.sdk_installed ? "已安装" : "未安装"}
+                {claudeHealth?.sdk_version ? `（${claudeHealth.sdk_version}）` : ""}
+              </p>
+              <p>
+                CLI：{claudeHealth?.cli_available ? "可用" : "不可用"}
+                {claudeHealth?.cli_version ? `（${claudeHealth.cli_version}）` : ""}
+              </p>
+              <p>
+                当前通道：
+                {claudeHealth?.effective_provider === "sdk"
+                  ? "Claude Agent SDK"
+                  : claudeHealth?.effective_provider === "cli"
+                    ? "Claude CLI"
+                    : "不可用"}
+              </p>
+              {claudeHealth?.checked_at && <p>检测时间：{formatDate(claudeHealth.checked_at)}</p>}
+              {claudeHealth?.sdk_status_message && (
+                <p className="text-[11px] leading-5">{claudeHealth.sdk_status_message}</p>
+              )}
+            </div>
+
+            <div className="flex flex-wrap gap-2">
+              <Button onClick={onClaudeSave} disabled={claudeActionLoading !== null}>
+                {claudeActionLoading === "save" ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                保存配置
+              </Button>
+              <Button
+                variant="outline"
+                onClick={onClaudeInstall}
+                disabled={claudeActionLoading !== null}
+              >
+                {claudeActionLoading === "install" ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                {claudeHealth?.sdk_installed ? "重装 SDK" : "安装 SDK"}
+              </Button>
+              <Button variant="ghost" onClick={onClaudeRefresh} disabled={claudeActionLoading !== null}>
+                <RefreshCw className={`h-4 w-4`} />
+                刷新检测
+              </Button>
+            </div>
+
+            {claudeActionMessage && <p className="text-xs text-green-700">{claudeActionMessage}</p>}
+            {claudeActionError && <p className="text-xs text-destructive">{claudeActionError}</p>}
+          </div>
+        )}
       </div>
     </div>
   );

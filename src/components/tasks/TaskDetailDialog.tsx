@@ -36,6 +36,7 @@ import {
   normalizeDialogSelection,
 } from "@/lib/taskAttachments";
 import { startCodex } from "@/lib/codex";
+import { startClaude } from "@/lib/claude";
 import { getProjectWorkingDir } from "@/lib/projects";
 import type { TaskAutomationDisplayState } from "@/lib/utils";
 import {
@@ -575,7 +576,7 @@ export function TaskDetailDialog({
         throw new Error("当前项目缺少可用工作目录，无法启动修复任务。");
       }
 
-      await startCodex(assigneeId, executionInput.prompt, {
+      const startOptions = {
         model: assignee?.model,
         reasoningEffort: assignee?.reasoning_effort,
         systemPrompt: assignee?.system_prompt,
@@ -583,7 +584,13 @@ export function TaskDetailDialog({
         taskId: createdTask.id,
         taskGitContextId,
         imagePaths: executionInput.imagePaths,
-      });
+      };
+
+      if (assignee?.ai_provider === "claude") {
+        await startClaude(assigneeId, executionInput.prompt, startOptions);
+      } else {
+        await startCodex(assigneeId, executionInput.prompt, startOptions);
+      }
       await refreshEmployeeRuntimeStatus(assigneeId);
 
       setReviewFixDialogOpen(false);

@@ -2,10 +2,11 @@ import { useEffect, useMemo, useState } from "react";
 import { Loader2, Play, Search, Square } from "lucide-react";
 
 import { prepareTaskGitExecution, startTaskCodeReview } from "@/lib/backend";
-import { startCodex, stopCodex } from "@/lib/codex";
+import { startCodex, stopCodexSession } from "@/lib/codex";
+import { startClaude, stopClaudeSession } from "@/lib/claude";
 import { getProjectWorkingDir } from "@/lib/projects";
 import { buildTaskExecutionInput } from "@/lib/taskPrompt";
-import type { Task } from "@/lib/types";
+import type { AiProvider, Task } from "@/lib/types";
 import { cn, getPriorityLabel, getStatusLabel } from "@/lib/utils";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -23,6 +24,7 @@ interface CodexControlsProps {
   model: string;
   reasoningEffort: string;
   systemPrompt?: string | null;
+  aiProvider?: AiProvider;
 }
 
 export function CodexControls({
@@ -32,6 +34,7 @@ export function CodexControls({
   model,
   reasoningEffort,
   systemPrompt,
+  aiProvider = "codex",
 }: CodexControlsProps) {
   const employeeRuntime = useEmployeeStore((state) => state.employeeRuntime[employeeId]);
   const allEmployeeRuntime = useEmployeeStore((state) => state.employeeRuntime);
@@ -188,15 +191,27 @@ export function CodexControls({
         taskGitContextId = prepared.task_git_context_id;
       }
 
-      await startCodex(employeeId, executionInput.prompt, {
-        model,
-        reasoningEffort,
-        systemPrompt,
-        workingDir,
-        taskId: selectedTask.id,
-        taskGitContextId,
-        imagePaths: executionInput.imagePaths,
-      });
+      if (aiProvider === "claude") {
+        await startClaude(employeeId, executionInput.prompt, {
+          model,
+          reasoningEffort,
+          systemPrompt,
+          workingDir,
+          taskId: selectedTask.id,
+          taskGitContextId,
+          imagePaths: executionInput.imagePaths,
+        });
+      } else {
+        await startCodex(employeeId, executionInput.prompt, {
+          model,
+          reasoningEffort,
+          systemPrompt,
+          workingDir,
+          taskId: selectedTask.id,
+          taskGitContextId,
+          imagePaths: executionInput.imagePaths,
+        });
+      }
       await refreshEmployeeRuntimeStatus(employeeId);
       setShowTaskDialog(false);
     } catch (error) {
@@ -226,7 +241,13 @@ export function CodexControls({
 
     setActionLoading("stop");
     try {
-      await stopCodex(employeeId);
+      await Promise.all(
+        runningSessions.map((session) => (
+          session.ai_provider === "claude"
+            ? stopClaudeSession(session.session_record_id)
+            : stopCodexSession(session.session_record_id)
+        )),
+      );
       const runtime = await refreshEmployeeRuntimeStatus(employeeId);
       if (!runtime?.running) {
         await updateEmployeeStatus(employeeId, "offline");

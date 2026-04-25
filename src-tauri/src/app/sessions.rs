@@ -176,6 +176,8 @@ pub(crate) async fn insert_codex_session_record<R: Runtime>(
     ssh_config_id: Option<&str>,
     target_host_label: Option<&str>,
     artifact_capture_mode: &str,
+    ai_provider: Option<&str>,
+    thinking_budget_tokens: Option<i32>,
 ) -> Result<CodexSessionRecord, String> {
     let pool = sqlite_pool(app).await?;
     let project_id = match task_id {
@@ -208,11 +210,13 @@ pub(crate) async fn insert_codex_session_record<R: Runtime>(
         ended_at: None,
         exit_code: None,
         resume_session_id: resume_session_id.map(ToOwned::to_owned),
+        ai_provider: ai_provider.unwrap_or("codex").to_string(),
+        thinking_budget_tokens,
         created_at: now_sqlite(),
     };
 
     sqlx::query(
-        "INSERT INTO codex_sessions (id, employee_id, task_id, project_id, task_git_context_id, cli_session_id, working_dir, execution_target, ssh_config_id, target_host_label, artifact_capture_mode, session_kind, status, started_at, ended_at, exit_code, resume_session_id, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)",
+        "INSERT INTO codex_sessions (id, employee_id, task_id, project_id, task_git_context_id, cli_session_id, working_dir, execution_target, ssh_config_id, target_host_label, artifact_capture_mode, session_kind, status, started_at, ended_at, exit_code, resume_session_id, ai_provider, thinking_budget_tokens, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)",
     )
     .bind(&record.id)
     .bind(&record.employee_id)
@@ -231,6 +235,8 @@ pub(crate) async fn insert_codex_session_record<R: Runtime>(
     .bind(&record.ended_at)
     .bind(record.exit_code)
     .bind(&record.resume_session_id)
+    .bind(&record.ai_provider)
+    .bind(record.thinking_budget_tokens)
     .bind(&record.created_at)
     .execute(&pool)
     .await
@@ -355,6 +361,13 @@ fn resolve_session_kind(session_kind: &str) -> CodexSessionKind {
     }
 }
 
+fn resolve_claude_session_kind(session_kind: &str) -> crate::claude::ClaudeSessionKind {
+    match session_kind {
+        "review" => crate::claude::ClaudeSessionKind::Review,
+        _ => crate::claude::ClaudeSessionKind::Execution,
+    }
+}
+
 pub(crate) fn resolve_running_conflict_message(task_id: Option<&str>) -> &'static str {
     if task_id.is_some() {
         "关联任务当前已有运行中的对话，请先停止后再继续。"
@@ -366,30 +379,43 @@ pub(crate) fn resolve_running_conflict_message(task_id: Option<&str>) -> &'stati
 async fn has_running_session_conflict<R: Runtime>(
     app: &AppHandle<R>,
     manager_state: &Arc<Mutex<CodexManager>>,
+    claude_manager_state: &Arc<tokio::sync::Mutex<ClaudeManager>>,
     employee_id: Option<&str>,
     task_id: Option<&str>,
     session_kind: &str,
 ) -> Result<bool, String> {
     if let Some(task_id) = task_id {
-        return Ok(crate::codex::get_live_task_process_by_task(
+        let has_codex_conflict = crate::codex::get_live_task_process_by_task(
             app,
             manager_state,
             task_id,
             resolve_session_kind(session_kind),
         )
         .await?
-        .is_some());
+        .is_some();
+        let has_claude_conflict = {
+            let manager = claude_manager_state.lock().await;
+            manager
+                .get_task_process_any(task_id, resolve_claude_session_kind(session_kind))
+                .is_some()
+        };
+        return Ok(has_codex_conflict || has_claude_conflict);
     }
 
     let Some(employee_id) = employee_id else {
         return Ok(false);
     };
 
-    Ok(
+    let has_codex_processes =
         !crate::codex::list_live_employee_processes(app, manager_state, employee_id)
             .await?
-            .is_empty(),
-    )
+            .is_empty();
+    let has_claude_processes =
+        !crate::claude::list_live_claude_employee_processes(claude_manager_state, employee_id)
+            .await
+            .is_empty();
+
+    Ok(has_codex_processes || has_claude_processes)
 }
 
 fn format_session_log_line(event_type: &str, message: &str) -> Option<String> {
@@ -1012,6 +1038,7 @@ async fn query_codex_session_list<R: Runtime>(
             s.id AS session_record_id,
             COALESCE(s.cli_session_id, s.id) AS session_id,
             s.cli_session_id AS cli_session_id,
+            s.ai_provider AS ai_provider,
             s.session_kind AS session_kind,
             s.status AS status,
             COALESCE(
@@ -1084,6 +1111,7 @@ async fn query_codex_session_list<R: Runtime>(
 pub async fn list_codex_sessions<R: Runtime>(
     app: AppHandle<R>,
     state: State<'_, Arc<Mutex<CodexManager>>>,
+    claude_state: State<'_, Arc<tokio::sync::Mutex<ClaudeManager>>>,
 ) -> Result<Vec<CodexSessionListItem>, String> {
     let mut items = query_codex_session_list(&app).await?;
     let employee_ids = items
@@ -1096,8 +1124,22 @@ pub async fn list_codex_sessions<R: Runtime>(
     for employee_id in employee_ids {
         let live_processes =
             crate::codex::list_live_employee_processes(&app, state.inner(), &employee_id).await?;
-        running_by_employee.insert(employee_id.clone(), !live_processes.is_empty());
+        let live_claude_processes =
+            crate::claude::list_live_claude_employee_processes(claude_state.inner(), &employee_id)
+                .await;
+        running_by_employee.insert(
+            employee_id.clone(),
+            !live_processes.is_empty() || !live_claude_processes.is_empty(),
+        );
         for process in live_processes {
+            if let Some(task_id) = process.task_id.as_deref() {
+                running_by_task_session.insert(running_task_session_key(
+                    task_id,
+                    process.session_kind.as_str(),
+                ));
+            }
+        }
+        for process in live_claude_processes {
             if let Some(task_id) = process.task_id.as_deref() {
                 running_by_task_session.insert(running_task_session_key(
                     task_id,
@@ -1141,6 +1183,7 @@ pub async fn list_codex_sessions<R: Runtime>(
 pub async fn prepare_codex_session_resume<R: Runtime>(
     app: AppHandle<R>,
     state: State<'_, Arc<Mutex<CodexManager>>>,
+    claude_state: State<'_, Arc<tokio::sync::Mutex<ClaudeManager>>>,
     session_id: String,
 ) -> Result<CodexSessionResumePreview, String> {
     let mut items = query_codex_session_list(&app).await?;
@@ -1153,6 +1196,7 @@ pub async fn prepare_codex_session_resume<R: Runtime>(
             requested_session_id: session_id,
             resolved_session_id: None,
             session_record_id: None,
+            ai_provider: None,
             session_kind: None,
             session_status: None,
             display_name: None,
@@ -1177,6 +1221,7 @@ pub async fn prepare_codex_session_resume<R: Runtime>(
     let has_running_conflict = has_running_session_conflict(
         &app,
         state.inner(),
+        claude_state.inner(),
         item.employee_id.as_deref(),
         item.task_id.as_deref(),
         &item.session_kind,
@@ -1195,6 +1240,7 @@ pub async fn prepare_codex_session_resume<R: Runtime>(
         requested_session_id: session_id,
         resolved_session_id: item.cli_session_id.clone(),
         session_record_id: Some(item.session_record_id),
+        ai_provider: Some(item.ai_provider),
         session_kind: Some(item.session_kind),
         session_status: Some(item.status),
         display_name: Some(item.display_name),

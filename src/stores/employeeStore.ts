@@ -15,13 +15,19 @@ import {
   type CodexOutput,
   type CodexSession,
 } from "@/lib/codex";
+import {
+  onClaudeExit,
+  onClaudeOutput,
+  onClaudeSession,
+  type ClaudeOutput,
+  type ClaudeSession,
+} from "@/lib/claude";
 import type {
-  CodexModelId,
+  AiProvider,
   CodexSessionKind,
   CodexSessionLogLine,
   Employee,
   EmployeeRuntimeStatus,
-  ReasoningEffort,
 } from "@/lib/types";
 
 interface EmployeeStore {
@@ -35,18 +41,19 @@ interface EmployeeStore {
   createEmployee: (data: {
     name: string;
     role: string;
-    model?: CodexModelId;
-    reasoning_effort?: ReasoningEffort;
+    model?: string;
+    reasoning_effort?: string;
     specialization?: string;
     system_prompt?: string;
     project_id?: string;
+    ai_provider?: AiProvider;
   }) => Promise<void>;
   updateEmployee: (
     id: string,
     updates: Partial<
       Pick<
         Employee,
-        "name" | "role" | "model" | "reasoning_effort" | "specialization" | "system_prompt" | "project_id" | "status"
+        "name" | "role" | "model" | "reasoning_effort" | "specialization" | "system_prompt" | "project_id" | "status" | "ai_provider"
       >
     >,
   ) => Promise<void>;
@@ -348,6 +355,52 @@ export const useEmployeeStore = create<EmployeeStore>((set, get) => ({
               void get().updateEmployeeStatus(
                 exit.employee_id,
                 exit.code === 0 ? "offline" : "error",
+              );
+            }
+          })();
+        }),
+        onClaudeOutput((output: ClaudeOutput) => {
+          get().addCodexOutput(
+            output.employee_id,
+            output.line,
+            output.task_id,
+            output.session_kind,
+            output.session_record_id,
+            output.session_event_id,
+          );
+        }),
+        onClaudeSession((session: ClaudeSession) => {
+          set((state) => ({
+            employees: state.employees.map((employee) => (
+              employee.id === session.employee_id
+                ? { ...employee, status: "busy" }
+                : employee
+            )),
+          }));
+          void get().refreshEmployeeRuntimeStatus(session.employee_id);
+        }),
+        onClaudeExit((exit) => {
+          if (exit.line) {
+            get().addCodexOutput(
+              exit.employee_id,
+              exit.line,
+              exit.task_id,
+              exit.session_kind,
+              exit.session_record_id,
+              exit.session_event_id,
+            );
+          }
+
+          void (async () => {
+            const runtime = await syncEmployeeRuntime(exit.employee_id).catch((error) => {
+              console.error(`Failed to sync runtime after Claude exit for ${exit.employee_id}:`, error);
+              return null;
+            });
+
+            if (!runtime?.running) {
+              void get().updateEmployeeStatus(
+                exit.employee_id,
+                exit.status === "exited" ? "offline" : "error",
               );
             }
           })();

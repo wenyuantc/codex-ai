@@ -70,6 +70,7 @@ export interface Employee {
   specialization: string | null;
   system_prompt: string | null;
   project_id: string | null;
+  ai_provider: AiProvider;
   created_at: string;
   updated_at: string;
 }
@@ -167,6 +168,8 @@ export interface CodexSessionRecord {
   ended_at: string | null;
   exit_code: number | null;
   resume_session_id: string | null;
+  ai_provider: AiProvider;
+  thinking_budget_tokens: number | null;
   execution_target: EnvironmentMode;
   ssh_config_id: string | null;
   target_host_label: string | null;
@@ -242,6 +245,7 @@ export interface CodexSessionListItem {
   session_record_id: string;
   session_id: string;
   cli_session_id: string | null;
+  ai_provider: AiProvider;
   session_kind: CodexSessionKind;
   status: string;
   last_updated_at: string;
@@ -270,6 +274,7 @@ export interface CodexSessionResumePreview {
   requested_session_id: string;
   resolved_session_id: string | null;
   session_record_id: string | null;
+  ai_provider: AiProvider | null;
   session_kind: CodexSessionKind | null;
   session_status: string | null;
   display_name: string | null;
@@ -609,6 +614,7 @@ export interface EmployeeRunningSession {
   cli_session_id: string | null;
   task_id: string | null;
   task_title: string | null;
+  ai_provider: AiProvider;
   session_kind: CodexSessionKind;
   started_at: string;
   status: string;
@@ -694,6 +700,7 @@ export type CodexSessionResumeStatus =
   | "stopping"
   | "invalid";
 export type CodexModelId =
+  | "gpt-5.5"
   | "gpt-5.4"
   | "gpt-5.2-codex"
   | "gpt-5.1-codex-max"
@@ -703,6 +710,16 @@ export type CodexModelId =
   | "gpt-5.2"
   | "gpt-5.1-codex-mini";
 export type ReasoningEffort = "low" | "medium" | "high" | "xhigh";
+
+export type AiProvider = "codex" | "claude";
+export type ClaudeModelId =
+  | "claude-opus-4-7"
+  | "claude-opus-4-7[1m]"
+  | "claude-opus-4-6[1m]"
+  | "claude-sonnet-4-6"
+  | "claude-sonnet-4-6[1m]"
+  | "claude-haiku-4-5";
+export type ModelId = CodexModelId | ClaudeModelId;
 export type TaskStatus = "todo" | "in_progress" | "review" | "completed" | "blocked" | "archived";
 export type TaskAutomationMode = "review_fix_loop_v1";
 export type TaskAutomationPhase =
@@ -845,6 +862,7 @@ export function normalizeAiCommitModelSource(
 }
 
 export const CODEX_MODEL_OPTIONS: { value: CodexModelId; label: string }[] = [
+  { value: "gpt-5.5", label: "GPT-5.5" },
   { value: "gpt-5.4", label: "GPT-5.4" },
   { value: "gpt-5.2-codex", label: "GPT-5.2-Codex" },
   { value: "gpt-5.1-codex-max", label: "GPT-5.1-Codex-Max" },
@@ -876,6 +894,107 @@ export function normalizeCodexModel(value: string | null | undefined): CodexMode
 
 export function normalizeReasoningEffort(value: string | null | undefined): ReasoningEffort {
   return value && isSupportedReasoningEffort(value) ? value : "high";
+}
+
+export const AI_PROVIDER_OPTIONS: { value: AiProvider; label: string }[] = [
+  { value: "codex", label: "Codex (OpenAI)" },
+  { value: "claude", label: "Claude (Anthropic)" },
+];
+
+export const CLAUDE_MODEL_OPTIONS: { value: ClaudeModelId; label: string }[] = [
+  { value: "claude-opus-4-7", label: "Claude Opus 4.7" },
+  { value: "claude-opus-4-7[1m]", label: "Claude Opus 4.7 (1M)" },
+  { value: "claude-opus-4-6[1m]", label: "Claude Opus 4.6 (1M)" },
+  { value: "claude-sonnet-4-6", label: "Claude Sonnet 4.6" },
+  { value: "claude-sonnet-4-6[1m]", label: "Claude Sonnet 4.6 (1M)" },
+  { value: "claude-haiku-4-5", label: "Claude Haiku 4.5" },
+];
+
+export const CLAUDE_THINKING_BUDGET_OPTIONS: {
+  value: string;
+  label: string;
+}[] = [
+  { value: "low", label: "低" },
+  { value: "medium", label: "中" },
+  { value: "high", label: "高" },
+  { value: "xhigh", label: "超高" },
+  { value: "max", label: "最大" },
+  { value: "auto", label: "自动" },
+];
+
+export function getDefaultReasoningEffortForProvider(_provider: AiProvider): string {
+  return "high";
+}
+
+export function isSupportedClaudeReasoningEffort(value: string): boolean {
+  return CLAUDE_THINKING_BUDGET_OPTIONS.some((option) => option.value === value);
+}
+
+export function normalizeReasoningEffortForProvider(
+  provider: AiProvider,
+  value: string | null | undefined,
+): string {
+  if (provider === "claude") {
+    return value && isSupportedClaudeReasoningEffort(value)
+      ? value
+      : getDefaultReasoningEffortForProvider(provider);
+  }
+
+  return normalizeReasoningEffort(value);
+}
+
+export function isSupportedClaudeModel(value: string): value is ClaudeModelId {
+  return CLAUDE_MODEL_OPTIONS.some((option) => option.value === value);
+}
+
+export function normalizeClaudeModel(
+  value: string | null | undefined,
+): ClaudeModelId {
+  return value && isSupportedClaudeModel(value) ? value : "claude-sonnet-4-6";
+}
+
+export function getModelOptionsForProvider(provider: AiProvider) {
+  return provider === "claude" ? CLAUDE_MODEL_OPTIONS : CODEX_MODEL_OPTIONS;
+}
+
+export function getDefaultModelForProvider(provider: AiProvider): ModelId {
+  return provider === "claude" ? "claude-sonnet-4-6" : "gpt-5.4";
+}
+
+export function normalizeAiProvider(
+  value: string | null | undefined,
+): AiProvider {
+  return value === "claude" ? "claude" : "codex";
+}
+
+export interface ClaudeSettings {
+  sdk_enabled: boolean;
+  default_model: string;
+  default_thinking_budget: number;
+  sdk_install_dir: string;
+  node_path_override: string | null;
+  cli_path_override: string | null;
+}
+
+export interface ClaudeHealthCheck {
+  cli_available: boolean;
+  cli_version: string | null;
+  sdk_installed: boolean;
+  sdk_version: string | null;
+  node_available: boolean;
+  node_version: string | null;
+  sdk_install_dir: string;
+  effective_provider: string;
+  sdk_status_message: string;
+  checked_at: string;
+}
+
+export interface ClaudeSdkInstallResult {
+  sdk_installed: boolean;
+  sdk_version: string | null;
+  install_dir: string;
+  node_version: string | null;
+  message: string;
 }
 
 export const ACTIVE_TASK_STATUSES: {

@@ -1,4 +1,5 @@
 use super::*;
+use crate::claude::{start_claude_with_manager, ClaudeManager};
 
 pub(crate) fn truncate_review_text(value: &str, limit: usize) -> (String, bool) {
     let trimmed = value.trim();
@@ -1175,22 +1176,45 @@ pub(crate) async fn start_task_code_review_internal(
     let review_prompt =
         build_task_review_prompt(&task, &project, &review_working_dir, &review_context);
 
-    crate::codex::start_codex_with_manager(
-        app.clone(),
-        manager_state,
-        reviewer.id.clone(),
-        review_prompt,
-        Some(reviewer.model.clone()),
-        Some(reviewer.reasoning_effort.clone()),
-        reviewer.system_prompt.clone(),
-        Some(review_working_dir),
-        Some(task.id.clone()),
-        None,
-        None,
-        None,
-        Some("review".to_string()),
-    )
-    .await?;
+    if reviewer.ai_provider == "claude" {
+        let claude_manager = app
+            .state::<Arc<tokio::sync::Mutex<ClaudeManager>>>()
+            .inner()
+            .clone();
+        start_claude_with_manager(
+            app.clone(),
+            claude_manager,
+            reviewer.id.clone(),
+            review_prompt,
+            Some(reviewer.model.clone()),
+            Some(reviewer.reasoning_effort.clone()),
+            reviewer.system_prompt.clone(),
+            Some(review_working_dir),
+            Some(task.id.clone()),
+            None,
+            None,
+            None,
+            Some("review".to_string()),
+        )
+        .await?;
+    } else {
+        crate::codex::start_codex_with_manager(
+            app.clone(),
+            manager_state,
+            reviewer.id.clone(),
+            review_prompt,
+            Some(reviewer.model.clone()),
+            Some(reviewer.reasoning_effort.clone()),
+            reviewer.system_prompt.clone(),
+            Some(review_working_dir),
+            Some(task.id.clone()),
+            None,
+            None,
+            None,
+            Some("review".to_string()),
+        )
+        .await?;
+    }
 
     record_task_review_requested_activity(
         &pool,

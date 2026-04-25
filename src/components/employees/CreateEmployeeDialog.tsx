@@ -2,10 +2,15 @@ import { useEffect, useState } from "react";
 import { useEmployeeStore } from "@/stores/employeeStore";
 import { useProjectStore } from "@/stores/projectStore";
 import {
+  AI_PROVIDER_OPTIONS,
   CODEX_MODEL_OPTIONS,
+  CLAUDE_MODEL_OPTIONS,
+  CLAUDE_THINKING_BUDGET_OPTIONS,
   REASONING_EFFORT_OPTIONS,
-  type CodexModelId,
-  type ReasoningEffort,
+  type AiProvider,
+  getDefaultModelForProvider,
+  getDefaultReasoningEffortForProvider,
+  normalizeReasoningEffortForProvider,
 } from "@/lib/types";
 import {
   Dialog,
@@ -47,16 +52,21 @@ export function CreateEmployeeDialog({
   const { projects, fetchProjects } = useProjectStore();
   const [name, setName] = useState("");
   const [role, setRole] = useState("developer");
-  const [model, setModel] = useState<CodexModelId>("gpt-5.4");
-  const [reasoningEffort, setReasoningEffort] = useState<ReasoningEffort>("high");
+  const [aiProvider, setAiProvider] = useState<AiProvider>("codex");
+  const [model, setModel] = useState<string>("gpt-5.4");
+  const [reasoningEffort, setReasoningEffort] = useState<string>("high");
   const [specialization, setSpecialization] = useState("");
   const [systemPrompt, setSystemPrompt] = useState("");
   const [projectId, setProjectId] = useState("");
   const [saving, setSaving] = useState(false);
 
+  const modelOptions = aiProvider === "claude" ? CLAUDE_MODEL_OPTIONS : CODEX_MODEL_OPTIONS;
+  const effortOptions = aiProvider === "claude" ? CLAUDE_THINKING_BUDGET_OPTIONS : REASONING_EFFORT_OPTIONS;
+
   const resetForm = () => {
     setName("");
     setRole("developer");
+    setAiProvider("codex");
     setModel("gpt-5.4");
     setReasoningEffort("high");
     setSpecialization("");
@@ -79,10 +89,11 @@ export function CreateEmployeeDialog({
         name: name.trim(),
         role,
         model,
-        reasoning_effort: reasoningEffort,
+        reasoning_effort: normalizeReasoningEffortForProvider(aiProvider, reasoningEffort),
         specialization: specialization.trim() || undefined,
         system_prompt: systemPrompt.trim() || undefined,
         project_id: projectId || undefined,
+        ai_provider: aiProvider,
       });
       resetForm();
       onOpenChange(false);
@@ -140,12 +151,15 @@ export function CreateEmployeeDialog({
             </div>
 
             <div>
-              <label className="text-xs font-medium text-muted-foreground">模型</label>
+              <label className="text-xs font-medium text-muted-foreground">AI 提供商</label>
               <Select
-                value={model}
+                value={aiProvider}
                 onValueChange={(value) => {
                   if (value) {
-                    setModel(value as CodexModelId);
+                    const provider = value as AiProvider;
+                    setAiProvider(provider);
+                    setModel(getDefaultModelForProvider(provider) as string);
+                    setReasoningEffort(getDefaultReasoningEffortForProvider(provider));
                   }
                 }}
               >
@@ -153,13 +167,13 @@ export function CreateEmployeeDialog({
                   <SelectValue>
                     {(value) =>
                       typeof value === "string"
-                        ? CODEX_MODEL_OPTIONS.find((option) => option.value === value)?.label ?? value
-                        : "选择模型"
+                        ? AI_PROVIDER_OPTIONS.find((option) => option.value === value)?.label ?? value
+                        : "选择提供商"
                     }
                   </SelectValue>
                 </SelectTrigger>
                 <SelectContent>
-                  {CODEX_MODEL_OPTIONS.map((option) => (
+                  {AI_PROVIDER_OPTIONS.map((option) => (
                     <SelectItem key={option.value} value={option.value}>
                       {option.label}
                     </SelectItem>
@@ -169,33 +183,64 @@ export function CreateEmployeeDialog({
             </div>
           </div>
 
-          <div>
-            <label className="text-xs font-medium text-muted-foreground">推理强度</label>
-            <Select
-              value={reasoningEffort}
-              onValueChange={(value) => {
-                if (value) {
-                  setReasoningEffort(value as ReasoningEffort);
-                }
-              }}
-            >
-              <SelectTrigger className="mt-1 bg-background">
-                <SelectValue>
-                  {(value) =>
-                    typeof value === "string"
-                      ? REASONING_EFFORT_OPTIONS.find((option) => option.value === value)?.label ?? value
-                      : "选择推理强度"
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-xs font-medium text-muted-foreground">模型</label>
+              <Select
+                value={model}
+                onValueChange={(value) => {
+                  if (value) {
+                    setModel(value);
                   }
-                </SelectValue>
-              </SelectTrigger>
-              <SelectContent>
-                {REASONING_EFFORT_OPTIONS.map((option) => (
-                  <SelectItem key={option.value} value={option.value}>
-                    {option.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+                }}
+              >
+                <SelectTrigger className="mt-1 bg-background">
+                  <SelectValue>
+                    {(value) =>
+                      typeof value === "string"
+                        ? modelOptions.find((option) => option.value === value)?.label ?? value
+                        : "选择模型"
+                    }
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                  {modelOptions.map((option) => (
+                    <SelectItem key={option.value} value={option.value}>
+                      {option.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div>
+              <label className="text-xs font-medium text-muted-foreground">推理强度</label>
+              <Select
+                value={reasoningEffort}
+                onValueChange={(value) => {
+                  if (value) {
+                    setReasoningEffort(value);
+                  }
+                }}
+              >
+                <SelectTrigger className="mt-1 bg-background">
+                  <SelectValue>
+                    {(value) =>
+                      typeof value === "string"
+                        ? effortOptions.find((option) => option.value === value)?.label ?? value
+                        : "选择推理强度"
+                    }
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                  {effortOptions.map((option) => (
+                    <SelectItem key={option.value} value={option.value}>
+                      {option.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
           </div>
 
           <div>

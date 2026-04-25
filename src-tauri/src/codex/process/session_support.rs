@@ -22,6 +22,8 @@ pub(super) async fn record_failed_session(
         None,
         None,
         ARTIFACT_CAPTURE_MODE_LOCAL_FULL,
+        None,
+        None,
     )
     .await
     {
