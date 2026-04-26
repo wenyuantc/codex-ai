@@ -16,6 +16,7 @@ use crate::codex::{
     extract_review_report, extract_review_verdict, load_codex_settings, start_codex_with_manager,
     stop_codex_for_automation_restart, CodexManager,
 };
+use crate::opencode::{start_opencode_with_manager, OpenCodeManager};
 use crate::db::models::{
     CodexSessionRecord, Project, ReviewVerdict, Subtask, Task, TaskAttachment,
     TaskAutomationStateRecord,
@@ -818,6 +819,24 @@ async fn start_automation_fix_round(
             None,
             Some(execution_input.image_paths),
             Some("execution".to_string()),
+        )
+        .await
+    } else if assignee.ai_provider == "opencode" {
+        let manager = app
+            .state::<Arc<tokio::sync::Mutex<OpenCodeManager>>>()
+            .inner()
+            .clone();
+        start_opencode_with_manager(
+            app.clone(),
+            manager,
+            assignee.id.clone(),
+            execution_input.prompt,
+            Some(assignee.model.clone()),
+            Some(execution_context.working_dir),
+            Some(task.id.clone()),
+            execution_context.task_git_context_id,
+            None,
+            Some(execution_input.image_paths),
         )
         .await
     } else {

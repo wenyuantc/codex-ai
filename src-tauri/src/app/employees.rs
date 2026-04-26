@@ -1,4 +1,13 @@
 use super::*;
+use crate::opencode;
+
+async fn list_live_opencode_employee_processes(
+    state: &Arc<tokio::sync::Mutex<opencode::OpenCodeManager>>,
+    employee_id: &str,
+) -> Vec<opencode::ManagedOpenCodeProcess> {
+    let manager: tokio::sync::MutexGuard<'_, opencode::OpenCodeManager> = state.lock().await;
+    manager.get_employee_processes(employee_id)
+}
 
 pub(crate) async fn fetch_employee_by_id(pool: &SqlitePool, id: &str) -> Result<Employee, String> {
     sqlx::query_as::<_, Employee>("SELECT * FROM employees WHERE id = $1 LIMIT 1")
@@ -26,21 +35,30 @@ async fn build_employee_runtime_status<R: Runtime>(
     app: &AppHandle<R>,
     manager_state: &Arc<Mutex<CodexManager>>,
     claude_manager_state: &Arc<tokio::sync::Mutex<ClaudeManager>>,
+    opencode_manager_state: &Arc<tokio::sync::Mutex<opencode::OpenCodeManager>>,
     employee_id: &str,
 ) -> Result<EmployeeRuntimeStatus, String> {
     let live_codex_processes =
         crate::codex::list_live_employee_processes(app, manager_state, employee_id).await?;
     let live_claude_processes =
         crate::claude::list_live_claude_employee_processes(claude_manager_state, employee_id).await;
+    let live_opencode_processes =
+        list_live_opencode_employee_processes(opencode_manager_state, employee_id).await;
     let pool = sqlite_pool(app).await?;
     let latest_session = fetch_latest_employee_session(app, employee_id).await?;
-    let mut sessions = Vec::with_capacity(live_codex_processes.len() + live_claude_processes.len());
+    let total = live_codex_processes.len() + live_claude_processes.len() + live_opencode_processes.len();
+    let mut sessions = Vec::with_capacity(total);
 
     for session_record_id in live_codex_processes
         .into_iter()
         .map(|process| process.session_record_id)
         .chain(
             live_claude_processes
+                .into_iter()
+                .map(|process| process.session_record_id),
+        )
+        .chain(
+            live_opencode_processes
                 .into_iter()
                 .map(|process| process.session_record_id),
         )
@@ -88,9 +106,17 @@ pub async fn get_employee_runtime_status<R: Runtime>(
     app: AppHandle<R>,
     state: State<'_, Arc<Mutex<CodexManager>>>,
     claude_state: State<'_, Arc<tokio::sync::Mutex<ClaudeManager>>>,
+    opencode_state: State<'_, Arc<tokio::sync::Mutex<opencode::OpenCodeManager>>>,
     employee_id: String,
 ) -> Result<EmployeeRuntimeStatus, String> {
-    build_employee_runtime_status(&app, state.inner(), claude_state.inner(), &employee_id).await
+    build_employee_runtime_status(
+        &app,
+        state.inner(),
+        claude_state.inner(),
+        opencode_state.inner(),
+        &employee_id,
+    )
+    .await
 }
 
 #[tauri::command]
@@ -98,11 +124,17 @@ pub async fn get_codex_session_status<R: Runtime>(
     app: AppHandle<R>,
     state: State<'_, Arc<Mutex<CodexManager>>>,
     claude_state: State<'_, Arc<tokio::sync::Mutex<ClaudeManager>>>,
+    opencode_state: State<'_, Arc<tokio::sync::Mutex<opencode::OpenCodeManager>>>,
     employee_id: String,
 ) -> Result<CodexRuntimeStatus, String> {
-    let runtime =
-        build_employee_runtime_status(&app, state.inner(), claude_state.inner(), &employee_id)
-            .await?;
+    let runtime = build_employee_runtime_status(
+        &app,
+        state.inner(),
+        claude_state.inner(),
+        opencode_state.inner(),
+        &employee_id,
+    )
+    .await?;
     let session = if let Some(running_session) = runtime.sessions.first() {
         Some(fetch_codex_session_by_id(&app, &running_session.session_record_id).await?)
     } else {
@@ -261,6 +293,7 @@ pub async fn delete_employee<R: Runtime>(
     app: AppHandle<R>,
     state: State<'_, Arc<Mutex<CodexManager>>>,
     claude_state: State<'_, Arc<tokio::sync::Mutex<ClaudeManager>>>,
+    opencode_state: State<'_, Arc<tokio::sync::Mutex<opencode::OpenCodeManager>>>,
     id: String,
 ) -> Result<(), String> {
     if !crate::codex::list_live_employee_processes(&app, state.inner(), &id)
@@ -274,6 +307,12 @@ pub async fn delete_employee<R: Runtime>(
         .is_empty()
     {
         return Err("员工仍有运行中的 Claude 会话，不能删除".to_string());
+    }
+    if !list_live_opencode_employee_processes(opencode_state.inner(), &id)
+        .await
+        .is_empty()
+    {
+        return Err("员工仍有运行中的 OpenCode 会话，不能删除".to_string());
     }
 
     let pool = sqlite_pool(&app).await?;

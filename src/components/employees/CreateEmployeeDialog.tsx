@@ -1,4 +1,6 @@
 import { useEffect, useState } from "react";
+import { Loader2, RefreshCw } from "lucide-react";
+
 import { useEmployeeStore } from "@/stores/employeeStore";
 import { useProjectStore } from "@/stores/projectStore";
 import {
@@ -7,11 +9,13 @@ import {
   CLAUDE_MODEL_OPTIONS,
   CLAUDE_THINKING_BUDGET_OPTIONS,
   REASONING_EFFORT_OPTIONS,
+  OPENCODE_EFFORT_OPTIONS,
   type AiProvider,
   getDefaultModelForProvider,
   getDefaultReasoningEffortForProvider,
   normalizeReasoningEffortForProvider,
 } from "@/lib/types";
+import { getOpenCodeModels, type OpenCodeModelInfo } from "@/lib/opencode";
 import {
   Dialog,
   DialogContent,
@@ -59,9 +63,18 @@ export function CreateEmployeeDialog({
   const [systemPrompt, setSystemPrompt] = useState("");
   const [projectId, setProjectId] = useState("");
   const [saving, setSaving] = useState(false);
+  const [opencodeModels, setOpenCodeModels] = useState<OpenCodeModelInfo[]>([]);
+  const [opencodeModelsLoading, setOpenCodeModelsLoading] = useState(false);
+  const [opencodeModelError, setOpenCodeModelError] = useState<string | null>(null);
 
-  const modelOptions = aiProvider === "claude" ? CLAUDE_MODEL_OPTIONS : CODEX_MODEL_OPTIONS;
-  const effortOptions = aiProvider === "claude" ? CLAUDE_THINKING_BUDGET_OPTIONS : REASONING_EFFORT_OPTIONS;
+  const modelOptions = aiProvider === "claude" ? CLAUDE_MODEL_OPTIONS : aiProvider === "opencode" ? opencodeModels : CODEX_MODEL_OPTIONS;
+  const effortOptions = aiProvider === "claude" ? CLAUDE_THINKING_BUDGET_OPTIONS : aiProvider === "opencode" ? OPENCODE_EFFORT_OPTIONS : REASONING_EFFORT_OPTIONS;
+
+  const selectedModelCapabilities = aiProvider === "opencode"
+    ? opencodeModels.find((m) => m.value === model)?.capabilities ?? null
+    : null;
+
+  const modelSupportsReasoning = selectedModelCapabilities === null || selectedModelCapabilities.reasoning;
 
   const resetForm = () => {
     setName("");
@@ -72,6 +85,7 @@ export function CreateEmployeeDialog({
     setSpecialization("");
     setSystemPrompt("");
     setProjectId(defaultProjectId ?? "");
+    setOpenCodeModels([]);
   };
 
   useEffect(() => {
@@ -80,6 +94,46 @@ export function CreateEmployeeDialog({
       resetForm();
     }
   }, [defaultProjectId, fetchProjects, open]);
+
+  const fetchOpenCodeModels = async () => {
+    setOpenCodeModelsLoading(true);
+    setOpenCodeModelError(null);
+    try {
+      const models = await getOpenCodeModels();
+      setOpenCodeModels(models);
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      setOpenCodeModelError(msg);
+      console.error("获取 OpenCode 模型列表失败:", msg);
+    } finally {
+      setOpenCodeModelsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!open || aiProvider !== "opencode") return;
+    void fetchOpenCodeModels();
+  }, [aiProvider, open]);
+
+  const handleProviderChange = (value: AiProvider | null) => {
+    if (!value) return;
+    setAiProvider(value);
+    setModel(getDefaultModelForProvider(value) as string);
+    setReasoningEffort(getDefaultReasoningEffortForProvider(value));
+    setOpenCodeModelError(null);
+  };
+
+  const handleModelChange = (value: string) => {
+    setModel(value);
+    if (aiProvider === "opencode") {
+      const modelInfo = opencodeModels.find((m) => m.value === value);
+      if (modelInfo?.capabilities && !modelInfo.capabilities.reasoning) {
+        setReasoningEffort("auto");
+      } else {
+        setReasoningEffort(getDefaultReasoningEffortForProvider("opencode"));
+      }
+    }
+  };
 
   const handleCreate = async () => {
     if (!name.trim()) return;
@@ -104,7 +158,7 @@ export function CreateEmployeeDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[560px]">
+      <DialogContent className="sm:max-w-[640px]">
         <DialogHeader>
           <DialogTitle>添加员工</DialogTitle>
         </DialogHeader>
@@ -154,14 +208,7 @@ export function CreateEmployeeDialog({
               <label className="text-xs font-medium text-muted-foreground">AI 提供商</label>
               <Select
                 value={aiProvider}
-                onValueChange={(value) => {
-                  if (value) {
-                    const provider = value as AiProvider;
-                    setAiProvider(provider);
-                    setModel(getDefaultModelForProvider(provider) as string);
-                    setReasoningEffort(getDefaultReasoningEffortForProvider(provider));
-                  }
-                }}
+                onValueChange={handleProviderChange}
               >
                 <SelectTrigger className="mt-1 bg-background">
                   <SelectValue>
@@ -186,31 +233,90 @@ export function CreateEmployeeDialog({
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="text-xs font-medium text-muted-foreground">模型</label>
-              <Select
-                value={model}
-                onValueChange={(value) => {
-                  if (value) {
-                    setModel(value);
-                  }
-                }}
-              >
-                <SelectTrigger className="mt-1 bg-background">
-                  <SelectValue>
-                    {(value) =>
-                      typeof value === "string"
-                        ? modelOptions.find((option) => option.value === value)?.label ?? value
-                        : "选择模型"
-                    }
-                  </SelectValue>
-                </SelectTrigger>
-                <SelectContent>
-                  {modelOptions.map((option) => (
-                    <SelectItem key={option.value} value={option.value}>
-                      {option.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              {modelOptions.length > 0 && aiProvider !== "opencode" ? (
+                <Select
+                  value={model}
+                  onValueChange={(value) => {
+                    if (value) handleModelChange(value);
+                  }}
+                >
+                  <SelectTrigger className="mt-1 bg-background">
+                    <SelectValue>
+                      {(value) =>
+                        typeof value === "string"
+                          ? modelOptions.find((option) => option.value === value)?.label ?? value
+                          : "选择模型"
+                      }
+                    </SelectValue>
+                  </SelectTrigger>
+                  <SelectContent>
+                    {modelOptions.map((option) => (
+                      <SelectItem key={option.value} value={option.value}>
+                        {option.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              ) : aiProvider === "opencode" ? (
+                <div className="flex flex-col gap-1 mt-1">
+                  <div className="flex gap-2">
+                    <div className="flex-1">
+                      {opencodeModels.length > 0 ? (
+                        <Select
+                          value={model}
+                          onValueChange={(value) => {
+                            if (value) handleModelChange(value);
+                          }}
+                        >
+                          <SelectTrigger className="bg-background">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent className="max-h-72">
+                            {opencodeModels.map((m) => (
+                              <SelectItem key={m.value} value={m.value}>
+                                {`${m.label} · ${m.providerName}`}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      ) : (
+                        <Input
+                          value={model}
+                          onChange={(e) => handleModelChange(e.target.value)}
+                          placeholder="openai/gpt-4o"
+                        />
+                      )}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={fetchOpenCodeModels}
+                      disabled={opencodeModelsLoading}
+                      className="px-2 py-1 border border-input rounded-md hover:bg-accent disabled:opacity-50"
+                      title="刷新模型列表"
+                    >
+                      {opencodeModelsLoading
+                        ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        : <RefreshCw className="h-3.5 w-3.5" />
+                      }
+                    </button>
+                  </div>
+                  {opencodeModels.length > 0 && (
+                    <p className="text-[11px] text-muted-foreground">
+                      已加载 {opencodeModels.length} 个模型
+                    </p>
+                  )}
+                  {opencodeModelError && (
+                    <p className="text-[11px] text-destructive">{opencodeModelError}</p>
+                  )}
+                </div>
+              ) : (
+                <Input
+                  value={model}
+                  onChange={(e) => handleModelChange(e.target.value)}
+                  placeholder="openai/gpt-4o"
+                  className="mt-1"
+                />
+              )}
             </div>
 
             <div>
@@ -218,10 +324,11 @@ export function CreateEmployeeDialog({
               <Select
                 value={reasoningEffort}
                 onValueChange={(value) => {
-                  if (value) {
+                  if (value && modelSupportsReasoning) {
                     setReasoningEffort(value);
                   }
                 }}
+                disabled={!modelSupportsReasoning}
               >
                 <SelectTrigger className="mt-1 bg-background">
                   <SelectValue>
@@ -240,6 +347,11 @@ export function CreateEmployeeDialog({
                   ))}
                 </SelectContent>
               </Select>
+              {aiProvider === "opencode" && selectedModelCapabilities?.reasoning && (
+                <p className="text-[10px] text-muted-foreground mt-0.5">
+                  部分模型可能不支持所有推理等级，不支持时将自动忽略
+                </p>
+              )}
             </div>
           </div>
 

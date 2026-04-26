@@ -974,6 +974,82 @@ pub struct ClaudeSession {
     pub session_id: String,
 }
 
+// ========== OpenCode Types ==========
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OpenCodeSettings {
+    pub sdk_enabled: bool,
+    pub default_model: String,
+    pub host: String,
+    pub port: u16,
+    pub sdk_install_dir: String,
+    pub node_path_override: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UpdateOpenCodeSettings {
+    pub sdk_enabled: Option<bool>,
+    pub default_model: Option<String>,
+    pub host: Option<String>,
+    pub port: Option<u16>,
+    #[serde(default, deserialize_with = "deserialize_explicit_nullable")]
+    pub node_path_override: Option<Option<String>>,
+    #[serde(default, deserialize_with = "deserialize_explicit_nullable")]
+    pub sdk_install_dir: Option<Option<String>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OpenCodeHealthCheck {
+    pub sdk_installed: bool,
+    pub sdk_version: Option<String>,
+    pub node_available: bool,
+    pub node_version: Option<String>,
+    pub sdk_install_dir: String,
+    pub effective_provider: String,
+    pub sdk_status_message: String,
+    pub checked_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OpenCodeSdkInstallResult {
+    pub sdk_installed: bool,
+    pub sdk_version: Option<String>,
+    pub install_dir: String,
+    pub node_version: Option<String>,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OpenCodeOutput {
+    pub employee_id: String,
+    pub task_id: Option<String>,
+    pub session_kind: String,
+    pub session_record_id: String,
+    pub session_event_id: Option<String>,
+    pub line: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OpenCodeExit {
+    pub employee_id: String,
+    pub task_id: Option<String>,
+    pub session_kind: String,
+    pub session_record_id: String,
+    pub session_event_id: Option<String>,
+    pub status: String,
+    pub line: Option<String>,
+    pub code: Option<i32>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OpenCodeSession {
+    pub employee_id: String,
+    pub task_id: Option<String>,
+    pub session_kind: String,
+    pub session_record_id: String,
+    pub session_id: String,
+}
+
 // ========== Codex Event Payloads ==========
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

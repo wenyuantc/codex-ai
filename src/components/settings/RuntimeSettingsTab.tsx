@@ -23,6 +23,7 @@ import {
   type ReasoningEffort,
   type RemoteCodexHealthCheck,
 } from "@/lib/types";
+import type { OpenCodeHealthCheck, OpenCodeModelInfo } from "@/lib/opencode";
 import { type ThemeMode } from "@/lib/theme";
 import { formatDate } from "@/lib/utils";
 
@@ -70,6 +71,26 @@ interface RuntimeSettingsTabProps {
   onClaudeSave: () => void;
   onClaudeInstall: () => void;
   onClaudeRefresh: () => void;
+  opencodeHealth: OpenCodeHealthCheck | null;
+  opencodeSdkEnabled: boolean;
+  opencodeDefaultModel: string;
+  opencodeHost: string;
+  opencodePort: number;
+  opencodeNodePathOverride: string;
+  opencodeActionLoading: "save" | "install" | null;
+  opencodeActionMessage: string | null;
+  opencodeActionError: string | null;
+  onOpenCodeSdkEnabledChange: (enabled: boolean) => void;
+  onOpenCodeDefaultModelChange: (model: string) => void;
+  onOpenCodeHostChange: (host: string) => void;
+  onOpenCodePortChange: (port: number) => void;
+  opencodeModelList: OpenCodeModelInfo[];
+  opencodeModelListLoading: boolean;
+  onOpenCodeNodePathOverrideChange: (path: string) => void;
+  onOpenCodeFetchModels: () => void;
+  onOpenCodeSave: () => void;
+  onOpenCodeInstall: () => void;
+  onOpenCodeRefresh: () => void;
 }
 
 const themeOptions: { value: ThemeMode; label: string; icon: LucideIcon }[] = [
@@ -126,6 +147,26 @@ export function RuntimeSettingsTab({
   onClaudeSave,
   onClaudeInstall,
   onClaudeRefresh,
+  opencodeHealth,
+  opencodeSdkEnabled,
+  opencodeDefaultModel,
+  opencodeHost,
+  opencodePort,
+  opencodeNodePathOverride,
+  opencodeActionLoading,
+  opencodeActionMessage,
+  opencodeActionError,
+  opencodeModelList,
+  opencodeModelListLoading,
+  onOpenCodeSdkEnabledChange,
+  onOpenCodeDefaultModelChange,
+  onOpenCodeHostChange,
+  onOpenCodePortChange,
+  onOpenCodeNodePathOverrideChange,
+  onOpenCodeFetchModels,
+  onOpenCodeSave,
+  onOpenCodeInstall,
+  onOpenCodeRefresh,
 }: RuntimeSettingsTabProps) {
   const taskProviderLabel =
     codexHealth?.task_execution_effective_provider === "sdk" ? "SDK" : "exec（自动回退）";
@@ -568,6 +609,193 @@ export function RuntimeSettingsTab({
 
             {claudeActionMessage && <p className="text-xs text-green-700">{claudeActionMessage}</p>}
             {claudeActionError && <p className="text-xs text-destructive">{claudeActionError}</p>}
+          </div>
+        )}
+      </div>
+
+      <div className="space-y-4 rounded-lg border border-border bg-card p-4">
+        <div className="flex items-start justify-between gap-4">
+          <div className="space-y-1">
+            <h3 className="text-sm font-medium">
+              {isRemoteMode ? "OpenCode（仅本地配置）" : "OpenCode SDK 配置"}
+            </h3>
+            <p className="text-xs text-muted-foreground">
+              {isRemoteMode
+                ? "SSH 模式下 OpenCode SDK 仅支持本地执行，远程支持将在后续版本添加。"
+                : "OpenCode SDK 用于运行开源 AI 编码代理的任务。"}
+            </p>
+          </div>
+          <span
+            className={`rounded px-2 py-1 text-xs ${
+              !isRemoteMode && opencodeHealth?.sdk_installed
+                ? "bg-green-100 text-green-700"
+                : "bg-slate-100 text-slate-700"
+            }`}
+          >
+            {isRemoteMode ? "本地设置已禁用" : opencodeHealth?.sdk_installed ? "已安装" : "未安装"}
+          </span>
+        </div>
+
+        {isRemoteMode ? (
+          <div className="rounded-md border border-dashed border-border px-3 py-3 text-sm text-muted-foreground">
+            当前 SSH 配置不会读取本机 OpenCode SDK 设置。请在本地模式下使用 OpenCode 员工。
+          </div>
+        ) : (
+          <div className="mt-4 space-y-4">
+            <label className="flex items-start gap-3 rounded-md border border-border px-3 py-2">
+              <input
+                type="checkbox"
+                className="mt-0.5 h-4 w-4 rounded border-input"
+                checked={opencodeSdkEnabled}
+                onChange={(event) => onOpenCodeSdkEnabledChange(event.target.checked)}
+                disabled={opencodeActionLoading !== null}
+              />
+              <div className="space-y-1">
+                <p className="text-sm font-medium">启用 OpenCode SDK</p>
+                <p className="text-xs text-muted-foreground">
+                  启用后，使用 OpenCode 作为 AI 提供商的员工将通过 SDK 运行任务。
+                </p>
+              </div>
+            </label>
+
+            <div className="space-y-2">
+              <label htmlFor="opencode-default-model" className="text-sm font-medium">
+                默认模型
+              </label>
+              <div className="flex gap-2">
+                <div className="flex-1">
+                  {opencodeModelList.length > 0 ? (
+                    <Select
+                      value={opencodeDefaultModel}
+                      onValueChange={(value) => {
+                        if (value) onOpenCodeDefaultModelChange(value);
+                      }}
+                      disabled={opencodeActionLoading !== null}
+                    >
+                      <SelectTrigger className="bg-background">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent className="max-h-72">
+                        {opencodeModelList.map((m) => (
+                          <SelectItem key={m.value} value={m.value}>
+                            {`${m.label} · ${m.providerName}`}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  ) : (
+                    <Input
+                      id="opencode-default-model"
+                      value={opencodeDefaultModel}
+                      onChange={(event) => onOpenCodeDefaultModelChange(event.target.value)}
+                      placeholder="openai/gpt-4o"
+                      disabled={opencodeActionLoading !== null}
+                    />
+                  )}
+                </div>
+                {opencodeHealth?.sdk_installed && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={onOpenCodeFetchModels}
+                    disabled={opencodeModelListLoading || opencodeActionLoading !== null}
+                    title="从 SDK 获取可用模型列表"
+                  >
+                    {opencodeModelListLoading
+                      ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      : <RefreshCw className="h-3.5 w-3.5" />
+                    }
+                  </Button>
+                )}
+              </div>
+              <p className="text-xs text-muted-foreground">
+                {opencodeModelList.length > 0
+                  ? `已加载 ${opencodeModelList.length} 个可用模型`
+                  : "格式: provider/modelID（例如 openai/gpt-4o），或点击右侧按钮从 SDK 获取"}
+              </p>
+            </div>
+
+            <div className="grid gap-3 md:grid-cols-2">
+              <div className="space-y-2">
+                <label htmlFor="opencode-host" className="text-sm font-medium">
+                  服务器主机
+                </label>
+                <Input
+                  id="opencode-host"
+                  value={opencodeHost}
+                  onChange={(event) => onOpenCodeHostChange(event.target.value)}
+                  placeholder="127.0.0.1"
+                  disabled={opencodeActionLoading !== null}
+                />
+              </div>
+
+              <div className="space-y-2">
+                <label htmlFor="opencode-port" className="text-sm font-medium">
+                  服务器端口
+                </label>
+                <Input
+                  id="opencode-port"
+                  type="number"
+                  value={String(opencodePort)}
+                  onChange={(event) => onOpenCodePortChange(Number(event.target.value) || 4096)}
+                  placeholder="4096"
+                  disabled={opencodeActionLoading !== null}
+                />
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <label htmlFor="opencode-node-path-override" className="text-sm font-medium">
+                Node 路径覆盖（可选）
+              </label>
+              <Input
+                id="opencode-node-path-override"
+                value={opencodeNodePathOverride}
+                onChange={(event) => onOpenCodeNodePathOverrideChange(event.target.value)}
+                placeholder="/opt/homebrew/bin/node"
+                disabled={opencodeActionLoading !== null}
+              />
+              <p className="text-xs text-muted-foreground">留空时自动从系统 PATH 中查找 Node。</p>
+            </div>
+
+            <div className="grid gap-2 rounded-md border border-border px-3 py-3 text-xs text-muted-foreground">
+              <p className="break-all">安装目录：{opencodeHealth?.sdk_install_dir ?? "检测中"}</p>
+              <p>
+                Node：{opencodeHealth?.node_available ? "可用" : "不可用"}
+                {opencodeHealth?.node_version ? `（${opencodeHealth.node_version}）` : ""}
+              </p>
+              <p>
+                SDK：{opencodeHealth?.sdk_installed ? "已安装" : "未安装"}
+                {opencodeHealth?.sdk_version ? `（${opencodeHealth.sdk_version}）` : ""}
+              </p>
+              <p>当前通道：{opencodeHealth?.effective_provider === "sdk" ? "SDK" : "不可用"}</p>
+              {opencodeHealth?.checked_at && <p>检测时间：{formatDate(opencodeHealth.checked_at)}</p>}
+              {opencodeHealth?.sdk_status_message && (
+                <p className="text-[11px] leading-5">{opencodeHealth.sdk_status_message}</p>
+              )}
+            </div>
+
+            <div className="flex flex-wrap gap-2">
+              <Button onClick={onOpenCodeSave} disabled={opencodeActionLoading !== null}>
+                {opencodeActionLoading === "save" ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                保存配置
+              </Button>
+              <Button
+                variant="outline"
+                onClick={onOpenCodeInstall}
+                disabled={opencodeActionLoading !== null}
+              >
+                {opencodeActionLoading === "install" ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                {opencodeHealth?.sdk_installed ? "重装 SDK" : "安装 SDK"}
+              </Button>
+              <Button variant="ghost" onClick={onOpenCodeRefresh} disabled={opencodeActionLoading !== null}>
+                <RefreshCw className={`h-4 w-4`} />
+                刷新检测
+              </Button>
+            </div>
+
+            {opencodeActionMessage && <p className="text-xs text-green-700">{opencodeActionMessage}</p>}
+            {opencodeActionError && <p className="text-xs text-destructive">{opencodeActionError}</p>}
           </div>
         )}
       </div>

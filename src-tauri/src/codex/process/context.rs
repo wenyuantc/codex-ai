@@ -2,12 +2,12 @@ use super::*;
 use crate::app::fetch_project_by_id;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub(super) struct ExecutionContext {
-    pub(super) execution_target: String,
-    pub(super) working_dir: Option<String>,
-    pub(super) ssh_config_id: Option<String>,
-    pub(super) target_host_label: Option<String>,
-    pub(super) artifact_capture_mode: String,
+pub(crate) struct ExecutionContext {
+    pub(crate) execution_target: String,
+    pub(crate) working_dir: Option<String>,
+    pub(crate) ssh_config_id: Option<String>,
+    pub(crate) target_host_label: Option<String>,
+    pub(crate) artifact_capture_mode: String,
 }
 
 impl ExecutionContext {
@@ -147,7 +147,7 @@ pub(super) async fn resolve_one_shot_working_dir<R: Runtime>(
     }
 }
 
-pub(super) async fn resolve_session_execution_context<R: Runtime>(
+pub(crate) async fn resolve_session_execution_context<R: Runtime>(
     app: &AppHandle<R>,
     task_id: Option<&str>,
     working_dir: Option<&str>,

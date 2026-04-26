@@ -2,6 +2,7 @@ import { useState } from "react";
 
 import { startCodex, stopCodexSession } from "@/lib/codex";
 import { startClaude, stopClaudeSession } from "@/lib/claude";
+import { startOpenCode, stopOpenCodeSession } from "@/lib/opencode";
 import { prepareTaskGitExecution } from "@/lib/backend";
 import type { Employee, ProjectType, Task } from "@/lib/types";
 import { buildTaskLogKey, useEmployeeStore } from "@/stores/employeeStore";
@@ -118,6 +119,17 @@ export function useTaskExecutionActions({
 
       if (assignee?.ai_provider === "claude") {
         await startClaude(assigneeId, executionInput.prompt, startOptions);
+      } else if (assignee?.ai_provider === "opencode") {
+        await startOpenCode({
+          employeeId: assigneeId,
+          taskDescription: executionInput.prompt,
+          model: assignee.model,
+          workingDir,
+          taskId: task.id,
+          taskGitContextId,
+          resumeSessionId: executionInput.resumeSessionId,
+          imagePaths: executionInput.imagePaths,
+        });
       } else {
         await startCodex(assigneeId, executionInput.prompt, startOptions);
       }
@@ -150,6 +162,8 @@ export function useTaskExecutionActions({
     try {
       if (runningSession.ai_provider === "claude") {
         await stopClaudeSession(runningSession.session_record_id);
+      } else if (runningSession.ai_provider === "opencode") {
+        await stopOpenCodeSession(runningSession.session_record_id);
       } else {
         await stopCodexSession(runningSession.session_record_id);
       }

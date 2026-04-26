@@ -12,6 +12,7 @@ import { Input } from "@/components/ui/input";
 import { listCodexSessions, prepareCodexSessionResume } from "@/lib/backend";
 import { startCodex } from "@/lib/codex";
 import { startClaude } from "@/lib/claude";
+import { startOpenCode } from "@/lib/opencode";
 import type { CodexSessionListItem, CodexSessionResumeStatus } from "@/lib/types";
 import { formatDate, isArtifactCaptureLimited } from "@/lib/utils";
 import { useEmployeeStore } from "@/stores/employeeStore";
@@ -364,6 +365,16 @@ export function SessionsPage() {
 
       if (preview.ai_provider === "claude") {
         await startClaude(preview.employee_id, prompt, startOptions);
+      } else if (preview.ai_provider === "opencode") {
+        await startOpenCode({
+          employeeId: preview.employee_id,
+          taskDescription: prompt,
+          model: employee?.model,
+          workingDir: preview.working_dir ?? undefined,
+          taskId: preview.task_id ?? undefined,
+          taskGitContextId: preview.task_git_context_id ?? undefined,
+          resumeSessionId: preview.resolved_session_id,
+        });
       } else {
         await startCodex(preview.employee_id, prompt, startOptions);
       }

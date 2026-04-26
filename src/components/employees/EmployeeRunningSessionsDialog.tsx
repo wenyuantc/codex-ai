@@ -18,9 +18,9 @@ function formatSessionKind(sessionKind: EmployeeRunningSession["session_kind"]) 
   return sessionKind === "review" ? "审核" : "执行";
 }
 
-function formatAiProvider(provider: EmployeeRunningSession["ai_provider"]) {
-  return provider === "claude" ? "Claude" : "Codex";
-}
+  function formatAiProvider(provider: EmployeeRunningSession["ai_provider"]) {
+    return provider === "claude" ? "Claude" : provider === "opencode" ? "OpenCode" : "Codex";
+  }
 
 export function EmployeeRunningSessionsDialog({
   open,

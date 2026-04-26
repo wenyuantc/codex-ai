@@ -22,6 +22,13 @@ import {
   type ClaudeOutput,
   type ClaudeSession,
 } from "@/lib/claude";
+import {
+  onOpenCodeExit,
+  onOpenCodeOutput,
+  onOpenCodeSession,
+  type OpenCodeOutputEvent as OpenCodeOutput,
+  type OpenCodeSessionEvent as OpenCodeSession,
+} from "@/lib/opencode";
 import type {
   AiProvider,
   CodexSessionKind,
@@ -401,6 +408,52 @@ export const useEmployeeStore = create<EmployeeStore>((set, get) => ({
               void get().updateEmployeeStatus(
                 exit.employee_id,
                 exit.status === "exited" ? "offline" : "error",
+              );
+            }
+          })();
+        }),
+        onOpenCodeOutput((output: OpenCodeOutput) => {
+          get().addCodexOutput(
+            output.employee_id,
+            output.line,
+            output.task_id,
+            output.session_kind as CodexSessionKind,
+            output.session_record_id,
+            output.session_event_id,
+          );
+        }),
+        onOpenCodeSession((session: OpenCodeSession) => {
+          set((state) => ({
+            employees: state.employees.map((employee) => (
+              employee.id === session.employee_id
+                ? { ...employee, status: "busy" }
+                : employee
+            )),
+          }));
+          void get().refreshEmployeeRuntimeStatus(session.employee_id);
+        }),
+        onOpenCodeExit((exit) => {
+          if (exit.line) {
+            get().addCodexOutput(
+              exit.employee_id,
+              exit.line,
+              exit.task_id,
+              exit.session_kind as CodexSessionKind,
+              exit.session_record_id,
+              exit.session_event_id,
+            );
+          }
+
+          void (async () => {
+            const runtime = await syncEmployeeRuntime(exit.employee_id).catch((error) => {
+              console.error(`Failed to sync runtime after OpenCode exit for ${exit.employee_id}:`, error);
+              return null;
+            });
+
+            if (!runtime?.running) {
+              void get().updateEmployeeStatus(
+                exit.employee_id,
+                exit.code === 0 ? "offline" : "error",
               );
             }
           })();

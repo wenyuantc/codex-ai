@@ -40,7 +40,7 @@ use crate::task_automation;
 mod ai_commands;
 mod changes;
 mod command_builders;
-mod context;
+pub(crate) mod context;
 mod lifecycle;
 mod one_shot;
 mod prompts;

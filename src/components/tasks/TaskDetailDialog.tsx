@@ -37,6 +37,7 @@ import {
 } from "@/lib/taskAttachments";
 import { startCodex } from "@/lib/codex";
 import { startClaude } from "@/lib/claude";
+import { startOpenCode } from "@/lib/opencode";
 import { getProjectWorkingDir } from "@/lib/projects";
 import type { TaskAutomationDisplayState } from "@/lib/utils";
 import {
@@ -588,6 +589,16 @@ export function TaskDetailDialog({
 
       if (assignee?.ai_provider === "claude") {
         await startClaude(assigneeId, executionInput.prompt, startOptions);
+      } else if (assignee?.ai_provider === "opencode") {
+        await startOpenCode({
+          employeeId: assigneeId,
+          taskDescription: executionInput.prompt,
+          model: assignee.model,
+          workingDir,
+          taskId: createdTask.id,
+          taskGitContextId,
+          imagePaths: executionInput.imagePaths,
+        });
       } else {
         await startCodex(assigneeId, executionInput.prompt, startOptions);
       }

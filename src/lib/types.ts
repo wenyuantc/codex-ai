@@ -709,9 +709,9 @@ export type CodexModelId =
   | "gpt-5.3-codex-spark"
   | "gpt-5.2"
   | "gpt-5.1-codex-mini";
-export type ReasoningEffort = "low" | "medium" | "high" | "xhigh";
+export type ReasoningEffort = "low" | "medium" | "high" | "xhigh" | "max";
 
-export type AiProvider = "codex" | "claude";
+export type AiProvider = "codex" | "claude" | "opencode";
 export type ClaudeModelId =
   | "claude-opus-4-7"
   | "claude-opus-4-7[1m]"
@@ -877,7 +877,7 @@ export const REASONING_EFFORT_OPTIONS: { value: ReasoningEffort; label: string }
   { value: "low", label: "低" },
   { value: "medium", label: "中" },
   { value: "high", label: "高" },
-  { value: "xhigh", label: "超高" },
+  { value: "max", label: "最高" },
 ];
 
 export function isSupportedCodexModel(value: string): value is CodexModelId {
@@ -892,6 +892,15 @@ export function normalizeCodexModel(value: string | null | undefined): CodexMode
   return value && isSupportedCodexModel(value) ? value : "gpt-5.4";
 }
 
+export const OPENCODE_EFFORT_OPTIONS: { value: string; label: string }[] = [
+  { value: "default", label: "Default" },
+  { value: "low", label: "Low" },
+  { value: "medium", label: "Medium" },
+  { value: "high", label: "High" },
+  { value: "xhigh", label: "Xhigh" },
+  { value: "max", label: "Max" },
+];
+
 export function normalizeReasoningEffort(value: string | null | undefined): ReasoningEffort {
   return value && isSupportedReasoningEffort(value) ? value : "high";
 }
@@ -899,6 +908,7 @@ export function normalizeReasoningEffort(value: string | null | undefined): Reas
 export const AI_PROVIDER_OPTIONS: { value: AiProvider; label: string }[] = [
   { value: "codex", label: "Codex (OpenAI)" },
   { value: "claude", label: "Claude (Anthropic)" },
+  { value: "opencode", label: "OpenCode (开源)" },
 ];
 
 export const CLAUDE_MODEL_OPTIONS: { value: ClaudeModelId; label: string }[] = [
@@ -940,6 +950,12 @@ export function normalizeReasoningEffortForProvider(
       : getDefaultReasoningEffortForProvider(provider);
   }
 
+  if (provider === "opencode") {
+    return value && OPENCODE_EFFORT_OPTIONS.some((option) => option.value === value)
+      ? value
+      : "high";
+  }
+
   return normalizeReasoningEffort(value);
 }
 
@@ -954,17 +970,23 @@ export function normalizeClaudeModel(
 }
 
 export function getModelOptionsForProvider(provider: AiProvider) {
-  return provider === "claude" ? CLAUDE_MODEL_OPTIONS : CODEX_MODEL_OPTIONS;
+  if (provider === "claude") return CLAUDE_MODEL_OPTIONS;
+  if (provider === "opencode") return [];
+  return CODEX_MODEL_OPTIONS;
 }
 
 export function getDefaultModelForProvider(provider: AiProvider): ModelId {
-  return provider === "claude" ? "claude-sonnet-4-6" : "gpt-5.4";
+  if (provider === "claude") return "claude-sonnet-4-6";
+  if (provider === "opencode") return "gpt-4o" as ModelId;
+  return "gpt-5.4";
 }
 
 export function normalizeAiProvider(
   value: string | null | undefined,
 ): AiProvider {
-  return value === "claude" ? "claude" : "codex";
+  if (value === "claude") return "claude";
+  if (value === "opencode") return "opencode";
+  return "codex";
 }
 
 export interface ClaudeSettings {

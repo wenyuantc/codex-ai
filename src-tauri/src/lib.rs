@@ -5,6 +5,7 @@ mod db;
 mod git_runtime;
 mod git_workflow;
 mod notifications;
+mod opencode;
 mod process_spawn;
 mod task_automation;
 mod tray;
@@ -15,6 +16,7 @@ use std::sync::{Arc, Mutex};
 
 use claude::ClaudeManager;
 use codex::CodexManager;
+use opencode::OpenCodeManager;
 use tauri::Manager;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -35,6 +37,7 @@ pub fn run() {
             tray::create_tray(app)?;
             app.manage(Arc::new(Mutex::new(CodexManager::new())));
             app.manage(Arc::new(tokio::sync::Mutex::new(ClaudeManager::new())));
+            app.manage(Arc::new(tokio::sync::Mutex::new(OpenCodeManager::new())));
             let app_handle = app.handle().clone();
             if let Err(error) = window_state::restore_main_window_size(&app_handle) {
                 eprintln!("恢复主窗口尺寸失败: {error}");
@@ -170,6 +173,14 @@ pub fn run() {
             claude::start_claude,
             claude::stop_claude_session,
             claude::stop_claude,
+            opencode::get_opencode_settings,
+            opencode::update_opencode_settings,
+            opencode::check_opencode_sdk_health,
+            opencode::install_opencode_sdk,
+            opencode::start_opencode,
+            opencode::stop_opencode_session,
+            opencode::stop_opencode,
+            opencode::get_opencode_models,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

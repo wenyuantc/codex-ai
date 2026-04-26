@@ -38,6 +38,15 @@ import {
   type CreateSshConfigInput,
   type UpdateSshConfigInput,
 } from "@/lib/backend";
+import {
+  checkOpenCodeSdkHealth,
+  getOpenCodeModels,
+  getOpenCodeSettings,
+  installOpenCodeSdk,
+  updateOpenCodeSettings,
+  type OpenCodeHealthCheck,
+  type OpenCodeModelInfo,
+} from "@/lib/opencode";
 import { getEnvironmentModeLabel } from "@/lib/projects";
 import {
   normalizeAiCommitMessageLength,
@@ -197,6 +206,17 @@ export function SettingsPage() {
   const [claudeActionLoading, setClaudeActionLoading] = useState<"save" | "install" | null>(null);
   const [claudeActionMessage, setClaudeActionMessage] = useState<string | null>(null);
   const [claudeActionError, setClaudeActionError] = useState<string | null>(null);
+  const [opencodeHealth, setOpenCodeHealth] = useState<OpenCodeHealthCheck | null>(null);
+  const [opencodeSdkEnabled, setOpenCodeSdkEnabled] = useState(false);
+  const [opencodeDefaultModel, setOpenCodeDefaultModel] = useState("openai/gpt-4o");
+  const [opencodeHost, setOpenCodeHost] = useState("127.0.0.1");
+  const [opencodePort, setOpenCodePort] = useState(4096);
+  const [opencodeNodePathOverride, setOpenCodeNodePathOverride] = useState("");
+  const [opencodeActionLoading, setOpenCodeActionLoading] = useState<"save" | "install" | null>(null);
+  const [opencodeActionMessage, setOpenCodeActionMessage] = useState<string | null>(null);
+  const [opencodeActionError, setOpenCodeActionError] = useState<string | null>(null);
+  const [opencodeModelList, setOpenCodeModelList] = useState<OpenCodeModelInfo[]>([]);
+  const [opencodeModelListLoading, setOpenCodeModelListLoading] = useState(false);
 
   const selectedSshConfig = useMemo(
     () => sshConfigs.find((config) => config.id === selectedSshConfigId) ?? null,
@@ -305,6 +325,35 @@ export function SettingsPage() {
     }
   }
 
+  async function loadOpenCodeState() {
+    if (isRemoteMode) {
+      setOpenCodeHealth(null);
+      setOpenCodeSdkEnabled(false);
+      setOpenCodeDefaultModel("openai/gpt-4o");
+      setOpenCodeHost("127.0.0.1");
+      setOpenCodePort(4096);
+      setOpenCodeNodePathOverride("");
+      setOpenCodeActionError(null);
+      setOpenCodeActionMessage(null);
+      return;
+    }
+
+    try {
+      const [health, settings] = await Promise.all([
+        checkOpenCodeSdkHealth(),
+        getOpenCodeSettings(),
+      ]);
+      setOpenCodeHealth(health);
+      setOpenCodeSdkEnabled(settings.sdk_enabled);
+      setOpenCodeDefaultModel(settings.default_model);
+      setOpenCodeHost(settings.host);
+      setOpenCodePort(settings.port);
+      setOpenCodeNodePathOverride(settings.node_path_override ?? "");
+    } catch (error) {
+      console.error("Failed to load OpenCode settings:", error);
+    }
+  }
+
   async function loadClaudeState() {
     if (isRemoteMode) {
       setClaudeHealth(null);
@@ -361,6 +410,7 @@ export function SettingsPage() {
   useEffect(() => {
     void loadRuntimeState();
     void loadClaudeState();
+    void loadOpenCodeState();
   }, [environmentMode, selectedSshConfigId]);
 
   const resetSshForm = () => {
@@ -470,6 +520,76 @@ export function SettingsPage() {
       setSdkActionError(error instanceof Error ? error.message : "安装 Codex SDK 失败");
     } finally {
       setSdkActionLoading(null);
+    }
+  }
+
+  async function handleSaveOpenCodeSettings() {
+    if (isRemoteMode) {
+      setOpenCodeActionError("OpenCode SDK 配置仅适用于本地执行目标。");
+      setOpenCodeActionMessage(null);
+      return;
+    }
+
+    setOpenCodeActionLoading("save");
+    setOpenCodeActionError(null);
+    setOpenCodeActionMessage(null);
+    try {
+      await updateOpenCodeSettings({
+        sdk_enabled: opencodeSdkEnabled,
+        default_model: opencodeDefaultModel,
+        host: opencodeHost,
+        port: opencodePort,
+        node_path_override: opencodeNodePathOverride.trim() || null,
+      });
+      setOpenCodeActionMessage("OpenCode 设置已保存");
+      await loadOpenCodeState();
+    } catch (error) {
+      setOpenCodeActionError(error instanceof Error ? error.message : "保存 OpenCode 设置失败");
+    } finally {
+      setOpenCodeActionLoading(null);
+    }
+  }
+
+  async function handleFetchOpenCodeModels() {
+    setOpenCodeModelListLoading(true);
+    setOpenCodeActionError(null);
+    try {
+      const models = await getOpenCodeModels();
+      setOpenCodeModelList(models);
+      if (models.length > 0 && !models.some((m) => m.value === opencodeDefaultModel)) {
+        setOpenCodeDefaultModel(models[0].value);
+      }
+    } catch (error) {
+      setOpenCodeActionError(error instanceof Error ? error.message : "获取模型列表失败");
+    } finally {
+      setOpenCodeModelListLoading(false);
+    }
+  }
+
+  async function handleInstallOpenCodeSdk() {
+    if (isRemoteMode) {
+      setOpenCodeActionError("OpenCode SDK 安装仅适用于本地执行目标。");
+      setOpenCodeActionMessage(null);
+      return;
+    }
+
+    setOpenCodeActionLoading("install");
+    setOpenCodeActionError(null);
+    setOpenCodeActionMessage(null);
+    try {
+      const result = await installOpenCodeSdk();
+      setOpenCodeActionMessage(
+        result.sdk_version
+          ? `OpenCode SDK 安装完成，版本 ${result.sdk_version}`
+          : result.message,
+      );
+      await loadOpenCodeState();
+      // SDK newly installed, auto-fetch models
+      await handleFetchOpenCodeModels();
+    } catch (error) {
+      setOpenCodeActionError(error instanceof Error ? error.message : "安装 OpenCode SDK 失败");
+    } finally {
+      setOpenCodeActionLoading(null);
     }
   }
 
@@ -808,6 +928,26 @@ export function SettingsPage() {
             onClaudeSave={() => void handleSaveClaudeSettings()}
             onClaudeInstall={() => void handleInstallClaudeSdk()}
             onClaudeRefresh={() => void loadClaudeState()}
+            opencodeHealth={opencodeHealth}
+            opencodeSdkEnabled={opencodeSdkEnabled}
+            opencodeDefaultModel={opencodeDefaultModel}
+            opencodeHost={opencodeHost}
+            opencodePort={opencodePort}
+            opencodeNodePathOverride={opencodeNodePathOverride}
+            opencodeActionLoading={opencodeActionLoading}
+            opencodeActionMessage={opencodeActionMessage}
+            opencodeActionError={opencodeActionError}
+            opencodeModelList={opencodeModelList}
+            opencodeModelListLoading={opencodeModelListLoading}
+            onOpenCodeSdkEnabledChange={setOpenCodeSdkEnabled}
+            onOpenCodeDefaultModelChange={setOpenCodeDefaultModel}
+            onOpenCodeHostChange={setOpenCodeHost}
+            onOpenCodePortChange={setOpenCodePort}
+            onOpenCodeNodePathOverrideChange={setOpenCodeNodePathOverride}
+            onOpenCodeFetchModels={() => void handleFetchOpenCodeModels()}
+            onOpenCodeSave={() => void handleSaveOpenCodeSettings()}
+            onOpenCodeInstall={() => void handleInstallOpenCodeSdk()}
+            onOpenCodeRefresh={() => void loadOpenCodeState()}
           />
         </TabsContent>
 

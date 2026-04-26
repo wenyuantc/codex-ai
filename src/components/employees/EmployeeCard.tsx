@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { CODEX_MODEL_OPTIONS, CLAUDE_MODEL_OPTIONS, REASONING_EFFORT_OPTIONS, CLAUDE_THINKING_BUDGET_OPTIONS, type Employee } from "@/lib/types";
+import { CODEX_MODEL_OPTIONS, CLAUDE_MODEL_OPTIONS, REASONING_EFFORT_OPTIONS, CLAUDE_THINKING_BUDGET_OPTIONS, OPENCODE_EFFORT_OPTIONS, type Employee } from "@/lib/types";
 import { useEmployeeStore } from "@/stores/employeeStore";
 import { EmployeeStatusBadge } from "./EmployeeStatusBadge";
 import { DeleteEmployeeDialog } from "./DeleteEmployeeDialog";
@@ -45,11 +45,11 @@ export function EmployeeCard({ employee, taskCount = 0, highlighted = false }: E
     tester: "测试员",
     coordinator: "协调员",
   };
-  const allModelOptions = employee.ai_provider === "claude" ? CLAUDE_MODEL_OPTIONS : CODEX_MODEL_OPTIONS;
-  const allEffortOptions = employee.ai_provider === "claude" ? CLAUDE_THINKING_BUDGET_OPTIONS : REASONING_EFFORT_OPTIONS;
+  const allModelOptions = employee.ai_provider === "claude" ? CLAUDE_MODEL_OPTIONS : employee.ai_provider === "opencode" ? [] : CODEX_MODEL_OPTIONS;
+  const allEffortOptions = employee.ai_provider === "claude" ? CLAUDE_THINKING_BUDGET_OPTIONS : employee.ai_provider === "opencode" ? OPENCODE_EFFORT_OPTIONS : REASONING_EFFORT_OPTIONS;
   const modelLabel = allModelOptions.find((option) => option.value === employee.model)?.label ?? employee.model;
   const reasoningLabel = allEffortOptions.find((option) => option.value === employee.reasoning_effort)?.label ?? employee.reasoning_effort;
-  const providerLabel = employee.ai_provider === "claude" ? "Claude" : "Codex";
+  const providerLabel = employee.ai_provider === "claude" ? "Claude" : employee.ai_provider === "opencode" ? "OpenCode" : "Codex";
 
   return (
     <div
@@ -71,7 +71,7 @@ export function EmployeeCard({ employee, taskCount = 0, highlighted = false }: E
               {employee.specialization && ` · ${employee.specialization}`}
             </div>
             <div className="text-[11px] text-muted-foreground/80 truncate">
-              <span className={employee.ai_provider === "claude" ? "text-orange-500" : "text-green-500"}>{providerLabel}</span>
+              <span className={employee.ai_provider === "claude" ? "text-orange-500" : employee.ai_provider === "opencode" ? "text-blue-500" : "text-green-500"}>{providerLabel}</span>
               {" · "}{modelLabel} · 推理{reasoningLabel}
             </div>
           </div>
