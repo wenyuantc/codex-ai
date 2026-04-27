@@ -148,6 +148,7 @@ function normalizePasswordProbeResult(result: RawSshPasswordProbeResult): SshPas
 export interface UpdateCodexSettingsInput {
   task_sdk_enabled?: boolean;
   one_shot_sdk_enabled?: boolean;
+  one_shot_preferred_provider?: AiProvider;
   one_shot_model?: string;
   one_shot_reasoning_effort?: string;
   task_automation_default_enabled?: boolean;

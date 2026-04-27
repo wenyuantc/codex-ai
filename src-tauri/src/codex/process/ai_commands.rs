@@ -2,8 +2,7 @@ use tauri::{AppHandle, Runtime};
 
 use super::{
     build_ai_generate_commit_message_prompt, build_ai_generate_plan_prompt,
-    build_ai_optimize_prompt_prompt, normalize_model, normalize_reasoning_effort,
-    parse_ai_subtasks_response, resolve_project_execution_context,
+    build_ai_optimize_prompt_prompt, parse_ai_subtasks_response, resolve_project_execution_context,
     resolve_task_project_execution_context, run_ai_command, ExecutionContext,
 };
 use crate::app::{
@@ -136,36 +135,38 @@ fn format_ai_optimize_prompt_activity_details(
 
 fn resolve_commit_message_activity_model_and_reasoning(
     settings: &crate::db::models::CodexSettings,
-) -> (Option<String>, Option<String>, String, String) {
+) -> (Option<String>, Option<String>, String, String, String) {
+    let provider = settings.one_shot_preferred_provider.clone();
     if settings.git_preferences.ai_commit_model_source == "custom" {
-        let model = normalize_model(Some(&settings.git_preferences.ai_commit_model)).to_string();
-        let reasoning_effort =
-            normalize_reasoning_effort(Some(&settings.git_preferences.ai_commit_reasoning_effort))
-                .to_string();
         (
             Some(settings.git_preferences.ai_commit_model.clone()),
             Some(settings.git_preferences.ai_commit_reasoning_effort.clone()),
-            model,
-            reasoning_effort,
+            settings.git_preferences.ai_commit_model.clone(),
+            settings.git_preferences.ai_commit_reasoning_effort.clone(),
+            provider,
         )
     } else {
-        let model = normalize_model(Some(&settings.one_shot_model)).to_string();
-        let reasoning_effort =
-            normalize_reasoning_effort(Some(&settings.one_shot_reasoning_effort)).to_string();
-        (None, None, model, reasoning_effort)
+        (
+            None,
+            None,
+            settings.one_shot_model.clone(),
+            settings.one_shot_reasoning_effort.clone(),
+            provider,
+        )
     }
 }
 
 fn format_commit_message_activity_details(
     project_name: &str,
+    provider: &str,
     model: &str,
     reasoning_effort: &str,
     generated_at: &str,
     message: &str,
 ) -> String {
     format!(
-        "项目：{}；模型：{}；推理等级：{}；生成时间：{}；结果：{}",
-        project_name, model, reasoning_effort, generated_at, message
+        "项目：{}；Provider：{}；模型：{}；推理等级：{}；生成时间：{}；结果：{}",
+        project_name, provider, model, reasoning_effort, generated_at, message
     )
 }
 
@@ -173,6 +174,7 @@ pub(crate) struct GeneratedCommitMessage {
     pub(crate) message: String,
     pub(crate) project_id: String,
     pub(crate) project_name: String,
+    pub(crate) provider: String,
     pub(crate) model: String,
     pub(crate) reasoning_effort: String,
 }
@@ -221,14 +223,12 @@ async fn resolve_ai_optimize_prompt_activity_context<R: Runtime>(
 
     let model = settings
         .as_ref()
-        .map(|settings| normalize_model(Some(&settings.one_shot_model)))
-        .unwrap_or(normalize_model(None))
-        .to_string();
+        .map(|settings| settings.one_shot_model.clone())
+        .unwrap_or_else(|| "gpt-5.4".to_string());
     let reasoning_effort = settings
         .as_ref()
-        .map(|settings| normalize_reasoning_effort(Some(&settings.one_shot_reasoning_effort)))
-        .unwrap_or(normalize_reasoning_effort(None))
-        .to_string();
+        .map(|settings| settings.one_shot_reasoning_effort.clone())
+        .unwrap_or_else(|| "high".to_string());
 
     Ok((resolved_project_id, model, reasoning_effort))
 }
@@ -268,8 +268,13 @@ pub(crate) async fn generate_commit_message_for_project<R: Runtime>(
         &normalized_staged_changes,
         &settings.git_preferences.ai_commit_message_length,
     );
-    let (model_override, reasoning_override, effective_model, effective_reasoning_effort) =
-        resolve_commit_message_activity_model_and_reasoning(&settings);
+    let (
+        model_override,
+        reasoning_override,
+        effective_model,
+        effective_reasoning_effort,
+        effective_provider,
+    ) = resolve_commit_message_activity_model_and_reasoning(&settings);
     let raw = run_ai_command(
         app,
         prompt.clone(),
@@ -291,6 +296,7 @@ pub(crate) async fn generate_commit_message_for_project<R: Runtime>(
                 message: normalized,
                 project_id: project.id.clone(),
                 project_name: project.name.trim().to_string(),
+                provider: effective_provider,
                 model: effective_model,
                 reasoning_effort: effective_reasoning_effort,
             });
@@ -325,6 +331,7 @@ pub(crate) async fn generate_commit_message_for_project<R: Runtime>(
             message: retried,
             project_id: project.id.clone(),
             project_name: project.name.trim().to_string(),
+            provider: effective_provider,
             model: effective_model,
             reasoning_effort: effective_reasoning_effort,
         });
@@ -467,6 +474,7 @@ pub async fn ai_generate_commit_message(
     let generated_at = now_sqlite();
     let details = format_commit_message_activity_details(
         &result.project_name,
+        &result.provider,
         &result.model,
         &result.reasoning_effort,
         &generated_at,
@@ -645,6 +653,7 @@ mod tests {
     fn formats_commit_message_activity_details_with_model_metadata() {
         let details = format_commit_message_activity_details(
             "Codex AI",
+            "codex",
             "gpt-5.4-mini",
             "medium",
             "2026-04-20 11:00:00",
@@ -653,7 +662,7 @@ mod tests {
 
         assert_eq!(
             details,
-            "项目：Codex AI；模型：gpt-5.4-mini；推理等级：medium；生成时间：2026-04-20 11:00:00；结果：fix: 修复活动日志展示"
+            "项目：Codex AI；Provider：codex；模型：gpt-5.4-mini；推理等级：medium；生成时间：2026-04-20 11:00:00；结果：fix: 修复活动日志展示"
         );
     }
 }

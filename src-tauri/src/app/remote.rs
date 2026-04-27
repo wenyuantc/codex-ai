@@ -1,17 +1,24 @@
 use super::*;
 
-fn sdk_notification_expected(task_sdk_enabled: bool, one_shot_sdk_enabled: bool) -> bool {
-    task_sdk_enabled || one_shot_sdk_enabled
+fn sdk_notification_expected(
+    task_sdk_enabled: bool,
+    one_shot_sdk_enabled: bool,
+    one_shot_preferred_provider: &str,
+) -> bool {
+    task_sdk_enabled || (one_shot_sdk_enabled && one_shot_preferred_provider == "codex")
 }
 
 pub(crate) fn sdk_notification_unavailable(
     task_sdk_enabled: bool,
     one_shot_sdk_enabled: bool,
+    one_shot_preferred_provider: &str,
     task_execution_effective_provider: &str,
     one_shot_effective_provider: &str,
 ) -> bool {
     (task_sdk_enabled && task_execution_effective_provider != "sdk")
-        || (one_shot_sdk_enabled && one_shot_effective_provider != "sdk")
+        || (one_shot_sdk_enabled
+            && one_shot_preferred_provider == "codex"
+            && one_shot_effective_provider != "sdk")
 }
 
 pub(crate) async fn ensure_ssh_config_exists(
@@ -525,11 +532,15 @@ async fn sync_local_sdk_notifications<R: Runtime>(
 ) -> Result<(), String> {
     let settings = load_codex_settings(app)?;
     let sdk_health = inspect_sdk_runtime(app, &settings).await;
-    let sdk_expected =
-        sdk_notification_expected(settings.task_sdk_enabled, settings.one_shot_sdk_enabled);
+    let sdk_expected = sdk_notification_expected(
+        settings.task_sdk_enabled,
+        settings.one_shot_sdk_enabled,
+        &settings.one_shot_preferred_provider,
+    );
     let sdk_unavailable = sdk_notification_unavailable(
         settings.task_sdk_enabled,
         settings.one_shot_sdk_enabled,
+        &settings.one_shot_preferred_provider,
         &sdk_health.task_execution_effective_provider,
         &sdk_health.one_shot_effective_provider,
     );
@@ -721,10 +732,12 @@ async fn sync_ssh_notifications<R: Runtime>(
             let remote_sdk_expected = sdk_notification_expected(
                 remote_settings.task_sdk_enabled,
                 remote_settings.one_shot_sdk_enabled,
+                &remote_settings.one_shot_preferred_provider,
             );
             let remote_sdk_unavailable = sdk_notification_unavailable(
                 remote_settings.task_sdk_enabled,
                 remote_settings.one_shot_sdk_enabled,
+                &remote_settings.one_shot_preferred_provider,
                 &runtime.task_execution_effective_provider,
                 &runtime.one_shot_effective_provider,
             );
@@ -1339,6 +1352,35 @@ printf 'CODEX_STATUS=%s\\nCODEX_VERSION=%s\\nNODE_STATUS=%s\\nNODE_VERSION=%s\\n
     ))
 }
 
+fn resolve_remote_one_shot_runtime(
+    remote_settings: &CodexSettings,
+    runtime: &RemoteCodexRuntimeHealth,
+) -> (String, String) {
+    match remote_settings.one_shot_preferred_provider.as_str() {
+        "claude" => {
+            if remote_settings.one_shot_sdk_enabled {
+                (
+                    "cli".to_string(),
+                    "SSH 模式下 Claude 一次性 AI 使用远端 Claude CLI".to_string(),
+                )
+            } else {
+                (
+                    "cli".to_string(),
+                    "一次性 AI 未启用 Claude SDK，将使用远端 Claude CLI".to_string(),
+                )
+            }
+        }
+        "opencode" => (
+            "unavailable".to_string(),
+            "SSH 模式下暂不支持 OpenCode 一次性 AI".to_string(),
+        ),
+        _ => (
+            runtime.one_shot_effective_provider.clone(),
+            runtime.status_message.clone(),
+        ),
+    }
+}
+
 #[tauri::command]
 pub async fn validate_remote_codex_health<R: Runtime>(
     app: AppHandle<R>,
@@ -1429,6 +1471,7 @@ pub async fn validate_remote_codex_health<R: Runtime>(
     let sdk_unavailable = sdk_notification_unavailable(
         remote_settings.task_sdk_enabled,
         remote_settings.one_shot_sdk_enabled,
+        &remote_settings.one_shot_preferred_provider,
         &runtime.task_execution_effective_provider,
         &runtime.one_shot_effective_provider,
     );
@@ -1476,6 +1519,8 @@ pub async fn validate_remote_codex_health<R: Runtime>(
 
     let latest_registered_version = crate::db::migrations::latest_migration_version();
     let migration_status = fetch_database_migration_status(&pool).await.ok();
+    let (one_shot_effective_channel, one_shot_status_message) =
+        resolve_remote_one_shot_runtime(&remote_settings, &runtime);
     Ok(CodexHealthCheck {
         execution_target: EXECUTION_TARGET_SSH.to_string(),
         ssh_config_id: Some(ssh_config_id),
@@ -1486,11 +1531,14 @@ pub async fn validate_remote_codex_health<R: Runtime>(
         node_version: runtime.node_version,
         task_sdk_enabled: remote_settings.task_sdk_enabled,
         one_shot_sdk_enabled: remote_settings.one_shot_sdk_enabled,
+        one_shot_preferred_provider: remote_settings.one_shot_preferred_provider.clone(),
         sdk_installed: runtime.sdk_installed,
         sdk_version: runtime.sdk_version,
         sdk_install_dir: remote_settings.sdk_install_dir,
         task_execution_effective_provider: runtime.task_execution_effective_provider,
-        one_shot_effective_provider: runtime.one_shot_effective_provider,
+        one_shot_effective_provider: remote_settings.one_shot_preferred_provider.clone(),
+        one_shot_effective_channel,
+        one_shot_status_message,
         sdk_status_message: runtime.status_message,
         database_loaded: true,
         database_path: database_path(&app).map(|path| path.to_string_lossy().to_string()),

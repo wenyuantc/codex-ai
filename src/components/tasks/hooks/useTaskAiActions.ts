@@ -179,23 +179,45 @@ export function useTaskAiActions({
     ]);
 
     if (settingsResult.status === "fulfilled") {
+      const providerLabel =
+        settingsResult.value.one_shot_preferred_provider === "claude"
+          ? "Claude"
+          : settingsResult.value.one_shot_preferred_provider === "opencode"
+            ? "OpenCode"
+            : "Codex";
       appendAiLog(
-        `[${operation}] 一次性 AI 配置：模型 ${settingsResult.value.one_shot_model} / 推理 ${settingsResult.value.one_shot_reasoning_effort}`,
+        `[${operation}] 一次性 AI 配置：Provider ${providerLabel} / 模型 ${settingsResult.value.one_shot_model} / 推理 ${settingsResult.value.one_shot_reasoning_effort}`,
       );
     } else {
       appendAiLog(`[WARN] [${operation}] 读取一次性 AI 配置失败：${String(settingsResult.reason)}`);
     }
 
     if (healthResult.status === "fulfilled") {
-      const provider =
-        environmentMode === "ssh"
-          ? healthResult.value.one_shot_effective_provider === "sdk"
-            ? "SSH SDK（远程）"
-            : "SSH exec（远程）"
-          : healthResult.value.one_shot_effective_provider === "sdk"
-            ? "SDK"
-            : "exec（自动回退）";
-      appendAiLog(`[${operation}] 当前执行通道：${provider}`);
+      const providerLabel =
+        healthResult.value.one_shot_effective_provider === "claude"
+          ? "Claude"
+          : healthResult.value.one_shot_effective_provider === "opencode"
+            ? "OpenCode"
+            : "Codex";
+      const channelLabel =
+        healthResult.value.one_shot_effective_channel === "sdk"
+          ? environmentMode === "ssh"
+            ? "SDK（远程）"
+            : "SDK"
+          : healthResult.value.one_shot_effective_channel === "cli"
+            ? environmentMode === "ssh"
+              ? "CLI（远程）"
+              : "CLI"
+            : healthResult.value.one_shot_effective_channel === "exec"
+              ? environmentMode === "ssh"
+                ? "exec（远程）"
+                : "exec"
+              : "不可用";
+      appendAiLog(`[${operation}] 当前执行 Provider：${providerLabel}`);
+      appendAiLog(`[${operation}] 当前执行通道：${channelLabel}`);
+      if (healthResult.value.one_shot_status_message?.trim()) {
+        appendAiLog(`[${operation}] 通道说明：${healthResult.value.one_shot_status_message}`);
+      }
       if (environmentMode === "ssh" && healthResult.value.target_host_label) {
         appendAiLog(`[${operation}] 当前远程目标：${healthResult.value.target_host_label}`);
       }

@@ -49,20 +49,20 @@ import {
 } from "@/lib/opencode";
 import { getEnvironmentModeLabel } from "@/lib/projects";
 import {
+  normalizeAiProvider,
   normalizeAiCommitMessageLength,
+  normalizeModelForProvider,
   normalizeAiCommitModelSource,
-  normalizeCodexModel,
-  normalizeReasoningEffort,
+  normalizeReasoningEffortForProvider,
   normalizeTaskAutomationFailureStrategy,
   normalizeWorktreeLocationMode,
+  type AiProvider,
   type AiCommitMessageLength,
   type AiCommitModelSource,
   type ClaudeHealthCheck,
   type CodexHealthCheck,
-  type CodexModelId,
   type CodexSettings,
   type GitPreferences,
-  type ReasoningEffort,
   type RemoteCodexHealthCheck,
   type SshConfig,
   type TaskAutomationFailureStrategy,
@@ -155,8 +155,9 @@ export function SettingsPage() {
   const [codexSettings, setCodexSettings] = useState<CodexSettings | null>(null);
   const [taskSdkEnabled, setTaskSdkEnabled] = useState(false);
   const [oneShotSdkEnabled, setOneShotSdkEnabled] = useState(false);
-  const [oneShotModel, setOneShotModel] = useState<CodexModelId>("gpt-5.4");
-  const [oneShotReasoningEffort, setOneShotReasoningEffort] = useState<ReasoningEffort>("high");
+  const [oneShotPreferredProvider, setOneShotPreferredProvider] = useState<AiProvider>("codex");
+  const [oneShotModel, setOneShotModel] = useState("gpt-5.4");
+  const [oneShotReasoningEffort, setOneShotReasoningEffort] = useState("high");
   const [taskAutomationDefaultEnabled, setTaskAutomationDefaultEnabled] = useState(false);
   const [taskAutomationMaxFixRounds, setTaskAutomationMaxFixRounds] = useState(3);
   const [taskAutomationFailureStrategy, setTaskAutomationFailureStrategy] =
@@ -176,10 +177,8 @@ export function SettingsPage() {
   const [aiCommitModelSource, setAiCommitModelSource] = useState<AiCommitModelSource>(
     DEFAULT_GIT_PREFERENCES.ai_commit_model_source,
   );
-  const [aiCommitModel, setAiCommitModel] = useState<CodexModelId>(
-    DEFAULT_GIT_PREFERENCES.ai_commit_model,
-  );
-  const [aiCommitReasoningEffort, setAiCommitReasoningEffort] = useState<ReasoningEffort>(
+  const [aiCommitModel, setAiCommitModel] = useState(DEFAULT_GIT_PREFERENCES.ai_commit_model);
+  const [aiCommitReasoningEffort, setAiCommitReasoningEffort] = useState(
     DEFAULT_GIT_PREFERENCES.ai_commit_reasoning_effort,
   );
   const [nodePathOverride, setNodePathOverride] = useState("");
@@ -257,12 +256,16 @@ export function SettingsPage() {
 
   function applySettingsToFormState(settings: CodexSettings) {
     const gitPreferences = settings.git_preferences ?? DEFAULT_GIT_PREFERENCES;
+    const oneShotProvider = normalizeAiProvider(settings.one_shot_preferred_provider);
 
     setCodexSettings(settings);
     setTaskSdkEnabled(settings.task_sdk_enabled);
     setOneShotSdkEnabled(settings.one_shot_sdk_enabled);
-    setOneShotModel(normalizeCodexModel(settings.one_shot_model));
-    setOneShotReasoningEffort(normalizeReasoningEffort(settings.one_shot_reasoning_effort));
+    setOneShotPreferredProvider(oneShotProvider);
+    setOneShotModel(normalizeModelForProvider(oneShotProvider, settings.one_shot_model));
+    setOneShotReasoningEffort(
+      normalizeReasoningEffortForProvider(oneShotProvider, settings.one_shot_reasoning_effort),
+    );
     setTaskAutomationDefaultEnabled(settings.task_automation_default_enabled);
     setTaskAutomationMaxFixRounds(settings.task_automation_max_fix_rounds);
     setTaskAutomationFailureStrategy(
@@ -275,9 +278,12 @@ export function SettingsPage() {
       normalizeAiCommitMessageLength(gitPreferences.ai_commit_message_length),
     );
     setAiCommitModelSource(normalizeAiCommitModelSource(gitPreferences.ai_commit_model_source));
-    setAiCommitModel(normalizeCodexModel(gitPreferences.ai_commit_model));
+    setAiCommitModel(normalizeModelForProvider(oneShotProvider, gitPreferences.ai_commit_model));
     setAiCommitReasoningEffort(
-      normalizeReasoningEffort(gitPreferences.ai_commit_reasoning_effort),
+      normalizeReasoningEffortForProvider(
+        oneShotProvider,
+        gitPreferences.ai_commit_reasoning_effort,
+      ),
     );
     setNodePathOverride(settings.node_path_override ?? "");
   }
@@ -413,6 +419,11 @@ export function SettingsPage() {
     void loadOpenCodeState();
   }, [environmentMode, selectedSshConfigId]);
 
+  useEffect(() => {
+    if (isRemoteMode || oneShotPreferredProvider !== "opencode") return;
+    void handleFetchOpenCodeModels();
+  }, [isRemoteMode, oneShotPreferredProvider]);
+
   const resetSshForm = () => {
     setEditingSshConfigId(null);
     setSshForm(EMPTY_SSH_CONFIG_FORM);
@@ -463,6 +474,7 @@ export function SettingsPage() {
       const updates = {
         task_sdk_enabled: taskSdkEnabled,
         one_shot_sdk_enabled: oneShotSdkEnabled,
+        one_shot_preferred_provider: oneShotPreferredProvider,
         one_shot_model: oneShotModel,
         one_shot_reasoning_effort: oneShotReasoningEffort,
         task_automation_default_enabled: taskAutomationDefaultEnabled,
@@ -558,6 +570,17 @@ export function SettingsPage() {
       setOpenCodeModelList(models);
       if (models.length > 0 && !models.some((m) => m.value === opencodeDefaultModel)) {
         setOpenCodeDefaultModel(models[0].value);
+      }
+      if (models.length > 0 && !models.some((m) => m.value === oneShotModel)) {
+        setOneShotModel(models[0].value);
+      }
+      if (
+        models.length > 0
+        && aiCommitModelSource === "custom"
+        && oneShotPreferredProvider === "opencode"
+        && !models.some((m) => m.value === aiCommitModel)
+      ) {
+        setAiCommitModel(models[0].value);
       }
     } catch (error) {
       setOpenCodeActionError(error instanceof Error ? error.message : "获取模型列表失败");
@@ -898,6 +921,7 @@ export function SettingsPage() {
             passwordAuthBlocked={passwordAuthBlocked}
             taskSdkEnabled={taskSdkEnabled}
             oneShotSdkEnabled={oneShotSdkEnabled}
+            oneShotPreferredProvider={oneShotPreferredProvider}
             oneShotModel={oneShotModel}
             oneShotReasoningEffort={oneShotReasoningEffort}
             nodePathOverride={nodePathOverride}
@@ -905,6 +929,19 @@ export function SettingsPage() {
             onThemeModeChange={setThemeMode}
             onTaskSdkEnabledChange={setTaskSdkEnabled}
             onOneShotSdkEnabledChange={setOneShotSdkEnabled}
+            onOneShotPreferredProviderChange={(provider) => {
+              setOneShotPreferredProvider(provider);
+              setOneShotModel((current) => normalizeModelForProvider(provider, current));
+              setOneShotReasoningEffort((current) =>
+                normalizeReasoningEffortForProvider(provider, current),
+              );
+              if (aiCommitModelSource === "custom") {
+                setAiCommitModel((current) => normalizeModelForProvider(provider, current));
+                setAiCommitReasoningEffort((current) =>
+                  normalizeReasoningEffortForProvider(provider, current),
+                );
+              }
+            }}
             onOneShotModelChange={setOneShotModel}
             onOneShotReasoningEffortChange={setOneShotReasoningEffort}
             onNodePathOverrideChange={setNodePathOverride}
@@ -969,6 +1006,9 @@ export function SettingsPage() {
             aiCommitModelSource={aiCommitModelSource}
             aiCommitModel={aiCommitModel}
             aiCommitReasoningEffort={aiCommitReasoningEffort}
+            oneShotPreferredProvider={oneShotPreferredProvider}
+            opencodeModelList={opencodeModelList}
+            opencodeModelListLoading={opencodeModelListLoading}
             onTaskAutomationDefaultEnabledChange={setTaskAutomationDefaultEnabled}
             onTaskAutomationMaxFixRoundsChange={setTaskAutomationMaxFixRounds}
             onTaskAutomationFailureStrategyChange={setTaskAutomationFailureStrategy}
@@ -979,6 +1019,7 @@ export function SettingsPage() {
             onAiCommitModelSourceChange={setAiCommitModelSource}
             onAiCommitModelChange={setAiCommitModel}
             onAiCommitReasoningEffortChange={setAiCommitReasoningEffort}
+            onOpenCodeFetchModels={() => void handleFetchOpenCodeModels()}
             onSave={() => void handleSaveSdkSettings()}
           />
         </TabsContent>

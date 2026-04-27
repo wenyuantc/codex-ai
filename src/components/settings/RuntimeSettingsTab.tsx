@@ -10,17 +10,16 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import {
+  AI_PROVIDER_OPTIONS,
   CODEX_MODEL_OPTIONS,
   CLAUDE_MODEL_OPTIONS,
   CLAUDE_THINKING_BUDGET_OPTIONS,
+  OPENCODE_EFFORT_OPTIONS,
   REASONING_EFFORT_OPTIONS,
-  normalizeCodexModel,
-  normalizeReasoningEffort,
+  type AiProvider,
   type ClaudeHealthCheck,
   type CodexHealthCheck,
-  type CodexModelId,
   type CodexSettings,
-  type ReasoningEffort,
   type RemoteCodexHealthCheck,
 } from "@/lib/types";
 import type { OpenCodeHealthCheck, OpenCodeModelInfo } from "@/lib/opencode";
@@ -41,15 +40,17 @@ interface RuntimeSettingsTabProps {
   passwordAuthBlocked: boolean;
   taskSdkEnabled: boolean;
   oneShotSdkEnabled: boolean;
-  oneShotModel: CodexModelId;
-  oneShotReasoningEffort: ReasoningEffort;
+  oneShotPreferredProvider: AiProvider;
+  oneShotModel: string;
+  oneShotReasoningEffort: string;
   nodePathOverride: string;
   themeMode: ThemeMode;
   onThemeModeChange: (mode: ThemeMode) => void;
   onTaskSdkEnabledChange: (value: boolean) => void;
   onOneShotSdkEnabledChange: (value: boolean) => void;
-  onOneShotModelChange: (value: CodexModelId) => void;
-  onOneShotReasoningEffortChange: (value: ReasoningEffort) => void;
+  onOneShotPreferredProviderChange: (value: AiProvider) => void;
+  onOneShotModelChange: (value: string) => void;
+  onOneShotReasoningEffortChange: (value: string) => void;
   onNodePathOverrideChange: (value: string) => void;
   onSave: () => void;
   onInstall: () => void;
@@ -117,6 +118,7 @@ export function RuntimeSettingsTab({
   passwordAuthBlocked,
   taskSdkEnabled,
   oneShotSdkEnabled,
+  oneShotPreferredProvider,
   oneShotModel,
   oneShotReasoningEffort,
   nodePathOverride,
@@ -124,6 +126,7 @@ export function RuntimeSettingsTab({
   onThemeModeChange,
   onTaskSdkEnabledChange,
   onOneShotSdkEnabledChange,
+  onOneShotPreferredProviderChange,
   onOneShotModelChange,
   onOneShotReasoningEffortChange,
   onNodePathOverrideChange,
@@ -171,8 +174,50 @@ export function RuntimeSettingsTab({
   const taskProviderLabel =
     codexHealth?.task_execution_effective_provider === "sdk" ? "SDK" : "exec（自动回退）";
   const oneShotProviderLabel =
-    codexHealth?.one_shot_effective_provider === "sdk" ? "SDK" : "exec（自动回退）";
+    oneShotPreferredProvider === "claude"
+      ? "Claude"
+      : oneShotPreferredProvider === "opencode"
+        ? "OpenCode"
+        : "Codex";
+  const oneShotChannelLabel = (() => {
+    const channel = codexHealth?.one_shot_effective_channel;
+    if (channel === "sdk") return "SDK";
+    if (channel === "cli") return isRemoteMode ? "CLI（远程）" : "CLI";
+    if (channel === "exec") return isRemoteMode ? "exec（远程）" : "exec（自动回退）";
+    return "不可用";
+  })();
   const installButtonLabel = codexHealth?.sdk_installed ? "重装 SDK" : "安装 SDK";
+  const saveDisabled = healthLoading || actionLoading !== null || (isRemoteMode && !hasSelectedSshConfig);
+  const installDisabled =
+    healthLoading || actionLoading !== null || (isRemoteMode && (!hasSelectedSshConfig || passwordAuthBlocked));
+  const availableOneShotProviders = AI_PROVIDER_OPTIONS.filter(
+    (option) => !(isRemoteMode && option.value === "opencode"),
+  );
+  const isOneShotCodexProvider = oneShotPreferredProvider === "codex";
+  const isOneShotClaudeProvider = oneShotPreferredProvider === "claude";
+  const isOneShotOpenCodeProvider = oneShotPreferredProvider === "opencode";
+  const oneShotOpenCodeModelOptions = opencodeModelList.length > 0
+    ? opencodeModelList
+    : [{
+      value: oneShotModel,
+      label: opencodeModelListLoading ? "正在加载模型..." : "当前模型",
+      providerId: "opencode",
+      providerName: "OpenCode",
+      modelId: oneShotModel.includes("/") ? oneShotModel.split("/").slice(1).join("/") : oneShotModel,
+      capabilities: null,
+    }];
+  const defaultOpenCodeModelOptions = opencodeModelList.length > 0
+    ? opencodeModelList
+    : [{
+      value: opencodeDefaultModel,
+      label: opencodeModelListLoading ? "正在加载模型..." : "当前模型",
+      providerId: "opencode",
+      providerName: "OpenCode",
+      modelId: opencodeDefaultModel.includes("/") ? opencodeDefaultModel.split("/").slice(1).join("/") : opencodeDefaultModel,
+      capabilities: null,
+    }];
+  const canUseOneShotSdkToggle = !isRemoteMode || isOneShotCodexProvider || isOneShotOpenCodeProvider;
+  const selectedOneShotStatusMessage = codexHealth?.one_shot_status_message;
 
   return (
     <div className="space-y-6">
@@ -272,19 +317,18 @@ export function RuntimeSettingsTab({
               <h3 className="text-sm font-medium">Codex SDK</h3>
               <p className="text-xs text-muted-foreground">
                 {isRemoteMode
-                  ? "SSH 模式下任务运行与一次性 AI 会优先使用远程 SDK；如果远程 SDK 不可用，则自动回退到远程 codex exec。"
-                  : "任务运行与一次性 AI 优先走 SDK，失败时自动回退到 `codex exec`"}
+                  ? "SSH 模式下任务运行会优先使用远程 SDK；如果远程 SDK 不可用，则自动回退到远程 codex exec。"
+                  : "任务运行优先走 SDK，失败时自动回退到 `codex exec`。一次性 AI 在下方单独配置。"}
               </p>
             </div>
             <span
               className={`rounded px-2 py-1 text-xs ${
                 codexHealth?.task_execution_effective_provider === "sdk"
-                || codexHealth?.one_shot_effective_provider === "sdk"
                   ? "bg-green-100 text-green-700"
                   : "bg-slate-100 text-slate-700"
               }`}
             >
-              {healthLoading ? "检测中" : `任务 ${taskProviderLabel} / AI ${oneShotProviderLabel}`}
+              {healthLoading ? "检测中" : `任务 ${taskProviderLabel}`}
             </span>
           </div>
 
@@ -304,72 +348,6 @@ export function RuntimeSettingsTab({
                 </p>
               </div>
             </label>
-
-            <label className="flex items-start gap-3 rounded-md border border-border px-3 py-2">
-              <input
-                type="checkbox"
-                className="mt-0.5 h-4 w-4 rounded border-input"
-                checked={oneShotSdkEnabled}
-                onChange={(event) => onOneShotSdkEnabledChange(event.target.checked)}
-                disabled={healthLoading || actionLoading !== null}
-              />
-              <div className="space-y-1">
-                <p className="text-sm font-medium">一次性 AI 使用 SDK</p>
-                <p className="text-xs text-muted-foreground">
-                  影响任务详情中的 AI 分析、评论生成、计划生成和子任务拆分。
-                </p>
-              </div>
-            </label>
-
-            <div className="grid gap-3 md:grid-cols-2">
-              <div className="space-y-2">
-                <label className="text-sm font-medium">一次性 AI 模型</label>
-                <Select<CodexModelId>
-                  value={oneShotModel}
-                  onValueChange={(value) => {
-                    if (value) {
-                      onOneShotModelChange(normalizeCodexModel(value));
-                    }
-                  }}
-                  disabled={healthLoading || actionLoading !== null}
-                >
-                  <SelectTrigger className="bg-background">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {CODEX_MODEL_OPTIONS.map((option) => (
-                      <SelectItem key={option.value} value={option.value}>
-                        {option.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className="space-y-2">
-                <label className="text-sm font-medium">一次性 AI 推理强度</label>
-                <Select<ReasoningEffort>
-                  value={oneShotReasoningEffort}
-                  onValueChange={(value) => {
-                    if (value) {
-                      onOneShotReasoningEffortChange(normalizeReasoningEffort(value));
-                    }
-                  }}
-                  disabled={healthLoading || actionLoading !== null}
-                >
-                  <SelectTrigger className="bg-background">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {REASONING_EFFORT_OPTIONS.map((option) => (
-                      <SelectItem key={option.value} value={option.value}>
-                        {option.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
 
             <div className="space-y-2">
               <label htmlFor="node-path-override" className="text-sm font-medium">
@@ -396,7 +374,6 @@ export function RuntimeSettingsTab({
                 {codexHealth?.sdk_version ? `（${codexHealth.sdk_version}）` : ""}
               </p>
               <p>任务运行引擎：{taskProviderLabel}</p>
-              <p>一次性 AI 引擎：{oneShotProviderLabel}</p>
               {codexHealth?.checked_at && <p>检测时间：{formatDate(codexHealth.checked_at)}</p>}
               {codexHealth?.sdk_status_message && (
                 <p className="text-[11px] leading-5">{codexHealth.sdk_status_message}</p>
@@ -405,20 +382,9 @@ export function RuntimeSettingsTab({
 
             <div className="flex flex-wrap gap-2">
               <Button
-                onClick={onSave}
-                disabled={healthLoading || actionLoading !== null || (isRemoteMode && !hasSelectedSshConfig)}
-              >
-                {actionLoading === "save" ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-                保存配置
-              </Button>
-              <Button
                 variant="outline"
                 onClick={onInstall}
-                disabled={
-                  healthLoading
-                  || actionLoading !== null
-                  || (isRemoteMode && (!hasSelectedSshConfig || passwordAuthBlocked))
-                }
+                disabled={installDisabled}
               >
                 {actionLoading === "install" ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
                 {installButtonLabel}
@@ -428,11 +394,211 @@ export function RuntimeSettingsTab({
                 刷新检测
               </Button>
             </div>
-
-            {actionMessage && <p className="text-xs text-green-700">{actionMessage}</p>}
-            {actionError && <p className="text-xs text-destructive">{actionError}</p>}
           </div>
         </div>
+      </div>
+
+      <div className="space-y-4 rounded-lg border border-border bg-card p-4">
+        <div className="flex items-start justify-between gap-4">
+          <div className="space-y-1">
+            <h3 className="text-sm font-medium">一次性 AI</h3>
+            <p className="text-xs text-muted-foreground">
+              控制任务详情中的 AI 分析、评论生成、计划生成和子任务拆分默认通道。
+            </p>
+          </div>
+          <span
+            className={`rounded px-2 py-1 text-xs ${
+              codexHealth?.one_shot_effective_channel !== "unavailable"
+                ? "bg-green-100 text-green-700"
+                : "bg-slate-100 text-slate-700"
+            }`}
+          >
+            {healthLoading ? "检测中" : `${oneShotProviderLabel} / ${oneShotChannelLabel}`}
+          </span>
+        </div>
+
+        <div className="grid gap-3 md:grid-cols-2">
+          <div className="space-y-2">
+            <label className="text-sm font-medium">AI 提供商</label>
+            <Select<AiProvider>
+              value={oneShotPreferredProvider}
+              onValueChange={(value) => {
+                if (value) {
+                  onOneShotPreferredProviderChange(value as AiProvider);
+                }
+              }}
+              disabled={healthLoading || actionLoading !== null}
+            >
+              <SelectTrigger className="bg-background">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {availableOneShotProviders.map((option) => (
+                  <SelectItem key={option.value} value={option.value}>
+                    {option.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          {canUseOneShotSdkToggle ? (
+            <label className="flex items-start gap-3 rounded-md border border-border px-3 py-2">
+              <input
+                type="checkbox"
+                className="mt-0.5 h-4 w-4 rounded border-input"
+                checked={oneShotSdkEnabled}
+                onChange={(event) => onOneShotSdkEnabledChange(event.target.checked)}
+                disabled={healthLoading || actionLoading !== null}
+              />
+              <div className="space-y-1">
+                <p className="text-sm font-medium">
+                  {isOneShotOpenCodeProvider ? "启用 OpenCode SDK" : "优先使用 SDK"}
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  {isOneShotCodexProvider
+                    ? (isRemoteMode
+                      ? "SSH 模式下优先使用远程 Codex SDK，失败时自动回退到远程 codex exec。"
+                      : "优先通过 Codex SDK 执行，失败时自动回退到 `codex exec`。")
+                    : isOneShotClaudeProvider
+                      ? "优先通过 Claude SDK 执行，失败时自动回退到 Claude CLI。"
+                      : "OpenCode 当前仅支持本地 SDK；关闭后一次性 AI 将不可用。"}
+                </p>
+              </div>
+            </label>
+          ) : (
+            <div className="rounded-md border border-dashed border-border px-3 py-3 text-sm text-muted-foreground">
+              SSH 模式下 Claude 一次性 AI 固定通过远端 Claude CLI 执行。
+            </div>
+          )}
+        </div>
+
+        <div className="grid gap-3 md:grid-cols-2">
+          <div className="space-y-2">
+            <label className="text-sm font-medium">一次性 AI 模型</label>
+            {isOneShotOpenCodeProvider ? (
+              <div className="flex gap-2">
+                <div className="flex-1">
+                  {opencodeHealth?.sdk_installed ? (
+                    <Select
+                      value={oneShotModel}
+                      onValueChange={(value) => {
+                        if (value) {
+                          onOneShotModelChange(value);
+                        }
+                      }}
+                      disabled={healthLoading || actionLoading !== null || opencodeModelListLoading}
+                    >
+                      <SelectTrigger className="bg-background">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent className="max-h-72">
+                        {oneShotOpenCodeModelOptions.map((model) => (
+                          <SelectItem key={model.value} value={model.value}>
+                            {`${model.label} · ${model.providerName}`}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  ) : (
+                    <Input
+                      value={oneShotModel}
+                      onChange={(event) => onOneShotModelChange(event.target.value)}
+                      placeholder="openai/gpt-4o"
+                      disabled={healthLoading || actionLoading !== null}
+                    />
+                  )}
+                </div>
+                {!isRemoteMode && opencodeHealth?.sdk_installed && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={onOpenCodeFetchModels}
+                    disabled={opencodeModelListLoading || actionLoading !== null}
+                    title="从 OpenCode SDK 获取模型列表"
+                  >
+                    {opencodeModelListLoading
+                      ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      : <RefreshCw className="h-3.5 w-3.5" />
+                    }
+                  </Button>
+                )}
+              </div>
+            ) : (
+              <Select
+                value={oneShotModel}
+                onValueChange={(value) => {
+                  if (value) {
+                    onOneShotModelChange(value);
+                  }
+                }}
+                disabled={healthLoading || actionLoading !== null}
+              >
+                <SelectTrigger className="bg-background">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {(isOneShotClaudeProvider ? CLAUDE_MODEL_OPTIONS : CODEX_MODEL_OPTIONS).map((option) => (
+                    <SelectItem key={option.value} value={option.value}>
+                      {option.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+            {isOneShotOpenCodeProvider && (
+              <p className="text-xs text-muted-foreground">
+                {opencodeModelList.length > 0
+                  ? `已加载 ${opencodeModelList.length} 个可用模型`
+                  : "格式: provider/modelID（例如 openai/gpt-4o）"}
+              </p>
+            )}
+          </div>
+
+          <div className="space-y-2">
+            <label className="text-sm font-medium">一次性 AI 推理强度</label>
+            <Select
+              value={oneShotReasoningEffort}
+              onValueChange={(value) => {
+                if (value) {
+                  onOneShotReasoningEffortChange(value);
+                }
+              }}
+              disabled={healthLoading || actionLoading !== null}
+            >
+              <SelectTrigger className="bg-background">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {(isOneShotClaudeProvider
+                  ? CLAUDE_DEFAULT_THINKING_BUDGET_OPTIONS
+                  : isOneShotOpenCodeProvider
+                    ? OPENCODE_EFFORT_OPTIONS
+                    : REASONING_EFFORT_OPTIONS).map((option) => (
+                  <SelectItem key={option.value} value={option.value}>
+                    {option.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+
+        <div className="rounded-md border border-border px-3 py-3 text-xs text-muted-foreground">
+          <p>当前一次性 AI 提供商：{oneShotProviderLabel}</p>
+          <p>当前执行通道：{oneShotChannelLabel}</p>
+          {selectedOneShotStatusMessage ? <p className="mt-1 leading-5">{selectedOneShotStatusMessage}</p> : null}
+        </div>
+
+        <div className="flex flex-wrap gap-2">
+          <Button onClick={onSave} disabled={saveDisabled}>
+            {actionLoading === "save" ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+            保存配置
+          </Button>
+        </div>
+
+        {actionMessage && <p className="text-xs text-green-700">{actionMessage}</p>}
+        {actionError && <p className="text-xs text-destructive">{actionError}</p>}
       </div>
 
       <div className="space-y-4 rounded-lg border border-border bg-card p-4">
@@ -664,19 +830,19 @@ export function RuntimeSettingsTab({
               </label>
               <div className="flex gap-2">
                 <div className="flex-1">
-                  {opencodeModelList.length > 0 ? (
+                  {opencodeHealth?.sdk_installed ? (
                     <Select
                       value={opencodeDefaultModel}
                       onValueChange={(value) => {
                         if (value) onOpenCodeDefaultModelChange(value);
                       }}
-                      disabled={opencodeActionLoading !== null}
+                      disabled={opencodeActionLoading !== null || opencodeModelListLoading}
                     >
                       <SelectTrigger className="bg-background">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent className="max-h-72">
-                        {opencodeModelList.map((m) => (
+                        {defaultOpenCodeModelOptions.map((m) => (
                           <SelectItem key={m.value} value={m.value}>
                             {`${m.label} · ${m.providerName}`}
                           </SelectItem>

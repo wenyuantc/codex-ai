@@ -20,7 +20,7 @@ fn sample_codex_settings() -> CodexSettings {
         },
         node_path_override: None,
         sdk_install_dir: "~/.codex-ai/codex-sdk-runtime/ssh-1".to_string(),
-        one_shot_preferred_provider: "sdk".to_string(),
+        one_shot_preferred_provider: "codex".to_string(),
     }
 }
 
@@ -186,10 +186,18 @@ fn remote_runtime_health_falls_back_to_exec_when_sdk_is_missing() {
 
 #[test]
 fn sdk_notification_unavailable_follows_effective_provider() {
-    assert!(sdk_notification_unavailable(true, false, "exec", "sdk"));
-    assert!(sdk_notification_unavailable(false, true, "sdk", "exec"));
-    assert!(!sdk_notification_unavailable(true, true, "sdk", "sdk"));
-    assert!(!sdk_notification_unavailable(false, false, "exec", "exec"));
+    assert!(sdk_notification_unavailable(
+        true, false, "codex", "exec", "sdk"
+    ));
+    assert!(sdk_notification_unavailable(
+        false, true, "codex", "sdk", "exec"
+    ));
+    assert!(!sdk_notification_unavailable(
+        true, true, "codex", "sdk", "sdk"
+    ));
+    assert!(!sdk_notification_unavailable(
+        false, false, "codex", "exec", "exec"
+    ));
 }
 
 #[test]
@@ -212,6 +220,7 @@ fn remote_runtime_health_rejects_unsupported_node_versions() {
     assert!(sdk_notification_unavailable(
         settings.task_sdk_enabled,
         settings.one_shot_sdk_enabled,
+        &settings.one_shot_preferred_provider,
         &runtime.task_execution_effective_provider,
         &runtime.one_shot_effective_provider,
     ));

@@ -581,11 +581,14 @@ export interface CodexHealthCheck {
   node_version: string | null;
   task_sdk_enabled: boolean;
   one_shot_sdk_enabled: boolean;
+  one_shot_preferred_provider: AiProvider;
   sdk_installed: boolean;
   sdk_version: string | null;
   sdk_install_dir: string;
   task_execution_effective_provider: string;
   one_shot_effective_provider: string;
+  one_shot_effective_channel: string;
+  one_shot_status_message: string;
   sdk_status_message: string;
   database_loaded: boolean;
   database_path: string | null;
@@ -632,13 +635,14 @@ export interface GitPreferences {
   worktree_custom_root: string | null;
   ai_commit_message_length: AiCommitMessageLength;
   ai_commit_model_source: AiCommitModelSource;
-  ai_commit_model: CodexModelId;
-  ai_commit_reasoning_effort: ReasoningEffort;
+  ai_commit_model: string;
+  ai_commit_reasoning_effort: string;
 }
 
 export interface CodexSettings {
   task_sdk_enabled: boolean;
   one_shot_sdk_enabled: boolean;
+  one_shot_preferred_provider: AiProvider;
   one_shot_model: string;
   one_shot_reasoning_effort: string;
   task_automation_default_enabled: boolean;
@@ -647,7 +651,6 @@ export interface CodexSettings {
   git_preferences: GitPreferences;
   node_path_override: string | null;
   sdk_install_dir: string;
-  one_shot_preferred_provider: string;
 }
 
 export type RemoteCodexSettings = CodexSettings;
@@ -719,7 +722,7 @@ export type ClaudeModelId =
   | "claude-sonnet-4-6"
   | "claude-sonnet-4-6[1m]"
   | "claude-haiku-4-5";
-export type ModelId = CodexModelId | ClaudeModelId;
+export type ModelId = CodexModelId | ClaudeModelId | string;
 export type TaskStatus = "todo" | "in_progress" | "review" | "completed" | "blocked" | "archived";
 export type TaskAutomationMode = "review_fix_loop_v1";
 export type TaskAutomationPhase =
@@ -959,6 +962,21 @@ export function normalizeReasoningEffortForProvider(
   return normalizeReasoningEffort(value);
 }
 
+export function normalizeModelForProvider(
+  provider: AiProvider,
+  value: string | null | undefined,
+): string {
+  if (provider === "claude") {
+    return normalizeClaudeModel(value);
+  }
+
+  if (provider === "opencode") {
+    return value && value.trim().length > 0 ? value.trim() : "openai/gpt-4o";
+  }
+
+  return normalizeCodexModel(value);
+}
+
 export function isSupportedClaudeModel(value: string): value is ClaudeModelId {
   return CLAUDE_MODEL_OPTIONS.some((option) => option.value === value);
 }
@@ -977,7 +995,7 @@ export function getModelOptionsForProvider(provider: AiProvider) {
 
 export function getDefaultModelForProvider(provider: AiProvider): ModelId {
   if (provider === "claude") return "claude-sonnet-4-6";
-  if (provider === "opencode") return "gpt-4o" as ModelId;
+  if (provider === "opencode") return "openai/gpt-4o";
   return "gpt-5.4";
 }
 

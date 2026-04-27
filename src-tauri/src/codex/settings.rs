@@ -24,7 +24,9 @@ const ONE_SHOT_PROVIDER_SDK: &str = "sdk";
 const ONE_SHOT_PROVIDER_EXEC: &str = "exec";
 const MINIMUM_NODE_MAJOR: u32 = 18;
 const DEFAULT_ONE_SHOT_MODEL: &str = "gpt-5.4";
+const DEFAULT_ONE_SHOT_PROVIDER: &str = "codex";
 const DEFAULT_ONE_SHOT_REASONING_EFFORT: &str = "high";
+const DEFAULT_ONE_SHOT_OPENCODE_MODEL: &str = "openai/gpt-4o";
 const DEFAULT_TASK_AUTOMATION_MAX_FIX_ROUNDS: i32 = 3;
 const DEFAULT_TASK_AUTOMATION_FAILURE_STRATEGY: &str = "blocked";
 const DEFAULT_WORKTREE_LOCATION_MODE: &str = "repo_sibling_hidden";
@@ -47,6 +49,19 @@ const SUPPORTED_WORKTREE_LOCATION_MODES: &[&str] =
     &["repo_sibling_hidden", "repo_child_hidden", "custom_root"];
 const SUPPORTED_AI_COMMIT_MESSAGE_LENGTHS: &[&str] = &["title_only", "title_with_body"];
 const SUPPORTED_AI_COMMIT_MODEL_SOURCES: &[&str] = &["inherit_one_shot", "custom"];
+const SUPPORTED_ONE_SHOT_PROVIDERS: &[&str] = &["codex", "claude", "opencode"];
+const SUPPORTED_CLAUDE_MODELS: &[&str] = &[
+    "claude-opus-4-7",
+    "claude-opus-4-7[1m]",
+    "claude-opus-4-6[1m]",
+    "claude-sonnet-4-6",
+    "claude-sonnet-4-6[1m]",
+    "claude-haiku-4-5",
+];
+const SUPPORTED_CLAUDE_REASONING_EFFORTS: &[&str] =
+    &["low", "medium", "high", "xhigh", "max", "auto"];
+const SUPPORTED_OPENCODE_REASONING_EFFORTS: &[&str] =
+    &["default", "low", "medium", "high", "xhigh", "max"];
 
 #[derive(Debug, Clone)]
 pub struct SdkRuntimeHealth {
@@ -118,17 +133,52 @@ struct RawCodexSettingsDocument {
     remote_profiles: HashMap<String, RawCodexSettings>,
 }
 
-fn normalize_one_shot_model(value: Option<&str>) -> String {
+fn normalize_one_shot_provider(value: Option<&str>, is_remote: bool) -> String {
     match value.map(str::trim) {
-        Some(value) if SUPPORTED_MODELS.contains(&value) => value.to_string(),
-        _ => DEFAULT_ONE_SHOT_MODEL.to_string(),
+        Some("claude") => "claude".to_string(),
+        Some("opencode") if !is_remote => "opencode".to_string(),
+        Some("codex") => "codex".to_string(),
+        Some(value) if SUPPORTED_ONE_SHOT_PROVIDERS.contains(&value) && !is_remote => {
+            value.to_string()
+        }
+        _ => DEFAULT_ONE_SHOT_PROVIDER.to_string(),
     }
 }
 
-fn normalize_one_shot_reasoning_effort(value: Option<&str>) -> String {
-    match value.map(str::trim) {
-        Some(value) if SUPPORTED_REASONING_EFFORTS.contains(&value) => value.to_string(),
-        _ => DEFAULT_ONE_SHOT_REASONING_EFFORT.to_string(),
+fn normalize_one_shot_model(provider: &str, value: Option<&str>) -> String {
+    match provider {
+        "claude" => match value.map(str::trim) {
+            Some(value) if SUPPORTED_CLAUDE_MODELS.contains(&value) => value.to_string(),
+            _ => "claude-sonnet-4-6".to_string(),
+        },
+        "opencode" => value
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(ToOwned::to_owned)
+            .unwrap_or_else(|| DEFAULT_ONE_SHOT_OPENCODE_MODEL.to_string()),
+        _ => match value.map(str::trim) {
+            Some(value) if SUPPORTED_MODELS.contains(&value) => value.to_string(),
+            _ => DEFAULT_ONE_SHOT_MODEL.to_string(),
+        },
+    }
+}
+
+fn normalize_one_shot_reasoning_effort(provider: &str, value: Option<&str>) -> String {
+    match provider {
+        "claude" => match value.map(str::trim) {
+            Some(value) if SUPPORTED_CLAUDE_REASONING_EFFORTS.contains(&value) => value.to_string(),
+            _ => DEFAULT_ONE_SHOT_REASONING_EFFORT.to_string(),
+        },
+        "opencode" => match value.map(str::trim) {
+            Some(value) if SUPPORTED_OPENCODE_REASONING_EFFORTS.contains(&value) => {
+                value.to_string()
+            }
+            _ => "high".to_string(),
+        },
+        _ => match value.map(str::trim) {
+            Some(value) if SUPPORTED_REASONING_EFFORTS.contains(&value) => value.to_string(),
+            _ => DEFAULT_ONE_SHOT_REASONING_EFFORT.to_string(),
+        },
     }
 }
 
@@ -218,7 +268,11 @@ fn default_git_preferences() -> GitPreferences {
     }
 }
 
-fn normalize_git_preferences(preferences: GitPreferences, is_remote: bool) -> GitPreferences {
+fn normalize_git_preferences(
+    preferences: GitPreferences,
+    is_remote: bool,
+    provider: &str,
+) -> GitPreferences {
     let default_preferences = default_git_preferences();
     let worktree_location_mode =
         normalize_worktree_location_mode(Some(&preferences.worktree_location_mode));
@@ -241,14 +295,19 @@ fn normalize_git_preferences(preferences: GitPreferences, is_remote: bool) -> Gi
         ai_commit_model_source: normalize_ai_commit_model_source(Some(
             &preferences.ai_commit_model_source,
         )),
-        ai_commit_model: normalize_one_shot_model(Some(&preferences.ai_commit_model)),
-        ai_commit_reasoning_effort: normalize_one_shot_reasoning_effort(Some(
-            &preferences.ai_commit_reasoning_effort,
-        )),
+        ai_commit_model: normalize_one_shot_model(provider, Some(&preferences.ai_commit_model)),
+        ai_commit_reasoning_effort: normalize_one_shot_reasoning_effort(
+            provider,
+            Some(&preferences.ai_commit_reasoning_effort),
+        ),
     }
 }
 
-fn normalize_raw_git_preferences(raw: RawGitPreferences, is_remote: bool) -> GitPreferences {
+fn normalize_raw_git_preferences(
+    raw: RawGitPreferences,
+    is_remote: bool,
+    provider: &str,
+) -> GitPreferences {
     let default_preferences = default_git_preferences();
     let worktree_location_mode =
         normalize_worktree_location_mode(raw.worktree_location_mode.as_deref());
@@ -273,14 +332,19 @@ fn normalize_raw_git_preferences(raw: RawGitPreferences, is_remote: bool) -> Git
         ai_commit_model_source: normalize_ai_commit_model_source(
             raw.ai_commit_model_source.as_deref(),
         ),
-        ai_commit_model: normalize_one_shot_model(raw.ai_commit_model.as_deref()),
+        ai_commit_model: normalize_one_shot_model(provider, raw.ai_commit_model.as_deref()),
         ai_commit_reasoning_effort: normalize_one_shot_reasoning_effort(
+            provider,
             raw.ai_commit_reasoning_effort.as_deref(),
         ),
     }
 }
 
-fn validate_git_preferences(preferences: &GitPreferences, is_remote: bool) -> Result<(), String> {
+fn validate_git_preferences(
+    preferences: &GitPreferences,
+    is_remote: bool,
+    provider: &str,
+) -> Result<(), String> {
     if preferences.worktree_location_mode == "custom_root" {
         let root = preferences
             .worktree_custom_root
@@ -301,8 +365,18 @@ fn validate_git_preferences(preferences: &GitPreferences, is_remote: bool) -> Re
     }
 
     if preferences.ai_commit_model_source == "custom" {
-        validate_supported_model(&preferences.ai_commit_model)?;
-        validate_supported_reasoning_effort(&preferences.ai_commit_reasoning_effort)?;
+        let normalized_model =
+            normalize_one_shot_model(provider, Some(&preferences.ai_commit_model));
+        if normalized_model != preferences.ai_commit_model.trim() {
+            return Err(format!("Git AI 自定义模型不支持 provider {}", provider));
+        }
+        let normalized_effort = normalize_one_shot_reasoning_effort(
+            provider,
+            Some(&preferences.ai_commit_reasoning_effort),
+        );
+        if normalized_effort != preferences.ai_commit_reasoning_effort.trim() {
+            return Err(format!("Git AI 自定义推理强度不支持 provider {}", provider));
+        }
     }
 
     Ok(())
@@ -330,6 +404,7 @@ fn default_codex_settings_with_install_dir(install_dir: String) -> CodexSettings
     CodexSettings {
         task_sdk_enabled: false,
         one_shot_sdk_enabled: false,
+        one_shot_preferred_provider: DEFAULT_ONE_SHOT_PROVIDER.to_string(),
         one_shot_model: DEFAULT_ONE_SHOT_MODEL.to_string(),
         one_shot_reasoning_effort: DEFAULT_ONE_SHOT_REASONING_EFFORT.to_string(),
         task_automation_default_enabled: false,
@@ -338,7 +413,6 @@ fn default_codex_settings_with_install_dir(install_dir: String) -> CodexSettings
         git_preferences: default_git_preferences(),
         node_path_override: None,
         sdk_install_dir: install_dir,
-        one_shot_preferred_provider: ONE_SHOT_PROVIDER_SDK.to_string(),
     }
 }
 
@@ -405,13 +479,20 @@ fn normalize_settings_with_scope(
     default_install_dir: &str,
     is_remote: bool,
 ) -> CodexSettings {
+    let one_shot_preferred_provider =
+        normalize_one_shot_provider(Some(&settings.one_shot_preferred_provider), is_remote);
     CodexSettings {
         task_sdk_enabled: settings.task_sdk_enabled,
         one_shot_sdk_enabled: settings.one_shot_sdk_enabled,
-        one_shot_model: normalize_one_shot_model(Some(&settings.one_shot_model)),
-        one_shot_reasoning_effort: normalize_one_shot_reasoning_effort(Some(
-            &settings.one_shot_reasoning_effort,
-        )),
+        one_shot_preferred_provider: one_shot_preferred_provider.clone(),
+        one_shot_model: normalize_one_shot_model(
+            &one_shot_preferred_provider,
+            Some(&settings.one_shot_model),
+        ),
+        one_shot_reasoning_effort: normalize_one_shot_reasoning_effort(
+            &one_shot_preferred_provider,
+            Some(&settings.one_shot_reasoning_effort),
+        ),
         task_automation_default_enabled: settings.task_automation_default_enabled,
         task_automation_max_fix_rounds: normalize_task_automation_max_fix_rounds(Some(
             settings.task_automation_max_fix_rounds,
@@ -419,11 +500,14 @@ fn normalize_settings_with_scope(
         task_automation_failure_strategy: normalize_task_automation_failure_strategy(Some(
             &settings.task_automation_failure_strategy,
         )),
-        git_preferences: normalize_git_preferences(settings.git_preferences, is_remote),
+        git_preferences: normalize_git_preferences(
+            settings.git_preferences,
+            is_remote,
+            &one_shot_preferred_provider,
+        ),
         node_path_override: normalize_optional_text(settings.node_path_override.as_deref()),
         sdk_install_dir: normalize_optional_text(Some(&settings.sdk_install_dir))
             .unwrap_or_else(|| default_install_dir.to_string()),
-        one_shot_preferred_provider: ONE_SHOT_PROVIDER_SDK.to_string(),
     }
 }
 
@@ -437,12 +521,19 @@ fn normalize_raw_settings_with_scope(
     is_remote: bool,
 ) -> CodexSettings {
     let legacy_sdk_enabled = raw.sdk_enabled.unwrap_or(false);
+    let one_shot_preferred_provider =
+        normalize_one_shot_provider(raw.one_shot_preferred_provider.as_deref(), is_remote);
 
     CodexSettings {
         task_sdk_enabled: raw.task_sdk_enabled.unwrap_or(legacy_sdk_enabled),
         one_shot_sdk_enabled: raw.one_shot_sdk_enabled.unwrap_or(legacy_sdk_enabled),
-        one_shot_model: normalize_one_shot_model(raw.one_shot_model.as_deref()),
+        one_shot_preferred_provider: one_shot_preferred_provider.clone(),
+        one_shot_model: normalize_one_shot_model(
+            &one_shot_preferred_provider,
+            raw.one_shot_model.as_deref(),
+        ),
         one_shot_reasoning_effort: normalize_one_shot_reasoning_effort(
+            &one_shot_preferred_provider,
             raw.one_shot_reasoning_effort.as_deref(),
         ),
         task_automation_default_enabled: raw.task_automation_default_enabled.unwrap_or(false),
@@ -455,14 +546,11 @@ fn normalize_raw_settings_with_scope(
         git_preferences: normalize_raw_git_preferences(
             raw.git_preferences.unwrap_or_default(),
             is_remote,
+            &one_shot_preferred_provider,
         ),
         node_path_override: normalize_optional_text(raw.node_path_override.as_deref()),
         sdk_install_dir: normalize_optional_text(raw.sdk_install_dir.as_deref())
             .unwrap_or_else(|| default_install_dir.to_string()),
-        one_shot_preferred_provider: raw
-            .one_shot_preferred_provider
-            .filter(|value| !value.trim().is_empty())
-            .unwrap_or_else(|| ONE_SHOT_PROVIDER_SDK.to_string()),
     }
 }
 
@@ -577,6 +665,7 @@ fn merge_git_preferences(
     current: &mut GitPreferences,
     updates: UpdateGitPreferences,
     is_remote: bool,
+    provider: &str,
 ) -> Result<(), String> {
     if let Some(default_task_use_worktree) = updates.default_task_use_worktree {
         current.default_task_use_worktree = default_task_use_worktree;
@@ -597,13 +686,13 @@ fn merge_git_preferences(
             normalize_ai_commit_model_source(Some(&ai_commit_model_source));
     }
     if let Some(ai_commit_model) = updates.ai_commit_model {
-        current.ai_commit_model = validate_supported_model(&ai_commit_model)?;
+        current.ai_commit_model = normalize_one_shot_model(provider, Some(&ai_commit_model));
     }
     if let Some(ai_commit_reasoning_effort) = updates.ai_commit_reasoning_effort {
         current.ai_commit_reasoning_effort =
-            validate_supported_reasoning_effort(&ai_commit_reasoning_effort)?;
+            normalize_one_shot_reasoning_effort(provider, Some(&ai_commit_reasoning_effort));
     }
-    validate_git_preferences(current, is_remote)
+    validate_git_preferences(current, is_remote, provider)
 }
 
 fn git_preferences_changed(previous: &GitPreferences, next: &GitPreferences) -> bool {
@@ -692,13 +781,21 @@ pub fn merge_codex_settings<R: Runtime>(
         settings.one_shot_sdk_enabled = one_shot_sdk_enabled;
     }
 
+    if let Some(one_shot_preferred_provider) = updates.one_shot_preferred_provider {
+        settings.one_shot_preferred_provider =
+            normalize_one_shot_provider(Some(&one_shot_preferred_provider), false);
+    }
+
     if let Some(one_shot_model) = updates.one_shot_model {
-        settings.one_shot_model = normalize_one_shot_model(Some(&one_shot_model));
+        settings.one_shot_model =
+            normalize_one_shot_model(&settings.one_shot_preferred_provider, Some(&one_shot_model));
     }
 
     if let Some(one_shot_reasoning_effort) = updates.one_shot_reasoning_effort {
-        settings.one_shot_reasoning_effort =
-            normalize_one_shot_reasoning_effort(Some(&one_shot_reasoning_effort));
+        settings.one_shot_reasoning_effort = normalize_one_shot_reasoning_effort(
+            &settings.one_shot_preferred_provider,
+            Some(&one_shot_reasoning_effort),
+        );
     }
 
     if let Some(task_automation_default_enabled) = updates.task_automation_default_enabled {
@@ -716,7 +813,12 @@ pub fn merge_codex_settings<R: Runtime>(
     }
 
     if let Some(git_preferences) = updates.git_preferences {
-        merge_git_preferences(&mut settings.git_preferences, git_preferences, false)?;
+        merge_git_preferences(
+            &mut settings.git_preferences,
+            git_preferences,
+            false,
+            &settings.one_shot_preferred_provider,
+        )?;
     }
 
     if let Some(node_path_override) = updates.node_path_override {
@@ -753,12 +855,19 @@ pub fn merge_remote_codex_settings<R: Runtime>(
     if let Some(one_shot_sdk_enabled) = updates.one_shot_sdk_enabled {
         settings.one_shot_sdk_enabled = one_shot_sdk_enabled;
     }
+    if let Some(one_shot_preferred_provider) = updates.one_shot_preferred_provider {
+        settings.one_shot_preferred_provider =
+            normalize_one_shot_provider(Some(&one_shot_preferred_provider), true);
+    }
     if let Some(one_shot_model) = updates.one_shot_model {
-        settings.one_shot_model = normalize_one_shot_model(Some(&one_shot_model));
+        settings.one_shot_model =
+            normalize_one_shot_model(&settings.one_shot_preferred_provider, Some(&one_shot_model));
     }
     if let Some(one_shot_reasoning_effort) = updates.one_shot_reasoning_effort {
-        settings.one_shot_reasoning_effort =
-            normalize_one_shot_reasoning_effort(Some(&one_shot_reasoning_effort));
+        settings.one_shot_reasoning_effort = normalize_one_shot_reasoning_effort(
+            &settings.one_shot_preferred_provider,
+            Some(&one_shot_reasoning_effort),
+        );
     }
     if let Some(task_automation_default_enabled) = updates.task_automation_default_enabled {
         settings.task_automation_default_enabled = task_automation_default_enabled;
@@ -772,7 +881,12 @@ pub fn merge_remote_codex_settings<R: Runtime>(
             normalize_task_automation_failure_strategy(Some(&task_automation_failure_strategy));
     }
     if let Some(git_preferences) = updates.git_preferences {
-        merge_git_preferences(&mut settings.git_preferences, git_preferences, true)?;
+        merge_git_preferences(
+            &mut settings.git_preferences,
+            git_preferences,
+            true,
+            &settings.one_shot_preferred_provider,
+        )?;
     }
     if let Some(node_path_override) = updates.node_path_override {
         settings.node_path_override = normalize_optional_text(node_path_override.as_deref());
@@ -1491,6 +1605,7 @@ mod tests {
                 ai_commit_reasoning_effort: None,
             },
             false,
+            "codex",
         )
         .expect_err("invalid local custom root should fail");
 
@@ -1512,6 +1627,7 @@ mod tests {
                 ai_commit_reasoning_effort: Some("medium".to_string()),
             },
             true,
+            "codex",
         )
         .expect("remote custom root should be valid");
 
@@ -1525,9 +1641,9 @@ mod tests {
     }
 
     #[test]
-    fn merge_git_preferences_rejects_unsupported_custom_model() {
+    fn merge_git_preferences_normalizes_unsupported_custom_model() {
         let mut current = default_git_preferences();
-        let error = merge_git_preferences(
+        merge_git_preferences(
             &mut current,
             UpdateGitPreferences {
                 worktree_location_mode: None,
@@ -1539,10 +1655,12 @@ mod tests {
                 ai_commit_reasoning_effort: Some("medium".to_string()),
             },
             false,
+            "codex",
         )
-        .expect_err("unsupported custom model should fail");
+        .expect("unsupported custom model should fall back to provider default");
 
-        assert!(error.contains("不支持的模型"));
+        assert_eq!(current.ai_commit_model, super::DEFAULT_ONE_SHOT_MODEL);
+        assert_eq!(current.ai_commit_reasoning_effort, "medium");
     }
 
     #[test]

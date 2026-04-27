@@ -10,6 +10,7 @@ use super::lifecycle::OpenCodeChild;
 pub struct OpenCodeBridgeConfig {
     pub mode: String,
     pub model: String,
+    pub reasoning_effort: Option<String>,
     pub host: String,
     pub port: u16,
     pub working_directory: String,
@@ -50,6 +51,7 @@ pub async fn launch_opencode_bridge(
     let config_json = serde_json::json!({
         "mode": config.mode,
         "model": config.model,
+        "reasoningEffort": config.reasoning_effort,
         "host": config.host,
         "port": config.port,
         "workingDirectory": config.working_directory,

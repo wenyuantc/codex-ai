@@ -484,11 +484,17 @@ async fn sync_local_sdk_notification<R: Runtime>(
     sdk_health: &crate::codex::SdkRuntimeHealth,
     task_sdk_enabled: bool,
     one_shot_sdk_enabled: bool,
+    one_shot_preferred_provider: &str,
 ) {
-    let sdk_expected = sdk_notification_expected(task_sdk_enabled, one_shot_sdk_enabled);
+    let sdk_expected = sdk_notification_expected(
+        task_sdk_enabled,
+        one_shot_sdk_enabled,
+        one_shot_preferred_provider,
+    );
     let sdk_unavailable = sdk_notification_unavailable(
         task_sdk_enabled,
         one_shot_sdk_enabled,
+        one_shot_preferred_provider,
         &sdk_health.task_execution_effective_provider,
         &sdk_health.one_shot_effective_provider,
     );
@@ -539,18 +545,98 @@ async fn sync_local_sdk_notification<R: Runtime>(
     }
 }
 
-fn sdk_notification_expected(task_sdk_enabled: bool, one_shot_sdk_enabled: bool) -> bool {
-    task_sdk_enabled || one_shot_sdk_enabled
+fn sdk_notification_expected(
+    task_sdk_enabled: bool,
+    one_shot_sdk_enabled: bool,
+    one_shot_preferred_provider: &str,
+) -> bool {
+    task_sdk_enabled || (one_shot_sdk_enabled && one_shot_preferred_provider == "codex")
 }
 
 fn sdk_notification_unavailable(
     task_sdk_enabled: bool,
     one_shot_sdk_enabled: bool,
+    one_shot_preferred_provider: &str,
     task_execution_effective_provider: &str,
     one_shot_effective_provider: &str,
 ) -> bool {
     (task_sdk_enabled && task_execution_effective_provider != "sdk")
-        || (one_shot_sdk_enabled && one_shot_effective_provider != "sdk")
+        || (one_shot_sdk_enabled
+            && one_shot_preferred_provider == "codex"
+            && one_shot_effective_provider != "sdk")
+}
+
+async fn resolve_local_one_shot_runtime<R: Runtime>(
+    app: &AppHandle<R>,
+    codex_settings: &crate::db::models::CodexSettings,
+    codex_sdk_health: &crate::codex::SdkRuntimeHealth,
+) -> (String, String) {
+    match codex_settings.one_shot_preferred_provider.as_str() {
+        "claude" => {
+            let claude_settings = match crate::claude::load_claude_settings(app) {
+                Ok(settings) => settings,
+                Err(error) => {
+                    return (
+                        "unavailable".to_string(),
+                        format!("读取 Claude 设置失败：{error}"),
+                    );
+                }
+            };
+            let claude_health =
+                crate::claude::inspect_claude_sdk_runtime(app, &claude_settings).await;
+            if !codex_settings.one_shot_sdk_enabled {
+                if claude_health.cli_available {
+                    (
+                        "cli".to_string(),
+                        "一次性 AI 未启用 Claude SDK，将使用 Claude CLI".to_string(),
+                    )
+                } else {
+                    (
+                        "unavailable".to_string(),
+                        "一次性 AI 未启用 Claude SDK，且 Claude CLI 不可用".to_string(),
+                    )
+                }
+            } else {
+                let channel = if claude_health.effective_provider == "sdk" {
+                    "sdk"
+                } else if claude_health.cli_available {
+                    "cli"
+                } else {
+                    "unavailable"
+                };
+                (channel.to_string(), claude_health.sdk_status_message)
+            }
+        }
+        "opencode" => {
+            if !codex_settings.one_shot_sdk_enabled {
+                return (
+                    "unavailable".to_string(),
+                    "一次性 AI 未启用 OpenCode SDK，当前不可用".to_string(),
+                );
+            }
+            let opencode_settings = match crate::opencode::load_opencode_settings(app) {
+                Ok(settings) => settings,
+                Err(error) => {
+                    return (
+                        "unavailable".to_string(),
+                        format!("读取 OpenCode 设置失败：{error}"),
+                    );
+                }
+            };
+            let opencode_health =
+                crate::opencode::inspect_opencode_sdk_runtime(app, &opencode_settings).await;
+            let channel = if opencode_health.effective_provider == "sdk" {
+                "sdk"
+            } else {
+                "unavailable"
+            };
+            (channel.to_string(), opencode_health.sdk_status_message)
+        }
+        _ => (
+            codex_sdk_health.one_shot_effective_provider.clone(),
+            codex_sdk_health.status_message.clone(),
+        ),
+    }
 }
 
 fn emit_local_database_unavailable_notification<R: Runtime>(app: &AppHandle<R>, message: String) {
@@ -640,8 +726,12 @@ pub async fn health_check<R: Runtime>(app: AppHandle<R>) -> Result<CodexHealthCh
         &sdk_health,
         codex_settings.task_sdk_enabled,
         codex_settings.one_shot_sdk_enabled,
+        &codex_settings.one_shot_preferred_provider,
     )
     .await;
+
+    let (one_shot_effective_channel, one_shot_status_message) =
+        resolve_local_one_shot_runtime(&app, &codex_settings, &sdk_health).await;
 
     if !database_loaded {
         emit_local_database_unavailable_notification(
@@ -660,11 +750,14 @@ pub async fn health_check<R: Runtime>(app: AppHandle<R>) -> Result<CodexHealthCh
         node_version: sdk_health.node_version,
         task_sdk_enabled: codex_settings.task_sdk_enabled,
         one_shot_sdk_enabled: codex_settings.one_shot_sdk_enabled,
+        one_shot_preferred_provider: codex_settings.one_shot_preferred_provider.clone(),
         sdk_installed: sdk_health.sdk_installed,
         sdk_version: sdk_health.sdk_version,
         sdk_install_dir: codex_settings.sdk_install_dir.clone(),
         task_execution_effective_provider: sdk_health.task_execution_effective_provider,
-        one_shot_effective_provider: sdk_health.one_shot_effective_provider,
+        one_shot_effective_provider: codex_settings.one_shot_preferred_provider.clone(),
+        one_shot_effective_channel,
+        one_shot_status_message,
         sdk_status_message: sdk_health.status_message,
         database_loaded,
         database_path: database_path(&app).map(|path| path.to_string_lossy().to_string()),

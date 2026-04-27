@@ -31,6 +31,10 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { EmployeeSystemPromptField } from "./EmployeeSystemPromptField";
+import {
+  selectOpenCodeModel,
+  selectOpenCodeReasoningEffort,
+} from "./openCodeModelSelection";
 
 const EMPLOYEE_ROLE_OPTIONS = [
   { value: "developer", label: "开发者" },
@@ -100,7 +104,12 @@ export function CreateEmployeeDialog({
     setOpenCodeModelError(null);
     try {
       const models = await getOpenCodeModels();
+      const selectedModel = selectOpenCodeModel(models, model);
       setOpenCodeModels(models);
+      setModel(selectedModel);
+      setReasoningEffort((current) =>
+        selectOpenCodeReasoningEffort(models, selectedModel, current),
+      );
     } catch (error) {
       const msg = error instanceof Error ? error.message : String(error);
       setOpenCodeModelError(msg);
@@ -124,14 +133,12 @@ export function CreateEmployeeDialog({
   };
 
   const handleModelChange = (value: string) => {
-    setModel(value);
+    const selectedModel = value.trim();
+    setModel(selectedModel);
     if (aiProvider === "opencode") {
-      const modelInfo = opencodeModels.find((m) => m.value === value);
-      if (modelInfo?.capabilities && !modelInfo.capabilities.reasoning) {
-        setReasoningEffort("auto");
-      } else {
-        setReasoningEffort(getDefaultReasoningEffortForProvider("opencode"));
-      }
+      setReasoningEffort((current) =>
+        selectOpenCodeReasoningEffort(opencodeModels, selectedModel, current),
+      );
     }
   };
 

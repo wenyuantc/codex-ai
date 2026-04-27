@@ -447,13 +447,13 @@ fn apply_opencode_runtime_config(
 }
 
 #[derive(Clone, Debug)]
-struct OpenCodeRuntimeConfigBackup {
+pub(crate) struct OpenCodeRuntimeConfigBackup {
     path: PathBuf,
     original_content: Option<String>,
 }
 
 impl OpenCodeRuntimeConfigBackup {
-    fn restore(&self) -> Result<(), String> {
+    pub(crate) fn restore(&self) -> Result<(), String> {
         match &self.original_content {
             Some(content) => fs::write(&self.path, content).map_err(|error| {
                 format!(
@@ -533,7 +533,7 @@ fn ensure_untracked_opencode_config_is_excluded(run_cwd: &str, config_path: &Pat
     let _ = fs::write(exclude_path, updated);
 }
 
-fn write_opencode_runtime_config_file(
+pub(crate) fn write_opencode_runtime_config_file(
     run_cwd: &str,
     provider_id: &str,
     model_id: &str,
@@ -1364,6 +1364,7 @@ pub async fn start_opencode_with_manager(
             "session".to_string()
         },
         model: model.clone(),
+        reasoning_effort: effort_to_write.clone(),
         host: opencode_settings.host.clone(),
         port: opencode_settings.port,
         working_directory: run_cwd.clone(),
@@ -1556,17 +1557,80 @@ pub struct OpenCodeModelCapabilities {
     pub reasoning: bool,
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-struct BridgeProvidersPayload {
-    #[serde(rename = "type")]
-    event_type: String,
-    data: BridgeProvidersData,
+fn json_string_field(value: &serde_json::Value, keys: &[&str]) -> Option<String> {
+    keys.iter()
+        .find_map(|key| value.get(*key).and_then(|field| field.as_str()))
+        .map(str::trim)
+        .filter(|field| !field.is_empty())
+        .map(ToOwned::to_owned)
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-struct BridgeProvidersData {
-    providers: Vec<OpenCodeModelInfo>,
-    defaults: serde_json::Value,
+fn split_opencode_model_value(value: &str) -> (String, String) {
+    match value.split_once('/') {
+        Some((provider_id, model_id))
+            if !provider_id.trim().is_empty() && !model_id.trim().is_empty() =>
+        {
+            (provider_id.trim().to_string(), model_id.trim().to_string())
+        }
+        _ => ("opencode".to_string(), value.trim().to_string()),
+    }
+}
+
+fn extract_opencode_models_from_output(output: &str) -> Option<Vec<OpenCodeModelInfo>> {
+    for line in output.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+
+        let Some(event) = parse_opencode_bridge_event(trimmed) else {
+            continue;
+        };
+        if event.event_type != "providers" {
+            continue;
+        }
+
+        let providers = event.data.get("providers")?.as_array()?;
+        let models = providers
+            .iter()
+            .filter_map(|provider| {
+                let value = json_string_field(provider, &["value"])?;
+                let (fallback_provider_id, fallback_model_id) = split_opencode_model_value(&value);
+                let label =
+                    json_string_field(provider, &["label"]).unwrap_or_else(|| value.clone());
+                let provider_id =
+                    json_string_field(provider, &["providerId", "providerID", "provider_id"])
+                        .unwrap_or(fallback_provider_id);
+                let provider_name = json_string_field(provider, &["providerName", "provider_name"])
+                    .unwrap_or_else(|| provider_id.clone());
+                let model_id = json_string_field(provider, &["modelId", "modelID", "model_id"])
+                    .unwrap_or(fallback_model_id);
+                let capabilities = provider
+                    .get("capabilities")
+                    .and_then(|value| value.as_object())
+                    .and_then(|capabilities| {
+                        capabilities.get("reasoning").and_then(|value| {
+                            value
+                                .as_bool()
+                                .map(|reasoning| OpenCodeModelCapabilities { reasoning })
+                        })
+                    });
+
+                Some(OpenCodeModelInfo {
+                    value,
+                    label,
+                    provider_id,
+                    provider_name,
+                    model_id,
+                    capabilities,
+                })
+            })
+            .collect::<Vec<_>>();
+
+        return Some(models);
+    }
+
+    None
 }
 
 #[tauri::command]
@@ -1655,17 +1719,8 @@ pub async fn get_opencode_models<R: Runtime>(
 
     let _ = child.wait().await;
 
-    // Try to parse each line as a bridge event
-    for line in output.lines() {
-        let trimmed = line.trim();
-        if trimmed.is_empty() {
-            continue;
-        }
-        if let Ok(payload) = serde_json::from_str::<BridgeProvidersPayload>(trimmed) {
-            if payload.event_type == "providers" {
-                return Ok(payload.data.providers);
-            }
-        }
+    if let Some(models) = extract_opencode_models_from_output(&output) {
+        return Ok(models);
     }
 
     // Check for error output first
@@ -1702,6 +1757,67 @@ mod tests {
 
         assert_eq!(event.event_type, "session");
         assert_eq!(bridge_event_session_id(&event).as_deref(), Some("ses_123"));
+    }
+
+    #[test]
+    fn extract_opencode_models_from_output_reads_provider_event() {
+        let output = concat!(
+            r#"{"type":"info","data":{"message":"启动 OpenCode SDK (model: default)"},"timestamp":1}"#,
+            "\n",
+            r#"{"type":"providers","data":{"providers":[{"value":"deepseek/deepseek-chat","label":"DeepSeek Chat","providerId":"deepseek","providerName":"DeepSeek","modelId":"deepseek-chat","capabilities":{"reasoning":true}},{"value":"openrouter/qwen","label":"Qwen","providerId":"openrouter","providerName":"OpenRouter","modelId":"qwen","capabilities":{}}],"defaults":{}},"timestamp":2}"#,
+        );
+
+        let models = extract_opencode_models_from_output(output)
+            .expect("providers event should produce a model list");
+
+        assert_eq!(models.len(), 2);
+        assert_eq!(models[0].provider_id, "deepseek");
+        assert_eq!(
+            models[0].capabilities.as_ref().map(|value| value.reasoning),
+            Some(true)
+        );
+        assert_eq!(models[1].provider_name, "OpenRouter");
+        assert!(models[1].capabilities.is_none());
+    }
+
+    #[test]
+    fn extract_opencode_models_from_output_infers_missing_provider_fields() {
+        let output = concat!(
+            r#"{"type":"info","data":{"message":"已连接到运行中的 OpenCode server (http://127.0.0.1:4096)"},"timestamp":1}"#,
+            "\n",
+            r#"{"type":"providers","data":{"providers":[{"value":"deepseek/deepseek-chat","label":"DeepSeek Chat"}]},"timestamp":2}"#,
+        );
+
+        let models = extract_opencode_models_from_output(output)
+            .expect("minimal providers event should produce a model list");
+
+        assert_eq!(models.len(), 1);
+        assert_eq!(models[0].value, "deepseek/deepseek-chat");
+        assert_eq!(models[0].provider_id, "deepseek");
+        assert_eq!(models[0].provider_name, "deepseek");
+        assert_eq!(models[0].model_id, "deepseek-chat");
+        assert!(models[0].capabilities.is_none());
+    }
+
+    #[test]
+    fn extract_opencode_models_from_output_reads_opencode_go_minimal_event() {
+        let output = concat!(
+            r#"{"type":"info","data":{"message":"启动 OpenCode SDK (model: default)"},"timestamp":1}"#,
+            "\n",
+            r#"{"type":"info","data":{"message":"已连接到运行中的 OpenCode server (http://127.0.0.1:4096)"},"timestamp":2}"#,
+            "\n",
+            r#"{"type":"providers","data":{"providers":[{"value":"opencode-go/minimax-m2.7","label":"MinMax"}]},"timestamp":3}"#,
+        );
+
+        let models = extract_opencode_models_from_output(output)
+            .expect("screenshot-shaped providers event should produce a model list");
+
+        assert_eq!(models.len(), 1);
+        assert_eq!(models[0].value, "opencode-go/minimax-m2.7");
+        assert_eq!(models[0].provider_id, "opencode-go");
+        assert_eq!(models[0].provider_name, "opencode-go");
+        assert_eq!(models[0].model_id, "minimax-m2.7");
+        assert!(models[0].capabilities.is_none());
     }
 
     #[test]
