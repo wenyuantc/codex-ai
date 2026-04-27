@@ -61,71 +61,213 @@ function emitStructuredFileChange(changes) {
     }
 }
 
-async function runSession(client, config) {
-    const session = await client.session.create({
-        body: {
-            title: config.prompt?.slice(0, 100) || "OpenCode Session",
-            model: config.model ? { modelID: config.model.split("/").pop(), providerID: config.model.split("/")[0] } : undefined,
-        },
-    });
+function sessionQuery(config) {
+    const directory = config.workingDirectory?.trim();
+    return directory ? { directory } : undefined;
+}
 
-    const sessionId = session?.data?.id || session?.id;
+function modelRef(model) {
+    if (!model) return undefined;
+    const [providerID, modelID] = model.includes("/")
+        ? model.split(/\/(.+)/).filter(Boolean)
+        : ["openai", model];
+    if (!providerID || !modelID) return undefined;
+    return { providerID, modelID };
+}
+
+function formatSdkError(error) {
+    if (!error) return "OpenCode SDK 返回未知错误";
+    if (typeof error === "string") return error;
+    if (error.message) return error.message;
+    if (error.name && error.data?.message) return `${error.name}: ${error.data.message}`;
+    if (error.data?.message) return error.data.message;
+    try {
+        return JSON.stringify(error);
+    } catch {
+        return String(error);
+    }
+}
+
+function collectTextFromPromptResult(result) {
+    const message = result?.data || result;
+    const parts = message?.parts || message?.info?.parts || [];
+    const lines = [];
+
+    for (const part of parts) {
+        if (part?.type === "text" && part.text) {
+            lines.push(part.text);
+        }
+    }
+
+    const summary = message?.info?.summary?.body || message?.summary?.body;
+    if (summary) {
+        lines.push(summary);
+    }
+
+    return lines.join("\n").trim();
+}
+
+function messageInfo(item) {
+    return item?.info || item;
+}
+
+function messageId(item) {
+    return messageInfo(item)?.id || item?.id;
+}
+
+function messageCreated(item) {
+    const created = Number(messageInfo(item)?.time?.created || item?.time?.created || 0);
+    return Number.isFinite(created) ? created : 0;
+}
+
+async function fetchMessageCursor(client, sessionId, config) {
+    try {
+        const msgs = await client.session.messages({
+            path: { id: sessionId },
+            query: sessionQuery(config),
+        });
+        const list = msgs?.data || msgs || [];
+        const messages = Array.isArray(list) ? list : [];
+
+        return {
+            available: true,
+            ids: new Set(messages.map(messageId).filter(Boolean)),
+            latestCreated: messages.reduce(
+                (latest, item) => Math.max(latest, messageCreated(item)),
+                0
+            ),
+        };
+    } catch {
+        return { available: false, ids: new Set(), latestCreated: 0 };
+    }
+}
+
+async function fetchAssistantMessageText(client, sessionId, messageID, config) {
+    if (!messageID) return "";
+
+    try {
+        const message = await client.session.message({
+            path: { id: sessionId, messageID },
+            query: sessionQuery(config),
+        });
+        return collectTextFromPromptResult(message);
+    } catch {
+        return "";
+    }
+}
+
+async function fetchLastAssistantText(client, sessionId, config, beforeCursor) {
+    if (config.resumeSessionId && beforeCursor?.available === false) {
+        return "";
+    }
+
+    try {
+        const msgs = await client.session.messages({
+            path: { id: sessionId },
+            query: sessionQuery(config),
+        });
+        const list = msgs?.data || msgs || [];
+        const messages = Array.isArray(list) ? list : [];
+
+        for (const item of messages.slice().reverse()) {
+            const info = messageInfo(item);
+            if (info?.role && info.role !== "assistant") continue;
+            if (beforeCursor?.ids?.has(info?.id)) continue;
+            const created = messageCreated(item);
+            if (beforeCursor?.latestCreated && created && created < beforeCursor.latestCreated) {
+                continue;
+            }
+            const parts = item?.parts || info?.parts || [];
+            const text = parts
+                .filter((part) => part?.type === "text" && part.text)
+                .map((part) => part.text)
+                .join("\n")
+                .trim();
+            if (text) return text;
+            if (info?.summary?.body) return info.summary.body.trim();
+        }
+    } catch {
+        // Best-effort fallback only.
+    }
+
+    return "";
+}
+
+async function runSession(client, config) {
+    const session = config.resumeSessionId
+        ? { id: config.resumeSessionId }
+        : await client.session.create({
+              body: {
+                  title: config.prompt?.slice(0, 100) || "OpenCode Session",
+              },
+              query: sessionQuery(config),
+          });
+
+    const sessionId = session?.data?.id || session?.id || config.resumeSessionId;
     emit("session", { session_id: sessionId });
 
     const systemPrompt = config.systemPrompt;
     const userPrompt = config.prompt || "";
-    const fullPrompt = systemPrompt ? `${systemPrompt}\n\n${userPrompt}` : userPrompt;
+    const promptText = userPrompt;
 
-    // Send prompt with 60s timeout
-    const promptPromise = client.session.prompt({
-        path: { id: sessionId },
-        body: {
-            parts: [{ type: "text", text: fullPrompt }],
-        },
-    });
+    let heartbeat = null;
+    try {
+        const beforeCursor = await fetchMessageCursor(client, sessionId, config);
+        heartbeat = setInterval(() => {
+            emit("info", { message: "OpenCode 仍在执行，等待响应..." });
+        }, 30000);
 
-    const timeout = new Promise((_, reject) =>
-        setTimeout(() => reject(new Error("Prompt timeout (60s)")), 60000)
-    );
+        const result = await client.session.prompt({
+            path: { id: sessionId },
+            query: sessionQuery(config),
+            body: {
+                model: modelRef(config.model),
+                system: systemPrompt || undefined,
+                parts: [{ type: "text", text: promptText }],
+            },
+        });
 
-    const result = await Promise.race([promptPromise, timeout]);
+        if (result?.error) {
+            emit("error", { message: formatSdkError(result.error).slice(0, 500) });
+            emit("done", { session_id: sessionId });
+            return;
+        }
 
-    if (result?.error) {
-        emit("error", { message: JSON.stringify(result.error).slice(0, 500) });
-        emit("done", { session_id: sessionId });
-        return;
-    }
+        const message = result?.data || result;
+        if (message?.info?.error) {
+            emit("error", { message: formatSdkError(message.info.error).slice(0, 500) });
+            emit("done", { session_id: sessionId });
+            return;
+        }
 
-    // Poll messages for AI response
-    let textOutput = "";
-    for (let i = 0; i < 30; i++) {
-        await new Promise((r) => setTimeout(r, 1000));
-        try {
-            const msgs = await client.session.messages({ path: { id: sessionId } });
-            const list = msgs?.data || msgs || [];
-            const lastMsg = Array.isArray(list) ? list[list.length - 1] : null;
+        let textOutput = collectTextFromPromptResult(result);
+        if (!textOutput) {
+            textOutput = await fetchAssistantMessageText(
+                client,
+                sessionId,
+                message?.info?.id || message?.id,
+                config
+            );
+        }
+        if (!textOutput) {
+            textOutput = await fetchLastAssistantText(client, sessionId, config, beforeCursor);
+        }
 
-            if (lastMsg && Array.isArray(lastMsg.parts)) {
-                const textParts = lastMsg.parts.filter((p) => p.type === "text" && p.text);
-                if (textParts.length > 0) {
-                    textOutput = textParts.map((p) => p.text).join("\n");
-                    break;
-                }
+        if (textOutput) {
+            for (const line of textOutput.split("\n").filter((l) => l.trim())) {
+                emit("stdout", { line: `[OUTPUT] ${line}` });
             }
-        } catch {
-            // retry
+        } else {
+            emit("stdout", { line: "[OUTPUT] (AI 未返回文本内容)" });
         }
-    }
 
-    if (textOutput) {
-        for (const line of textOutput.split("\n").filter((l) => l.trim())) {
-            emit("stdout", { line: `[OUTPUT] ${line}` });
-        }
-    } else {
-        emit("stdout", { line: "[OUTPUT] (AI 未返回文本内容)" });
+        emit("done", { session_id: sessionId });
+    } catch (error) {
+        emit("error", { message: formatSdkError(error).slice(0, 500) });
+        emit("done", { session_id: sessionId });
+    } finally {
+        if (heartbeat) clearInterval(heartbeat);
     }
-
-    emit("done", { session_id: sessionId });
 }
 
 async function main() {
@@ -141,9 +283,9 @@ async function main() {
 
         // Try to connect to an existing OpenCode server first
         try {
-            client = createOpencodeClient({ baseUrl });
+            client = createOpencodeClient({ baseUrl, directory: workingDirectory || undefined });
             // Quick connectivity check via session.list (doesn't need server start)
-            await client.session.list();
+            await client.session.list({ query: sessionQuery(config) });
             emit("info", { message: `已连接到运行中的 OpenCode server (${baseUrl})` });
         } catch (connectError) {
             emit("info", { message: `未检测到运行中的 OpenCode server，正在启动新实例...` });
@@ -162,7 +304,10 @@ async function main() {
                 config: modelConfig,
                 timeout: 10000,
             });
-            client = started.client;
+            client = createOpencodeClient({
+                baseUrl: started.server.url,
+                directory: workingDirectory || undefined,
+            });
             server = started.server;
             emit("info", { message: "OpenCode SDK 新实例已启动" });
         }
@@ -195,12 +340,15 @@ async function main() {
         } else {
             const session = await client.session.create({
                 body: { title: "one-shot" },
+                query: sessionQuery(config),
             });
 
             const sessionId = session?.data?.id || session?.id;
             const result = await client.session.prompt({
-                path: { sessionID: sessionId },
+                path: { id: sessionId },
+                query: sessionQuery(config),
                 body: {
+                    model: modelRef(model),
                     parts: [{ type: "text", text: prompt || "" }],
                 },
             });

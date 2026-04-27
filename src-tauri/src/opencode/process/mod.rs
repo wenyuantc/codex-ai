@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use sqlx::SqlitePool;
@@ -9,10 +9,12 @@ use tokio::io::AsyncBufReadExt;
 use tokio::sync::Mutex;
 
 use crate::app::{
-    insert_activity_log, insert_codex_session_event, insert_codex_session_event_with_id,
-    insert_codex_session_record, now_sqlite, sqlite_pool, update_codex_session_record,
-    validate_runtime_working_dir, EXECUTION_TARGET_LOCAL, EXECUTION_TARGET_SSH,
+    fetch_codex_session_by_id, insert_activity_log, insert_codex_session_event,
+    insert_codex_session_event_with_id, insert_codex_session_record, now_sqlite, sqlite_pool,
+    update_codex_session_record, validate_runtime_working_dir, EXECUTION_TARGET_LOCAL,
+    EXECUTION_TARGET_SSH,
 };
+use crate::codex::{CodexExecutionProvider, CodexSessionKind, ExecutionChangeBaseline};
 use crate::db::models::OpenCodeOutput;
 use crate::git_workflow::{
     mark_task_git_context_running, mark_task_git_context_session_finished,
@@ -22,6 +24,7 @@ use crate::opencode::{
     ensure_opencode_sdk_runtime_layout, load_opencode_settings, sdk_bridge_script_path,
     OpenCodeManager,
 };
+use crate::task_automation;
 
 mod context;
 mod lifecycle;
@@ -30,7 +33,7 @@ pub(crate) mod stream;
 
 pub use self::lifecycle::OpenCodeChild;
 
-use self::{context::*, lifecycle::*, session_runtime::*, stream::*};
+use self::{context::*, session_runtime::*, stream::*};
 
 const REVIEW_VERDICT_START_TAG: &str = "<review_verdict>";
 const REVIEW_VERDICT_END_TAG: &str = "</review_verdict>";
@@ -38,6 +41,7 @@ const REVIEW_REPORT_START_TAG: &str = "<review_report>";
 const REVIEW_REPORT_END_TAG: &str = "</review_report>";
 const STOP_WAIT_POLL_MS: u64 = 50;
 const STOP_WAIT_MAX_ATTEMPTS: usize = 600;
+const OPENCODE_PROVIDER_CHUNK_TIMEOUT_MS: i64 = 30 * 60 * 1000;
 
 pub use super::stream::SdkFileChangeStore;
 
@@ -194,7 +198,8 @@ async fn ensure_no_cross_provider_conflict<R: Runtime>(
     task_id: Option<&str>,
     _session_kind: OpenCodeSessionKind,
 ) -> Result<(), String> {
-    if let Some(codex_state) = app.try_state::<Arc<std::sync::Mutex<crate::codex::CodexManager>>>() {
+    if let Some(codex_state) = app.try_state::<Arc<std::sync::Mutex<crate::codex::CodexManager>>>()
+    {
         if let Some(task_id) = task_id {
             if crate::codex::get_live_task_process_by_task(
                 app,
@@ -215,10 +220,16 @@ async fn ensure_no_cross_provider_conflict<R: Runtime>(
         if let Some(task_id) = task_id {
             let manager = claude_state.lock().await;
             if manager
-                .get_task_process_any(task_id, crate::claude::process::ClaudeSessionKind::Execution)
+                .get_task_process_any(
+                    task_id,
+                    crate::claude::process::ClaudeSessionKind::Execution,
+                )
                 .is_some()
             {
-                return Err(format!("任务{}的 execution 会话已在 Claude 中运行", task_id));
+                return Err(format!(
+                    "任务{}的 execution 会话已在 Claude 中运行",
+                    task_id
+                ));
             }
         }
     }
@@ -343,8 +354,275 @@ async fn capture_execution_change_baseline<R: Runtime>(
     }
 }
 
-async fn stream_opencode_output<R: Runtime>(
-    app: AppHandle<R>,
+#[derive(Debug, serde::Deserialize)]
+struct OpenCodeBridgeEvent {
+    #[serde(rename = "type")]
+    event_type: String,
+    #[serde(default)]
+    data: serde_json::Value,
+}
+
+fn parse_opencode_bridge_event(line: &str) -> Option<OpenCodeBridgeEvent> {
+    serde_json::from_str::<OpenCodeBridgeEvent>(line)
+        .ok()
+        .filter(|event| !event.event_type.trim().is_empty())
+}
+
+fn bridge_event_string(event: &OpenCodeBridgeEvent, key: &str) -> Option<String> {
+    event
+        .data
+        .get(key)
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
+}
+
+fn bridge_event_message(event: &OpenCodeBridgeEvent) -> Option<String> {
+    bridge_event_string(event, "message")
+}
+
+fn bridge_event_line(event: &OpenCodeBridgeEvent) -> Option<String> {
+    bridge_event_string(event, "line")
+}
+
+fn bridge_event_session_id(event: &OpenCodeBridgeEvent) -> Option<String> {
+    bridge_event_string(event, "session_id").or_else(|| bridge_event_string(event, "id"))
+}
+
+fn opencode_session_kind_to_codex(_session_kind: OpenCodeSessionKind) -> CodexSessionKind {
+    CodexSessionKind::Execution
+}
+
+fn ensure_json_object(
+    value: &mut serde_json::Value,
+) -> &mut serde_json::Map<String, serde_json::Value> {
+    if !value.is_object() {
+        *value = serde_json::json!({});
+    }
+    value.as_object_mut().expect("json value should be object")
+}
+
+fn ensure_json_object_field<'a>(
+    parent: &'a mut serde_json::Map<String, serde_json::Value>,
+    key: &str,
+) -> &'a mut serde_json::Map<String, serde_json::Value> {
+    let value = parent
+        .entry(key.to_string())
+        .or_insert_with(|| serde_json::json!({}));
+    ensure_json_object(value)
+}
+
+fn apply_opencode_runtime_config(
+    config: &mut serde_json::Value,
+    provider_id: &str,
+    model_id: &str,
+    reasoning_effort: Option<&str>,
+) {
+    let root = ensure_json_object(config);
+    let provider_map = ensure_json_object_field(root, "provider");
+    let provider_config = ensure_json_object_field(provider_map, provider_id);
+    let provider_options = ensure_json_object_field(provider_config, "options");
+    provider_options.insert("timeout".to_string(), serde_json::Value::Bool(false));
+    provider_options.insert(
+        "chunkTimeout".to_string(),
+        serde_json::Value::Number(OPENCODE_PROVIDER_CHUNK_TIMEOUT_MS.into()),
+    );
+
+    let models = ensure_json_object_field(provider_config, "models");
+    let model_config = ensure_json_object_field(models, model_id);
+    let model_options = ensure_json_object_field(model_config, "options");
+    model_options.insert("timeout".to_string(), serde_json::Value::Bool(false));
+    model_options.insert(
+        "chunkTimeout".to_string(),
+        serde_json::Value::Number(OPENCODE_PROVIDER_CHUNK_TIMEOUT_MS.into()),
+    );
+
+    if let Some(effort) = reasoning_effort {
+        model_options.insert(
+            "reasoning_effort".to_string(),
+            serde_json::Value::String(effort.to_string()),
+        );
+    }
+}
+
+#[derive(Clone, Debug)]
+struct OpenCodeRuntimeConfigBackup {
+    path: PathBuf,
+    original_content: Option<String>,
+}
+
+impl OpenCodeRuntimeConfigBackup {
+    fn restore(&self) -> Result<(), String> {
+        match &self.original_content {
+            Some(content) => fs::write(&self.path, content).map_err(|error| {
+                format!(
+                    "OpenCode 配置文件 {} 恢复失败: {error}",
+                    self.path.display()
+                )
+            }),
+            None => match fs::remove_file(&self.path) {
+                Ok(()) => Ok(()),
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+                Err(error) => Err(format!(
+                    "OpenCode 临时配置文件 {} 清理失败: {error}",
+                    self.path.display()
+                )),
+            },
+        }
+    }
+}
+
+fn git_command_status(run_cwd: &str, args: &[&str]) -> Option<std::process::ExitStatus> {
+    std::process::Command::new("git")
+        .arg("-C")
+        .arg(run_cwd)
+        .args(args)
+        .status()
+        .ok()
+}
+
+fn git_command_output(run_cwd: &str, args: &[&str]) -> Option<std::process::Output> {
+    std::process::Command::new("git")
+        .arg("-C")
+        .arg(run_cwd)
+        .args(args)
+        .output()
+        .ok()
+}
+
+fn ensure_untracked_opencode_config_is_excluded(run_cwd: &str, config_path: &Path) {
+    let Some(file_name) = config_path.file_name().and_then(|value| value.to_str()) else {
+        return;
+    };
+
+    if git_command_status(run_cwd, &["ls-files", "--error-unmatch", file_name])
+        .map(|status| status.success())
+        .unwrap_or(false)
+    {
+        return;
+    }
+
+    let Some(output) = git_command_output(run_cwd, &["rev-parse", "--git-path", "info/exclude"])
+    else {
+        return;
+    };
+    if !output.status.success() {
+        return;
+    }
+
+    let exclude_path_text = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if exclude_path_text.is_empty() {
+        return;
+    }
+
+    let exclude_path = PathBuf::from(exclude_path_text);
+    let pattern = format!("/{file_name}");
+    let existing = fs::read_to_string(&exclude_path).unwrap_or_default();
+    if existing.lines().any(|line| line.trim() == pattern) {
+        return;
+    }
+
+    let mut updated = existing;
+    if !updated.is_empty() && !updated.ends_with('\n') {
+        updated.push('\n');
+    }
+    updated.push_str("# codex-ai OpenCode runtime config\n");
+    updated.push_str(&pattern);
+    updated.push('\n');
+    let _ = fs::write(exclude_path, updated);
+}
+
+fn write_opencode_runtime_config_file(
+    run_cwd: &str,
+    provider_id: &str,
+    model_id: &str,
+    reasoning_effort: Option<&str>,
+) -> Result<OpenCodeRuntimeConfigBackup, String> {
+    let config_path = Path::new(run_cwd).join("opencode.json");
+    let original_content = match fs::read_to_string(&config_path) {
+        Ok(content) => Some(content),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+        Err(error) => {
+            return Err(format!(
+                "OpenCode 配置文件 {} 读取失败: {error}",
+                config_path.display()
+            ));
+        }
+    };
+    let mut config: serde_json::Value = match original_content.as_deref() {
+        Some(content) => serde_json::from_str(content).map_err(|error| {
+            format!(
+                "OpenCode 配置文件 {} 解析失败，已停止启动以避免覆盖用户配置: {error}",
+                config_path.display()
+            )
+        })?,
+        None => serde_json::json!({}),
+    };
+    let backup = OpenCodeRuntimeConfigBackup {
+        path: config_path.clone(),
+        original_content,
+    };
+
+    apply_opencode_runtime_config(&mut config, provider_id, model_id, reasoning_effort);
+    let json_str = serde_json::to_string_pretty(&config)
+        .map_err(|error| format!("OpenCode 运行配置序列化失败: {error}"))?;
+    fs::write(&config_path, json_str).map_err(|error| {
+        format!(
+            "OpenCode 配置文件 {} 写入失败: {error}",
+            config_path.display()
+        )
+    })?;
+    ensure_untracked_opencode_config_is_excluded(run_cwd, &config_path);
+    Ok(backup)
+}
+
+fn resolve_final_opencode_status(
+    current_status: Option<&str>,
+    bridge_error: Option<&str>,
+    exit_code: Option<i32>,
+) -> (&'static str, i32, String) {
+    let normalized_exit_code =
+        exit_code.unwrap_or_else(|| if bridge_error.is_some() { 1 } else { 0 });
+
+    if current_status == Some("stopping") {
+        return (
+            "exited",
+            normalized_exit_code,
+            format!("OpenCode 会话已停止，退出码: {normalized_exit_code}"),
+        );
+    }
+
+    if let Some(error) = bridge_error {
+        return (
+            "failed",
+            if normalized_exit_code == 0 {
+                1
+            } else {
+                normalized_exit_code
+            },
+            format!("OpenCode 会话失败: {error}"),
+        );
+    }
+
+    if normalized_exit_code == 0 {
+        (
+            "exited",
+            normalized_exit_code,
+            "OpenCode 会话已完成，退出码: 0".to_string(),
+        )
+    } else {
+        (
+            "failed",
+            normalized_exit_code,
+            format!("OpenCode 会话失败，退出码: {normalized_exit_code}"),
+        )
+    }
+}
+
+async fn stream_opencode_output(
+    app: AppHandle,
+    manager_state: Arc<Mutex<OpenCodeManager>>,
     pool: SqlitePool,
     session_record_id: String,
     employee_id: String,
@@ -352,22 +630,230 @@ async fn stream_opencode_output<R: Runtime>(
     session_kind: OpenCodeSessionKind,
     child: Arc<Mutex<OpenCodeChild>>,
     file_change_store: Option<SdkFileChangeStore>,
+    execution_change_baseline: Option<ExecutionChangeBaseline>,
+    runtime_config_backup: Option<OpenCodeRuntimeConfigBackup>,
 ) {
     let stdout = child.lock().await.stdout();
+    let mut bridge_error: Option<String> = None;
+    let mut bridge_done = false;
 
-    let Some(stdout) = stdout else {
-        return;
+    if let Some(stdout) = stdout {
+        let mut reader = tokio::io::BufReader::new(stdout);
+        let mut line = String::new();
+        let mut idle_timeout = tokio::time::Instant::now();
+
+        loop {
+            line.clear();
+
+            if idle_timeout.elapsed() > tokio::time::Duration::from_secs(180) {
+                let message = "OpenCode 输出空闲超时，自动结束会话。".to_string();
+                bridge_error = Some(message.clone());
+                emit_session_terminal_line(
+                    &app,
+                    &pool,
+                    &session_record_id,
+                    &employee_id,
+                    task_id.as_deref(),
+                    session_kind,
+                    format!("[ERROR] {message}"),
+                )
+                .await;
+                break;
+            }
+
+            let read_fut = reader.read_line(&mut line);
+            let timed_out =
+                tokio::time::timeout(tokio::time::Duration::from_secs(30), read_fut).await;
+
+            match timed_out {
+                Ok(Ok(0)) => break,
+                Ok(Err(error)) => {
+                    let message = format!("OpenCode 输出流读取失败: {error}");
+                    bridge_error = Some(message.clone());
+                    emit_session_terminal_line(
+                        &app,
+                        &pool,
+                        &session_record_id,
+                        &employee_id,
+                        task_id.as_deref(),
+                        session_kind,
+                        format!("[ERROR] {message}"),
+                    )
+                    .await;
+                    break;
+                }
+                Err(_) => {
+                    continue;
+                }
+                Ok(Ok(_)) => {
+                    let trimmed = line.trim_end().to_string();
+                    if trimmed.is_empty() {
+                        continue;
+                    }
+                    idle_timeout = tokio::time::Instant::now();
+
+                    if let Some(event) = parse_opencode_sdk_file_change_event(&trimmed) {
+                        if let Some(ref store) = file_change_store {
+                            upsert_sdk_file_change_event(store, event);
+                        }
+                        continue;
+                    }
+
+                    if let Some(event) = parse_opencode_bridge_event(&trimmed) {
+                        match event.event_type.as_str() {
+                            "info" => {
+                                if let Some(message) = bridge_event_message(&event) {
+                                    emit_session_terminal_line(
+                                        &app,
+                                        &pool,
+                                        &session_record_id,
+                                        &employee_id,
+                                        task_id.as_deref(),
+                                        session_kind,
+                                        format!("[OpenCode] {message}"),
+                                    )
+                                    .await;
+                                }
+                            }
+                            "stdout" => {
+                                if let Some(output_line) = bridge_event_line(&event) {
+                                    emit_session_terminal_line(
+                                        &app,
+                                        &pool,
+                                        &session_record_id,
+                                        &employee_id,
+                                        task_id.as_deref(),
+                                        session_kind,
+                                        output_line,
+                                    )
+                                    .await;
+                                }
+                            }
+                            "session" => {
+                                if let Some(session_id) = bridge_event_session_id(&event) {
+                                    let _ = update_codex_session_record(
+                                        &app,
+                                        &session_record_id,
+                                        None,
+                                        Some(Some(session_id.as_str())),
+                                        None,
+                                        None,
+                                    )
+                                    .await;
+                                    let _ = app.emit(
+                                        "opencode-session",
+                                        crate::db::models::OpenCodeSession {
+                                            employee_id: employee_id.clone(),
+                                            task_id: task_id.clone(),
+                                            session_kind: session_kind.as_str().to_string(),
+                                            session_record_id: session_record_id.clone(),
+                                            session_id: session_id.clone(),
+                                        },
+                                    );
+                                    emit_session_terminal_line(
+                                        &app,
+                                        &pool,
+                                        &session_record_id,
+                                        &employee_id,
+                                        task_id.as_deref(),
+                                        session_kind,
+                                        format!("[OpenCode] 会话 ID: {session_id}"),
+                                    )
+                                    .await;
+                                }
+                            }
+                            "error" => {
+                                let message = bridge_event_message(&event)
+                                    .unwrap_or_else(|| "OpenCode SDK 返回未知错误".to_string());
+                                bridge_error = Some(message.clone());
+                                emit_session_terminal_line(
+                                    &app,
+                                    &pool,
+                                    &session_record_id,
+                                    &employee_id,
+                                    task_id.as_deref(),
+                                    session_kind,
+                                    format!("[ERROR] {message}"),
+                                )
+                                .await;
+                            }
+                            "done" => {
+                                bridge_done = true;
+                            }
+                            _ => {
+                                emit_session_terminal_line(
+                                    &app,
+                                    &pool,
+                                    &session_record_id,
+                                    &employee_id,
+                                    task_id.as_deref(),
+                                    session_kind,
+                                    trimmed,
+                                )
+                                .await;
+                            }
+                        }
+                        continue;
+                    }
+
+                    if let Some(session_id) = extract_session_id_from_opencode_output(&trimmed) {
+                        let _ = update_codex_session_record(
+                            &app,
+                            &session_record_id,
+                            None,
+                            Some(Some(session_id.as_str())),
+                            None,
+                            None,
+                        )
+                        .await;
+                        let _ = app.emit(
+                            "opencode-session",
+                            crate::db::models::OpenCodeSession {
+                                employee_id: employee_id.clone(),
+                                task_id: task_id.clone(),
+                                session_kind: session_kind.as_str().to_string(),
+                                session_record_id: session_record_id.clone(),
+                                session_id,
+                            },
+                        );
+                    }
+
+                    emit_session_terminal_line(
+                        &app,
+                        &pool,
+                        &session_record_id,
+                        &employee_id,
+                        task_id.as_deref(),
+                        session_kind,
+                        trimmed,
+                    )
+                    .await;
+                }
+            }
+        }
+    } else {
+        bridge_error = Some("无法获取 OpenCode bridge stdout".to_string());
+    }
+
+    if !bridge_done && bridge_error.is_none() {
+        bridge_error = Some("OpenCode bridge 未发送完成事件即退出".to_string());
+    }
+
+    let exit_status = {
+        let mut child = child.lock().await;
+        wait_for_exit(&mut child).await
     };
+    let raw_exit_code = exit_status.and_then(|status| status.code());
 
-    let mut reader = tokio::io::BufReader::new(stdout);
-    let mut line = String::new();
-    let mut idle_timeout = tokio::time::Instant::now();
-
-    loop {
-        line.clear();
-
-        // If no output for 120s, assume bridge is done
-        if idle_timeout.elapsed() > tokio::time::Duration::from_secs(120) {
+    if let Some(backup) = runtime_config_backup {
+        if let Err(error) = backup.restore() {
+            let _ = insert_codex_session_event(
+                &pool,
+                &session_record_id,
+                "opencode_runtime_config_restore_failed",
+                Some(&error),
+            )
+            .await;
             emit_session_terminal_line(
                 &app,
                 &pool,
@@ -375,85 +861,83 @@ async fn stream_opencode_output<R: Runtime>(
                 &employee_id,
                 task_id.as_deref(),
                 session_kind,
-                "[INFO] OpenCode 输出空闲超时，自动结束会话。".to_string(),
+                format!("[WARN] {error}"),
             )
             .await;
-            break;
-        }
-
-        let read_fut = reader.read_line(&mut line);
-        let timed_out = tokio::time::timeout(tokio::time::Duration::from_secs(30), read_fut).await;
-
-        match timed_out {
-            Ok(Ok(0)) => break,
-            Ok(Err(error)) => {
-                emit_session_terminal_line(
-                    &app,
-                    &pool,
-                    &session_record_id,
-                    &employee_id,
-                    task_id.as_deref(),
-                    session_kind,
-                    format!("[ERROR] OpenCode 输出流读取失败: {error}"),
-                )
-                .await;
-                break;
-            }
-            Err(_) => {
-                // 30s timeout with no output → continue loop, idle_timeout will catch 120s total
-                continue;
-            }
-            Ok(Ok(_)) => {
-                let trimmed = line.trim_end().to_string();
-                if trimmed.is_empty() {
-                    continue;
-                }
-
-                if let Some(event) = parse_opencode_sdk_file_change_event(&trimmed) {
-                    if let Some(ref store) = file_change_store {
-                        upsert_sdk_file_change_event(store, event);
-                    }
-                    continue;
-                }
-
-                if let Some(session_id) = extract_session_id_from_opencode_output(&trimmed) {
-                    let _ = app.emit(
-                        "opencode-session",
-                        crate::db::models::OpenCodeSession {
-                            employee_id: employee_id.clone(),
-                            task_id: task_id.clone(),
-                            session_kind: session_kind.as_str().to_string(),
-                            session_record_id: session_record_id.clone(),
-                            session_id,
-                        },
-                    );
-                }
-
-                emit_session_terminal_line(
-                    &app,
-                    &pool,
-                    &session_record_id,
-                    &employee_id,
-                    task_id.as_deref(),
-                    session_kind,
-                    trimmed,
-                )
-                .await;
-            }
         }
     }
 
-    // OpenCode bridge exited — finalize session as completed
+    {
+        let mut manager = manager_state.lock().await;
+        if let Some(process) = manager.remove_process(&session_record_id) {
+            cleanup_process_artifacts(&process.cleanup_paths);
+        }
+    }
+
+    crate::codex::persist_external_execution_change_history(
+        &app,
+        &session_record_id,
+        opencode_session_kind_to_codex(session_kind),
+        CodexExecutionProvider::Sdk,
+        execution_change_baseline.as_ref(),
+        file_change_store.as_ref(),
+    )
+    .await;
+
+    let current_status = fetch_codex_session_by_id(&app, &session_record_id)
+        .await
+        .ok()
+        .map(|record| record.status);
+    let (final_status, exit_code, message) = resolve_final_opencode_status(
+        current_status.as_deref(),
+        bridge_error.as_deref(),
+        raw_exit_code,
+    );
     let ended_at = now_sqlite();
     let _ = update_codex_session_record(
         &app,
         &session_record_id,
-        Some("completed"),
+        Some(final_status),
         None,
-        None,
+        Some(Some(exit_code)),
         Some(Some(ended_at.as_str())),
     )
     .await;
+
+    let session_event_id = insert_codex_session_event_with_id(
+        &pool,
+        &session_record_id,
+        if final_status == "exited" {
+            "session_exited"
+        } else {
+            "session_failed"
+        },
+        Some(&message),
+    )
+    .await
+    .ok();
+
+    if task_id.is_some() {
+        if let Ok(Some(task_git_context_id)) = sqlx::query_scalar::<_, Option<String>>(
+            "SELECT task_git_context_id FROM codex_sessions WHERE id = $1",
+        )
+        .bind(&session_record_id)
+        .fetch_one(&pool)
+        .await
+        {
+            let success = final_status == "exited" && exit_code == 0;
+            let failure_message = (!success).then(|| message.clone());
+            let _ = mark_task_git_context_session_finished(
+                &pool,
+                &task_git_context_id,
+                success,
+                failure_message.as_deref(),
+            )
+            .await;
+        }
+    }
+
+    task_automation::handle_session_exit_blocking(app.clone(), session_record_id.clone()).await;
 
     let _ = app.emit(
         "opencode-exit",
@@ -462,31 +946,93 @@ async fn stream_opencode_output<R: Runtime>(
             task_id: task_id.clone(),
             session_kind: session_kind.as_str().to_string(),
             session_record_id: session_record_id.clone(),
-            session_event_id: None,
-            status: "completed".to_string(),
-            line: None,
-            code: Some(0),
+            session_event_id,
+            status: final_status.to_string(),
+            line: Some(if final_status == "exited" {
+                format!("[EXIT] {message}")
+            } else {
+                format!("[ERROR] {message}")
+            }),
+            code: Some(exit_code),
         },
     );
+}
 
-    if let Some(ref task_id) = task_id {
-        if let Ok(Some(task_git_context_id)) =
-            sqlx::query_scalar::<_, Option<String>>(
-                "SELECT task_git_context_id FROM codex_sessions WHERE id = $1",
-            )
-            .bind(&session_record_id)
-            .fetch_one(&pool)
-            .await
-        {
-            let _ = mark_task_git_context_session_finished(
-                &pool,
-                &task_git_context_id,
-                true,
-                None,
-            )
-            .await;
+async fn wait_until_opencode_process_stops(
+    manager_state: &Arc<Mutex<OpenCodeManager>>,
+    session_record_id: &str,
+) -> bool {
+    for _ in 0..STOP_WAIT_MAX_ATTEMPTS {
+        let is_running = {
+            let manager = manager_state.lock().await;
+            manager.get_process(session_record_id).is_some()
+        };
+        if !is_running {
+            return true;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(STOP_WAIT_POLL_MS)).await;
+    }
+
+    false
+}
+
+async fn stop_opencode_process_with_manager<R: Runtime>(
+    app: &AppHandle<R>,
+    manager_state: &Arc<Mutex<OpenCodeManager>>,
+    session_record_id: &str,
+    event_type: &str,
+    message: &str,
+) -> Result<bool, String> {
+    let process = {
+        let manager = manager_state.lock().await;
+        manager.get_process(session_record_id)
+    };
+
+    let Some(process) = process else {
+        return Ok(false);
+    };
+
+    let pool = sqlite_pool(app).await.map_err(|error| error.to_string())?;
+    update_codex_session_record(app, session_record_id, Some("stopping"), None, None, None).await?;
+    insert_codex_session_event(&pool, session_record_id, event_type, Some(message)).await?;
+    emit_session_terminal_line(
+        app,
+        &pool,
+        session_record_id,
+        &process.employee_id,
+        process.task_id.as_deref(),
+        process.session_kind,
+        format!("[OpenCode] {message}"),
+    )
+    .await;
+
+    let mut child = process.child.lock().await;
+    if let Err(error) = child.kill_process_group().await {
+        eprintln!("[opencode-stop] killpg failed, fallback to child.kill(): {error}");
+    }
+    child.kill().await?;
+    drop(child);
+    if !wait_until_opencode_process_stops(manager_state, session_record_id).await {
+        let has_exited = {
+            let mut child = process.child.lock().await;
+            child.try_wait()?.is_some()
+        };
+        if has_exited {
+            let removed_process = {
+                let mut manager = manager_state.lock().await;
+                manager.remove_process(session_record_id)
+            };
+            if let Some(process) = removed_process {
+                cleanup_process_artifacts(&process.cleanup_paths);
+            }
+        } else {
+            return Err(format!(
+                "OpenCode 会话 {session_record_id} 停止超时，进程仍在清理中"
+            ));
         }
     }
+
+    Ok(true)
 }
 
 #[tauri::command]
@@ -534,11 +1080,20 @@ pub async fn start_opencode_with_manager(
     {
         let manager = manager_state.lock().await;
         if manager.has_employee_processes(&employee_id) {
-            return Err(format!("员工{}已有未绑定任务的 OpenCode 会话在运行", employee_id));
+            return Err(format!(
+                "员工{}已有未绑定任务的 OpenCode 会话在运行",
+                employee_id
+            ));
         }
         if let Some(ref task_id) = task_id {
-            if manager.get_task_process_any(task_id, session_kind).is_some() {
-                return Err(format!("任务{}的 execution 会话已在 OpenCode 中运行", task_id));
+            if manager
+                .get_task_process_any(task_id, session_kind)
+                .is_some()
+            {
+                return Err(format!(
+                    "任务{}的 execution 会话已在 OpenCode 中运行",
+                    task_id
+                ));
             }
         }
     }
@@ -708,14 +1263,13 @@ pub async fn start_opencode_with_manager(
     }
 
     // Query reasoning_effort from employee settings
-    let reasoning_effort = sqlx::query_scalar::<_, String>(
-        "SELECT reasoning_effort FROM employees WHERE id = $1",
-    )
-    .bind(&employee_id)
-    .fetch_optional(&pool)
-    .await
-    .ok()
-    .flatten();
+    let reasoning_effort =
+        sqlx::query_scalar::<_, String>("SELECT reasoning_effort FROM employees WHERE id = $1")
+            .bind(&employee_id)
+            .fetch_optional(&pool)
+            .await
+            .ok()
+            .flatten();
 
     // Emit prompt log (same style as Codex)
     let reasoning_label = reasoning_effort
@@ -743,35 +1297,54 @@ pub async fn start_opencode_with_manager(
     )
     .await;
 
-    // Write reasoning_effort to opencode.json if it's not default
-    let effort_to_write = reasoning_effort
-        .as_deref()
-        .and_then(|v| {
-            if v != "default" && !v.trim().is_empty() {
-                Some(v.to_string())
-            } else {
-                None
-            }
-        });
+    let execution_change_baseline = capture_execution_change_baseline(
+        &app,
+        &pool,
+        &session_record.id,
+        &employee_id,
+        task_id.as_deref(),
+        session_kind,
+        &execution_context.execution_target,
+        &run_cwd,
+        None,
+    )
+    .await;
 
-    if let Some(ref effort) = effort_to_write {
-        let config_path = std::path::Path::new(&run_cwd).join("opencode.json");
-        let existing_config: serde_json::Value = match std::fs::read_to_string(&config_path) {
-            Ok(content) => serde_json::from_str(&content).unwrap_or(serde_json::json!({})),
-            Err(_) => serde_json::json!({}),
-        };
-
-        let provider_id = model.split_once('/').map(|(p, _)| p).unwrap_or("opencode-go");
-        let model_id = model.split_once('/').map(|(_, m)| m).unwrap_or(&model);
-
-        let mut config = existing_config;
-        config["provider"][provider_id]["models"][model_id]["options"]["reasoning_effort"] =
-            serde_json::Value::String(effort.clone());
-
-        if let Ok(json_str) = serde_json::to_string_pretty(&config) {
-            let _ = std::fs::write(&config_path, json_str);
+    // Keep provider-side long-running requests alive; OpenCode defaults to 5 minutes.
+    let effort_to_write = reasoning_effort.as_deref().and_then(|v| {
+        if v != "default" && !v.trim().is_empty() {
+            Some(v.to_string())
+        } else {
+            None
         }
-    }
+    });
+
+    let provider_id = model
+        .split_once('/')
+        .map(|(p, _)| p)
+        .unwrap_or("opencode-go");
+    let model_id = model.split_once('/').map(|(_, m)| m).unwrap_or(&model);
+    let runtime_config_backup = match write_opencode_runtime_config_file(
+        &run_cwd,
+        provider_id,
+        model_id,
+        effort_to_write.as_deref(),
+    ) {
+        Ok(backup) => backup,
+        Err(error) => {
+            finalize_launch_failure(
+                &app,
+                &pool,
+                &session_record.id,
+                task_git_context_id.as_deref(),
+                git_context_marked_running,
+                "opencode_runtime_config_failed",
+                &error,
+            )
+            .await;
+            return Err(error);
+        }
+    };
 
     emit_session_terminal_line(
         &app,
@@ -801,7 +1374,43 @@ pub async fn start_opencode_with_manager(
         install_dir: install_dir.clone(),
     };
 
-    let child = launch_opencode_bridge(&bridge_config, &bridge_path).await?;
+    let child = match launch_opencode_bridge(&bridge_config, &bridge_path).await {
+        Ok(child) => child,
+        Err(error) => {
+            let _ = runtime_config_backup.restore();
+            finalize_launch_failure(
+                &app,
+                &pool,
+                &session_record.id,
+                task_git_context_id.as_deref(),
+                git_context_marked_running,
+                "sdk_bridge_launch_failed",
+                &error,
+            )
+            .await;
+            return Err(error);
+        }
+    };
+    if let Err(error) =
+        update_codex_session_record(&app, &session_record.id, Some("running"), None, None, None)
+            .await
+    {
+        let mut child = child;
+        let _ = child.kill_process_group().await;
+        let _ = child.kill().await;
+        let _ = runtime_config_backup.restore();
+        finalize_launch_failure(
+            &app,
+            &pool,
+            &session_record.id,
+            task_git_context_id.as_deref(),
+            git_context_marked_running,
+            "session_status_update_failed",
+            &error,
+        )
+        .await;
+        return Err(error);
+    }
     let child = Arc::new(Mutex::new(child));
     let file_change_store: Option<SdkFileChangeStore> =
         Some(Arc::new(std::sync::Mutex::new(HashMap::new())));
@@ -841,16 +1450,20 @@ pub async fn start_opencode_with_manager(
 
     let pool_clone = pool.clone();
     let app_clone = app.clone();
+    let manager_state_clone = manager_state.clone();
     let session_record_id_clone = session_record.id.clone();
     let employee_id_clone = employee_id.clone();
     let task_id_clone = task_id.clone();
     let session_kind_clone = session_kind;
     let child_clone = child.clone();
     let file_change_store_clone = file_change_store.clone();
+    let execution_change_baseline_clone = execution_change_baseline.clone();
+    let runtime_config_backup_clone = Some(runtime_config_backup.clone());
 
     tauri::async_runtime::spawn(async move {
         stream_opencode_output(
             app_clone.clone(),
+            manager_state_clone,
             pool_clone,
             session_record_id_clone,
             employee_id_clone,
@@ -858,6 +1471,8 @@ pub async fn start_opencode_with_manager(
             session_kind_clone,
             child_clone,
             file_change_store_clone,
+            execution_change_baseline_clone,
+            runtime_config_backup_clone,
         )
         .await;
     });
@@ -871,81 +1486,19 @@ pub async fn stop_opencode_session(
     state: State<'_, Arc<Mutex<OpenCodeManager>>>,
     session_record_id: String,
 ) -> Result<(), String> {
-    let mut manager = state.lock().await;
-
-    let target = manager
-        .get_process(&session_record_id)
-        .ok_or_else(|| format!("未找到 session {} 的运行中 OpenCode 会话", session_record_id))?;
-
-    let employee_id = target.employee_id.clone();
-    let kind = target.session_kind;
-    let mut child = target.child.lock().await;
-    child.kill_process_group().await?;
-
-    let exit_status = wait_for_exit(&mut child).await;
-    let status = if exit_status.map(|s| s.success()).unwrap_or(false) {
-        "completed"
-    } else {
-        "terminated"
-    };
-
-    let pool = sqlite_pool(&app).await.map_err(|e| e.to_string())?;
-    let ended_at = now_sqlite();
-    let _ = update_codex_session_record(
+    if stop_opencode_process_with_manager(
         &app,
-        &target.session_record_id,
-        Some(status),
-        None,
-        None,
-        Some(Some(ended_at.as_str())),
+        state.inner(),
+        &session_record_id,
+        "stopping_requested",
+        "收到停止请求",
     )
-    .await;
-
-    let exit_code = exit_status.and_then(|s| s.code());
-    let _ = app.emit(
-        "opencode-exit",
-        crate::db::models::OpenCodeExit {
-            employee_id: employee_id.clone(),
-            task_id: target.task_id.clone(),
-            session_kind: kind.as_str().to_string(),
-            session_record_id: target.session_record_id.clone(),
-            session_event_id: None,
-            status: status.to_string(),
-            line: None,
-            code: exit_code,
-        },
-    );
-
-    if target.task_id.is_some() {
-        if let Ok(Some(task_git_context_id)) =
-            sqlx::query_scalar::<_, Option<String>>(
-                "SELECT task_git_context_id FROM codex_sessions WHERE id = $1",
-            )
-            .bind(&target.session_record_id)
-            .fetch_one(&pool)
-            .await
-        {
-            let _ = mark_task_git_context_session_finished(
-                &pool,
-                &task_git_context_id,
-                status == "completed",
-                None,
-            )
-            .await;
-        }
-
-        let _ = insert_codex_session_event(
-            &pool,
-            &target.session_record_id,
-            "session_stopped",
-            Some(&format!("OpenCode 会话已停止（状态: {status}）")),
-        )
-        .await;
+    .await?
+    {
+        Ok(())
+    } else {
+        Err(format!("未找到 OpenCode 会话 {session_record_id}"))
     }
-
-    drop(manager);
-
-    Ok(())
 }
 
 #[tauri::command]
@@ -955,79 +1508,29 @@ pub async fn stop_opencode(
     employee_id: String,
 ) -> Result<(), String> {
     let kind = OpenCodeSessionKind::Execution;
-    let mut manager = state.lock().await;
-
-    let processes = manager.get_employee_processes(&employee_id);
-    let target = processes
-        .into_iter()
-        .find(|p| p.session_kind == kind)
-        .ok_or_else(|| format!("未找到员工 {} 的运行中 OpenCode 会话", employee_id))?;
-
-    let mut child = target.child.lock().await;
-    child.kill_process_group().await?;
-
-    let exit_status = wait_for_exit(&mut child).await;
-    let status = if exit_status.map(|s| s.success()).unwrap_or(false) {
-        "completed"
-    } else {
-        "terminated"
+    let processes = {
+        let manager = state.lock().await;
+        manager.get_employee_processes(&employee_id)
     };
+    let targets = processes
+        .into_iter()
+        .filter(|process| process.session_kind == kind)
+        .collect::<Vec<_>>();
 
-    let pool = sqlite_pool(&app).await.map_err(|e| e.to_string())?;
-    let ended_at = now_sqlite();
-    let _ = update_codex_session_record(
-        &app,
-        &target.session_record_id,
-        Some(status),
-        None,
-        None,
-        Some(Some(ended_at.as_str())),
-    )
-    .await;
-
-    let exit_code = exit_status.and_then(|s| s.code());
-    let _ = app.emit(
-        "opencode-exit",
-        crate::db::models::OpenCodeExit {
-            employee_id: employee_id.clone(),
-            task_id: target.task_id.clone(),
-            session_kind: kind.as_str().to_string(),
-            session_record_id: target.session_record_id.clone(),
-            session_event_id: None,
-            status: status.to_string(),
-            line: None,
-            code: exit_code,
-        },
-    );
-
-    if target.task_id.is_some() {
-        if let Ok(Some(task_git_context_id)) =
-            sqlx::query_scalar::<_, Option<String>>(
-                "SELECT task_git_context_id FROM codex_sessions WHERE id = $1",
-            )
-            .bind(&target.session_record_id)
-            .fetch_one(&pool)
-            .await
-        {
-            let _ = mark_task_git_context_session_finished(
-                &pool,
-                &task_git_context_id,
-                status == "completed",
-                None,
-            )
-            .await;
-        }
-
-        let _ = insert_codex_session_event(
-            &pool,
-            &target.session_record_id,
-            "session_stopped",
-            Some(&format!("OpenCode 会话已停止（状态: {status}）")),
-        )
-        .await;
+    if targets.is_empty() {
+        return Err(format!("未找到员工 {} 的运行中 OpenCode 会话", employee_id));
     }
 
-    drop(manager);
+    for process in targets {
+        stop_opencode_process_with_manager(
+            &app,
+            state.inner(),
+            &process.session_record_id,
+            "stopping_requested",
+            "收到停止请求",
+        )
+        .await?;
+    }
 
     Ok(())
 }
@@ -1086,7 +1589,10 @@ pub async fn get_opencode_models<R: Runtime>(
         .join("sdk")
         .join("package.json");
     if !sdk_pkg.exists() {
-        return Err("OpenCode SDK 尚未安装。请先在设置页点击「安装 SDK」按钮，安装完成后即可获取模型列表。".to_string());
+        return Err(
+            "OpenCode SDK 尚未安装。请先在设置页点击「安装 SDK」按钮，安装完成后即可获取模型列表。"
+                .to_string(),
+        );
     }
 
     let mut command = crate::codex::new_node_command(None).await?;
@@ -1141,7 +1647,11 @@ pub async fn get_opencode_models<R: Runtime>(
 
     // Read stdout and stderr with 30s timeout
     let _ = timeout(Duration::from_secs(30), stdout.read_to_string(&mut output)).await;
-    let _ = timeout(Duration::from_secs(5), stderr.read_to_string(&mut err_output)).await;
+    let _ = timeout(
+        Duration::from_secs(5),
+        stderr.read_to_string(&mut err_output),
+    )
+    .await;
 
     let _ = child.wait().await;
 
@@ -1177,4 +1687,137 @@ async fn wait_for_exit(child: &mut OpenCodeChild) -> Option<std::process::ExitSt
     }
     let _ = child.kill().await;
     child.try_wait().ok().flatten()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_bridge_session_event_reads_nested_session_id() {
+        let event = parse_opencode_bridge_event(
+            r#"{"type":"session","data":{"session_id":"ses_123"},"timestamp":1}"#,
+        )
+        .expect("bridge event should parse");
+
+        assert_eq!(event.event_type, "session");
+        assert_eq!(bridge_event_session_id(&event).as_deref(), Some("ses_123"));
+    }
+
+    #[test]
+    fn final_status_marks_bridge_error_as_failed_even_with_zero_exit() {
+        let (status, exit_code, message) =
+            resolve_final_opencode_status(Some("running"), Some("Prompt timeout"), Some(0));
+
+        assert_eq!(status, "failed");
+        assert_eq!(exit_code, 1);
+        assert!(message.contains("Prompt timeout"));
+    }
+
+    #[test]
+    fn final_status_uses_exited_for_successful_bridge_completion() {
+        let (status, exit_code, message) =
+            resolve_final_opencode_status(Some("running"), None, Some(0));
+
+        assert_eq!(status, "exited");
+        assert_eq!(exit_code, 0);
+        assert!(message.contains("已完成"));
+    }
+
+    #[test]
+    fn final_status_preserves_user_stopping_as_exited() {
+        let (status, exit_code, message) =
+            resolve_final_opencode_status(Some("stopping"), Some("missing done"), Some(143));
+
+        assert_eq!(status, "exited");
+        assert_eq!(exit_code, 143);
+        assert!(message.contains("已停止"));
+    }
+
+    #[test]
+    fn opencode_runtime_config_disables_provider_timeout_and_keeps_effort() {
+        let mut config = serde_json::json!({
+            "$schema": "https://opencode.ai/config.json",
+            "provider": {
+                "opencode-go": {
+                    "models": {
+                        "deepseek-v4-flash": {
+                            "options": {
+                                "reasoning_effort": "low"
+                            }
+                        }
+                    }
+                }
+            }
+        });
+
+        apply_opencode_runtime_config(&mut config, "opencode-go", "deepseek-v4-flash", Some("max"));
+
+        assert_eq!(
+            config["provider"]["opencode-go"]["options"]["timeout"],
+            serde_json::Value::Bool(false)
+        );
+        assert_eq!(
+            config["provider"]["opencode-go"]["options"]["chunkTimeout"],
+            serde_json::Value::Number(OPENCODE_PROVIDER_CHUNK_TIMEOUT_MS.into())
+        );
+        assert_eq!(
+            config["provider"]["opencode-go"]["models"]["deepseek-v4-flash"]["options"]["timeout"],
+            serde_json::Value::Bool(false)
+        );
+        assert_eq!(
+            config["provider"]["opencode-go"]["models"]["deepseek-v4-flash"]["options"]
+                ["chunkTimeout"],
+            serde_json::Value::Number(OPENCODE_PROVIDER_CHUNK_TIMEOUT_MS.into())
+        );
+        assert_eq!(
+            config["provider"]["opencode-go"]["models"]["deepseek-v4-flash"]["options"]
+                ["reasoning_effort"],
+            serde_json::Value::String("max".to_string())
+        );
+    }
+
+    #[test]
+    fn opencode_runtime_config_file_rejects_invalid_json_without_overwriting() {
+        let dir =
+            std::env::temp_dir().join(format!("codex-ai-opencode-config-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&dir).expect("create temp dir");
+        let config_path = dir.join("opencode.json");
+        fs::write(&config_path, "{not json").expect("write invalid config");
+
+        let error = write_opencode_runtime_config_file(
+            dir.to_str().expect("utf8 temp dir"),
+            "opencode-go",
+            "deepseek-v4-flash",
+            Some("max"),
+        )
+        .expect_err("invalid json should be rejected");
+
+        assert!(error.contains("解析失败"));
+        assert_eq!(fs::read_to_string(&config_path).unwrap(), "{not json");
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn opencode_runtime_config_backup_restores_missing_file() {
+        let dir =
+            std::env::temp_dir().join(format!("codex-ai-opencode-config-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&dir).expect("create temp dir");
+        let config_path = dir.join("opencode.json");
+
+        let backup = write_opencode_runtime_config_file(
+            dir.to_str().expect("utf8 temp dir"),
+            "opencode-go",
+            "deepseek-v4-flash",
+            Some("max"),
+        )
+        .expect("runtime config should write");
+        assert!(config_path.exists());
+
+        backup
+            .restore()
+            .expect("restore should remove generated file");
+        assert!(!config_path.exists());
+        let _ = fs::remove_dir_all(dir);
+    }
 }

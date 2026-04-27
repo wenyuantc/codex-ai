@@ -5,7 +5,6 @@ use tokio::io::AsyncWriteExt;
 
 use crate::codex::new_node_command;
 
-use super::super::settings::sdk_bridge_script_path;
 use super::lifecycle::OpenCodeChild;
 
 pub struct OpenCodeBridgeConfig {
