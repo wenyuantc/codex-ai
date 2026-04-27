@@ -103,7 +103,9 @@ export function EditEmployeeDialog({ open, onOpenChange, employee }: EditEmploye
     setModel(
       provider === "claude"
         ? normalizeClaudeModel(employee.model)
-        : normalizeCodexModel(employee.model),
+        : provider === "opencode"
+          ? employee.model
+          : normalizeCodexModel(employee.model),
     );
     setReasoningEffort(normalizeReasoningEffortForProvider(provider, employee.reasoning_effort));
     setSpecialization(employee.specialization ?? "");
