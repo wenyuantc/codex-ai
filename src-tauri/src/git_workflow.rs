@@ -1852,7 +1852,7 @@ async fn update_context_after_prepare<R: Runtime>(
     let head_commit =
         current_head_commit(app, &runtime, &runtime.repo_path, &target_branch).await?;
 
-    if let Some(mut existing) = fetch_task_git_context_by_task_id(pool, &task.id).await? {
+    if let Some(existing) = fetch_task_git_context_by_task_id(pool, &task.id).await? {
         if existing.target_branch != target_branch {
             return Err(format!(
                 "当前任务已绑定目标分支 {}，不能切换到 {}",
@@ -1860,6 +1860,18 @@ async fn update_context_after_prepare<R: Runtime>(
             ));
         }
         if context_is_healthy(app, &runtime, &existing).await {
+            if matches!(
+                existing.state.as_str(),
+                TASK_GIT_STATE_FAILED | TASK_GIT_STATE_DRIFTED
+            ) {
+                return mark_task_git_context_reconciled_after_prepare(
+                    pool,
+                    existing,
+                    head_commit,
+                    "任务 Git 上下文已恢复可用",
+                )
+                .await;
+            }
             return Ok(existing);
         }
 
@@ -1878,25 +1890,13 @@ async fn update_context_after_prepare<R: Runtime>(
             &existing.target_branch,
         )
         .await?;
-        existing.base_branch = existing.target_branch.clone();
-        existing.repo_head_commit_at_prepare = Some(head_commit);
-        existing.last_reconciled_at = Some(now_sqlite());
-        existing.last_error = None;
-        clear_pending_action_fields(&mut existing);
-        existing.state = TASK_GIT_STATE_READY.to_string();
-        existing.context_version += 1;
-        existing.updated_at = now_sqlite();
-        let saved = save_task_git_context(pool, &existing).await?;
-        insert_activity_log(
+        return mark_task_git_context_reconciled_after_prepare(
             pool,
-            "task_git_context_reconciled",
+            existing,
+            head_commit,
             "任务 Git 上下文已恢复可用",
-            None,
-            Some(&task.id),
-            Some(&project.id),
         )
-        .await?;
-        return Ok(saved);
+        .await;
     }
 
     ensure_task_branch_for_runtime(app, &runtime, &task_branch, &target_branch).await?;
@@ -1967,6 +1967,33 @@ async fn update_context_after_prepare<R: Runtime>(
             }
         }
     }
+}
+
+async fn mark_task_git_context_reconciled_after_prepare(
+    pool: &SqlitePool,
+    mut context: TaskGitContextRecord,
+    head_commit: String,
+    message: &str,
+) -> Result<TaskGitContextRecord, String> {
+    context.base_branch = context.target_branch.clone();
+    context.repo_head_commit_at_prepare = Some(head_commit);
+    context.last_reconciled_at = Some(now_sqlite());
+    context.last_error = None;
+    clear_pending_action_fields(&mut context);
+    context.state = TASK_GIT_STATE_READY.to_string();
+    context.context_version += 1;
+    context.updated_at = now_sqlite();
+    let saved = save_task_git_context(pool, &context).await?;
+    insert_activity_log(
+        pool,
+        "task_git_context_reconciled",
+        message,
+        None,
+        Some(&saved.task_id),
+        Some(&saved.project_id),
+    )
+    .await?;
+    Ok(saved)
 }
 
 async fn refresh_context_state<R: Runtime>(
@@ -4568,7 +4595,7 @@ mod tests {
         )?;
         let head_commit = run_git_text(&repo_path, &["rev-parse", &target_branch])?;
 
-        if let Some(mut existing) = fetch_task_git_context_by_task_id(pool, &task.id).await? {
+        if let Some(existing) = fetch_task_git_context_by_task_id(pool, &task.id).await? {
             if existing.target_branch != target_branch {
                 return Err(format!(
                     "当前任务已绑定目标分支 {}，不能切换到 {}",
@@ -4578,6 +4605,18 @@ mod tests {
             if git_ref_exists_local(&repo_path, &format!("refs/heads/{}", existing.task_branch))
                 && Path::new(&existing.worktree_path).join(".git").exists()
             {
+                if matches!(
+                    existing.state.as_str(),
+                    TASK_GIT_STATE_FAILED | TASK_GIT_STATE_DRIFTED
+                ) {
+                    return mark_task_git_context_reconciled_after_prepare(
+                        pool,
+                        existing,
+                        head_commit,
+                        "任务 Git 上下文已恢复可用",
+                    )
+                    .await;
+                }
                 return Ok(existing);
             }
 
@@ -4615,15 +4654,13 @@ mod tests {
                     ],
                 )?;
             }
-            existing.base_branch = existing.target_branch.clone();
-            existing.repo_head_commit_at_prepare = Some(head_commit);
-            existing.last_reconciled_at = Some(now_sqlite());
-            existing.last_error = None;
-            clear_pending_action_fields(&mut existing);
-            existing.state = TASK_GIT_STATE_READY.to_string();
-            existing.context_version += 1;
-            existing.updated_at = now_sqlite();
-            return save_task_git_context(pool, &existing).await;
+            return mark_task_git_context_reconciled_after_prepare(
+                pool,
+                existing,
+                head_commit,
+                "任务 Git 上下文已恢复可用",
+            )
+            .await;
         }
 
         let full_ref = format!("refs/heads/{task_branch}");
@@ -4900,6 +4937,46 @@ prunable gitdir file points to non-existent location
             let _ = fs::remove_dir_all(PathBuf::from(&repo_path));
             let _ = fs::remove_dir_all(
                 PathBuf::from(&first.worktree_path)
+                    .parent()
+                    .unwrap_or(Path::new("")),
+            );
+            pool.close().await;
+        });
+    }
+
+    #[test]
+    fn prepare_task_git_execution_recovers_failed_healthy_context() {
+        tauri::async_runtime::block_on(async {
+            let pool = setup_test_pool().await;
+            let repo_path = init_git_repo();
+            let (project, task) = insert_project_and_task(&pool, &repo_path).await;
+
+            let first = update_context_after_prepare_for_test(&pool, &task, &project, None)
+                .await
+                .expect("first prepare");
+            let mut failed = fetch_task_git_context_by_id(&pool, &first.id)
+                .await
+                .expect("fetch context");
+            failed.state = TASK_GIT_STATE_FAILED.to_string();
+            failed.last_error = Some("previous launch failed".to_string());
+            failed.context_version += 1;
+            let failed = save_task_git_context(&pool, &failed)
+                .await
+                .expect("save failed context");
+
+            let recovered = update_context_after_prepare_for_test(&pool, &task, &project, None)
+                .await
+                .expect("recover failed context");
+
+            assert_eq!(recovered.id, first.id);
+            assert_eq!(recovered.state, TASK_GIT_STATE_READY);
+            assert_eq!(recovered.last_error, None);
+            assert!(recovered.context_version > failed.context_version);
+            assert!(Path::new(&recovered.worktree_path).join(".git").exists());
+
+            let _ = fs::remove_dir_all(PathBuf::from(&repo_path));
+            let _ = fs::remove_dir_all(
+                PathBuf::from(&recovered.worktree_path)
                     .parent()
                     .unwrap_or(Path::new("")),
             );

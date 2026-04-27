@@ -1079,12 +1079,6 @@ pub async fn start_opencode_with_manager(
 
     {
         let manager = manager_state.lock().await;
-        if manager.has_employee_processes(&employee_id) {
-            return Err(format!(
-                "员工{}已有未绑定任务的 OpenCode 会话在运行",
-                employee_id
-            ));
-        }
         if let Some(ref task_id) = task_id {
             if manager
                 .get_task_process_any(task_id, session_kind)
@@ -1095,6 +1089,11 @@ pub async fn start_opencode_with_manager(
                     task_id
                 ));
             }
+        } else if manager.has_unbound_employee_process(&employee_id, session_kind) {
+            return Err(format!(
+                "员工{}已有未绑定任务的 OpenCode 会话在运行",
+                employee_id
+            ));
         }
     }
     ensure_no_cross_provider_conflict(&app, &employee_id, task_id.as_deref(), session_kind).await?;
