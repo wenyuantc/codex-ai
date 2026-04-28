@@ -31,6 +31,7 @@ const DEFAULT_TASK_AUTOMATION_MAX_FIX_ROUNDS: i32 = 3;
 const DEFAULT_TASK_AUTOMATION_FAILURE_STRATEGY: &str = "blocked";
 const DEFAULT_WORKTREE_LOCATION_MODE: &str = "repo_sibling_hidden";
 const DEFAULT_AI_COMMIT_MESSAGE_LENGTH: &str = "title_with_body";
+const DEFAULT_AI_COMMIT_PREFERRED_PROVIDER: &str = "codex";
 const DEFAULT_AI_COMMIT_MODEL_SOURCE: &str = "inherit_one_shot";
 const SUPPORTED_MODELS: &[&str] = &[
     "gpt-5.5",
@@ -89,6 +90,8 @@ struct RawGitPreferences {
     worktree_custom_root: Option<String>,
     #[serde(default)]
     ai_commit_message_length: Option<String>,
+    #[serde(default)]
+    ai_commit_preferred_provider: Option<String>,
     #[serde(default)]
     ai_commit_model_source: Option<String>,
     #[serde(default)]
@@ -262,6 +265,7 @@ fn default_git_preferences() -> GitPreferences {
         worktree_location_mode: DEFAULT_WORKTREE_LOCATION_MODE.to_string(),
         worktree_custom_root: None,
         ai_commit_message_length: DEFAULT_AI_COMMIT_MESSAGE_LENGTH.to_string(),
+        ai_commit_preferred_provider: DEFAULT_AI_COMMIT_PREFERRED_PROVIDER.to_string(),
         ai_commit_model_source: DEFAULT_AI_COMMIT_MODEL_SOURCE.to_string(),
         ai_commit_model: DEFAULT_ONE_SHOT_MODEL.to_string(),
         ai_commit_reasoning_effort: DEFAULT_ONE_SHOT_REASONING_EFFORT.to_string(),
@@ -271,7 +275,7 @@ fn default_git_preferences() -> GitPreferences {
 fn normalize_git_preferences(
     preferences: GitPreferences,
     is_remote: bool,
-    provider: &str,
+    _provider: &str,
 ) -> GitPreferences {
     let default_preferences = default_git_preferences();
     let worktree_location_mode =
@@ -285,6 +289,9 @@ fn normalize_git_preferences(
             worktree_location_mode
         };
 
+    let git_provider =
+        normalize_one_shot_provider(Some(&preferences.ai_commit_preferred_provider), is_remote);
+
     GitPreferences {
         default_task_use_worktree: preferences.default_task_use_worktree,
         worktree_location_mode,
@@ -292,12 +299,16 @@ fn normalize_git_preferences(
         ai_commit_message_length: normalize_ai_commit_message_length(Some(
             &preferences.ai_commit_message_length,
         )),
+        ai_commit_preferred_provider: git_provider.clone(),
         ai_commit_model_source: normalize_ai_commit_model_source(Some(
             &preferences.ai_commit_model_source,
         )),
-        ai_commit_model: normalize_one_shot_model(provider, Some(&preferences.ai_commit_model)),
+        ai_commit_model: normalize_one_shot_model(
+            &git_provider,
+            Some(&preferences.ai_commit_model),
+        ),
         ai_commit_reasoning_effort: normalize_one_shot_reasoning_effort(
-            provider,
+            &git_provider,
             Some(&preferences.ai_commit_reasoning_effort),
         ),
     }
@@ -306,7 +317,7 @@ fn normalize_git_preferences(
 fn normalize_raw_git_preferences(
     raw: RawGitPreferences,
     is_remote: bool,
-    provider: &str,
+    _provider: &str,
 ) -> GitPreferences {
     let default_preferences = default_git_preferences();
     let worktree_location_mode =
@@ -320,6 +331,9 @@ fn normalize_raw_git_preferences(
             worktree_location_mode
         };
 
+    let git_provider =
+        normalize_one_shot_provider(raw.ai_commit_preferred_provider.as_deref(), is_remote);
+
     GitPreferences {
         default_task_use_worktree: raw
             .default_task_use_worktree
@@ -329,22 +343,19 @@ fn normalize_raw_git_preferences(
         ai_commit_message_length: normalize_ai_commit_message_length(
             raw.ai_commit_message_length.as_deref(),
         ),
+        ai_commit_preferred_provider: git_provider.clone(),
         ai_commit_model_source: normalize_ai_commit_model_source(
             raw.ai_commit_model_source.as_deref(),
         ),
-        ai_commit_model: normalize_one_shot_model(provider, raw.ai_commit_model.as_deref()),
+        ai_commit_model: normalize_one_shot_model(&git_provider, raw.ai_commit_model.as_deref()),
         ai_commit_reasoning_effort: normalize_one_shot_reasoning_effort(
-            provider,
+            &git_provider,
             raw.ai_commit_reasoning_effort.as_deref(),
         ),
     }
 }
 
-fn validate_git_preferences(
-    preferences: &GitPreferences,
-    is_remote: bool,
-    provider: &str,
-) -> Result<(), String> {
+fn validate_git_preferences(preferences: &GitPreferences, is_remote: bool) -> Result<(), String> {
     if preferences.worktree_location_mode == "custom_root" {
         let root = preferences
             .worktree_custom_root
@@ -365,6 +376,7 @@ fn validate_git_preferences(
     }
 
     if preferences.ai_commit_model_source == "custom" {
+        let provider = &preferences.ai_commit_preferred_provider;
         let normalized_model =
             normalize_one_shot_model(provider, Some(&preferences.ai_commit_model));
         if normalized_model != preferences.ai_commit_model.trim() {
@@ -665,7 +677,6 @@ fn merge_git_preferences(
     current: &mut GitPreferences,
     updates: UpdateGitPreferences,
     is_remote: bool,
-    provider: &str,
 ) -> Result<(), String> {
     if let Some(default_task_use_worktree) = updates.default_task_use_worktree {
         current.default_task_use_worktree = default_task_use_worktree;
@@ -681,18 +692,27 @@ fn merge_git_preferences(
         current.ai_commit_message_length =
             normalize_ai_commit_message_length(Some(&ai_commit_message_length));
     }
+    if let Some(ai_commit_preferred_provider) = updates.ai_commit_preferred_provider {
+        current.ai_commit_preferred_provider =
+            normalize_one_shot_provider(Some(&ai_commit_preferred_provider), is_remote);
+    }
     if let Some(ai_commit_model_source) = updates.ai_commit_model_source {
         current.ai_commit_model_source =
             normalize_ai_commit_model_source(Some(&ai_commit_model_source));
     }
     if let Some(ai_commit_model) = updates.ai_commit_model {
-        current.ai_commit_model = normalize_one_shot_model(provider, Some(&ai_commit_model));
+        current.ai_commit_model = normalize_one_shot_model(
+            &current.ai_commit_preferred_provider,
+            Some(&ai_commit_model),
+        );
     }
     if let Some(ai_commit_reasoning_effort) = updates.ai_commit_reasoning_effort {
-        current.ai_commit_reasoning_effort =
-            normalize_one_shot_reasoning_effort(provider, Some(&ai_commit_reasoning_effort));
+        current.ai_commit_reasoning_effort = normalize_one_shot_reasoning_effort(
+            &current.ai_commit_preferred_provider,
+            Some(&ai_commit_reasoning_effort),
+        );
     }
-    validate_git_preferences(current, is_remote, provider)
+    validate_git_preferences(current, is_remote)
 }
 
 fn git_preferences_changed(previous: &GitPreferences, next: &GitPreferences) -> bool {
@@ -700,6 +720,7 @@ fn git_preferences_changed(previous: &GitPreferences, next: &GitPreferences) -> 
         || previous.worktree_location_mode != next.worktree_location_mode
         || previous.worktree_custom_root != next.worktree_custom_root
         || previous.ai_commit_message_length != next.ai_commit_message_length
+        || previous.ai_commit_preferred_provider != next.ai_commit_preferred_provider
         || previous.ai_commit_model_source != next.ai_commit_model_source
         || previous.ai_commit_model != next.ai_commit_model
         || previous.ai_commit_reasoning_effort != next.ai_commit_reasoning_effort
@@ -720,6 +741,14 @@ fn format_ai_commit_message_length_label(value: &str) -> &str {
     }
 }
 
+fn format_ai_preferred_provider_label(value: &str) -> &str {
+    match value {
+        "claude" => "Claude",
+        "opencode" => "OpenCode",
+        _ => "Codex",
+    }
+}
+
 fn format_ai_commit_model_source_label(value: &str) -> &str {
     match value {
         "custom" => "单独指定",
@@ -735,14 +764,12 @@ fn format_git_preferences_activity_details(
         .worktree_custom_root
         .as_deref()
         .unwrap_or("未设置");
-    let model_details = if preferences.ai_commit_model_source == "custom" {
-        format!(
-            "{} / 推理 {}",
-            preferences.ai_commit_model, preferences.ai_commit_reasoning_effort
-        )
-    } else {
-        "跟随一次性 AI".to_string()
-    };
+    let git_provider_label =
+        format_ai_preferred_provider_label(&preferences.ai_commit_preferred_provider);
+    let model_details = format!(
+        "{}（{} / 推理 {}）",
+        git_provider_label, preferences.ai_commit_model, preferences.ai_commit_reasoning_effort
+    );
 
     format!(
         "{}：新建任务默认 Worktree {}；目录规则 {}；自定义根目录 {}；提交信息默认 {}；Git AI {}",
@@ -755,15 +782,7 @@ fn format_git_preferences_activity_details(
         format_worktree_location_mode_label(&preferences.worktree_location_mode),
         custom_root,
         format_ai_commit_message_length_label(&preferences.ai_commit_message_length),
-        if preferences.ai_commit_model_source == "custom" {
-            format!(
-                "{}（{}）",
-                format_ai_commit_model_source_label(&preferences.ai_commit_model_source),
-                model_details
-            )
-        } else {
-            format_ai_commit_model_source_label(&preferences.ai_commit_model_source).to_string()
-        }
+        model_details
     )
 }
 
@@ -813,12 +832,7 @@ pub fn merge_codex_settings<R: Runtime>(
     }
 
     if let Some(git_preferences) = updates.git_preferences {
-        merge_git_preferences(
-            &mut settings.git_preferences,
-            git_preferences,
-            false,
-            &settings.one_shot_preferred_provider,
-        )?;
+        merge_git_preferences(&mut settings.git_preferences, git_preferences, false)?;
     }
 
     if let Some(node_path_override) = updates.node_path_override {
@@ -881,12 +895,7 @@ pub fn merge_remote_codex_settings<R: Runtime>(
             normalize_task_automation_failure_strategy(Some(&task_automation_failure_strategy));
     }
     if let Some(git_preferences) = updates.git_preferences {
-        merge_git_preferences(
-            &mut settings.git_preferences,
-            git_preferences,
-            true,
-            &settings.one_shot_preferred_provider,
-        )?;
+        merge_git_preferences(&mut settings.git_preferences, git_preferences, true)?;
     }
     if let Some(node_path_override) = updates.node_path_override {
         settings.node_path_override = normalize_optional_text(node_path_override.as_deref());
@@ -1600,12 +1609,12 @@ mod tests {
                 worktree_custom_root: Some(Some("relative/path".to_string())),
                 default_task_use_worktree: None,
                 ai_commit_message_length: None,
+                ai_commit_preferred_provider: None,
                 ai_commit_model_source: None,
                 ai_commit_model: None,
                 ai_commit_reasoning_effort: None,
             },
             false,
-            "codex",
         )
         .expect_err("invalid local custom root should fail");
 
@@ -1622,12 +1631,12 @@ mod tests {
                 worktree_custom_root: Some(Some("~/worktrees".to_string())),
                 default_task_use_worktree: Some(true),
                 ai_commit_message_length: Some("title_only".to_string()),
+                ai_commit_preferred_provider: None,
                 ai_commit_model_source: Some("custom".to_string()),
                 ai_commit_model: Some("gpt-5.4-mini".to_string()),
                 ai_commit_reasoning_effort: Some("medium".to_string()),
             },
             true,
-            "codex",
         )
         .expect("remote custom root should be valid");
 
@@ -1650,12 +1659,12 @@ mod tests {
                 worktree_custom_root: None,
                 default_task_use_worktree: None,
                 ai_commit_message_length: None,
+                ai_commit_preferred_provider: None,
                 ai_commit_model_source: Some("custom".to_string()),
                 ai_commit_model: Some("gpt-unknown".to_string()),
                 ai_commit_reasoning_effort: Some("medium".to_string()),
             },
             false,
-            "codex",
         )
         .expect("unsupported custom model should fall back to provider default");
 

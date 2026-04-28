@@ -21,6 +21,39 @@ function emitMultiline(prefix, lines) {
     }
 }
 
+function waitForServerShutdown(server, parentPid) {
+    return new Promise((resolve) => {
+        let settled = false;
+        const parentPidNumber = Number(parentPid || 0);
+        const shutdown = () => {
+            if (settled) return;
+            settled = true;
+            if (parentWatcher) {
+                clearInterval(parentWatcher);
+            }
+            try {
+                if (server) {
+                    server.close();
+                }
+            } catch (error) {
+                emit("error", { message: `关闭 OpenCode SDK server 失败: ${error.message}` });
+            }
+            resolve();
+        };
+        const parentWatcher = parentPidNumber > 0
+            ? setInterval(() => {
+                if (process.ppid !== parentPidNumber) {
+                    shutdown();
+                }
+            }, 1000)
+            : null;
+
+        process.once("SIGINT", shutdown);
+        process.once("SIGTERM", shutdown);
+        process.once("SIGHUP", shutdown);
+    });
+}
+
 function findFreePort(host) {
     return new Promise((resolve, reject) => {
         const server = net.createServer();
@@ -545,6 +578,16 @@ async function main() {
         } catch (connectError) {
             emit("info", { message: `未检测到运行中的 OpenCode server，正在启动新实例...` });
             await startManagedServer(port || 4096);
+        }
+
+        if (mode === "server") {
+            emit("server-ready", {
+                url: server?.url || baseUrl,
+                connectedExistingServer,
+            });
+            await waitForServerShutdown(server, config.parentPid);
+            emit("done", { session_id: null });
+            return;
         }
 
         try {

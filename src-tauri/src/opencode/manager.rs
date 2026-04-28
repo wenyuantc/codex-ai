@@ -17,14 +17,23 @@ pub struct ManagedOpenCodeProcess {
     pub cleanup_paths: Vec<PathBuf>,
 }
 
+#[derive(Clone)]
+pub struct ManagedOpenCodeSdkServer {
+    pub child: Arc<Mutex<OpenCodeChild>>,
+    pub host: String,
+    pub port: u16,
+}
+
 pub struct OpenCodeManager {
     processes: HashMap<String, ManagedOpenCodeProcess>,
+    sdk_server: Option<ManagedOpenCodeSdkServer>,
 }
 
 impl OpenCodeManager {
     pub fn new() -> Self {
         Self {
             processes: HashMap::new(),
+            sdk_server: None,
         }
     }
 
@@ -70,6 +79,28 @@ impl OpenCodeManager {
 
     pub fn get_processes(&self) -> Vec<ManagedOpenCodeProcess> {
         self.processes.values().cloned().collect()
+    }
+
+    pub fn set_sdk_server(&mut self, host: String, port: u16, child: Arc<Mutex<OpenCodeChild>>) {
+        self.sdk_server = Some(ManagedOpenCodeSdkServer { child, host, port });
+    }
+
+    pub fn get_sdk_server(&self) -> Option<ManagedOpenCodeSdkServer> {
+        self.sdk_server.clone()
+    }
+
+    pub fn remove_sdk_server(&mut self) -> Option<ManagedOpenCodeSdkServer> {
+        self.sdk_server.take()
+    }
+
+    pub fn remove_sdk_server_if_child(
+        &mut self,
+        child: &Arc<Mutex<OpenCodeChild>>,
+    ) -> Option<ManagedOpenCodeSdkServer> {
+        match self.sdk_server.as_ref() {
+            Some(server) if Arc::ptr_eq(&server.child, child) => self.sdk_server.take(),
+            _ => None,
+        }
     }
 
     pub fn has_employee_processes(&self, employee_id: &str) -> bool {

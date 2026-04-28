@@ -140,6 +140,8 @@ export function getActivityActionLabel(action: string): string {
     remote_sdk_installed: "远程安装SDK",
     remote_git_runtime_installed: "远程 Git 运行时已安装",
     remote_git_runtime_install_failed: "远程 Git 运行时安装失败",
+    opencode_sdk_server_started: "OpenCode SDK 已启动",
+    opencode_sdk_server_start_failed: "OpenCode SDK 启动失败",
     remote_codex_validated: "远程校验Codex",
     remote_codex_verified: "远程校验Codex",
     remote_task_attachments_synced: "同步远程任务附件",

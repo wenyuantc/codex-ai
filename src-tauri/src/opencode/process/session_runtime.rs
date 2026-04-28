@@ -13,6 +13,7 @@ pub struct OpenCodeBridgeConfig {
     pub reasoning_effort: Option<String>,
     pub host: String,
     pub port: u16,
+    pub node_path_override: Option<String>,
     pub working_directory: String,
     pub prompt: String,
     pub system_prompt: Option<String>,
@@ -21,11 +22,19 @@ pub struct OpenCodeBridgeConfig {
     pub install_dir: PathBuf,
 }
 
+pub struct OpenCodeServerBridgeConfig {
+    pub host: String,
+    pub port: u16,
+    pub parent_pid: u32,
+    pub node_path_override: Option<String>,
+    pub install_dir: PathBuf,
+}
+
 pub async fn launch_opencode_bridge(
     config: &OpenCodeBridgeConfig,
     bridge_path: &Path,
 ) -> Result<OpenCodeChild, String> {
-    let mut command = new_node_command(None).await?;
+    let mut command = new_node_command(config.node_path_override.as_deref()).await?;
 
     command
         .arg(bridge_path)
@@ -73,6 +82,57 @@ pub async fn launch_opencode_bridge(
         .flush()
         .await
         .map_err(|error| format!("刷新 OpenCode bridge stdin 失败: {error}"))?;
+    drop(stdin_writer);
+
+    Ok(OpenCodeChild::new(child, None, stdout, stderr))
+}
+
+pub async fn launch_opencode_server_bridge(
+    config: &OpenCodeServerBridgeConfig,
+    bridge_path: &Path,
+) -> Result<OpenCodeChild, String> {
+    let mut command = new_node_command(config.node_path_override.as_deref()).await?;
+
+    command
+        .arg(bridge_path)
+        .current_dir(&config.install_dir)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+
+    configure_process_group(&mut command);
+
+    let mut child = command
+        .spawn()
+        .map_err(|error| format!("启动 OpenCode SDK server bridge 失败: {error}"))?;
+
+    let stdin = child
+        .stdin
+        .take()
+        .ok_or_else(|| "无法获取 OpenCode server bridge stdin".to_string())?;
+
+    let stdout = child.stdout.take();
+    let stderr = child.stderr.take();
+
+    let config_json = serde_json::json!({
+        "mode": "server",
+        "host": config.host,
+        "port": config.port,
+        "parentPid": config.parent_pid,
+    });
+
+    let config_str = serde_json::to_string(&config_json)
+        .map_err(|error| format!("序列化 server bridge 配置失败: {error}"))?;
+
+    let mut stdin_writer = stdin;
+    stdin_writer
+        .write_all(config_str.as_bytes())
+        .await
+        .map_err(|error| format!("写入 OpenCode server bridge stdin 失败: {error}"))?;
+    stdin_writer
+        .flush()
+        .await
+        .map_err(|error| format!("刷新 OpenCode server bridge stdin 失败: {error}"))?;
     drop(stdin_writer);
 
     Ok(OpenCodeChild::new(child, None, stdout, stderr))

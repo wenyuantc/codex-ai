@@ -398,6 +398,7 @@ pub struct GitPreferences {
     pub worktree_location_mode: String,
     pub worktree_custom_root: Option<String>,
     pub ai_commit_message_length: String,
+    pub ai_commit_preferred_provider: String,
     pub ai_commit_model_source: String,
     pub ai_commit_model: String,
     pub ai_commit_reasoning_effort: String,
@@ -736,6 +737,7 @@ pub struct UpdateGitPreferences {
     #[serde(default, deserialize_with = "deserialize_explicit_nullable")]
     pub worktree_custom_root: Option<Option<String>>,
     pub ai_commit_message_length: Option<String>,
+    pub ai_commit_preferred_provider: Option<String>,
     pub ai_commit_model_source: Option<String>,
     pub ai_commit_model: Option<String>,
     pub ai_commit_reasoning_effort: Option<String>,

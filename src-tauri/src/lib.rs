@@ -37,7 +37,8 @@ pub fn run() {
             tray::create_tray(app)?;
             app.manage(Arc::new(Mutex::new(CodexManager::new())));
             app.manage(Arc::new(tokio::sync::Mutex::new(ClaudeManager::new())));
-            app.manage(Arc::new(tokio::sync::Mutex::new(OpenCodeManager::new())));
+            let opencode_manager = Arc::new(tokio::sync::Mutex::new(OpenCodeManager::new()));
+            app.manage(opencode_manager.clone());
             let app_handle = app.handle().clone();
             if let Err(error) = window_state::restore_main_window_size(&app_handle) {
                 eprintln!("恢复主窗口尺寸失败: {error}");
@@ -51,6 +52,7 @@ pub fn run() {
             }
 
             task_automation::spawn_resume_pending_automation(app_handle.clone());
+            opencode::spawn_opencode_sdk_server_on_startup(app_handle.clone(), opencode_manager);
 
             Ok(())
         })

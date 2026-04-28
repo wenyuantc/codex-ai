@@ -14,6 +14,7 @@ fn sample_codex_settings() -> CodexSettings {
             worktree_location_mode: "repo_sibling_hidden".to_string(),
             worktree_custom_root: None,
             ai_commit_message_length: "title_with_body".to_string(),
+            ai_commit_preferred_provider: "codex".to_string(),
             ai_commit_model_source: "inherit_one_shot".to_string(),
             ai_commit_model: "gpt-5.4".to_string(),
             ai_commit_reasoning_effort: "high".to_string(),

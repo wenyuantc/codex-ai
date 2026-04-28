@@ -76,6 +76,249 @@ fn cleanup_process_artifacts(paths: &[PathBuf]) {
     }
 }
 
+async fn write_opencode_sdk_server_activity<R: Runtime>(
+    app: &AppHandle<R>,
+    action: &str,
+    details: &str,
+) {
+    match sqlite_pool(app).await {
+        Ok(pool) => {
+            let _ = insert_activity_log(&pool, action, details, None, None, None).await;
+        }
+        Err(error) => {
+            eprintln!("[opencode-sdk-server] 活动日志写入跳过: {error}");
+        }
+    }
+}
+
+async fn stop_existing_opencode_sdk_server(
+    manager_state: &Arc<Mutex<OpenCodeManager>>,
+) -> Result<(), String> {
+    let existing = {
+        let mut manager = manager_state.lock().await;
+        manager.remove_sdk_server()
+    };
+
+    if let Some(server) = existing {
+        let mut child = server.child.lock().await;
+        if child.try_wait()?.is_none() {
+            if let Err(error) = child.kill_process_group().await {
+                eprintln!("[opencode-sdk-server] killpg failed, fallback to child.kill(): {error}");
+            }
+            let _ = child.kill().await;
+        }
+    }
+
+    Ok(())
+}
+
+async fn ensure_opencode_sdk_server_started(
+    app: AppHandle,
+    manager_state: Arc<Mutex<OpenCodeManager>>,
+) -> Result<(), String> {
+    let opencode_settings = load_opencode_settings(&app)?;
+    if !opencode_settings.sdk_enabled {
+        return Ok(());
+    }
+
+    let install_dir = PathBuf::from(&opencode_settings.sdk_install_dir);
+    ensure_opencode_sdk_runtime_layout(&install_dir)?;
+    let health = crate::opencode::inspect_opencode_sdk_runtime(&app, &opencode_settings).await;
+    if health.effective_provider != "sdk" {
+        let message = format!("OpenCode SDK 已启用但未就绪：{}", health.sdk_status_message);
+        write_opencode_sdk_server_activity(&app, "opencode_sdk_server_start_failed", &message)
+            .await;
+        return Err(message);
+    }
+
+    let existing = {
+        let manager = manager_state.lock().await;
+        manager.get_sdk_server()
+    };
+    if let Some(server) = existing {
+        let is_running = {
+            let mut child = server.child.lock().await;
+            child.try_wait()?.is_none()
+        };
+        if is_running
+            && server.host == opencode_settings.host
+            && server.port == opencode_settings.port
+        {
+            return Ok(());
+        }
+        stop_existing_opencode_sdk_server(&manager_state).await?;
+    }
+
+    let bridge_path = sdk_bridge_script_path(&install_dir);
+    let server_config = OpenCodeServerBridgeConfig {
+        host: opencode_settings.host.clone(),
+        port: opencode_settings.port,
+        parent_pid: std::process::id(),
+        node_path_override: opencode_settings.node_path_override.clone(),
+        install_dir,
+    };
+    let child = launch_opencode_server_bridge(&server_config, &bridge_path).await?;
+    let child = Arc::new(Mutex::new(child));
+
+    {
+        let mut manager = manager_state.lock().await;
+        manager.set_sdk_server(
+            opencode_settings.host.clone(),
+            opencode_settings.port,
+            child.clone(),
+        );
+    }
+
+    stream_opencode_sdk_server_output(
+        app,
+        manager_state,
+        child,
+        opencode_settings.host,
+        opencode_settings.port,
+    );
+
+    Ok(())
+}
+
+pub fn spawn_opencode_sdk_server_on_startup(
+    app: AppHandle,
+    manager_state: Arc<Mutex<OpenCodeManager>>,
+) {
+    tauri::async_runtime::spawn(async move {
+        if let Err(error) = ensure_opencode_sdk_server_started(app.clone(), manager_state).await {
+            eprintln!("[opencode-sdk-server] 启动失败: {error}");
+        }
+    });
+}
+
+fn stream_opencode_sdk_server_output(
+    app: AppHandle,
+    manager_state: Arc<Mutex<OpenCodeManager>>,
+    child: Arc<Mutex<OpenCodeChild>>,
+    host: String,
+    port: u16,
+) {
+    tauri::async_runtime::spawn(async move {
+        let (stdout, stderr) = {
+            let mut child = child.lock().await;
+            (child.stdout(), child.stderr())
+        };
+        let mut ready_logged = false;
+        let mut bridge_error: Option<String> = None;
+
+        if let Some(stderr) = stderr {
+            tauri::async_runtime::spawn(async move {
+                let mut reader = tokio::io::BufReader::new(stderr);
+                let mut line = String::new();
+                loop {
+                    line.clear();
+                    match reader.read_line(&mut line).await {
+                        Ok(0) => break,
+                        Ok(_) => {
+                            let trimmed = line.trim_end();
+                            if !trimmed.is_empty() {
+                                eprintln!("[opencode-sdk-server] {trimmed}");
+                            }
+                        }
+                        Err(error) => {
+                            eprintln!("[opencode-sdk-server] stderr 读取失败: {error}");
+                            break;
+                        }
+                    }
+                }
+            });
+        }
+
+        if let Some(stdout) = stdout {
+            let mut reader = tokio::io::BufReader::new(stdout);
+            let mut line = String::new();
+            loop {
+                line.clear();
+                match reader.read_line(&mut line).await {
+                    Ok(0) => break,
+                    Ok(_) => {
+                        let trimmed = line.trim_end();
+                        if trimmed.is_empty() {
+                            continue;
+                        }
+
+                        if let Some(event) = parse_opencode_bridge_event(trimmed) {
+                            match event.event_type.as_str() {
+                                "info" => {
+                                    if let Some(message) = bridge_event_message(&event) {
+                                        eprintln!("[opencode-sdk-server] {message}");
+                                    }
+                                }
+                                "server-ready" => {
+                                    if !ready_logged {
+                                        ready_logged = true;
+                                        let url = bridge_event_string(&event, "url")
+                                            .unwrap_or_else(|| format!("http://{host}:{port}"));
+                                        write_opencode_sdk_server_activity(
+                                            &app,
+                                            "opencode_sdk_server_started",
+                                            &format!("OpenCode SDK server 已启动：{url}"),
+                                        )
+                                        .await;
+                                    }
+                                }
+                                "error" => {
+                                    let message =
+                                        bridge_event_message(&event).unwrap_or_else(|| {
+                                            "OpenCode SDK server 启动失败".to_string()
+                                        });
+                                    bridge_error = Some(message.clone());
+                                    write_opencode_sdk_server_activity(
+                                        &app,
+                                        "opencode_sdk_server_start_failed",
+                                        &message,
+                                    )
+                                    .await;
+                                    eprintln!("[opencode-sdk-server] {message}");
+                                }
+                                "done" => break,
+                                _ => eprintln!("[opencode-sdk-server] {trimmed}"),
+                            }
+                        } else {
+                            eprintln!("[opencode-sdk-server] {trimmed}");
+                        }
+                    }
+                    Err(error) => {
+                        let message = format!("OpenCode SDK server 输出流读取失败: {error}");
+                        bridge_error = Some(message.clone());
+                        write_opencode_sdk_server_activity(
+                            &app,
+                            "opencode_sdk_server_start_failed",
+                            &message,
+                        )
+                        .await;
+                        break;
+                    }
+                }
+            }
+        }
+
+        {
+            let mut child = child.lock().await;
+            let _ = wait_for_exit(&mut child).await;
+        }
+
+        {
+            let mut manager = manager_state.lock().await;
+            manager.remove_sdk_server_if_child(&child);
+        }
+
+        if !ready_logged && bridge_error.is_none() {
+            write_opencode_sdk_server_activity(
+                &app,
+                "opencode_sdk_server_start_failed",
+                "OpenCode SDK server 进程未完成启动即退出",
+            )
+            .await;
+        }
+    });
+}
+
 pub(crate) fn extract_review_report(raw: &str) -> Option<String> {
     let start = raw.find(REVIEW_REPORT_START_TAG)?;
     let end = raw.find(REVIEW_REPORT_END_TAG)?;
@@ -1366,6 +1609,7 @@ pub async fn start_opencode_with_manager(
         reasoning_effort: effort_to_write.clone(),
         host: opencode_settings.host.clone(),
         port: opencode_settings.port,
+        node_path_override: opencode_settings.node_path_override.clone(),
         working_directory: run_cwd.clone(),
         prompt: prompt.clone(),
         system_prompt: None,
@@ -1658,7 +1902,8 @@ pub async fn get_opencode_models<R: Runtime>(
         );
     }
 
-    let mut command = crate::codex::new_node_command(None).await?;
+    let mut command =
+        crate::codex::new_node_command(opencode_settings.node_path_override.as_deref()).await?;
     command
         .arg(&bridge_path)
         .current_dir(&install_dir)
@@ -1777,6 +2022,20 @@ mod tests {
         );
         assert_eq!(models[1].provider_name, "OpenRouter");
         assert!(models[1].capabilities.is_none());
+    }
+
+    #[test]
+    fn parse_bridge_server_ready_event_reads_url() {
+        let event = parse_opencode_bridge_event(
+            r#"{"type":"server-ready","data":{"url":"http://127.0.0.1:4096","connectedExistingServer":false},"timestamp":1}"#,
+        )
+        .expect("server-ready event should parse");
+
+        assert_eq!(event.event_type, "server-ready");
+        assert_eq!(
+            bridge_event_string(&event, "url").as_deref(),
+            Some("http://127.0.0.1:4096")
+        );
     }
 
     #[test]

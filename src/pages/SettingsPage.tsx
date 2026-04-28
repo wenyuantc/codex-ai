@@ -91,6 +91,7 @@ const DEFAULT_GIT_PREFERENCES: GitPreferences = {
   worktree_location_mode: "repo_sibling_hidden",
   worktree_custom_root: null,
   ai_commit_message_length: "title_with_body",
+  ai_commit_preferred_provider: "codex",
   ai_commit_model_source: "inherit_one_shot",
   ai_commit_model: "gpt-5.4",
   ai_commit_reasoning_effort: "high",
@@ -180,6 +181,9 @@ export function SettingsPage() {
   const [aiCommitModel, setAiCommitModel] = useState(DEFAULT_GIT_PREFERENCES.ai_commit_model);
   const [aiCommitReasoningEffort, setAiCommitReasoningEffort] = useState(
     DEFAULT_GIT_PREFERENCES.ai_commit_reasoning_effort,
+  );
+  const [gitAiProvider, setGitAiProvider] = useState<AiProvider>(
+    DEFAULT_GIT_PREFERENCES.ai_commit_preferred_provider,
   );
   const [nodePathOverride, setNodePathOverride] = useState("");
   const [healthLoading, setHealthLoading] = useState(false);
@@ -278,10 +282,14 @@ export function SettingsPage() {
       normalizeAiCommitMessageLength(gitPreferences.ai_commit_message_length),
     );
     setAiCommitModelSource(normalizeAiCommitModelSource(gitPreferences.ai_commit_model_source));
-    setAiCommitModel(normalizeModelForProvider(oneShotProvider, gitPreferences.ai_commit_model));
+    setAiCommitModel(normalizeModelForProvider(
+      normalizeAiProvider(gitPreferences.ai_commit_preferred_provider),
+      gitPreferences.ai_commit_model,
+    ));
+    setGitAiProvider(normalizeAiProvider(gitPreferences.ai_commit_preferred_provider));
     setAiCommitReasoningEffort(
       normalizeReasoningEffortForProvider(
-        oneShotProvider,
+        normalizeAiProvider(gitPreferences.ai_commit_preferred_provider),
         gitPreferences.ai_commit_reasoning_effort,
       ),
     );
@@ -485,6 +493,7 @@ export function SettingsPage() {
           worktree_location_mode: worktreeLocationMode,
           worktree_custom_root: worktreeCustomRoot.trim() || null,
           ai_commit_message_length: aiCommitMessageLength,
+          ai_commit_preferred_provider: gitAiProvider,
           ai_commit_model_source: aiCommitModelSource,
           ai_commit_model: aiCommitModel,
           ai_commit_reasoning_effort: aiCommitReasoningEffort,
@@ -577,7 +586,7 @@ export function SettingsPage() {
       if (
         models.length > 0
         && aiCommitModelSource === "custom"
-        && oneShotPreferredProvider === "opencode"
+        && gitAiProvider === "opencode"
         && !models.some((m) => m.value === aiCommitModel)
       ) {
         setAiCommitModel(models[0].value);
@@ -935,12 +944,6 @@ export function SettingsPage() {
               setOneShotReasoningEffort((current) =>
                 normalizeReasoningEffortForProvider(provider, current),
               );
-              if (aiCommitModelSource === "custom") {
-                setAiCommitModel((current) => normalizeModelForProvider(provider, current));
-                setAiCommitReasoningEffort((current) =>
-                  normalizeReasoningEffortForProvider(provider, current),
-                );
-              }
             }}
             onOneShotModelChange={setOneShotModel}
             onOneShotReasoningEffortChange={setOneShotReasoningEffort}
@@ -1003,10 +1006,9 @@ export function SettingsPage() {
             worktreeLocationMode={worktreeLocationMode}
             worktreeCustomRoot={worktreeCustomRoot}
             aiCommitMessageLength={aiCommitMessageLength}
-            aiCommitModelSource={aiCommitModelSource}
+            gitAiProvider={gitAiProvider}
             aiCommitModel={aiCommitModel}
             aiCommitReasoningEffort={aiCommitReasoningEffort}
-            oneShotPreferredProvider={oneShotPreferredProvider}
             opencodeModelList={opencodeModelList}
             opencodeModelListLoading={opencodeModelListLoading}
             onTaskAutomationDefaultEnabledChange={setTaskAutomationDefaultEnabled}
@@ -1016,7 +1018,13 @@ export function SettingsPage() {
             onWorktreeLocationModeChange={setWorktreeLocationMode}
             onWorktreeCustomRootChange={setWorktreeCustomRoot}
             onAiCommitMessageLengthChange={setAiCommitMessageLength}
-            onAiCommitModelSourceChange={setAiCommitModelSource}
+            onGitAiProviderChange={(provider) => {
+              setGitAiProvider(provider);
+              setAiCommitModel((current) => normalizeModelForProvider(provider, current));
+              setAiCommitReasoningEffort((current) =>
+                normalizeReasoningEffortForProvider(provider, current),
+              );
+            }}
             onAiCommitModelChange={setAiCommitModel}
             onAiCommitReasoningEffortChange={setAiCommitReasoningEffort}
             onOpenCodeFetchModels={() => void handleFetchOpenCodeModels()}

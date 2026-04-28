@@ -634,6 +634,7 @@ export interface GitPreferences {
   worktree_location_mode: WorktreeLocationMode;
   worktree_custom_root: string | null;
   ai_commit_message_length: AiCommitMessageLength;
+  ai_commit_preferred_provider: AiProvider;
   ai_commit_model_source: AiCommitModelSource;
   ai_commit_model: string;
   ai_commit_reasoning_effort: string;

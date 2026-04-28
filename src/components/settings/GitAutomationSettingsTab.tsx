@@ -1,4 +1,4 @@
-import { Loader2 } from "lucide-react";
+import { Loader2, RefreshCw } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -11,7 +11,7 @@ import {
 } from "@/components/ui/select";
 import {
   AI_COMMIT_MESSAGE_LENGTH_OPTIONS,
-  AI_COMMIT_MODEL_SOURCE_OPTIONS,
+  AI_PROVIDER_OPTIONS,
   CODEX_MODEL_OPTIONS,
   CLAUDE_MODEL_OPTIONS,
   CLAUDE_THINKING_BUDGET_OPTIONS,
@@ -20,12 +20,10 @@ import {
   TASK_AUTOMATION_FAILURE_STRATEGY_OPTIONS,
   WORKTREE_LOCATION_MODE_OPTIONS,
   normalizeAiCommitMessageLength,
-  normalizeAiCommitModelSource,
   normalizeTaskAutomationFailureStrategy,
   normalizeWorktreeLocationMode,
   type AiProvider,
   type AiCommitMessageLength,
-  type AiCommitModelSource,
   type TaskAutomationFailureStrategy,
   type WorktreeLocationMode,
 } from "@/lib/types";
@@ -45,10 +43,9 @@ interface GitAutomationSettingsTabProps {
   worktreeLocationMode: WorktreeLocationMode;
   worktreeCustomRoot: string;
   aiCommitMessageLength: AiCommitMessageLength;
-  aiCommitModelSource: AiCommitModelSource;
+  gitAiProvider: AiProvider;
   aiCommitModel: string;
   aiCommitReasoningEffort: string;
-  oneShotPreferredProvider: AiProvider;
   opencodeModelList: OpenCodeModelInfo[];
   opencodeModelListLoading: boolean;
   onTaskAutomationDefaultEnabledChange: (value: boolean) => void;
@@ -58,7 +55,7 @@ interface GitAutomationSettingsTabProps {
   onWorktreeLocationModeChange: (value: WorktreeLocationMode) => void;
   onWorktreeCustomRootChange: (value: string) => void;
   onAiCommitMessageLengthChange: (value: AiCommitMessageLength) => void;
-  onAiCommitModelSourceChange: (value: AiCommitModelSource) => void;
+  onGitAiProviderChange: (value: AiProvider) => void;
   onAiCommitModelChange: (value: string) => void;
   onAiCommitReasoningEffortChange: (value: string) => void;
   onOpenCodeFetchModels: () => void;
@@ -79,10 +76,9 @@ export function GitAutomationSettingsTab({
   worktreeLocationMode,
   worktreeCustomRoot,
   aiCommitMessageLength,
-  aiCommitModelSource,
+  gitAiProvider,
   aiCommitModel,
   aiCommitReasoningEffort,
-  oneShotPreferredProvider,
   opencodeModelList,
   opencodeModelListLoading,
   onTaskAutomationDefaultEnabledChange,
@@ -92,39 +88,26 @@ export function GitAutomationSettingsTab({
   onWorktreeLocationModeChange,
   onWorktreeCustomRootChange,
   onAiCommitMessageLengthChange,
-  onAiCommitModelSourceChange,
+  onGitAiProviderChange,
   onAiCommitModelChange,
   onAiCommitReasoningEffortChange,
   onOpenCodeFetchModels,
   onSave,
 }: GitAutomationSettingsTabProps) {
   const showCustomWorktreeRoot = worktreeLocationMode === "custom_root";
-  const gitAiUsesCustomModel = aiCommitModelSource === "custom";
   const selectedWorktreeLocationOption = WORKTREE_LOCATION_MODE_OPTIONS.find(
     (option) => option.value === worktreeLocationMode,
   );
   const selectedCommitLengthOption = AI_COMMIT_MESSAGE_LENGTH_OPTIONS.find(
     (option) => option.value === aiCommitMessageLength,
   );
-  const selectedCommitModelSourceOption = AI_COMMIT_MODEL_SOURCE_OPTIONS.find(
-    (option) => option.value === aiCommitModelSource,
-  );
   const worktreeRootPlaceholder = isRemoteMode ? "~/codex-worktrees" : "/Users/wenyuan/codex-worktrees";
-  const commitModelOptions = oneShotPreferredProvider === "claude"
-    ? CLAUDE_MODEL_OPTIONS
-    : oneShotPreferredProvider === "opencode"
-      ? opencodeModelList
-      : CODEX_MODEL_OPTIONS;
-  const commitEffortOptions = oneShotPreferredProvider === "claude"
-    ? CLAUDE_THINKING_BUDGET_OPTIONS.filter((option) => option.value !== "auto")
-    : oneShotPreferredProvider === "opencode"
-      ? OPENCODE_EFFORT_OPTIONS
-      : REASONING_EFFORT_OPTIONS;
-  const gitProviderLabel = oneShotPreferredProvider === "claude"
-    ? "Claude"
-    : oneShotPreferredProvider === "opencode"
-      ? "OpenCode"
-      : "Codex";
+
+  const isGitClaudeProvider = gitAiProvider === "claude";
+  const isGitOpenCodeProvider = gitAiProvider === "opencode";
+  const availableGitProviders = AI_PROVIDER_OPTIONS.filter(
+    (option) => !(isRemoteMode && option.value === "opencode"),
+  );
   const gitOpenCodeModelOptions = opencodeModelList.length > 0
     ? opencodeModelList
     : [{
@@ -135,6 +118,18 @@ export function GitAutomationSettingsTab({
       modelId: aiCommitModel.includes("/") ? aiCommitModel.split("/").slice(1).join("/") : aiCommitModel,
       capabilities: null,
     }];
+
+  const gitCommitEffortOptions = isGitClaudeProvider
+    ? CLAUDE_THINKING_BUDGET_OPTIONS.filter((option) => option.value !== "auto")
+    : isGitOpenCodeProvider
+      ? OPENCODE_EFFORT_OPTIONS
+      : REASONING_EFFORT_OPTIONS;
+
+  const gitProviderLabel = isGitClaudeProvider
+    ? "Claude"
+    : isGitOpenCodeProvider
+      ? "OpenCode"
+      : "Codex";
 
   return (
     <div className="space-y-6">
@@ -157,7 +152,7 @@ export function GitAutomationSettingsTab({
           <div className="space-y-1">
             <p className="text-sm font-medium">新建任务默认开启自动质控</p>
             <p className="text-xs text-muted-foreground">
-              开启后，新任务会默认进入“审核 {"->"} 修复 {"->"} 再审核”的闭环流程。
+              开启后，新任务会默认进入"审核 {"->"} 修复 {"->"} 再审核"的闭环流程。
             </p>
           </div>
         </label>
@@ -233,7 +228,7 @@ export function GitAutomationSettingsTab({
         <div className="space-y-1">
           <h3 className="text-sm font-medium">Git 偏好</h3>
           <p className="text-xs text-muted-foreground">
-            控制新任务的 Worktree 默认行为，以及 AI 生成 Git 提交信息时的长度、模型和推理强度。
+            控制新任务的 Worktree 默认行为，以及 AI 生成 Git 提交信息时的长度。
           </p>
         </div>
 
@@ -336,47 +331,54 @@ export function GitAutomationSettingsTab({
             </p>
           </div>
         )}
+      </div>
+
+      <div className="space-y-4 rounded-lg border border-border bg-card p-4">
+        <div className="flex items-start justify-between gap-4">
+          <div className="space-y-1">
+            <h3 className="text-sm font-medium">Git AI</h3>
+            <p className="text-xs text-muted-foreground">
+              控制 AI 自动生成 Git 提交信息时使用的提供商、模型和推理强度。
+            </p>
+          </div>
+          <span className="rounded bg-secondary px-2 py-1 text-xs text-secondary-foreground">
+            {gitProviderLabel}
+          </span>
+        </div>
 
         <div className="grid gap-3 md:grid-cols-2">
           <div className="space-y-2">
-            <label className="text-sm font-medium">Git AI 模型来源</label>
-            <Select<AiCommitModelSource>
-              value={aiCommitModelSource}
+            <label className="text-sm font-medium">AI 提供商</label>
+            <Select<AiProvider>
+              value={gitAiProvider}
               onValueChange={(value) => {
                 if (value) {
-                  onAiCommitModelSourceChange(normalizeAiCommitModelSource(value));
+                  onGitAiProviderChange(value as AiProvider);
                 }
               }}
               disabled={healthLoading || actionLoading !== null}
             >
               <SelectTrigger className="bg-background">
-                <SelectValue>
-                  {(value) =>
-                    typeof value === "string"
-                      ? AI_COMMIT_MODEL_SOURCE_OPTIONS.find((option) => option.value === value)?.label ?? value
-                      : "选择 Git AI 模型来源"
-                  }
-                </SelectValue>
+                <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                {AI_COMMIT_MODEL_SOURCE_OPTIONS.map((option) => (
+                {availableGitProviders.map((option) => (
                   <SelectItem key={option.value} value={option.value}>
                     {option.label}
                   </SelectItem>
                 ))}
               </SelectContent>
             </Select>
-            <p className="text-xs text-muted-foreground">{selectedCommitModelSourceOption?.description}</p>
           </div>
         </div>
 
-        {gitAiUsesCustomModel && (
-          <div className="grid gap-3 md:grid-cols-2">
-            <div className="space-y-2">
-              <label className="text-sm font-medium">Git AI 模型</label>
-              {oneShotPreferredProvider === "opencode" ? (
-                <div className="flex gap-2">
-                  <div className="flex-1">
+        <div className="grid gap-3 md:grid-cols-2">
+          <div className="space-y-2">
+            <label className="text-sm font-medium">Git AI 模型</label>
+            {isGitOpenCodeProvider ? (
+              <div className="flex gap-2">
+                <div className="flex-1">
+                  {opencodeModelList.length > 0 ? (
                     <Select
                       value={aiCommitModel}
                       onValueChange={(value) => {
@@ -390,54 +392,41 @@ export function GitAutomationSettingsTab({
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent className="max-h-72">
-                        {gitOpenCodeModelOptions.map((option) => (
-                          <SelectItem key={option.value} value={option.value}>
-                            {`${option.label} · ${option.providerName}`}
+                        {gitOpenCodeModelOptions.map((model) => (
+                          <SelectItem key={model.value} value={model.value}>
+                            {`${model.label} · ${model.providerName}`}
                           </SelectItem>
                         ))}
                       </SelectContent>
                     </Select>
-                  </div>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={onOpenCodeFetchModels}
-                    disabled={opencodeModelListLoading || healthLoading || actionLoading !== null}
-                  >
-                    {opencodeModelListLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "刷新"}
-                  </Button>
+                  ) : (
+                    <Input
+                      value={aiCommitModel}
+                      onChange={(event) => onAiCommitModelChange(event.target.value)}
+                      placeholder="openai/gpt-4o"
+                      disabled={healthLoading || actionLoading !== null}
+                    />
+                  )}
                 </div>
-              ) : (
-                <Select
-                  value={aiCommitModel}
-                  onValueChange={(value) => {
-                    if (value) {
-                      onAiCommitModelChange(value);
-                    }
-                  }}
-                  disabled={healthLoading || actionLoading !== null}
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={onOpenCodeFetchModels}
+                  disabled={opencodeModelListLoading || healthLoading || actionLoading !== null}
+                  title="从 OpenCode SDK 获取模型列表"
                 >
-                  <SelectTrigger className="bg-background">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {commitModelOptions.map((option) => (
-                      <SelectItem key={option.value} value={option.value}>
-                        {option.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              )}
-            </div>
-
-            <div className="space-y-2">
-              <label className="text-sm font-medium">Git AI 推理强度</label>
+                  {opencodeModelListLoading
+                    ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    : <RefreshCw className="h-3.5 w-3.5" />
+                  }
+                </Button>
+              </div>
+            ) : (
               <Select
-                value={aiCommitReasoningEffort}
+                value={aiCommitModel}
                 onValueChange={(value) => {
                   if (value) {
-                    onAiCommitReasoningEffortChange(value);
+                    onAiCommitModelChange(value);
                   }
                 }}
                 disabled={healthLoading || actionLoading !== null}
@@ -446,26 +435,53 @@ export function GitAutomationSettingsTab({
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {commitEffortOptions.map((option) => (
+                  {(isGitClaudeProvider ? CLAUDE_MODEL_OPTIONS : CODEX_MODEL_OPTIONS).map((option) => (
                     <SelectItem key={option.value} value={option.value}>
                       {option.label}
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
-            </div>
+            )}
+            {isGitOpenCodeProvider && (
+              <p className="text-xs text-muted-foreground">
+                {opencodeModelList.length > 0
+                  ? `已加载 ${opencodeModelList.length} 个可用模型`
+                  : "格式: provider/modelID（例如 openai/gpt-4o）"}
+              </p>
+            )}
           </div>
-        )}
 
-        <p className="text-xs leading-5 text-muted-foreground">
-          当前策略：
-          {defaultTaskUseWorktree ? " 新任务默认启用 Worktree；" : " 新任务默认关闭 Worktree；"}
-          Worktree 目录使用{selectedWorktreeLocationOption?.label ?? "仓库同级隐藏目录"}；
-          AI 提交信息默认{selectedCommitLengthOption?.label ?? "标题+详情"}；
-          Git AI {selectedCommitModelSourceOption?.label ?? "跟随一次性 AI"}；
-          当前一次性 AI 提供商为 {gitProviderLabel}
-          {gitAiUsesCustomModel ? `（${aiCommitModel} / 推理 ${aiCommitReasoningEffort}）` : ""}。
-        </p>
+          <div className="space-y-2">
+            <label className="text-sm font-medium">Git AI 推理强度</label>
+            <Select
+              value={aiCommitReasoningEffort}
+              onValueChange={(value) => {
+                if (value) {
+                  onAiCommitReasoningEffortChange(value);
+                }
+              }}
+              disabled={healthLoading || actionLoading !== null}
+            >
+              <SelectTrigger className="bg-background">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {gitCommitEffortOptions.map((option) => (
+                  <SelectItem key={option.value} value={option.value}>
+                    {option.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+
+        <div className="rounded-md border border-border px-3 py-3 text-xs text-muted-foreground">
+          <p>当前 Git AI 提供商：{gitProviderLabel}</p>
+          <p>当前模型：{aiCommitModel}</p>
+          <p>当前推理强度：{aiCommitReasoningEffort}</p>
+        </div>
 
         <div className="flex flex-wrap gap-2">
           <Button
