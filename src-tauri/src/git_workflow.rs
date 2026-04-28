@@ -1645,6 +1645,15 @@ fn action_allows_completed_context(action_type: &str) -> bool {
     action_type == "cleanup_worktree"
 }
 
+fn action_allows_failed_context(action_type: &str, payload: &Value) -> Result<bool, String> {
+    if action_type != "cleanup_worktree" {
+        return Ok(false);
+    }
+
+    let map = payload_object(payload)?;
+    Ok(payload_bool(map, "force_remove", true))
+}
+
 fn normalize_git_action_payload(
     action_type: &str,
     context: &TaskGitContextRecord,
@@ -4013,6 +4022,7 @@ pub async fn request_git_action<R: Runtime>(
     let project = fetch_project_by_id(&pool, &context.project_id).await?;
     let runtime = resolve_project_runtime_context(&project)?;
     let action_type = normalize_action_type(&input.action_type)?;
+    let allow_failed_context = action_allows_failed_context(action_type, &input.payload)?;
     if !context_is_healthy(&app, &runtime, &context).await {
         let refreshed = refresh_context_state(&app, &pool, &mut context, &runtime).await?;
         if action_allows_drifted_context(action_type) && refreshed.state == TASK_GIT_STATE_DRIFTED {
@@ -4024,10 +4034,13 @@ pub async fn request_git_action<R: Runtime>(
             ));
         }
     }
-    if matches!(
-        context.state.as_str(),
-        TASK_GIT_STATE_PROVISIONING | TASK_GIT_STATE_FAILED
-    ) {
+    if context.state == TASK_GIT_STATE_PROVISIONING {
+        return Err(format!(
+            "当前状态不允许 request git action：{}",
+            context.state
+        ));
+    }
+    if context.state == TASK_GIT_STATE_FAILED && !allow_failed_context {
         return Err(format!(
             "当前状态不允许 request git action：{}",
             context.state
@@ -4418,8 +4431,10 @@ mod tests {
             use_worktree: true,
             assignee_id: None,
             reviewer_id: None,
+            coordinator_id: None,
             complexity: None,
             ai_suggestion: None,
+            plan_content: None,
             automation_mode: None,
             last_codex_session_id: None,
             last_review_session_id: None,
@@ -4915,6 +4930,29 @@ prunable gitdir file points to non-existent location
         assert!(action_allows_completed_context("cleanup_worktree"));
         assert!(!action_allows_completed_context("merge"));
         assert!(!action_allows_completed_context("push"));
+    }
+
+    #[test]
+    fn cleanup_worktree_force_remove_is_allowed_after_failure() {
+        assert!(action_allows_failed_context(
+            "cleanup_worktree",
+            &serde_json::json!({ "force_remove": true }),
+        )
+        .expect("force cleanup payload should parse"));
+        assert!(
+            action_allows_failed_context("cleanup_worktree", &serde_json::json!({}))
+                .expect("default cleanup payload should parse")
+        );
+        assert!(!action_allows_failed_context(
+            "cleanup_worktree",
+            &serde_json::json!({ "force_remove": false }),
+        )
+        .expect("non-force cleanup payload should parse"));
+        assert!(!action_allows_failed_context(
+            "merge",
+            &serde_json::json!({ "force_remove": true })
+        )
+        .expect("non-cleanup action should not inspect payload"));
     }
 
     #[test]
