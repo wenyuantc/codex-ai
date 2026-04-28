@@ -1,4 +1,5 @@
-import { Trash2 } from "lucide-react";
+import { lazy, Suspense } from "react";
+import { Pencil, Save, Trash2, X } from "lucide-react";
 
 import type { Employee, TaskStatus } from "@/lib/types";
 import { ACTIVE_TASK_STATUSES, PRIORITIES, TASK_STATUSES } from "@/lib/types";
@@ -10,9 +11,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Textarea } from "@/components/ui/textarea";
 
 const UNASSIGNED_VALUE = "__unassigned__";
+const MonacoMarkdownEditor = lazy(() => import("./MonacoMarkdownEditor").then((module) => ({
+  default: module.MonacoMarkdownEditor,
+})));
 
 interface TaskOverviewPanelProps {
   title: string;
@@ -21,8 +24,15 @@ interface TaskOverviewPanelProps {
   priority: string;
   assigneeId: string;
   reviewerId: string;
+  coordinatorId: string;
+  planContent: string;
+  planContentDraft: string;
+  planEditing: boolean;
+  planSaving: boolean;
+  planHasChanges: boolean;
   employees: Employee[];
   reviewerCandidates: Employee[];
+  coordinatorCandidates: Employee[];
   saveError: string | null;
   isRunning: boolean;
   deletingTask: boolean;
@@ -34,7 +44,20 @@ interface TaskOverviewPanelProps {
   onPriorityChange: (value: string) => void;
   onAssigneeChange: (value: string) => void;
   onReviewerChange: (value: string) => void;
+  onCoordinatorChange: (value: string) => void;
+  onPlanEditStart: () => void;
+  onPlanEditCancel: () => void;
+  onPlanDraftChange: (value: string) => void;
+  onPlanSave: () => void;
   onDeleteRequest: () => void;
+}
+
+function MonacoEditorFallback({ className }: { className: string }) {
+  return (
+    <div className={`${className} flex items-center justify-center rounded-md border border-dashed text-xs text-muted-foreground`}>
+      正在加载编辑器...
+    </div>
+  );
 }
 
 export function TaskOverviewPanel({
@@ -44,8 +67,15 @@ export function TaskOverviewPanel({
   priority,
   assigneeId,
   reviewerId,
+  coordinatorId,
+  planContent,
+  planContentDraft,
+  planEditing,
+  planSaving,
+  planHasChanges,
   employees,
   reviewerCandidates,
+  coordinatorCandidates,
   saveError,
   isRunning,
   deletingTask,
@@ -57,6 +87,11 @@ export function TaskOverviewPanel({
   onPriorityChange,
   onAssigneeChange,
   onReviewerChange,
+  onCoordinatorChange,
+  onPlanEditStart,
+  onPlanEditCancel,
+  onPlanDraftChange,
+  onPlanSave,
   onDeleteRequest,
 }: TaskOverviewPanelProps) {
   return (
@@ -182,6 +217,35 @@ export function TaskOverviewPanel({
           </Select>
         </div>
 
+        <div className="flex shrink-0 items-center gap-2">
+          <span className="shrink-0 whitespace-nowrap text-xs text-muted-foreground">协调员</span>
+          <Select
+            value={coordinatorId || UNASSIGNED_VALUE}
+            onValueChange={(value) => onCoordinatorChange(!value || value === UNASSIGNED_VALUE ? "" : value)}
+          >
+            <SelectTrigger className="h-7 w-[240px] shrink-0 rounded-md px-2 text-xs">
+              <SelectValue>
+                {(value) => {
+                  if (!value || value === UNASSIGNED_VALUE) {
+                    return "未指定";
+                  }
+
+                  const emp = coordinatorCandidates.find((e) => e.id === value);
+                  return emp ? `${emp.name} · ${emp.ai_provider === "claude" ? "Claude" : emp.ai_provider === "opencode" ? "OpenCode" : "Codex"}` : "未指定";
+                }}
+              </SelectValue>
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={UNASSIGNED_VALUE}>未指定</SelectItem>
+              {coordinatorCandidates.map((emp) => (
+                <SelectItem key={emp.id} value={emp.id}>
+                  {emp.name} · {emp.ai_provider === "claude" ? "Claude" : emp.ai_provider === "opencode" ? "OpenCode" : "Codex"}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+
         <button
           onClick={onDeleteRequest}
           disabled={isRunning || deletingTask}
@@ -196,13 +260,79 @@ export function TaskOverviewPanel({
         <label className="text-xs font-medium text-muted-foreground">
           描述
         </label>
-        <Textarea
-          value={description}
-          onChange={(e) => onDescriptionChange(e.target.value)}
-          onBlur={onDescriptionBlur}
-          className="mt-1 min-h-[220px] resize-y"
-          placeholder="添加任务描述..."
-        />
+        <Suspense fallback={<MonacoEditorFallback className="mt-1 h-[220px]" />}>
+          <MonacoMarkdownEditor
+            value={description}
+            onChange={onDescriptionChange}
+            onBlur={onDescriptionBlur}
+            className="mt-1 h-[220px]"
+            placeholder="添加任务描述..."
+          />
+        </Suspense>
+      </div>
+
+      <div>
+        <div className="flex items-center justify-between gap-2">
+          <label className="text-xs font-medium text-muted-foreground">
+            计划内容
+          </label>
+          <div className="flex items-center gap-1">
+            {planEditing && planHasChanges && (
+              <button
+                type="button"
+                onClick={onPlanSave}
+                disabled={planSaving}
+                className="inline-flex h-7 items-center gap-1 rounded-md border border-input px-2 text-xs hover:bg-accent disabled:opacity-50"
+                title="保存计划"
+              >
+                <Save className="h-3.5 w-3.5" />
+                保存
+              </button>
+            )}
+            {planEditing ? (
+              <button
+                type="button"
+                onClick={onPlanEditCancel}
+                disabled={planSaving}
+                className="inline-flex h-7 items-center gap-1 rounded-md border border-input px-2 text-xs hover:bg-accent disabled:opacity-50"
+                title="取消编辑"
+              >
+                <X className="h-3.5 w-3.5" />
+                取消
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={onPlanEditStart}
+                className="inline-flex h-7 items-center gap-1 rounded-md border border-input px-2 text-xs hover:bg-accent"
+                title="编辑计划"
+              >
+                <Pencil className="h-3.5 w-3.5" />
+                编辑
+              </button>
+            )}
+          </div>
+        </div>
+        {planEditing ? (
+          <Suspense fallback={<MonacoEditorFallback className="mt-1 h-72" />}>
+            <MonacoMarkdownEditor
+              value={planContentDraft}
+              onChange={onPlanDraftChange}
+              readOnly={planSaving}
+              className="mt-1 h-72"
+              placeholder="输入任务计划内容..."
+            />
+          </Suspense>
+        ) : (
+          <Suspense fallback={<MonacoEditorFallback className="mt-1 h-72" />}>
+            <MonacoMarkdownEditor
+              value={planContent}
+              readOnly
+              className="mt-1 h-72 bg-muted/30"
+              placeholder="暂无计划内容"
+            />
+          </Suspense>
+        )}
       </div>
     </div>
   );

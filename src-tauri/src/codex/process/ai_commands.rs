@@ -1,12 +1,15 @@
+use serde::Deserialize;
 use tauri::{AppHandle, Runtime};
 
 use super::{
     build_ai_generate_commit_message_prompt, build_ai_generate_plan_prompt,
-    build_ai_optimize_prompt_prompt, parse_ai_subtasks_response, resolve_project_execution_context,
+    build_ai_generate_plan_prompt_with_attachments, build_ai_optimize_prompt_prompt,
+    parse_ai_subtasks_response, resolve_project_execution_context,
     resolve_task_project_execution_context, run_ai_command, ExecutionContext,
 };
 use crate::app::{
-    fetch_project_by_id, fetch_task_by_id, insert_activity_log, now_sqlite, sqlite_pool,
+    fetch_employee_by_id, fetch_project_by_id, fetch_task_attachments, fetch_task_by_id,
+    fetch_task_subtasks, insert_activity_log, now_sqlite, sqlite_pool, task_attachment_is_image,
     PROJECT_TYPE_SSH,
 };
 use crate::codex::{load_codex_settings, load_remote_codex_settings};
@@ -131,6 +134,47 @@ fn format_ai_optimize_prompt_activity_details(
         "项目：{}；场景：{}；模型：{}；推理等级：{}；生成时间：{}",
         project_name, scene_label, model, reasoning_effort, generated_at
     )
+}
+
+fn build_plan_attachment_prompt_items(
+    attachments: &[crate::db::models::TaskAttachment],
+) -> Vec<String> {
+    attachments
+        .iter()
+        .map(|attachment| {
+            format!(
+                "{}（类型：{}；大小：{} bytes）",
+                attachment.original_name.trim(),
+                attachment.mime_type.trim(),
+                attachment.file_size
+            )
+        })
+        .collect()
+}
+
+fn format_task_plan_generated_activity_details(
+    task_title: &str,
+    coordinator_name: &str,
+    provider: &str,
+    model: &str,
+    reasoning_effort: &str,
+    generated_at: &str,
+) -> String {
+    format!(
+        "任务：{}；协调员：{}；Provider：{}；模型：{}；推理等级：{}；生成时间：{}",
+        task_title, coordinator_name, provider, model, reasoning_effort, generated_at
+    )
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct GenerateCoordinatorTaskPlanPayload {
+    pub task_id: String,
+    pub coordinator_id: String,
+    pub title: String,
+    pub description: Option<String>,
+    pub status: String,
+    pub priority: String,
+    pub working_dir: Option<String>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -469,6 +513,110 @@ pub async fn ai_generate_plan(
 }
 
 #[tauri::command]
+pub async fn ai_generate_coordinator_task_plan(
+    app: AppHandle,
+    payload: GenerateCoordinatorTaskPlanPayload,
+) -> Result<String, String> {
+    let pool = sqlite_pool(&app).await?;
+    let task = fetch_task_by_id(&pool, &payload.task_id).await?;
+    let coordinator_id = payload.coordinator_id.trim();
+    if coordinator_id.is_empty() {
+        return Err("当前任务未指定协调员，无法生成计划".to_string());
+    }
+    let coordinator = fetch_employee_by_id(&pool, coordinator_id).await?;
+    if coordinator.role != "coordinator" {
+        return Err(format!(
+            "员工 {} 不是协调员角色，无法生成计划",
+            coordinator.name
+        ));
+    }
+
+    let project = fetch_project_by_id(&pool, &task.project_id).await?;
+    if project.project_type == PROJECT_TYPE_SSH && coordinator.ai_provider == "opencode" {
+        return Err(format!(
+            "协调员 {} 配置为 OpenCode，但 SSH 项目暂不支持 OpenCode 一次性 AI，请改用 Codex 或 Claude",
+            coordinator.name
+        ));
+    }
+
+    let subtasks = fetch_task_subtasks(&pool, &task.id).await?;
+    let attachments = fetch_task_attachments(&pool, &task.id).await?;
+    let subtask_titles = subtasks
+        .iter()
+        .map(|subtask| subtask.title.clone())
+        .collect::<Vec<_>>();
+    let attachment_items = build_plan_attachment_prompt_items(&attachments);
+    let task_title = payload.title.trim();
+    let task_description = payload
+        .description
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| task.description.as_deref().unwrap_or_default());
+    let task_status = payload.status.trim();
+    let task_priority = payload.priority.trim();
+    let prompt = build_ai_generate_plan_prompt_with_attachments(
+        if task_title.is_empty() {
+            &task.title
+        } else {
+            task_title
+        },
+        task_description,
+        if task_status.is_empty() {
+            &task.status
+        } else {
+            task_status
+        },
+        if task_priority.is_empty() {
+            &task.priority
+        } else {
+            task_priority
+        },
+        &subtask_titles,
+        &attachment_items,
+    );
+    let image_paths = attachments
+        .iter()
+        .filter(|attachment| task_attachment_is_image(attachment))
+        .map(|attachment| attachment.stored_path.clone())
+        .collect::<Vec<_>>();
+
+    let result = run_ai_command(
+        &app,
+        prompt,
+        Some(image_paths),
+        Some(task.id.clone()),
+        Some(task.project_id.clone()),
+        payload.working_dir,
+        Some(coordinator.ai_provider.clone()),
+        Some(coordinator.model.clone()),
+        Some(coordinator.reasoning_effort.clone()),
+    )
+    .await?;
+
+    let generated_at = now_sqlite();
+    let details = format_task_plan_generated_activity_details(
+        &task.title,
+        &coordinator.name,
+        &coordinator.ai_provider,
+        &coordinator.model,
+        &coordinator.reasoning_effort,
+        &generated_at,
+    );
+    insert_activity_log(
+        &pool,
+        "task_plan_generated",
+        &details,
+        Some(&coordinator.id),
+        Some(&task.id),
+        Some(&task.project_id),
+    )
+    .await?;
+
+    Ok(result)
+}
+
+#[tauri::command]
 pub async fn ai_generate_commit_message(
     app: AppHandle,
     project_id: String,
@@ -628,7 +776,8 @@ mod tests {
 
     use super::{
         format_ai_optimize_prompt_activity_details, format_commit_message_activity_details,
-        resolve_ai_optimize_prompt_scene_label, resolve_commit_message_ai_selection,
+        format_task_plan_generated_activity_details, resolve_ai_optimize_prompt_scene_label,
+        resolve_commit_message_ai_selection,
     };
 
     fn test_settings(
@@ -711,6 +860,23 @@ mod tests {
         assert_eq!(
             details,
             "项目：Codex AI；Provider：codex；模型：gpt-5.4-mini；推理等级：medium；生成时间：2026-04-20 11:00:00；结果：fix: 修复活动日志展示"
+        );
+    }
+
+    #[test]
+    fn formats_task_plan_generated_activity_details_with_coordinator_metadata() {
+        let details = format_task_plan_generated_activity_details(
+            "任务 A",
+            "协调员小张",
+            "claude",
+            "claude-sonnet-4-6",
+            "high",
+            "2026-04-28 09:00:00",
+        );
+
+        assert_eq!(
+            details,
+            "任务：任务 A；协调员：协调员小张；Provider：claude；模型：claude-sonnet-4-6；推理等级：high；生成时间：2026-04-28 09:00:00"
         );
     }
 

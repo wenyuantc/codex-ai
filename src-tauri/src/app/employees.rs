@@ -46,7 +46,8 @@ async fn build_employee_runtime_status<R: Runtime>(
         list_live_opencode_employee_processes(opencode_manager_state, employee_id).await;
     let pool = sqlite_pool(app).await?;
     let latest_session = fetch_latest_employee_session(app, employee_id).await?;
-    let total = live_codex_processes.len() + live_claude_processes.len() + live_opencode_processes.len();
+    let total =
+        live_codex_processes.len() + live_claude_processes.len() + live_opencode_processes.len();
     let mut sessions = Vec::with_capacity(total);
 
     for session_record_id in live_codex_processes

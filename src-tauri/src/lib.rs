@@ -167,6 +167,7 @@ pub fn run() {
             codex::ai_generate_commit_message,
             codex::ai_optimize_prompt,
             codex::ai_generate_plan,
+            codex::ai_generate_coordinator_task_plan,
             codex::ai_split_subtasks,
             claude::get_claude_settings,
             claude::update_claude_settings,

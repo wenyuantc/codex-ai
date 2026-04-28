@@ -898,6 +898,19 @@ pub fn get_all_migrations() -> Vec<Migration> {
             "#,
             kind: tauri_plugin_sql::MigrationKind::Up,
         },
+        Migration {
+            version: 34,
+            description: "persist task coordinator and plan content",
+            sql: r#"
+                ALTER TABLE tasks
+                    ADD COLUMN coordinator_id TEXT REFERENCES employees(id) ON DELETE SET NULL;
+                ALTER TABLE tasks
+                    ADD COLUMN plan_content TEXT;
+
+                CREATE INDEX idx_tasks_coordinator ON tasks(coordinator_id);
+            "#,
+            kind: tauri_plugin_sql::MigrationKind::Up,
+        },
     ]
 }
 
@@ -931,7 +944,7 @@ mod tests {
 
     #[test]
     fn latest_migration_version_includes_archived_task_index() {
-        assert_eq!(latest_migration_version(), 33);
+        assert_eq!(latest_migration_version(), 34);
     }
 
     #[test]
@@ -992,6 +1005,46 @@ mod tests {
 
             assert!(index_names.contains(&"idx_task_git_contexts_project_updated".to_string()));
             assert!(index_names.contains(&"idx_task_git_contexts_state_updated".to_string()));
+        });
+    }
+
+    #[test]
+    fn migration_adds_task_coordinator_and_plan_columns() {
+        tauri::async_runtime::block_on(async {
+            let pool = setup_test_pool().await;
+
+            let columns = sqlx::query("PRAGMA table_info(tasks)")
+                .fetch_all(&pool)
+                .await
+                .expect("fetch tasks columns");
+            let column_names = columns
+                .iter()
+                .map(|row| row.get::<String, _>("name"))
+                .collect::<Vec<_>>();
+
+            assert!(column_names.contains(&"coordinator_id".to_string()));
+            assert!(column_names.contains(&"plan_content".to_string()));
+
+            let foreign_keys = sqlx::query("PRAGMA foreign_key_list(tasks)")
+                .fetch_all(&pool)
+                .await
+                .expect("fetch task foreign keys");
+            assert!(foreign_keys.iter().any(|row| {
+                row.get::<String, _>("table") == "employees"
+                    && row.get::<String, _>("from") == "coordinator_id"
+            }));
+
+            let index_names = sqlx::query(
+                "SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 'tasks'",
+            )
+            .fetch_all(&pool)
+            .await
+            .expect("fetch task indexes")
+            .into_iter()
+            .map(|row| row.get::<String, _>("name"))
+            .collect::<Vec<_>>();
+
+            assert!(index_names.contains(&"idx_tasks_coordinator".to_string()));
         });
     }
 }

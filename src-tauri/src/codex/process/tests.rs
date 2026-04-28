@@ -5,12 +5,12 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use super::{
     attach_session_file_change_details, build_ai_generate_commit_message_prompt,
-    build_ai_generate_plan_prompt, build_ai_optimize_prompt_prompt, build_one_shot_exec_args,
-    build_remote_codex_session_command, build_remote_sdk_bridge_command, build_session_exec_args,
-    commit_message_uses_process_language, compose_codex_prompt,
-    compute_execution_session_file_changes_from_entries, detect_exec_json_output_flag,
-    extract_review_report, extract_review_verdict, extract_session_id_from_output,
-    format_session_prompt_log, hash_worktree_path, normalize_model,
+    build_ai_generate_plan_prompt, build_ai_generate_plan_prompt_with_attachments,
+    build_ai_optimize_prompt_prompt, build_one_shot_exec_args, build_remote_codex_session_command,
+    build_remote_sdk_bridge_command, build_session_exec_args, commit_message_uses_process_language,
+    compose_codex_prompt, compute_execution_session_file_changes_from_entries,
+    detect_exec_json_output_flag, extract_review_report, extract_review_verdict,
+    extract_session_id_from_output, format_session_prompt_log, hash_worktree_path, normalize_model,
     normalize_session_file_change_paths, parse_ai_subtasks_response, parse_cli_json_event_line,
     parse_sdk_bridge_output, parse_sdk_file_change_event, sdk_codex_path_override_allowed_for_os,
     should_capture_execution_change_baseline, validate_generated_commit_message, CliJsonOutputFlag,
@@ -491,6 +491,26 @@ fn builds_plan_prompt_with_required_sections_and_context() {
     assert!(prompt.contains("2. 补前端预览"));
     assert!(prompt.contains("不要假装你已经读取仓库"));
     assert!(prompt.contains("如果本次输入附带任务图片"));
+}
+
+#[test]
+fn builds_plan_prompt_with_attachment_metadata() {
+    let prompt = build_ai_generate_plan_prompt_with_attachments(
+        "为任务补协调员计划",
+        "需要让协调员模型基于任务与附件生成计划。",
+        "in_progress",
+        "high",
+        &["梳理命令入参".to_string()],
+        &[
+            "接口说明.md（类型：text/markdown；大小：1024 bytes）".to_string(),
+            "design.png（类型：image/png；大小：2048 bytes）".to_string(),
+        ],
+    );
+
+    assert!(prompt.contains("附件列表："));
+    assert!(prompt.contains("1. 接口说明.md（类型：text/markdown；大小：1024 bytes）"));
+    assert!(prompt.contains("2. design.png（类型：image/png；大小：2048 bytes）"));
+    assert!(prompt.contains("非图片附件仅能依赖其名称和元信息"));
 }
 
 #[test]

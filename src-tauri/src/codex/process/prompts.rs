@@ -198,6 +198,24 @@ pub(super) fn build_ai_generate_plan_prompt(
     task_priority: &str,
     subtasks: &[String],
 ) -> String {
+    build_ai_generate_plan_prompt_with_attachments(
+        task_title,
+        task_description,
+        task_status,
+        task_priority,
+        subtasks,
+        &[],
+    )
+}
+
+pub(super) fn build_ai_generate_plan_prompt_with_attachments(
+    task_title: &str,
+    task_description: &str,
+    task_status: &str,
+    task_priority: &str,
+    subtasks: &[String],
+    attachments: &[String],
+) -> String {
     let normalized_subtasks = subtasks
         .iter()
         .map(|value| value.trim())
@@ -215,6 +233,16 @@ pub(super) fn build_ai_generate_plan_prompt(
             .collect::<Vec<_>>()
             .join("\n")
     };
+    let attachment_block = if attachments.is_empty() {
+        "（暂无）".to_string()
+    } else {
+        attachments
+            .iter()
+            .enumerate()
+            .map(|(index, attachment)| format!("{}. {}", index + 1, attachment.trim()))
+            .collect::<Vec<_>>()
+            .join("\n")
+    };
 
     format!(
         "你是任务规划助手。请基于给定任务信息输出一份接近 Codex /plan 风格的中文 Markdown 执行计划。\n\
@@ -223,6 +251,7 @@ pub(super) fn build_ai_generate_plan_prompt(
 - 需要修改/新增的文件代码关键变更\n\
 - 不要假装你已经读取仓库、查看文件、运行命令或完成验证；缺失信息请写入“风险与依赖”或“假设”\n\
 - 如果本次输入附带任务图片，也要把图片内容作为计划依据之一\n\
+- 需要综合附件列表判断上下文；图片附件会额外作为图像输入传入，非图片附件仅能依赖其名称和元信息\n\
 - 必须包含以下标题：# 标题、## 目标与范围、## 实施步骤、## 验收与验证、## 风险与依赖、## 假设\n\
 - “实施步骤”使用 1. 2. 3. 编号，步骤需要可执行、可验证，并吸收已有子任务中的有效信息\n\
 - 结合当前状态、优先级、任务描述和子任务安排顺序，避免空泛表述\n\
@@ -231,7 +260,8 @@ pub(super) fn build_ai_generate_plan_prompt(
 当前状态：{}\n\
 当前优先级：{}\n\
 任务描述：{}\n\
-现有子任务：\n{}",
+现有子任务：\n{}\n\
+附件列表：\n{}",
         task_title.trim(),
         task_status.trim(),
         task_priority.trim(),
@@ -240,7 +270,8 @@ pub(super) fn build_ai_generate_plan_prompt(
         } else {
             task_description.trim()
         },
-        subtasks_block
+        subtasks_block,
+        attachment_block
     )
 }
 

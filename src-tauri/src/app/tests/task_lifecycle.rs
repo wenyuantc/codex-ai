@@ -12,8 +12,10 @@ fn archived_task_rejects_enabling_automation() {
         use_worktree: false,
         assignee_id: None,
         reviewer_id: None,
+        coordinator_id: None,
         complexity: None,
         ai_suggestion: None,
+        plan_content: None,
         automation_mode: None,
         last_codex_session_id: None,
         last_review_session_id: None,
@@ -93,8 +95,10 @@ fn archiving_task_clears_pending_automation_state_and_logs_disable_activity() {
             use_worktree: false,
             assignee_id: None,
             reviewer_id: None,
+            coordinator_id: None,
             complexity: None,
             ai_suggestion: None,
+            plan_content: None,
             automation_mode: Some(TASK_AUTOMATION_MODE_REVIEW_FIX_LOOP_V1.to_string()),
             last_codex_session_id: None,
             last_review_session_id: None,
@@ -186,6 +190,7 @@ fn insert_task_record_persists_reviewer_id() {
         let pool = setup_test_pool().await;
         insert_project(&pool, "proj-1").await;
         insert_employee(&pool, "reviewer-1", "Reviewer", "reviewer").await;
+        insert_employee(&pool, "coordinator-1", "Coordinator", "coordinator").await;
 
         let task = Task {
             id: "task-1".to_string(),
@@ -197,8 +202,10 @@ fn insert_task_record_persists_reviewer_id() {
             use_worktree: false,
             assignee_id: None,
             reviewer_id: Some("reviewer-1".to_string()),
+            coordinator_id: Some("coordinator-1".to_string()),
             complexity: None,
             ai_suggestion: None,
+            plan_content: Some("协调员计划内容".to_string()),
             automation_mode: None,
             last_codex_session_id: None,
             last_review_session_id: None,
@@ -216,6 +223,8 @@ fn insert_task_record_persists_reviewer_id() {
             .await
             .expect("fetch inserted task");
         assert_eq!(saved_task.reviewer_id.as_deref(), Some("reviewer-1"));
+        assert_eq!(saved_task.coordinator_id.as_deref(), Some("coordinator-1"));
+        assert_eq!(saved_task.plan_content.as_deref(), Some("协调员计划内容"));
         assert!(!saved_task.use_worktree);
 
         pool.close().await;

@@ -131,8 +131,10 @@ pub struct Task {
     pub use_worktree: bool,
     pub assignee_id: Option<String>,
     pub reviewer_id: Option<String>,
+    pub coordinator_id: Option<String>,
     pub complexity: Option<i32>,
     pub ai_suggestion: Option<String>,
+    pub plan_content: Option<String>,
     pub automation_mode: Option<String>,
     pub last_codex_session_id: Option<String>,
     pub last_review_session_id: Option<String>,
@@ -699,6 +701,8 @@ pub struct CreateTask {
     pub use_worktree: Option<bool>,
     pub assignee_id: Option<String>,
     pub reviewer_id: Option<String>,
+    pub coordinator_id: Option<String>,
+    pub plan_content: Option<String>,
     pub attachment_source_paths: Option<Vec<String>>,
 }
 
@@ -714,9 +718,13 @@ pub struct UpdateTask {
     #[serde(default, deserialize_with = "deserialize_explicit_nullable")]
     pub reviewer_id: Option<Option<String>>,
     #[serde(default, deserialize_with = "deserialize_explicit_nullable")]
+    pub coordinator_id: Option<Option<String>>,
+    #[serde(default, deserialize_with = "deserialize_explicit_nullable")]
     pub complexity: Option<Option<i32>>,
     #[serde(default, deserialize_with = "deserialize_explicit_nullable")]
     pub ai_suggestion: Option<Option<String>>,
+    #[serde(default, deserialize_with = "deserialize_explicit_nullable")]
+    pub plan_content: Option<Option<String>>,
     #[serde(default, deserialize_with = "deserialize_explicit_nullable")]
     pub last_codex_session_id: Option<Option<String>>,
     #[serde(default, deserialize_with = "deserialize_explicit_nullable")]
@@ -1135,12 +1143,15 @@ mod tests {
 
     #[test]
     fn task_update_keeps_nullable_fields() {
-        let payload: UpdateTask =
-            serde_json::from_str(r#"{"description":null,"assignee_id":null,"complexity":3}"#)
-                .expect("deserialize task update");
+        let payload: UpdateTask = serde_json::from_str(
+            r#"{"description":null,"assignee_id":null,"coordinator_id":null,"plan_content":null,"complexity":3}"#,
+        )
+        .expect("deserialize task update");
 
         assert_eq!(payload.description, Some(None));
         assert_eq!(payload.assignee_id, Some(None));
+        assert_eq!(payload.coordinator_id, Some(None));
+        assert_eq!(payload.plan_content, Some(None));
         assert_eq!(payload.complexity, Some(Some(3)));
     }
 

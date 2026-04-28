@@ -32,6 +32,19 @@ pub(crate) async fn fetch_task_attachments(
     .map_err(|error| format!("Failed to fetch task attachments: {}", error))
 }
 
+pub(crate) async fn fetch_task_subtasks(
+    pool: &SqlitePool,
+    task_id: &str,
+) -> Result<Vec<Subtask>, String> {
+    sqlx::query_as::<_, Subtask>(
+        "SELECT * FROM subtasks WHERE task_id = $1 ORDER BY sort_order, created_at",
+    )
+    .bind(task_id)
+    .fetch_all(pool)
+    .await
+    .map_err(|error| format!("Failed to fetch subtasks: {}", error))
+}
+
 async fn validate_assignee_for_project(
     pool: &SqlitePool,
     assignee_id: Option<&str>,
@@ -62,12 +75,29 @@ pub(crate) async fn validate_reviewer_for_project(
     Ok(())
 }
 
+pub(crate) async fn validate_coordinator_for_project(
+    pool: &SqlitePool,
+    coordinator_id: Option<&str>,
+    _project_id: &str,
+) -> Result<(), String> {
+    let Some(coordinator_id) = coordinator_id else {
+        return Ok(());
+    };
+
+    let coordinator = fetch_employee_by_id(pool, coordinator_id).await?;
+    if coordinator.role != "coordinator" {
+        return Err(format!("员工 {} 不是协调员角色", coordinator.name));
+    }
+
+    Ok(())
+}
+
 pub(crate) async fn insert_task_record(
     tx: &mut sqlx::Transaction<'_, Sqlite>,
     task: &Task,
 ) -> Result<(), String> {
     sqlx::query(
-        "INSERT INTO tasks (id, title, description, status, priority, project_id, use_worktree, assignee_id, reviewer_id, automation_mode, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)",
+        "INSERT INTO tasks (id, title, description, status, priority, project_id, use_worktree, assignee_id, reviewer_id, coordinator_id, ai_suggestion, plan_content, automation_mode, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)",
     )
     .bind(&task.id)
     .bind(&task.title)
@@ -78,6 +108,9 @@ pub(crate) async fn insert_task_record(
     .bind(task.use_worktree)
     .bind(&task.assignee_id)
     .bind(&task.reviewer_id)
+    .bind(&task.coordinator_id)
+    .bind(&task.ai_suggestion)
+    .bind(&task.plan_content)
     .bind(&task.automation_mode)
     .bind(&task.created_at)
     .bind(&task.updated_at)
@@ -86,6 +119,41 @@ pub(crate) async fn insert_task_record(
     .map_err(|error| format!("Failed to create task: {}", error))?;
 
     Ok(())
+}
+
+async fn resolve_employee_activity_label(pool: &SqlitePool, employee_id: Option<&str>) -> String {
+    let Some(employee_id) = employee_id else {
+        return "未指定".to_string();
+    };
+
+    match fetch_employee_by_id(pool, employee_id).await {
+        Ok(employee) => format!("{}（{}）", employee.name, employee.id),
+        Err(_) => employee_id.to_string(),
+    }
+}
+
+fn format_task_coordinator_changed_details(
+    task_title: &str,
+    previous_label: &str,
+    next_label: &str,
+) -> String {
+    format!(
+        "{}（协调员：{} -> {}）",
+        task_title, previous_label, next_label
+    )
+}
+
+fn format_task_plan_saved_details(
+    task_title: &str,
+    coordinator_label: &str,
+    plan_content: &str,
+) -> String {
+    format!(
+        "{}（协调员：{}；计划长度：{} 字）",
+        task_title,
+        coordinator_label,
+        plan_content.chars().count()
+    )
 }
 
 pub(crate) async fn fetch_task_automation_state_record(
@@ -478,6 +546,12 @@ pub async fn create_task<R: Runtime>(
         .await?;
     validate_reviewer_for_project(&pool, payload.reviewer_id.as_deref(), &payload.project_id)
         .await?;
+    validate_coordinator_for_project(
+        &pool,
+        payload.coordinator_id.as_deref(),
+        &payload.project_id,
+    )
+    .await?;
     let project = fetch_project_by_id(&pool, &payload.project_id).await?;
     let settings = resolve_project_task_default_settings(
         &project.project_type,
@@ -510,8 +584,10 @@ pub async fn create_task<R: Runtime>(
         use_worktree: payload.use_worktree.unwrap_or(default_task_use_worktree),
         assignee_id: normalize_optional_text(payload.assignee_id.as_deref()),
         reviewer_id: normalize_optional_text(payload.reviewer_id.as_deref()),
+        coordinator_id: normalize_optional_text(payload.coordinator_id.as_deref()),
         complexity: None,
         ai_suggestion: None,
+        plan_content: normalize_optional_text(payload.plan_content.as_deref()),
         automation_mode,
         last_codex_session_id: None,
         last_review_session_id: None,
@@ -654,6 +730,34 @@ pub async fn create_task<R: Runtime>(
             "task_worktree_enabled",
             &format!("{}（新建任务已开启独立 worktree）", task.title),
             None,
+            Some(&task.id),
+            Some(&task.project_id),
+        )
+        .await?;
+    }
+
+    if task.coordinator_id.is_some() {
+        let coordinator_label =
+            resolve_employee_activity_label(&pool, task.coordinator_id.as_deref()).await;
+        insert_activity_log(
+            &pool,
+            "task_coordinator_changed",
+            &format_task_coordinator_changed_details(&task.title, "未指定", &coordinator_label),
+            task.coordinator_id.as_deref(),
+            Some(&task.id),
+            Some(&task.project_id),
+        )
+        .await?;
+    }
+
+    if let Some(plan_content) = task.plan_content.as_deref() {
+        let coordinator_label =
+            resolve_employee_activity_label(&pool, task.coordinator_id.as_deref()).await;
+        insert_activity_log(
+            &pool,
+            "task_plan_saved",
+            &format_task_plan_saved_details(&task.title, &coordinator_label, plan_content),
+            task.coordinator_id.as_deref(),
             Some(&task.id),
             Some(&task.project_id),
         )
@@ -871,6 +975,31 @@ pub async fn update_task<R: Runtime>(
     if let Some(reviewer_id) = updates.reviewer_id.as_ref() {
         validate_reviewer_for_project(&pool, reviewer_id.as_deref(), &current.project_id).await?;
     }
+    let normalized_coordinator_id = updates.coordinator_id.as_ref().map(|value| {
+        value
+            .as_deref()
+            .and_then(|coordinator_id| normalize_optional_text(Some(coordinator_id)))
+    });
+    if let Some(coordinator_id) = normalized_coordinator_id.as_ref() {
+        validate_coordinator_for_project(&pool, coordinator_id.as_deref(), &current.project_id)
+            .await?;
+    }
+    let normalized_plan_content = updates.plan_content.as_ref().map(|value| {
+        value
+            .as_deref()
+            .and_then(|plan_content| normalize_optional_text(Some(plan_content)))
+    });
+    let coordinator_changed = normalized_coordinator_id
+        .as_ref()
+        .map(|coordinator_id| current.coordinator_id.as_deref() != coordinator_id.as_deref())
+        .unwrap_or(false);
+    let effective_plan_content = if normalized_plan_content.is_some() {
+        normalized_plan_content.clone()
+    } else if coordinator_changed && current.plan_content.is_some() {
+        Some(None)
+    } else {
+        None
+    };
     if is_archiving {
         ensure_task_can_be_archived(&app, &pool, &current).await?;
     }
@@ -915,6 +1044,12 @@ pub async fn update_task<R: Runtime>(
             .push_bind_unseparated(reviewer_id);
         touched = true;
     }
+    if let Some(coordinator_id) = normalized_coordinator_id.clone() {
+        separated
+            .push("coordinator_id = ")
+            .push_bind_unseparated(coordinator_id);
+        touched = true;
+    }
     if let Some(complexity) = updates.complexity {
         separated
             .push("complexity = ")
@@ -925,6 +1060,12 @@ pub async fn update_task<R: Runtime>(
         separated
             .push("ai_suggestion = ")
             .push_bind_unseparated(ai_suggestion);
+        touched = true;
+    }
+    if let Some(plan_content) = effective_plan_content.clone() {
+        separated
+            .push("plan_content = ")
+            .push_bind_unseparated(plan_content);
         touched = true;
     }
     if let Some(last_codex_session_id) = updates.last_codex_session_id {
@@ -961,6 +1102,53 @@ pub async fn update_task<R: Runtime>(
 
     if is_archiving {
         disable_task_automation_for_archived_task(&pool, &current).await?;
+    }
+
+    let next_coordinator_id = normalized_coordinator_id
+        .clone()
+        .unwrap_or_else(|| current.coordinator_id.clone());
+    if let Some(updated_coordinator_id) = normalized_coordinator_id {
+        if current.coordinator_id != updated_coordinator_id {
+            let previous_label =
+                resolve_employee_activity_label(&pool, current.coordinator_id.as_deref()).await;
+            let next_label =
+                resolve_employee_activity_label(&pool, updated_coordinator_id.as_deref()).await;
+            insert_activity_log(
+                &pool,
+                "task_coordinator_changed",
+                &format_task_coordinator_changed_details(
+                    &current.title,
+                    &previous_label,
+                    &next_label,
+                ),
+                updated_coordinator_id.as_deref(),
+                Some(&id),
+                Some(&current.project_id),
+            )
+            .await?;
+        }
+    }
+
+    if let Some(updated_plan_content) = normalized_plan_content {
+        if current.plan_content != updated_plan_content {
+            if let Some(plan_content) = updated_plan_content.as_deref() {
+                let coordinator_label =
+                    resolve_employee_activity_label(&pool, next_coordinator_id.as_deref()).await;
+                insert_activity_log(
+                    &pool,
+                    "task_plan_saved",
+                    &format_task_plan_saved_details(
+                        &current.title,
+                        &coordinator_label,
+                        plan_content,
+                    ),
+                    next_coordinator_id.as_deref(),
+                    Some(&id),
+                    Some(&current.project_id),
+                )
+                .await?;
+            }
+        }
     }
 
     if next_status != current.status {
@@ -1005,8 +1193,10 @@ pub async fn update_task_status<R: Runtime>(
             priority: None,
             assignee_id: None,
             reviewer_id: None,
+            coordinator_id: None,
             complexity: None,
             ai_suggestion: None,
+            plan_content: None,
             last_codex_session_id: None,
             last_review_session_id: None,
         },

@@ -85,6 +85,8 @@ export interface Task {
   use_worktree: boolean;
   assignee_id: string | null;
   reviewer_id: string | null;
+  coordinator_id: string | null;
+  plan_content: string | null;
   complexity: number | null;
   ai_suggestion: string | null;
   automation_mode: TaskAutomationMode | null;

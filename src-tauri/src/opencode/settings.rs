@@ -285,17 +285,13 @@ pub async fn inspect_opencode_sdk_runtime<R: Runtime>(
     let install_dir = Path::new(&settings.sdk_install_dir);
     let sdk_version = read_opencode_sdk_version(install_dir).unwrap_or(None);
     let sdk_installed = sdk_version.is_some() && sdk_bridge_script_path(install_dir).exists();
-    let effective_provider = if opencode_sdk_runtime_ready(
-        settings,
-        node_available,
-        node_supported,
-        sdk_installed,
-    ) {
-        "sdk"
-    } else {
-        "unavailable"
-    }
-    .to_string();
+    let effective_provider =
+        if opencode_sdk_runtime_ready(settings, node_available, node_supported, sdk_installed) {
+            "sdk"
+        } else {
+            "unavailable"
+        }
+        .to_string();
 
     let status_message = if !settings.sdk_enabled {
         "OpenCode SDK 未启用".to_string()

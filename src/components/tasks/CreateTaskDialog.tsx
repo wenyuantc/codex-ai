@@ -54,12 +54,14 @@ export function CreateTaskDialog({
   );
   const [assigneeId, setAssigneeId] = useState("");
   const [reviewerId, setReviewerId] = useState("");
+  const [coordinatorId, setCoordinatorId] = useState("");
   const [attachmentPaths, setAttachmentPaths] = useState<string[]>([]);
   const [createError, setCreateError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [defaultsLoading, setDefaultsLoading] = useState(false);
   const [defaultAutomationEnabled, setDefaultAutomationEnabled] = useState(false);
   const selectedProject = projects.find((project) => project.id === selectedProjectId);
+  const coordinatorCandidates = employees.filter((employee) => employee.role === "coordinator");
   const reviewerCandidates = employees.filter((employee) => employee.role === "reviewer");
 
   useEffect(() => {
@@ -130,6 +132,7 @@ export function CreateTaskDialog({
       setSelectedProjectId(projectId ?? "");
       setAssigneeId("");
       setReviewerId("");
+      setCoordinatorId("");
       setAttachmentPaths([]);
       setCreateError(null);
     }
@@ -207,6 +210,7 @@ export function CreateTaskDialog({
         use_worktree: useWorktree === "true",
         assignee_id: assigneeId || undefined,
         reviewer_id: reviewerId || undefined,
+        coordinator_id: coordinatorId || undefined,
         attachment_source_paths: attachmentPaths,
       }, {
         refreshProjectId: projectId,
@@ -468,6 +472,43 @@ export function CreateTaskDialog({
                 当前已开启“新建任务默认自动质控”，新建任务时需要指定审查员。
               </p>
             )}
+          </div>
+
+          <div>
+            <label className="text-xs font-medium text-muted-foreground">
+              协调员
+            </label>
+            <Select
+              disabled={saving}
+              value={coordinatorId || UNASSIGNED_VALUE}
+              onValueChange={(value) => {
+                setCreateError(null);
+                setCoordinatorId(!value || value === UNASSIGNED_VALUE ? "" : value);
+              }}
+            >
+              <SelectTrigger className="mt-1 bg-background">
+                <SelectValue>
+                  {(value) => {
+                    if (!value || value === UNASSIGNED_VALUE) {
+                      return "未指定";
+                    }
+
+                    const employee = coordinatorCandidates.find((emp) => emp.id === value);
+                    return employee
+                      ? `${employee.name} (${getEmployeeRoleLabel(employee.role)}) · ${employee.ai_provider === "claude" ? "Claude" : employee.ai_provider === "opencode" ? "OpenCode" : "Codex"}`
+                      : "未指定";
+                  }}
+                </SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={UNASSIGNED_VALUE}>未指定</SelectItem>
+                {coordinatorCandidates.map((emp) => (
+                  <SelectItem key={emp.id} value={emp.id}>
+                    {emp.name} ({getEmployeeRoleLabel(emp.role)}) · {emp.ai_provider === "claude" ? "Claude" : emp.ai_provider === "opencode" ? "OpenCode" : "Codex"}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
 
           <div className="space-y-2">

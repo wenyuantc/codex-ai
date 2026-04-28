@@ -232,6 +232,7 @@ export interface CreateTaskInput {
   use_worktree?: boolean;
   assignee_id?: string | null;
   reviewer_id?: string | null;
+  coordinator_id?: string | null;
   attachment_source_paths?: string[];
 }
 
@@ -242,10 +243,22 @@ export interface UpdateTaskInput {
   priority?: string;
   assignee_id?: string | null;
   reviewer_id?: string | null;
+  coordinator_id?: string | null;
+  plan_content?: string | null;
   complexity?: number | null;
   ai_suggestion?: string | null;
   last_codex_session_id?: string | null;
   last_review_session_id?: string | null;
+}
+
+export interface GenerateCoordinatorTaskPlanInput {
+  task_id: string;
+  coordinator_id: string;
+  title: string;
+  description?: string | null;
+  status: string;
+  priority: string;
+  working_dir?: string | null;
 }
 
 export interface SetTaskAutomationModeInput {
@@ -855,6 +868,12 @@ export async function updateTask(id: string, updates: UpdateTaskInput): Promise<
 
 export async function updateTaskStatus(id: string, status: string): Promise<Task> {
   return invoke("update_task_status", { id, status });
+}
+
+export async function aiGenerateCoordinatorTaskPlan(
+  input: GenerateCoordinatorTaskPlanInput,
+): Promise<string> {
+  return invoke("ai_generate_coordinator_task_plan", { payload: input });
 }
 
 export async function deleteTask(id: string): Promise<void> {

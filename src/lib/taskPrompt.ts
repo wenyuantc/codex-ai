@@ -12,6 +12,7 @@ const SUBTASK_STATUS_LABELS: Record<string, string> = {
 interface BuildTaskExecutionPromptOptions {
   title: string;
   description?: string | null;
+  planContent?: string | null;
   subtasks?: Subtask[];
   attachments?: TaskAttachment[];
   followUpPrompt?: string;
@@ -25,20 +26,24 @@ export interface TaskExecutionInput {
 export function buildTaskExecutionInput({
   title,
   description,
+  planContent,
   subtasks = [],
   attachments = [],
   followUpPrompt,
 }: BuildTaskExecutionPromptOptions): TaskExecutionInput {
-  const sections = [`任务标题:\n${title.trim()}`];
+  const trimmedPlan = planContent?.trim();
+  const sections = trimmedPlan
+    ? [`执行计划:\n${trimmedPlan}`]
+    : [`任务标题:\n${title.trim()}`];
   const trimmedDescription = description?.trim();
   const trimmedFollowUpPrompt = followUpPrompt?.trim();
   const validAttachments = attachments.filter((attachment) => attachment.stored_path.trim().length > 0);
 
-  if (trimmedDescription) {
+  if (!trimmedPlan && trimmedDescription) {
     sections.push(`任务描述:\n${trimmedDescription}`);
   }
 
-  if (subtasks.length > 0) {
+  if (!trimmedPlan && subtasks.length > 0) {
     const subtaskLines = subtasks.map((subtask, index) => {
       const statusLabel = SUBTASK_STATUS_LABELS[subtask.status] ?? subtask.status;
       return `${index + 1}. [${statusLabel}] ${subtask.title}`;

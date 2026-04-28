@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
@@ -9,6 +9,7 @@ import type {
   TaskGitContext,
 } from "@/lib/types";
 import {
+  aiGenerateCoordinatorTaskPlan,
   getTaskGitCommitOverview,
   stageAllTaskGitFiles,
 } from "@/lib/backend";
@@ -42,6 +43,7 @@ import { TaskDetailDialog } from "./TaskDetailDialog";
 import { DeleteTaskDialog } from "./DeleteTaskDialog";
 import { DeleteTaskWorktreeDialog } from "./DeleteTaskWorktreeDialog";
 import { TaskGitCommitDialog } from "./TaskGitCommitDialog";
+import { CoordinatorPlanDialog } from "./CoordinatorPlanDialog";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { ProjectGitActionDialog } from "@/components/projects/ProjectGitActionDialog";
 import { useProjectStore } from "@/stores/projectStore";
@@ -128,7 +130,14 @@ export function TaskCard({
   const [deleting, setDeleting] = useState(false);
   const [automationSubmitting, setAutomationSubmitting] = useState(false);
   const [automationRestarting, setAutomationRestarting] = useState(false);
+  const [coordinatorPlanDialogOpen, setCoordinatorPlanDialogOpen] = useState(false);
+  const [coordinatorPlanDraft, setCoordinatorPlanDraft] = useState("");
+  const [coordinatorPlanLoading, setCoordinatorPlanLoading] = useState(false);
+  const [coordinatorPlanSaving, setCoordinatorPlanSaving] = useState(false);
+  const [coordinatorPlanExecuting, setCoordinatorPlanExecuting] = useState(false);
+  const [coordinatorPlanError, setCoordinatorPlanError] = useState<string | null>(null);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
+  const executionStartErrorRef = useRef<string | null>(null);
   const projects = useProjectStore((s) => s.projects);
   const employees = useEmployeeStore((s) => s.employees);
   const project = projects.find((p) => p.id === task.project_id);
@@ -141,9 +150,11 @@ export function TaskCard({
   const setTaskAutomationMode = useTaskStore((s) => s.setTaskAutomationMode);
   const restartTaskAutomation = useTaskStore((s) => s.restartTaskAutomation);
   const deleteTask = useTaskStore((s) => s.deleteTask);
+  const updateTask = useTaskStore((s) => s.updateTask);
   const updateTaskStatus = useTaskStore((s) => s.updateTaskStatus);
   const assignee = task.assignee_id ? employees.find((employee) => employee.id === task.assignee_id) : undefined;
   const reviewer = task.reviewer_id ? employees.find((employee) => employee.id === task.reviewer_id) : undefined;
+  const coordinator = task.coordinator_id ? employees.find((employee) => employee.id === task.coordinator_id) : undefined;
   const automationState = getTaskAutomationDisplayState(task, persistedAutomationState ?? null);
   const executionActions = useTaskExecutionActions({
     task,
@@ -151,11 +162,12 @@ export function TaskCard({
     assignee,
     projectRepoPath,
     projectType: project?.project_type,
-    prepareExecutionInput: async (followUpPrompt) => {
+    prepareExecutionInput: async (followUpPrompt, options) => {
       await Promise.all([fetchSubtasks(task.id), fetchAttachments(task.id)]);
       const executionInput = buildTaskExecutionInput({
         title: task.title,
         description: task.description,
+        planContent: options?.planContent,
         subtasks: useTaskStore.getState().subtasks[task.id] ?? [],
         attachments: useTaskStore.getState().attachments[task.id] ?? [],
         followUpPrompt,
@@ -172,6 +184,10 @@ export function TaskCard({
       if (action === "continue") {
         setShowContinueDialog(false);
       }
+    },
+    onError: (message) => {
+      executionStartErrorRef.current = message;
+      setCoordinatorPlanError(message);
     },
   });
   const reviewActions = useTaskReviewActions({
@@ -298,6 +314,11 @@ export function TaskCard({
   const handleRun = async (e?: React.MouseEvent) => {
     e?.stopPropagation();
     setContextMenu(null);
+    if (task.coordinator_id) {
+      await openCoordinatorPlanFlow();
+      return;
+    }
+
     onOpenLog?.(task.id, "execution");
     await executionActions.runTask();
   };
@@ -392,6 +413,89 @@ export function TaskCard({
   const handleContinueConversation = async (prompt: string) => {
     if (!task.last_codex_session_id) return;
     await executionActions.continueTask(prompt);
+  };
+
+  const generateCoordinatorPlan = async () => {
+    if (!task.coordinator_id) {
+      setCoordinatorPlanError("请先指定协调员。");
+      return;
+    }
+
+    setCoordinatorPlanLoading(true);
+    setCoordinatorPlanError(null);
+    try {
+      const plan = await aiGenerateCoordinatorTaskPlan({
+        task_id: task.id,
+        coordinator_id: task.coordinator_id,
+        title: task.title,
+        description: task.description,
+        status: task.status,
+        priority: task.priority,
+        working_dir: projectRepoPath ?? null,
+      });
+      const trimmedPlan = plan.trim();
+      if (!trimmedPlan) {
+        setCoordinatorPlanError("协调员未返回可用计划。");
+        return;
+      }
+      setCoordinatorPlanDraft(trimmedPlan);
+    } catch (error) {
+      setCoordinatorPlanError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setCoordinatorPlanLoading(false);
+    }
+  };
+
+  const openCoordinatorPlanFlow = async () => {
+    setCoordinatorPlanError(null);
+    setCoordinatorPlanDraft(task.plan_content?.trim() ?? "");
+    setCoordinatorPlanDialogOpen(true);
+    if (!task.plan_content?.trim()) {
+      await generateCoordinatorPlan();
+    }
+  };
+
+  const handleSaveCoordinatorPlan = async () => {
+    const plan = coordinatorPlanDraft.trim();
+    if (!plan) {
+      setCoordinatorPlanError("计划内容不能为空。");
+      return;
+    }
+
+    setCoordinatorPlanSaving(true);
+    setCoordinatorPlanError(null);
+    try {
+      await updateTask(task.id, { plan_content: plan });
+    } catch (error) {
+      setCoordinatorPlanError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setCoordinatorPlanSaving(false);
+    }
+  };
+
+  const handleExecuteCoordinatorPlan = async () => {
+    const plan = coordinatorPlanDraft.trim();
+    if (!plan) {
+      setCoordinatorPlanError("计划内容不能为空。");
+      return;
+    }
+    if (!task.assignee_id) {
+      setCoordinatorPlanError("请先指定执行员工，再执行计划。");
+      return;
+    }
+
+    setCoordinatorPlanExecuting(true);
+    setCoordinatorPlanError(null);
+    executionStartErrorRef.current = null;
+    try {
+      onOpenLog?.(task.id, "execution");
+      await executionActions.runTask(plan);
+      if (!executionStartErrorRef.current) {
+        setCoordinatorPlanDialogOpen(false);
+      }
+    } finally {
+      setCoordinatorPlanExecuting(false);
+    }
   };
 
   const openMergeDialog = () => {
@@ -840,6 +944,23 @@ export function TaskCard({
           submitting={executionActions.loading === "continue"}
           onOpenChange={setShowContinueDialog}
           onConfirm={handleContinueConversation}
+        />
+      )}
+      {!isOverlay && (
+        <CoordinatorPlanDialog
+          open={coordinatorPlanDialogOpen}
+          coordinatorName={coordinator?.name}
+          plan={coordinatorPlanDraft}
+          loading={coordinatorPlanLoading}
+          saving={coordinatorPlanSaving}
+          executing={coordinatorPlanExecuting}
+          error={coordinatorPlanError ?? (!task.assignee_id ? "请先指定执行员工，再执行计划。" : null)}
+          canExecute={Boolean(task.assignee_id)}
+          onOpenChange={setCoordinatorPlanDialogOpen}
+          onPlanChange={setCoordinatorPlanDraft}
+          onExecute={() => void handleExecuteCoordinatorPlan()}
+          onRegenerate={() => void generateCoordinatorPlan()}
+          onSave={() => void handleSaveCoordinatorPlan()}
         />
       )}
       {!isOverlay && showDeleteDialog && (

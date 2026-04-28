@@ -16,13 +16,17 @@ interface PreparedExecutionInput {
   resumeSessionId?: string;
 }
 
+interface PrepareExecutionInputOptions {
+  planContent?: string;
+}
+
 interface UseTaskExecutionActionsOptions {
   task: Task;
   assigneeId?: string | null;
   assignee?: Employee;
   projectRepoPath?: string | null;
   projectType?: ProjectType;
-  prepareExecutionInput: (followUpPrompt?: string) => Promise<PreparedExecutionInput>;
+  prepareExecutionInput: (followUpPrompt?: string, options?: PrepareExecutionInputOptions) => Promise<PreparedExecutionInput>;
   clearTaskOutputOnRun?: boolean;
   clearTaskOutputOnContinue?: boolean;
   onStarted?: (action: Exclude<TaskExecutionAction, "stop">) => void;
@@ -72,8 +76,13 @@ export function useTaskExecutionActions({
     onError?.(message, action);
   };
 
-  const startExecution = async (action: "run" | "continue", followUpPrompt?: string) => {
+  const startExecution = async (
+    action: "run" | "continue",
+    followUpPrompt?: string,
+    options?: PrepareExecutionInputOptions,
+  ) => {
     if (!assigneeId) {
+      await handleExecutionError(new Error("请先指定执行员工，再执行任务。"), action);
       return;
     }
     if (task.status === "archived") {
@@ -89,7 +98,7 @@ export function useTaskExecutionActions({
         clearTaskCodexOutput(task.id);
       }
 
-      const executionInput = await prepareExecutionInput(followUpPrompt);
+      const executionInput = await prepareExecutionInput(followUpPrompt, options);
       let workingDir = projectRepoPath ?? undefined;
       let taskGitContextId: string | undefined;
 
@@ -142,8 +151,8 @@ export function useTaskExecutionActions({
     }
   };
 
-  const runTask = async () => {
-    await startExecution("run");
+  const runTask = async (planContent?: string) => {
+    await startExecution("run", undefined, { planContent });
   };
 
   const continueTask = async (followUpPrompt: string) => {
