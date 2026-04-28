@@ -911,6 +911,32 @@ pub fn get_all_migrations() -> Vec<Migration> {
             "#,
             kind: tauri_plugin_sql::MigrationKind::Up,
         },
+        Migration {
+            version: 35,
+            description: "enhance default employee system prompts",
+            sql: r#"
+                UPDATE employees
+                SET system_prompt = '你是负责实际交付的开发员工。执行任务前先阅读仓库说明、相关代码和现有实现，复用项目已有模式与工具，保持改动小而可回滚。实现时特别注意数据库变更必须包含迁移脚本，时间展示走 formatDate()，新增功能补充最近活动日志并让仪表盘 key 显示中文，兼容本地与 SSH 项目，大文本编辑和预览使用 Monaco 编辑器。完成后运行必要的 lint、构建、测试或说明未验证风险。'
+                WHERE id = 'seed-emp-1'
+                  AND system_prompt = '你是一个专业的代码开发AI助手';
+
+                UPDATE employees
+                SET system_prompt = '你是严格的代码审查员工。按严重程度优先指出行为回归、数据安全/迁移风险、SSH 兼容性、任务自动化链路风险、缺失测试和可维护性问题。每条意见应给出具体文件与行号、触发条件、用户影响和建议修复；没有阻断问题时也要说明剩余风险与验证缺口。'
+                WHERE id = 'seed-emp-2'
+                  AND system_prompt = '你是一个代码审查专家';
+
+                UPDATE employees
+                SET system_prompt = '你是以验收为导向的测试员工。从任务目标和现有行为出发设计验证场景，覆盖正常流程、边界输入、失败恢复、数据库迁移、SSH 项目兼容性、最近活动日志、时间格式和 UI 可用性。优先选择能证明风险已关闭的自动化测试、构建检查和手工烟测，并清楚记录已测项、未测项与失败证据。'
+                WHERE id = 'seed-emp-3'
+                  AND system_prompt = '你是一个测试工程师';
+
+                UPDATE employees
+                SET system_prompt = '你是协调任务落地的项目员工。先澄清目标、范围、依赖和验收标准，再把工作拆成可执行步骤，标明负责人角色、顺序、共享文件风险和验证要求。推进过程中保持开发、审查、测试闭环，发现阻塞时给出替代路径，交付时汇总完成内容、证据和剩余风险。'
+                WHERE id = 'seed-emp-4'
+                  AND system_prompt = '你是一个项目协调员';
+            "#,
+            kind: tauri_plugin_sql::MigrationKind::Up,
+        },
     ]
 }
 
@@ -928,11 +954,19 @@ mod tests {
     use super::{get_all_migrations, latest_migration_version};
 
     async fn setup_test_pool() -> SqlitePool {
+        setup_test_pool_through(latest_migration_version()).await
+    }
+
+    async fn setup_test_pool_through(max_version: i64) -> SqlitePool {
         let pool = SqlitePool::connect("sqlite::memory:")
             .await
             .expect("create sqlite memory pool");
 
         for migration in get_all_migrations() {
+            if migration.version > max_version {
+                continue;
+            }
+
             sqlx::raw_sql(migration.sql)
                 .execute(&pool)
                 .await
@@ -943,8 +977,67 @@ mod tests {
     }
 
     #[test]
-    fn latest_migration_version_includes_archived_task_index() {
-        assert_eq!(latest_migration_version(), 34);
+    fn latest_migration_version_includes_default_employee_prompt_enhancement() {
+        assert_eq!(latest_migration_version(), 35);
+    }
+
+    #[test]
+    fn migration_versions_are_contiguous() {
+        for (index, migration) in get_all_migrations().iter().enumerate() {
+            assert_eq!(migration.version, index as i64 + 1);
+        }
+    }
+
+    #[test]
+    fn migration_enhances_only_unchanged_default_employee_prompts() {
+        tauri::async_runtime::block_on(async {
+            let pool = setup_test_pool_through(34).await;
+
+            sqlx::query(
+                r#"
+                UPDATE employees
+                SET system_prompt = CASE id
+                    WHEN 'seed-emp-1' THEN '你是一个专业的代码开发AI助手'
+                    WHEN 'seed-emp-2' THEN '保留我的自定义审查提示词'
+                    WHEN 'seed-emp-3' THEN '你是一个测试工程师'
+                    WHEN 'seed-emp-4' THEN '你是一个项目协调员'
+                END
+                WHERE id IN ('seed-emp-1', 'seed-emp-2', 'seed-emp-3', 'seed-emp-4')
+                "#,
+            )
+            .execute(&pool)
+            .await
+            .expect("prepare old default employee prompts");
+
+            let migration = get_all_migrations()
+                .into_iter()
+                .find(|migration| migration.version == 35)
+                .expect("find migration 35");
+            sqlx::raw_sql(migration.sql)
+                .execute(&pool)
+                .await
+                .expect("run migration 35");
+
+            let prompts = sqlx::query(
+                "SELECT id, system_prompt FROM employees WHERE id IN ('seed-emp-1', 'seed-emp-2', 'seed-emp-3', 'seed-emp-4')",
+            )
+            .fetch_all(&pool)
+            .await
+            .expect("fetch employee prompts")
+            .into_iter()
+            .map(|row| {
+                (
+                    row.get::<String, _>("id"),
+                    row.get::<String, _>("system_prompt"),
+                )
+            })
+            .collect::<std::collections::HashMap<_, _>>();
+
+            assert!(prompts["seed-emp-1"].contains("负责实际交付的开发员工"));
+            assert_eq!(prompts["seed-emp-2"], "保留我的自定义审查提示词");
+            assert!(prompts["seed-emp-3"].contains("以验收为导向的测试员工"));
+            assert!(prompts["seed-emp-4"].contains("协调任务落地的项目员工"));
+        });
     }
 
     #[test]
