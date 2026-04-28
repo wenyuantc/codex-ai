@@ -50,6 +50,7 @@ const NO_REVIEWABLE_CODE_CHANGES_MESSAGE: &str =
     "执行完成但没有产生可审核的代码改动，自动质控无法进入审核，需人工补充任务或重新执行";
 const WORKTREE_DISABLED_AUTO_COMMIT_SKIPPED_MESSAGE: &str =
     "审核已通过，任务未启用 Worktree，已跳过自动提交代码";
+const ORPHANED_RUNNING_SESSION_MESSAGE: &str = "应用启动时发现会话上次未正常收尾，已标记为失败";
 
 #[derive(Clone, Debug)]
 struct SessionExitFacts {
