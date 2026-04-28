@@ -44,6 +44,8 @@ const PENDING_ACTION_START_FIX: &str = "start_fix";
 const SESSION_EVENT_AUTOMATION_RESTART_REQUESTED: &str = "automation_restart_requested";
 const NO_REVIEWABLE_CODE_CHANGES_MESSAGE: &str =
     "执行完成但没有产生可审核的代码改动，自动质控无法进入审核，需人工补充任务或重新执行";
+const WORKTREE_DISABLED_AUTO_COMMIT_SKIPPED_MESSAGE: &str =
+    "审核已通过，任务未启用 Worktree，已跳过自动提交代码";
 
 #[derive(Clone, Debug)]
 struct SessionExitFacts {
@@ -119,6 +121,10 @@ fn load_task_automation_policy(app: &AppHandle) -> TaskAutomationPolicy {
 fn task_automation_enabled(task: &Task) -> bool {
     task.status != TASK_STATUS_ARCHIVED
         && task.automation_mode.as_deref() == Some(AUTOMATION_MODE_REVIEW_FIX_LOOP_V1)
+}
+
+fn should_auto_commit_task_worktree(task: &Task) -> bool {
+    task.use_worktree
 }
 
 fn is_no_reviewable_code_changes_error(error: &str) -> bool {
@@ -517,29 +523,42 @@ async fn handle_review_exit(
         .map_err(|error| format!("Failed to serialize review verdict: {}", error))?;
 
     if verdict.passed {
-        update_task_status_internal(app, pool, task, "completed").await?;
-        upsert_state_terminal(
+        if should_auto_commit_task_worktree(task) {
+            update_task_status_internal(app, pool, task, "completed").await?;
+            upsert_state_terminal(
+                pool,
+                &task.id,
+                Some(&facts.session_id),
+                PHASE_COMMITTING_CODE,
+                Some(&verdict_json),
+                None,
+                None,
+                state_record,
+            )
+            .await?;
+            insert_activity_log(
+                pool,
+                "task_automation_commit_started",
+                "审核已通过，正在自动提交代码",
+                facts.employee_id.as_deref(),
+                Some(task.id.as_str()),
+                Some(task.project_id.as_str()),
+            )
+            .await?;
+            emit_task_automation_state_changed(app, task, PHASE_COMMITTING_CODE);
+            return retry_pending_commit(app, pool, task, facts.employee_id.as_deref()).await;
+        }
+
+        return complete_automation_without_auto_commit(
+            app,
             pool,
-            &task.id,
+            task,
             Some(&facts.session_id),
-            PHASE_COMMITTING_CODE,
             Some(&verdict_json),
-            None,
-            None,
+            facts.employee_id.as_deref(),
             state_record,
         )
-        .await?;
-        insert_activity_log(
-            pool,
-            "task_automation_commit_started",
-            "审核已通过，正在自动提交代码",
-            facts.employee_id.as_deref(),
-            Some(task.id.as_str()),
-            Some(task.project_id.as_str()),
-        )
-        .await?;
-        emit_task_automation_state_changed(app, task, PHASE_COMMITTING_CODE);
-        return retry_pending_commit(app, pool, task, facts.employee_id.as_deref()).await;
+        .await;
     }
 
     let policy = load_task_automation_policy(app);
@@ -596,8 +615,8 @@ async fn handle_review_exit(
     Ok(())
 }
 
-async fn retry_pending_commit(
-    app: &AppHandle,
+async fn retry_pending_commit<R: Runtime>(
+    app: &AppHandle<R>,
     pool: &SqlitePool,
     task: &Task,
     employee_id: Option<&str>,
@@ -605,6 +624,20 @@ async fn retry_pending_commit(
     let state_record = fetch_task_automation_state_record(pool, &task.id)
         .await?
         .ok_or_else(|| "自动质控状态不存在，无法继续自动提交".to_string())?;
+
+    if !should_auto_commit_task_worktree(task) {
+        return complete_automation_without_auto_commit(
+            app,
+            pool,
+            task,
+            state_record.consumed_session_id.as_deref(),
+            state_record.last_verdict_json.as_deref(),
+            employee_id,
+            Some(&state_record),
+        )
+        .await;
+    }
+
     let verdict_summary = state_record
         .last_verdict_json
         .as_deref()
@@ -678,6 +711,60 @@ async fn retry_pending_commit(
             Ok(())
         }
     }
+}
+
+async fn complete_automation_without_auto_commit<R: Runtime>(
+    app: &AppHandle<R>,
+    pool: &SqlitePool,
+    task: &Task,
+    consumed_session_id: Option<&str>,
+    last_verdict_json: Option<&str>,
+    employee_id: Option<&str>,
+    state_record: Option<&TaskAutomationStateRecord>,
+) -> Result<(), String> {
+    update_task_status_internal(app, pool, task, "completed").await?;
+    record_automation_completed_without_auto_commit(
+        pool,
+        task,
+        consumed_session_id,
+        last_verdict_json,
+        employee_id,
+        state_record,
+    )
+    .await?;
+    emit_task_automation_state_changed(app, task, PHASE_COMPLETED);
+    Ok(())
+}
+
+async fn record_automation_completed_without_auto_commit(
+    pool: &SqlitePool,
+    task: &Task,
+    consumed_session_id: Option<&str>,
+    last_verdict_json: Option<&str>,
+    employee_id: Option<&str>,
+    state_record: Option<&TaskAutomationStateRecord>,
+) -> Result<(), String> {
+    upsert_state_terminal(
+        pool,
+        &task.id,
+        consumed_session_id,
+        PHASE_COMPLETED,
+        last_verdict_json,
+        None,
+        None,
+        state_record,
+    )
+    .await?;
+    insert_activity_log(
+        pool,
+        "task_automation_completed",
+        WORKTREE_DISABLED_AUTO_COMMIT_SKIPPED_MESSAGE,
+        employee_id,
+        Some(task.id.as_str()),
+        Some(task.project_id.as_str()),
+    )
+    .await?;
+    Ok(())
 }
 
 async fn retry_pending_review(
@@ -2048,10 +2135,11 @@ mod automation_guard_tests {
     use sqlx::SqlitePool;
 
     use super::{
-        fetch_pending_automation_task_ids, resolve_restart_target,
-        validate_task_automation_restart, AutomationRestartTarget,
-        AUTOMATION_MODE_REVIEW_FIX_LOOP_V1, PHASE_BLOCKED, PHASE_MANUAL_CONTROL,
-        PHASE_REVIEW_LAUNCH_FAILED,
+        fetch_pending_automation_task_ids, record_automation_completed_without_auto_commit,
+        resolve_restart_target, should_auto_commit_task_worktree, validate_task_automation_restart,
+        AutomationRestartTarget, AUTOMATION_MODE_REVIEW_FIX_LOOP_V1, PHASE_BLOCKED,
+        PHASE_COMMITTING_CODE, PHASE_COMMIT_FAILED, PHASE_COMPLETED, PHASE_MANUAL_CONTROL,
+        PHASE_REVIEW_LAUNCH_FAILED, WORKTREE_DISABLED_AUTO_COMMIT_SKIPPED_MESSAGE,
     };
     use crate::app::{build_current_migrator, TASK_STATUS_ARCHIVED};
     use crate::db::models::{Task, TaskAutomationStateRecord};
@@ -2141,6 +2229,39 @@ mod automation_guard_tests {
         .expect("insert task");
     }
 
+    async fn insert_automation_state(
+        pool: &SqlitePool,
+        task: &Task,
+        phase: &str,
+        last_error: Option<&str>,
+    ) {
+        sqlx::query(
+            r#"
+            INSERT INTO task_automation_state (
+                task_id,
+                phase,
+                round_count,
+                consumed_session_id,
+                last_trigger_session_id,
+                pending_action,
+                pending_round_count,
+                last_error,
+                last_verdict_json,
+                updated_at
+            ) VALUES ($1, $2, 0, 'session-review', 'session-review', NULL, NULL, $3, $4, '2026-04-21 00:00:02')
+            "#,
+        )
+        .bind(&task.id)
+        .bind(phase)
+        .bind(last_error)
+        .bind(
+            r#"{"passed":true,"needs_human":false,"blocking_issue_count":0,"summary":"审核通过。"}"#,
+        )
+        .execute(pool)
+        .await
+        .expect("insert automation state");
+    }
+
     async fn insert_session(
         pool: &SqlitePool,
         session_id: &str,
@@ -2190,6 +2311,124 @@ mod automation_guard_tests {
         .execute(pool)
         .await
         .expect("insert session event");
+    }
+
+    #[test]
+    fn worktree_disabled_tasks_do_not_auto_commit_after_passed_review() {
+        let mut task = build_task("task-no-worktree", "review");
+        assert!(!should_auto_commit_task_worktree(&task));
+
+        task.use_worktree = true;
+        assert!(should_auto_commit_task_worktree(&task));
+    }
+
+    #[test]
+    fn worktree_disabled_completion_marks_automation_completed_without_commit_phase() {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("build tokio runtime");
+
+        runtime.block_on(async {
+            let pool = setup_test_pool().await;
+            insert_project(&pool).await;
+            let task = build_task("task-review-passed", "review");
+            insert_task(&pool, &task).await;
+            insert_automation_state(&pool, &task, PHASE_REVIEW_LAUNCH_FAILED, None).await;
+
+            record_automation_completed_without_auto_commit(
+                &pool,
+                &task,
+                Some("session-review"),
+                Some(
+                    r#"{"passed":true,"needs_human":false,"blocking_issue_count":0,"summary":"审核通过。"}"#,
+                ),
+                None,
+                None,
+            )
+            .await
+            .expect("record automation completion without auto commit");
+
+            let (phase, last_error): (String, Option<String>) = sqlx::query_as(
+                "SELECT phase, last_error FROM task_automation_state WHERE task_id = $1",
+            )
+            .bind(&task.id)
+            .fetch_one(&pool)
+            .await
+            .expect("fetch automation state");
+            assert_eq!(phase, PHASE_COMPLETED);
+            assert!(last_error.is_none());
+
+            let completed_detail: Option<String> = sqlx::query_scalar(
+                "SELECT details FROM activity_logs WHERE task_id = $1 AND action = 'task_automation_completed' ORDER BY created_at DESC LIMIT 1",
+            )
+            .bind(&task.id)
+            .fetch_one(&pool)
+            .await
+            .expect("fetch completion activity");
+            assert_eq!(
+                completed_detail.as_deref(),
+                Some(WORKTREE_DISABLED_AUTO_COMMIT_SKIPPED_MESSAGE)
+            );
+
+            pool.close().await;
+        });
+    }
+
+    #[test]
+    fn pending_commit_for_worktree_disabled_task_completes_without_git_context() {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("build tokio runtime");
+
+        runtime.block_on(async {
+            let pool = setup_test_pool().await;
+            insert_project(&pool).await;
+
+            for (task_id, initial_phase, last_error) in [
+                ("task-pending-commit", PHASE_COMMITTING_CODE, None),
+                ("task-failed-commit", PHASE_COMMIT_FAILED, Some("缺少 Git worktree")),
+            ] {
+                let task = build_task(task_id, "review");
+                insert_task(&pool, &task).await;
+                insert_automation_state(&pool, &task, initial_phase, last_error).await;
+
+                let result = record_automation_completed_without_auto_commit(
+                    &pool,
+                    &task,
+                    Some("session-review"),
+                    Some(
+                        r#"{"passed":true,"needs_human":false,"blocking_issue_count":0,"summary":"审核通过。"}"#,
+                    ),
+                    None,
+                    None,
+                )
+                .await;
+                result.expect("pending commit should complete non-worktree tasks");
+
+                let (phase, last_error): (String, Option<String>) = sqlx::query_as(
+                    "SELECT phase, last_error FROM task_automation_state WHERE task_id = $1",
+                )
+                .bind(&task.id)
+                .fetch_one(&pool)
+                .await
+                .expect("fetch automation state");
+                assert_eq!(phase, PHASE_COMPLETED);
+                assert!(last_error.is_none());
+
+                let commit_failed_count: i64 = sqlx::query_scalar(
+                    "SELECT COUNT(*) FROM activity_logs WHERE task_id = $1 AND action = 'task_automation_commit_failed'",
+                )
+                .bind(&task.id)
+                .fetch_one(&pool)
+                .await
+                .expect("count commit failed logs");
+                assert_eq!(commit_failed_count, 0);
+            }
+
+            pool.close().await;
+        });
     }
 
     #[test]
