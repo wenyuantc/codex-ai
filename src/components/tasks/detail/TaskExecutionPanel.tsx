@@ -76,7 +76,7 @@ export function TaskExecutionPanel({
               className="flex items-center gap-1 px-2 py-1 text-xs bg-green-600 text-white rounded hover:bg-green-700 transition-colors disabled:opacity-50"
             >
               {codexLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : <Play className="h-3 w-3" />}
-              运行 Codex
+              运行
             </button>
           )
         ) : (
@@ -120,7 +120,7 @@ export function TaskExecutionPanel({
       )}
 
       <TaskFileChangeHistoryPanel
-        title="Codex 改动文件"
+        title="改动文件"
         description="SDK 会话按 Codex 事件精确记录；CLI 会话仅在无法获取结构化事件时回退为 Git 快照估算。"
         history={executionChangeHistory}
         loading={executionChangeHistoryLoading}
