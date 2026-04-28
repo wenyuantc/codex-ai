@@ -1006,6 +1006,7 @@ export function SettingsPage() {
             worktreeLocationMode={worktreeLocationMode}
             worktreeCustomRoot={worktreeCustomRoot}
             aiCommitMessageLength={aiCommitMessageLength}
+            aiCommitModelSource={aiCommitModelSource}
             gitAiProvider={gitAiProvider}
             aiCommitModel={aiCommitModel}
             aiCommitReasoningEffort={aiCommitReasoningEffort}
@@ -1018,6 +1019,7 @@ export function SettingsPage() {
             onWorktreeLocationModeChange={setWorktreeLocationMode}
             onWorktreeCustomRootChange={setWorktreeCustomRoot}
             onAiCommitMessageLengthChange={setAiCommitMessageLength}
+            onAiCommitModelSourceChange={setAiCommitModelSource}
             onGitAiProviderChange={(provider) => {
               setGitAiProvider(provider);
               setAiCommitModel((current) => normalizeModelForProvider(provider, current));

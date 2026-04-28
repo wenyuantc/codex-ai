@@ -69,6 +69,15 @@ fn normalize_one_shot_reasoning_for_provider(provider: &str, value: Option<&str>
     }
 }
 
+fn normalize_one_shot_provider_for_target(value: Option<&str>, execution_target: &str) -> String {
+    match value.map(str::trim) {
+        Some("claude") => "claude".to_string(),
+        Some("opencode") if execution_target != EXECUTION_TARGET_SSH => "opencode".to_string(),
+        Some("codex") => "codex".to_string(),
+        _ => "codex".to_string(),
+    }
+}
+
 async fn run_ai_command_via_exec(
     prompt: String,
     model: &str,
@@ -647,6 +656,7 @@ pub(super) async fn run_ai_command<R: Runtime>(
     task_id: Option<String>,
     project_id: Option<String>,
     working_dir: Option<String>,
+    provider_override: Option<String>,
     model_override: Option<String>,
     reasoning_effort_override: Option<String>,
 ) -> Result<String, String> {
@@ -709,6 +719,15 @@ pub(super) async fn run_ai_command<R: Runtime>(
         one_shot_sdk_enabled = settings.one_shot_sdk_enabled;
     }
 
+    if let Some(provider_override) = provider_override.as_deref() {
+        one_shot_provider = normalize_one_shot_provider_for_target(
+            Some(provider_override),
+            execution_context.execution_target.as_str(),
+        );
+        one_shot_model = normalize_one_shot_model_for_provider(&one_shot_provider, None);
+        one_shot_reasoning_effort =
+            normalize_one_shot_reasoning_for_provider(&one_shot_provider, None);
+    }
     if let Some(model_override) = model_override.as_deref() {
         one_shot_model =
             normalize_one_shot_model_for_provider(&one_shot_provider, Some(model_override));

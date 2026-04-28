@@ -133,26 +133,41 @@ fn format_ai_optimize_prompt_activity_details(
     )
 }
 
-fn resolve_commit_message_activity_model_and_reasoning(
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct CommitMessageAiSelection {
+    provider_override: Option<String>,
+    model_override: Option<String>,
+    reasoning_override: Option<String>,
+    effective_provider: String,
+    effective_model: String,
+    effective_reasoning_effort: String,
+}
+
+fn resolve_commit_message_ai_selection(
     settings: &crate::db::models::CodexSettings,
-) -> (Option<String>, Option<String>, String, String, String) {
-    let provider = settings.one_shot_preferred_provider.clone();
+) -> CommitMessageAiSelection {
     if settings.git_preferences.ai_commit_model_source == "custom" {
-        (
-            Some(settings.git_preferences.ai_commit_model.clone()),
-            Some(settings.git_preferences.ai_commit_reasoning_effort.clone()),
-            settings.git_preferences.ai_commit_model.clone(),
-            settings.git_preferences.ai_commit_reasoning_effort.clone(),
-            provider,
-        )
+        let provider = settings
+            .git_preferences
+            .ai_commit_preferred_provider
+            .clone();
+        CommitMessageAiSelection {
+            provider_override: Some(provider.clone()),
+            model_override: Some(settings.git_preferences.ai_commit_model.clone()),
+            reasoning_override: Some(settings.git_preferences.ai_commit_reasoning_effort.clone()),
+            effective_provider: provider,
+            effective_model: settings.git_preferences.ai_commit_model.clone(),
+            effective_reasoning_effort: settings.git_preferences.ai_commit_reasoning_effort.clone(),
+        }
     } else {
-        (
-            None,
-            None,
-            settings.one_shot_model.clone(),
-            settings.one_shot_reasoning_effort.clone(),
-            provider,
-        )
+        CommitMessageAiSelection {
+            provider_override: None,
+            model_override: None,
+            reasoning_override: None,
+            effective_provider: settings.one_shot_preferred_provider.clone(),
+            effective_model: settings.one_shot_model.clone(),
+            effective_reasoning_effort: settings.one_shot_reasoning_effort.clone(),
+        }
     }
 }
 
@@ -268,13 +283,7 @@ pub(crate) async fn generate_commit_message_for_project<R: Runtime>(
         &normalized_staged_changes,
         &settings.git_preferences.ai_commit_message_length,
     );
-    let (
-        model_override,
-        reasoning_override,
-        effective_model,
-        effective_reasoning_effort,
-        effective_provider,
-    ) = resolve_commit_message_activity_model_and_reasoning(&settings);
+    let ai_selection = resolve_commit_message_ai_selection(&settings);
     let raw = run_ai_command(
         app,
         prompt.clone(),
@@ -282,8 +291,9 @@ pub(crate) async fn generate_commit_message_for_project<R: Runtime>(
         None,
         Some(project.id.clone()),
         None,
-        model_override.clone(),
-        reasoning_override.clone(),
+        ai_selection.provider_override.clone(),
+        ai_selection.model_override.clone(),
+        ai_selection.reasoning_override.clone(),
     )
     .await?;
     let normalized = normalize_generated_commit_message(&raw)?;
@@ -296,9 +306,9 @@ pub(crate) async fn generate_commit_message_for_project<R: Runtime>(
                 message: normalized,
                 project_id: project.id.clone(),
                 project_name: project.name.trim().to_string(),
-                provider: effective_provider,
-                model: effective_model,
-                reasoning_effort: effective_reasoning_effort,
+                provider: ai_selection.effective_provider,
+                model: ai_selection.effective_model,
+                reasoning_effort: ai_selection.effective_reasoning_effort,
             });
         }
         Err(error) => error,
@@ -316,8 +326,9 @@ pub(crate) async fn generate_commit_message_for_project<R: Runtime>(
         None,
         Some(project.id.clone()),
         None,
-        model_override,
-        reasoning_override,
+        ai_selection.provider_override.clone(),
+        ai_selection.model_override.clone(),
+        ai_selection.reasoning_override.clone(),
     )
     .await?;
     let retried = normalize_generated_commit_message(&retried_raw)?;
@@ -331,9 +342,9 @@ pub(crate) async fn generate_commit_message_for_project<R: Runtime>(
             message: retried,
             project_id: project.id.clone(),
             project_name: project.name.trim().to_string(),
-            provider: effective_provider,
-            model: effective_model,
-            reasoning_effort: effective_reasoning_effort,
+            provider: ai_selection.effective_provider,
+            model: ai_selection.effective_model,
+            reasoning_effort: ai_selection.effective_reasoning_effort,
         });
     }
 
@@ -365,6 +376,7 @@ pub async fn ai_suggest_assignee(
         working_dir,
         None,
         None,
+        None,
     )
     .await
 }
@@ -388,6 +400,7 @@ pub async fn ai_analyze_complexity(
         task_id,
         None,
         working_dir,
+        None,
         None,
         None,
     )
@@ -415,6 +428,7 @@ pub async fn ai_generate_comment(
         task_id,
         None,
         working_dir,
+        None,
         None,
         None,
     )
@@ -447,6 +461,7 @@ pub async fn ai_generate_plan(
         task_id,
         None,
         working_dir,
+        None,
         None,
         None,
     )
@@ -536,6 +551,7 @@ pub async fn ai_optimize_prompt(
         working_dir,
         None,
         None,
+        None,
     )
     .await?;
 
@@ -600,6 +616,7 @@ pub async fn ai_split_subtasks(
         working_dir,
         None,
         None,
+        None,
     )
     .await?;
     parse_ai_subtasks_response(&raw)
@@ -607,10 +624,41 @@ pub async fn ai_split_subtasks(
 
 #[cfg(test)]
 mod tests {
+    use crate::db::models::{CodexSettings, GitPreferences};
+
     use super::{
         format_ai_optimize_prompt_activity_details, format_commit_message_activity_details,
-        resolve_ai_optimize_prompt_scene_label,
+        resolve_ai_optimize_prompt_scene_label, resolve_commit_message_ai_selection,
     };
+
+    fn test_settings(
+        one_shot_provider: &str,
+        git_provider: &str,
+        git_model_source: &str,
+    ) -> CodexSettings {
+        CodexSettings {
+            task_sdk_enabled: false,
+            one_shot_sdk_enabled: false,
+            one_shot_model: "gpt-5.4".to_string(),
+            one_shot_reasoning_effort: "high".to_string(),
+            task_automation_default_enabled: false,
+            task_automation_max_fix_rounds: 3,
+            task_automation_failure_strategy: "blocked".to_string(),
+            git_preferences: GitPreferences {
+                default_task_use_worktree: false,
+                worktree_location_mode: "repo_sibling_hidden".to_string(),
+                worktree_custom_root: None,
+                ai_commit_message_length: "title_with_body".to_string(),
+                ai_commit_preferred_provider: git_provider.to_string(),
+                ai_commit_model_source: git_model_source.to_string(),
+                ai_commit_model: "claude-sonnet-4-6".to_string(),
+                ai_commit_reasoning_effort: "xhigh".to_string(),
+            },
+            node_path_override: None,
+            sdk_install_dir: "/tmp/codex-sdk".to_string(),
+            one_shot_preferred_provider: one_shot_provider.to_string(),
+        }
+    }
 
     #[test]
     fn resolves_ai_optimize_prompt_scene_labels() {
@@ -664,5 +712,36 @@ mod tests {
             details,
             "项目：Codex AI；Provider：codex；模型：gpt-5.4-mini；推理等级：medium；生成时间：2026-04-20 11:00:00；结果：fix: 修复活动日志展示"
         );
+    }
+
+    #[test]
+    fn custom_commit_message_ai_selection_uses_git_provider() {
+        let settings = test_settings("codex", "claude", "custom");
+
+        let selection = resolve_commit_message_ai_selection(&settings);
+
+        assert_eq!(selection.provider_override.as_deref(), Some("claude"));
+        assert_eq!(
+            selection.model_override.as_deref(),
+            Some("claude-sonnet-4-6")
+        );
+        assert_eq!(selection.reasoning_override.as_deref(), Some("xhigh"));
+        assert_eq!(selection.effective_provider, "claude");
+        assert_eq!(selection.effective_model, "claude-sonnet-4-6");
+        assert_eq!(selection.effective_reasoning_effort, "xhigh");
+    }
+
+    #[test]
+    fn inherited_commit_message_ai_selection_keeps_one_shot_provider() {
+        let settings = test_settings("codex", "claude", "inherit_one_shot");
+
+        let selection = resolve_commit_message_ai_selection(&settings);
+
+        assert_eq!(selection.provider_override, None);
+        assert_eq!(selection.model_override, None);
+        assert_eq!(selection.reasoning_override, None);
+        assert_eq!(selection.effective_provider, "codex");
+        assert_eq!(selection.effective_model, "gpt-5.4");
+        assert_eq!(selection.effective_reasoning_effort, "high");
     }
 }
