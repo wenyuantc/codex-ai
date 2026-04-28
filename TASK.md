@@ -26,8 +26,8 @@
 -  [ ] 全部页面支持黑夜模式
 -  [ ] 增加菜单Mcp管理功能
 -  [ ] 所有页面都要支持暗夜模式
--  [ ] 支持Claude SDK
--  [ ] 支持Opencode SDK
+-  [x] 支持Claude SDK
+-  [x] 支持Opencode SDK
 -  [ ] 支持Gemini CLI
 - 
 # 进行中
