@@ -34,7 +34,13 @@ pub fn normalize_file_change_kind(value: Option<&str>) -> Option<&'static str> {
         Some(v)
             if matches!(
                 v.as_str(),
-                "modify" | "modified" | "update" | "updated" | "change" | "changed" | "edit"
+                "modify"
+                    | "modified"
+                    | "update"
+                    | "updated"
+                    | "change"
+                    | "changed"
+                    | "edit"
                     | "edited"
             ) =>
         {
@@ -43,9 +49,7 @@ pub fn normalize_file_change_kind(value: Option<&str>) -> Option<&'static str> {
         Some(v) if matches!(v.as_str(), "delete" | "deleted" | "remove" | "removed") => {
             Some("deleted")
         }
-        Some(v) if matches!(v.as_str(), "rename" | "renamed" | "move" | "moved") => {
-            Some("renamed")
-        }
+        Some(v) if matches!(v.as_str(), "rename" | "renamed" | "move" | "moved") => Some("renamed"),
         _ => None,
     }
 }

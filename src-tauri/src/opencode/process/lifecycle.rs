@@ -48,10 +48,13 @@ impl OpenCodeChild {
     }
 
     pub async fn kill(&mut self) -> Result<(), String> {
-        self.child
-            .kill()
-            .await
-            .map_err(|error| format!("终止 OpenCode 进程失败: {error}"))
+        match self.child.kill().await {
+            Ok(()) => Ok(()),
+            Err(error) => match error.raw_os_error() {
+                Some(libc::ESRCH) => Ok(()),
+                _ => Err(format!("终止 OpenCode 进程失败: {error}")),
+            },
+        }
     }
 
     pub fn try_wait(&mut self) -> Result<Option<std::process::ExitStatus>, String> {
@@ -67,6 +70,10 @@ async fn kill_process_group_inner(child: &mut tokio::process::Child) -> Result<(
         let pid = pid as i32;
         let result = unsafe { libc::kill(-pid, libc::SIGTERM) };
         if result != 0 {
+            let error = std::io::Error::last_os_error();
+            if error.raw_os_error() == Some(libc::ESRCH) {
+                return Ok(());
+            }
             child
                 .kill()
                 .await

@@ -912,6 +912,53 @@ pub(super) fn attach_session_file_change_details(
         .collect()
 }
 
+pub(super) fn compute_local_sdk_execution_session_file_changes_from_entries(
+    repo_path: &str,
+    baseline_entries: &HashMap<String, WorkingTreeSnapshotEntry>,
+    end_entries: &HashMap<String, WorkingTreeSnapshotEntry>,
+    sdk_changes: Vec<CodexSessionFileChangeInput>,
+) -> Result<Vec<CodexSessionFileChangeInput>, String> {
+    if !sdk_changes.is_empty() {
+        return Ok(attach_session_file_change_details(
+            repo_path,
+            baseline_entries,
+            sdk_changes,
+        ));
+    }
+
+    compute_execution_session_file_changes_from_entries(repo_path, baseline_entries, end_entries)
+}
+
+pub(super) fn compute_local_sdk_execution_session_file_changes(
+    execution_change_baseline: Option<&ExecutionChangeBaseline>,
+    sdk_file_change_store: Option<&SdkFileChangeStore>,
+) -> Result<Vec<CodexSessionFileChangeInput>, String> {
+    let sdk_changes = sdk_file_change_store
+        .map(|store| {
+            let guard = store.lock().unwrap();
+            let mut values = guard.values().cloned().collect::<Vec<_>>();
+            values.sort_by(|left, right| left.path.cmp(&right.path));
+            values
+        })
+        .unwrap_or_default();
+
+    if let Some(baseline) = execution_change_baseline {
+        let end_entries = if sdk_changes.is_empty() {
+            collect_working_tree_snapshot_entries(&baseline.repo_path, false)?
+        } else {
+            HashMap::new()
+        };
+        compute_local_sdk_execution_session_file_changes_from_entries(
+            &baseline.repo_path,
+            &baseline.entries,
+            &end_entries,
+            sdk_changes,
+        )
+    } else {
+        Ok(sdk_changes)
+    }
+}
+
 pub(super) fn compute_execution_session_file_changes(
     baseline: &ExecutionChangeBaseline,
 ) -> Result<Vec<CodexSessionFileChangeInput>, String> {
