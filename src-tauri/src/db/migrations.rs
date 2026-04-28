@@ -1005,9 +1005,9 @@ mod tests {
                 WHERE id IN ('seed-emp-1', 'seed-emp-2', 'seed-emp-3', 'seed-emp-4')
                 "#,
             )
-            .execute(&pool)
-            .await
-            .expect("prepare old default employee prompts");
+                .execute(&pool)
+                .await
+                .expect("prepare old default employee prompts");
 
             let migration = get_all_migrations()
                 .into_iter()
@@ -1021,17 +1021,17 @@ mod tests {
             let prompts = sqlx::query(
                 "SELECT id, system_prompt FROM employees WHERE id IN ('seed-emp-1', 'seed-emp-2', 'seed-emp-3', 'seed-emp-4')",
             )
-            .fetch_all(&pool)
-            .await
-            .expect("fetch employee prompts")
-            .into_iter()
-            .map(|row| {
-                (
-                    row.get::<String, _>("id"),
-                    row.get::<String, _>("system_prompt"),
-                )
-            })
-            .collect::<std::collections::HashMap<_, _>>();
+                .fetch_all(&pool)
+                .await
+                .expect("fetch employee prompts")
+                .into_iter()
+                .map(|row| {
+                    (
+                        row.get::<String, _>("id"),
+                        row.get::<String, _>("system_prompt"),
+                    )
+                })
+                .collect::<std::collections::HashMap<_, _>>();
 
             assert!(prompts["seed-emp-1"].contains("负责实际交付的开发员工"));
             assert_eq!(prompts["seed-emp-2"], "保留我的自定义审查提示词");
@@ -1048,9 +1048,9 @@ mod tests {
             let table = sqlx::query_scalar::<_, String>(
                 "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'task_git_contexts'",
             )
-            .fetch_one(&pool)
-            .await
-            .expect("task_git_contexts table exists");
+                .fetch_one(&pool)
+                .await
+                .expect("task_git_contexts table exists");
             assert_eq!(table, "task_git_contexts");
 
             let columns = sqlx::query("PRAGMA table_info(task_git_contexts)")
@@ -1089,12 +1089,12 @@ mod tests {
             let index_names = sqlx::query(
                 "SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 'task_git_contexts'",
             )
-            .fetch_all(&pool)
-            .await
-            .expect("fetch task_git_contexts indexes")
-            .into_iter()
-            .map(|row| row.get::<String, _>("name"))
-            .collect::<Vec<_>>();
+                .fetch_all(&pool)
+                .await
+                .expect("fetch task_git_contexts indexes")
+                .into_iter()
+                .map(|row| row.get::<String, _>("name"))
+                .collect::<Vec<_>>();
 
             assert!(index_names.contains(&"idx_task_git_contexts_project_updated".to_string()));
             assert!(index_names.contains(&"idx_task_git_contexts_state_updated".to_string()));
@@ -1130,12 +1130,12 @@ mod tests {
             let index_names = sqlx::query(
                 "SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 'tasks'",
             )
-            .fetch_all(&pool)
-            .await
-            .expect("fetch task indexes")
-            .into_iter()
-            .map(|row| row.get::<String, _>("name"))
-            .collect::<Vec<_>>();
+                .fetch_all(&pool)
+                .await
+                .expect("fetch task indexes")
+                .into_iter()
+                .map(|row| row.get::<String, _>("name"))
+                .collect::<Vec<_>>();
 
             assert!(index_names.contains(&"idx_tasks_coordinator".to_string()));
         });
