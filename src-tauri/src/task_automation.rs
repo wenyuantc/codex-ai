@@ -8,21 +8,24 @@ use tauri::{AppHandle, Emitter, Manager, Runtime};
 
 use crate::app::{
     fetch_employee_by_id, fetch_project_by_id, fetch_task_automation_state_record,
-    fetch_task_by_id, insert_activity_log, now_sqlite, parse_review_verdict_json,
-    record_completion_metric, sqlite_pool, start_task_code_review_internal, TASK_STATUS_ARCHIVED,
+    fetch_task_by_id, insert_activity_log, insert_codex_session_event, now_sqlite,
+    parse_review_verdict_json, record_completion_metric, sqlite_pool,
+    start_task_code_review_internal, TASK_STATUS_ARCHIVED,
 };
 use crate::claude::{start_claude_with_manager, stop_claude_for_automation_restart, ClaudeManager};
 use crate::codex::{
     extract_review_report, extract_review_verdict, load_codex_settings, start_codex_with_manager,
     stop_codex_for_automation_restart, CodexManager,
 };
-use crate::opencode::{start_opencode_with_manager, OpenCodeManager};
 use crate::db::models::{
     CodexSessionRecord, Project, ReviewVerdict, Subtask, Task, TaskAttachment,
     TaskAutomationStateRecord,
 };
-use crate::git_workflow::{auto_commit_task_worktree, TaskGitAutoCommitOutcome};
+use crate::git_workflow::{
+    auto_commit_task_worktree, mark_task_git_context_session_finished, TaskGitAutoCommitOutcome,
+};
 use crate::notifications::{build_task_status_notification, publish_one_time_notification};
+use crate::opencode::{start_opencode_with_manager, OpenCodeManager};
 
 const AUTOMATION_MODE_REVIEW_FIX_LOOP_V1: &str = "review_fix_loop_v1";
 const DEFAULT_MAX_FIX_ROUNDS: i32 = 3;
@@ -45,6 +48,7 @@ const PENDING_ACTION_START_FIX: &str = "start_fix";
 const SESSION_EVENT_AUTOMATION_RESTART_REQUESTED: &str = "automation_restart_requested";
 const NO_REVIEWABLE_CODE_CHANGES_MESSAGE: &str =
     "执行完成但没有产生可审核的代码改动，自动质控无法进入审核，需人工补充任务或重新执行";
+const ORPHANED_RUNNING_SESSION_MESSAGE: &str = "应用启动时发现会话上次未正常收尾，已标记为失败";
 
 #[derive(Clone, Debug)]
 struct SessionExitFacts {
@@ -318,6 +322,9 @@ async fn fetch_pending_automation_task_ids(pool: &SqlitePool) -> Result<Vec<Stri
 
 pub async fn resume_pending_automation(app: &AppHandle) -> Result<(), String> {
     let pool = sqlite_pool(app).await?;
+    recover_orphaned_running_sessions(&pool).await?;
+    replay_unconsumed_terminal_automation_exits(app, &pool).await?;
+
     let pending_task_ids = fetch_pending_automation_task_ids(&pool).await?;
 
     for task_id in pending_task_ids {
@@ -341,6 +348,113 @@ pub async fn resume_pending_automation(app: &AppHandle) -> Result<(), String> {
     }
 
     Ok(())
+}
+
+async fn recover_orphaned_running_sessions(pool: &SqlitePool) -> Result<usize, String> {
+    let sessions = sqlx::query_as::<_, (String, Option<String>)>(
+        r#"
+        SELECT id, task_git_context_id
+        FROM codex_sessions
+        WHERE status = 'running'
+          AND ended_at IS NULL
+        ORDER BY started_at ASC, created_at ASC
+        "#,
+    )
+    .fetch_all(pool)
+    .await
+    .map_err(|error| format!("Failed to fetch orphaned running sessions: {}", error))?;
+
+    let mut recovered = 0;
+    for (session_id, task_git_context_id) in sessions {
+        let result = sqlx::query(
+            r#"
+            UPDATE codex_sessions
+            SET status = 'failed',
+                exit_code = 1,
+                ended_at = $2
+            WHERE id = $1
+              AND status = 'running'
+              AND ended_at IS NULL
+            "#,
+        )
+        .bind(&session_id)
+        .bind(now_sqlite())
+        .execute(pool)
+        .await
+        .map_err(|error| format!("Failed to recover orphaned running session: {}", error))?;
+
+        if result.rows_affected() == 0 {
+            continue;
+        }
+
+        insert_codex_session_event(
+            pool,
+            &session_id,
+            "session_failed",
+            Some(ORPHANED_RUNNING_SESSION_MESSAGE),
+        )
+        .await?;
+
+        if let Some(task_git_context_id) = task_git_context_id.as_deref() {
+            mark_task_git_context_session_finished(
+                pool,
+                task_git_context_id,
+                false,
+                Some(ORPHANED_RUNNING_SESSION_MESSAGE),
+            )
+            .await?;
+        }
+
+        recovered += 1;
+    }
+
+    if recovered > 0 {
+        eprintln!("[task-automation] recovered {recovered} orphaned running session(s)");
+    }
+
+    Ok(recovered)
+}
+
+async fn replay_unconsumed_terminal_automation_exits(
+    app: &AppHandle,
+    pool: &SqlitePool,
+) -> Result<usize, String> {
+    let session_ids = sqlx::query_scalar::<_, String>(
+        r#"
+        SELECT s.id
+        FROM task_automation_state tas
+        INNER JOIN tasks t ON t.id = tas.task_id
+        INNER JOIN codex_sessions s ON s.id = tas.last_trigger_session_id
+        WHERE t.automation_mode = $1
+          AND t.status != $2
+          AND tas.phase IN ($3, $4)
+          AND s.status IN ('exited', 'failed')
+          AND (
+            tas.consumed_session_id IS NULL
+            OR tas.consumed_session_id != s.id
+          )
+        ORDER BY s.started_at ASC, s.created_at ASC
+        "#,
+    )
+    .bind(AUTOMATION_MODE_REVIEW_FIX_LOOP_V1)
+    .bind(TASK_STATUS_ARCHIVED)
+    .bind(PHASE_WAITING_REVIEW)
+    .bind(PHASE_WAITING_EXECUTION)
+    .fetch_all(pool)
+    .await
+    .map_err(|error| format!("Failed to fetch unconsumed automation exits: {}", error))?;
+
+    let mut replayed = 0;
+    for session_id in session_ids {
+        handle_session_exit(app, &session_id).await?;
+        replayed += 1;
+    }
+
+    if replayed > 0 {
+        eprintln!("[task-automation] replayed {replayed} unconsumed automation exit(s)");
+    }
+
+    Ok(replayed)
 }
 
 pub async fn handle_session_exit(app: &AppHandle, session_record_id: &str) -> Result<(), String> {
