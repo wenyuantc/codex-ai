@@ -1,5 +1,13 @@
 import { useState } from "react";
-import { CODEX_MODEL_OPTIONS, CLAUDE_MODEL_OPTIONS, REASONING_EFFORT_OPTIONS, CLAUDE_THINKING_BUDGET_OPTIONS, OPENCODE_EFFORT_OPTIONS, type Employee } from "@/lib/types";
+import {
+  CODEX_MODEL_OPTIONS,
+  CLAUDE_MODEL_OPTIONS,
+  REASONING_EFFORT_OPTIONS,
+  CLAUDE_THINKING_BUDGET_OPTIONS,
+  OPENCODE_EFFORT_OPTIONS,
+  normalizeClaudeModel,
+  type Employee,
+} from "@/lib/types";
 import { useEmployeeStore } from "@/stores/employeeStore";
 import { EmployeeStatusBadge } from "./EmployeeStatusBadge";
 import { DeleteEmployeeDialog } from "./DeleteEmployeeDialog";
@@ -47,7 +55,8 @@ export function EmployeeCard({ employee, taskCount = 0, highlighted = false }: E
   };
   const allModelOptions = employee.ai_provider === "claude" ? CLAUDE_MODEL_OPTIONS : employee.ai_provider === "opencode" ? [] : CODEX_MODEL_OPTIONS;
   const allEffortOptions = employee.ai_provider === "claude" ? CLAUDE_THINKING_BUDGET_OPTIONS : employee.ai_provider === "opencode" ? OPENCODE_EFFORT_OPTIONS : REASONING_EFFORT_OPTIONS;
-  const modelLabel = allModelOptions.find((option) => option.value === employee.model)?.label ?? employee.model;
+  const displayModel = employee.ai_provider === "claude" ? normalizeClaudeModel(employee.model) : employee.model;
+  const modelLabel = allModelOptions.find((option) => option.value === displayModel)?.label ?? displayModel;
   const reasoningLabel = allEffortOptions.find((option) => option.value === employee.reasoning_effort)?.label ?? employee.reasoning_effort;
   const providerLabel = employee.ai_provider === "claude" ? "Claude" : employee.ai_provider === "opencode" ? "OpenCode" : "Codex";
 
