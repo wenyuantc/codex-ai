@@ -76,7 +76,7 @@ function getGitContextBadge(context: TaskGitContext | null): {
   if (context.state === "completed") {
     return {
       label: "已合并",
-      className: "bg-emerald-500/10 text-emerald-700",
+      className: "bg-emerald-500/10 text-emerald-700 dark:text-emerald-200",
       title: `任务分支 ${context.task_branch ?? "未命名分支"} 已合并到 ${context.target_branch ?? "目标分支"}`,
     };
   }
@@ -84,7 +84,7 @@ function getGitContextBadge(context: TaskGitContext | null): {
   if (context.state === "merge_ready") {
     return {
       label: "待合并",
-      className: "bg-sky-500/10 text-sky-700",
+      className: "bg-sky-500/10 text-sky-700 dark:text-sky-200",
       title: `任务分支 ${context.task_branch ?? "未命名分支"} 已提交，等待合并到 ${context.target_branch ?? "目标分支"}`,
     };
   }
@@ -92,7 +92,7 @@ function getGitContextBadge(context: TaskGitContext | null): {
   if (context.state === "failed") {
     return {
       label: "失败",
-      className: "bg-rose-500/10 text-rose-700",
+      className: "bg-rose-500/10 text-rose-700 dark:text-rose-200",
       title: context.last_error ?? "任务 Git 上下文执行失败",
     };
   }
@@ -100,7 +100,7 @@ function getGitContextBadge(context: TaskGitContext | null): {
   if (context.last_error) {
     return {
       label: "合并失败",
-      className: "bg-rose-500/10 text-rose-700",
+      className: "bg-rose-500/10 text-rose-700 dark:text-rose-200",
       title: context.last_error,
     };
   }
@@ -615,7 +615,7 @@ export function TaskCard({
               <span
                 className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] ${
                   automationState.enabled
-                    ? "bg-emerald-500/10 text-emerald-700"
+                    ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-200"
                     : "bg-muted text-muted-foreground"
                 }`}
                 title={automationState.note ?? (automationState.enabled ? "自动质控已开启" : "自动质控未开启")}
@@ -625,7 +625,7 @@ export function TaskCard({
               </span>
               {isWorktreeModeEnabled && (
                 <span
-                  className="inline-flex items-center gap-1 rounded-full bg-sky-500/10 px-2 py-0.5 text-[11px] text-sky-700"
+                  className="inline-flex items-center gap-1 rounded-full bg-sky-500/10 px-2 py-0.5 text-[11px] text-sky-700 dark:text-sky-200"
                   title={
                     isWorktreeReady
                       ? `任务已绑定 worktree：${gitContext?.task_branch ?? "未命名分支"} · ${gitContext?.target_branch ?? "未设置目标分支"}`

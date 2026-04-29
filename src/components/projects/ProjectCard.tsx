@@ -52,7 +52,7 @@ export function ProjectCard({
               {(aheadCommits ?? 0) > 0 && (
                 <button
                   type="button"
-                  className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-sm font-semibold text-sky-600 transition-colors hover:bg-sky-500/10"
+                  className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-sm font-semibold text-sky-600 transition-colors hover:bg-sky-500/10 dark:text-sky-300"
                   title={`当前有 ${aheadCommits} 个提交待推送`}
                   onClick={() => onPushRequested?.(project)}
                 >
@@ -63,7 +63,7 @@ export function ProjectCard({
               {(behindCommits ?? 0) > 0 && (
                 <button
                   type="button"
-                  className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-sm font-semibold text-amber-600 transition-colors hover:bg-amber-500/10"
+                  className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-sm font-semibold text-amber-600 transition-colors hover:bg-amber-500/10 dark:text-amber-300"
                   title={`当前有 ${behindCommits} 个提交待拉取`}
                   onClick={() => onPullRequested?.(project)}
                 >

@@ -13,22 +13,22 @@ export type GitActionButtonTone =
 export function getGitActionButtonClassName(tone: GitActionButtonTone) {
   switch (tone) {
     case "positive":
-      return "border-emerald-500/45 bg-emerald-500/10 text-emerald-800 hover:bg-emerald-500/15 hover:text-emerald-900";
+      return "border-emerald-500/45 bg-emerald-500/10 text-emerald-800 hover:bg-emerald-500/15 hover:text-emerald-900 dark:text-emerald-200 dark:hover:text-emerald-100";
     case "create":
-      return "border-teal-500/45 bg-teal-500/10 text-teal-800 hover:bg-teal-500/15 hover:text-teal-900";
+      return "border-teal-500/45 bg-teal-500/10 text-teal-800 hover:bg-teal-500/15 hover:text-teal-900 dark:text-teal-200 dark:hover:text-teal-100";
     case "info":
-      return "border-sky-500/45 bg-sky-500/10 text-sky-800 hover:bg-sky-500/15 hover:text-sky-900";
+      return "border-sky-500/45 bg-sky-500/10 text-sky-800 hover:bg-sky-500/15 hover:text-sky-900 dark:text-sky-200 dark:hover:text-sky-100";
     case "warning":
-      return "border-amber-500/45 bg-amber-500/10 text-amber-900 hover:bg-amber-500/15 hover:text-amber-950";
+      return "border-amber-500/45 bg-amber-500/10 text-amber-900 hover:bg-amber-500/15 hover:text-amber-950 dark:text-amber-200 dark:hover:text-amber-100";
     case "rollback":
-      return "border-orange-500/45 bg-orange-500/10 text-orange-800 hover:bg-orange-500/15 hover:text-orange-900";
+      return "border-orange-500/45 bg-orange-500/10 text-orange-800 hover:bg-orange-500/15 hover:text-orange-900 dark:text-orange-200 dark:hover:text-orange-100";
     case "merge":
-      return "border-violet-500/45 bg-violet-500/10 text-violet-800 hover:bg-violet-500/15 hover:text-violet-900";
+      return "border-violet-500/45 bg-violet-500/10 text-violet-800 hover:bg-violet-500/15 hover:text-violet-900 dark:text-violet-200 dark:hover:text-violet-100";
     case "danger":
-      return "border-rose-500/45 bg-rose-500/10 text-rose-800 hover:bg-rose-500/15 hover:text-rose-900";
+      return "border-rose-500/45 bg-rose-500/10 text-rose-800 hover:bg-rose-500/15 hover:text-rose-900 dark:text-rose-200 dark:hover:text-rose-100";
     case "neutral":
     default:
-      return "border-slate-400/35 bg-slate-500/5 text-slate-700 hover:bg-slate-500/10 hover:text-slate-900";
+      return "border-slate-400/35 bg-slate-500/5 text-slate-700 hover:bg-slate-500/10 hover:text-slate-900 dark:text-slate-200 dark:hover:text-slate-100";
   }
 }
 
@@ -50,13 +50,13 @@ export function getWorkingTreeChangeLabel(changeType: ProjectGitWorkingTreeChang
 export function getWorkingTreeChangeClassName(changeType: ProjectGitWorkingTreeChange["change_type"]) {
   switch (changeType) {
     case "added":
-      return "border-emerald-500/30 bg-emerald-500/10 text-emerald-700";
+      return "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-200";
     case "modified":
-      return "border-sky-500/30 bg-sky-500/10 text-sky-700";
+      return "border-sky-500/30 bg-sky-500/10 text-sky-700 dark:text-sky-200";
     case "deleted":
-      return "border-rose-500/30 bg-rose-500/10 text-rose-700";
+      return "border-rose-500/30 bg-rose-500/10 text-rose-700 dark:text-rose-200";
     case "renamed":
-      return "border-amber-500/30 bg-amber-500/10 text-amber-700";
+      return "border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-200";
     default:
       return "border-border/60 bg-secondary/40 text-foreground";
   }
@@ -80,11 +80,11 @@ export function getWorkingTreeStageStatusLabel(stageStatus: ProjectGitWorkingTre
 export function getWorkingTreeStageStatusClassName(stageStatus: ProjectGitWorkingTreeChange["stage_status"]) {
   switch (stageStatus) {
     case "staged":
-      return "border-emerald-500/30 bg-emerald-500/10 text-emerald-700";
+      return "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-200";
     case "partially_staged":
-      return "border-amber-500/30 bg-amber-500/10 text-amber-700";
+      return "border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-200";
     case "untracked":
-      return "border-violet-500/30 bg-violet-500/10 text-violet-700";
+      return "border-violet-500/30 bg-violet-500/10 text-violet-700 dark:text-violet-200";
     case "unstaged":
     default:
       return "border-border/60 bg-secondary/40 text-foreground";

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type * as Monaco from "monaco-editor";
 
-import { loadMonaco } from "@/lib/monaco";
+import { getMonacoThemeName, loadMonaco } from "@/lib/monaco";
 import { cn } from "@/lib/utils";
 
 interface MonacoMarkdownEditorProps {
@@ -48,6 +48,7 @@ export function MonacoMarkdownEditor({
         modelRef.current = monaco.editor.createModel(valueRef.current, "markdown");
         editorRef.current = monaco.editor.create(containerRef.current, {
           model: modelRef.current,
+          theme: getMonacoThemeName(),
           readOnly: readOnlyRef.current,
           automaticLayout: true,
           minimap: { enabled: false },
