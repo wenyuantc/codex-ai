@@ -4435,6 +4435,9 @@ mod tests {
             automation_mode: None,
             last_codex_session_id: None,
             last_review_session_id: None,
+            time_started_at: None,
+            time_spent_seconds: 0,
+            completed_at: None,
             created_at: now_sqlite(),
             updated_at: now_sqlite(),
         };

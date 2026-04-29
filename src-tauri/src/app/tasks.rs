@@ -97,7 +97,7 @@ pub(crate) async fn insert_task_record(
     task: &Task,
 ) -> Result<(), String> {
     sqlx::query(
-        "INSERT INTO tasks (id, title, description, status, priority, project_id, use_worktree, assignee_id, reviewer_id, coordinator_id, ai_suggestion, plan_content, automation_mode, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)",
+        "INSERT INTO tasks (id, title, description, status, priority, project_id, use_worktree, assignee_id, reviewer_id, coordinator_id, ai_suggestion, plan_content, automation_mode, time_started_at, time_spent_seconds, completed_at, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)",
     )
     .bind(&task.id)
     .bind(&task.title)
@@ -112,6 +112,9 @@ pub(crate) async fn insert_task_record(
     .bind(&task.ai_suggestion)
     .bind(&task.plan_content)
     .bind(&task.automation_mode)
+    .bind(&task.time_started_at)
+    .bind(task.time_spent_seconds)
+    .bind(&task.completed_at)
     .bind(&task.created_at)
     .bind(&task.updated_at)
     .execute(&mut **tx)
@@ -154,6 +157,163 @@ fn format_task_plan_saved_details(
         coordinator_label,
         plan_content.chars().count()
     )
+}
+
+fn format_task_duration_label(total_seconds: i64) -> String {
+    let total_seconds = total_seconds.max(0);
+    let hours = total_seconds / 3600;
+    let minutes = (total_seconds % 3600) / 60;
+    let seconds = total_seconds % 60;
+
+    if hours > 0 {
+        if minutes > 0 {
+            format!("{}小时{}分钟", hours, minutes)
+        } else {
+            format!("{}小时", hours)
+        }
+    } else if minutes > 0 {
+        if seconds > 0 {
+            format!("{}分钟{}秒", minutes, seconds)
+        } else {
+            format!("{}分钟", minutes)
+        }
+    } else {
+        format!("{}秒", seconds)
+    }
+}
+
+fn task_time_spent_seconds_at(task: &Task, now: NaiveDateTime) -> i64 {
+    let tracked = task.time_spent_seconds.max(0);
+    let Some(started_at) = task.time_started_at.as_deref() else {
+        return tracked;
+    };
+
+    let Some(started_at) = parse_sqlite_datetime(started_at) else {
+        return tracked;
+    };
+
+    tracked + (now - started_at).num_seconds().max(0)
+}
+
+pub(crate) fn build_task_completion_timer_update(
+    task: &Task,
+    completed_at: NaiveDateTime,
+) -> (String, i64) {
+    (
+        completed_at.format(SQLITE_DATETIME_FORMAT).to_string(),
+        task_time_spent_seconds_at(task, completed_at),
+    )
+}
+
+pub(crate) fn should_clear_task_completed_at(task: &Task, next_status: &str) -> bool {
+    task.status == "completed" && next_status != "completed"
+}
+
+fn build_task_timer_activity_details(task_title: &str, total_seconds: i64) -> String {
+    format!(
+        "{}（累计耗时：{}）",
+        task_title,
+        format_task_duration_label(total_seconds)
+    )
+}
+
+fn build_task_timer_stopped_details(task_title: &str, total_seconds: i64, reason: &str) -> String {
+    format!(
+        "{}（{}；累计耗时：{}）",
+        task_title,
+        reason,
+        format_task_duration_label(total_seconds)
+    )
+}
+
+pub(crate) async fn start_task_timer_internal(
+    pool: &SqlitePool,
+    task_id: &str,
+) -> Result<Task, String> {
+    let task = fetch_task_by_id(pool, task_id).await?;
+
+    if task.status == TASK_STATUS_ARCHIVED {
+        return Err("已归档任务不可开始计时".to_string());
+    }
+    if task.status == "completed" {
+        return Err("已完成任务不可直接开始计时，请先重新打开任务".to_string());
+    }
+    if task.time_started_at.is_some() {
+        return Ok(task);
+    }
+
+    let started_at = now_sqlite();
+    let result = sqlx::query(
+        r#"
+        UPDATE tasks
+        SET time_started_at = $1,
+            completed_at = NULL
+        WHERE id = $2
+          AND time_started_at IS NULL
+        "#,
+    )
+    .bind(&started_at)
+    .bind(task_id)
+    .execute(pool)
+    .await
+    .map_err(|error| format!("Failed to start task timer: {}", error))?;
+
+    if result.rows_affected() > 0 {
+        insert_activity_log(
+            pool,
+            "task_timer_started",
+            &task.title,
+            task.assignee_id.as_deref(),
+            Some(task.id.as_str()),
+            Some(task.project_id.as_str()),
+        )
+        .await?;
+    }
+
+    fetch_task_by_id(pool, task_id).await
+}
+
+pub(crate) async fn stop_task_timer_internal(
+    pool: &SqlitePool,
+    task_id: &str,
+    reason: &str,
+) -> Result<Task, String> {
+    let task = fetch_task_by_id(pool, task_id).await?;
+    if task.time_started_at.is_none() {
+        return Ok(task);
+    }
+
+    let now = Utc::now().naive_utc();
+    let total_seconds = task_time_spent_seconds_at(&task, now);
+
+    let result = sqlx::query(
+        r#"
+        UPDATE tasks
+        SET time_spent_seconds = $1,
+            time_started_at = NULL
+        WHERE id = $2
+          AND time_started_at IS NOT NULL
+        "#,
+    )
+    .bind(total_seconds)
+    .bind(task_id)
+    .execute(pool)
+    .await
+    .map_err(|error| format!("Failed to stop task timer: {}", error))?;
+
+    if result.rows_affected() > 0 {
+        insert_activity_log(
+            pool,
+            "task_timer_stopped",
+            &build_task_timer_stopped_details(&task.title, total_seconds, reason),
+            task.assignee_id.as_deref(),
+            Some(task.id.as_str()),
+            Some(task.project_id.as_str()),
+        )
+        .await?;
+    }
+
+    fetch_task_by_id(pool, task_id).await
 }
 
 pub(crate) async fn fetch_task_automation_state_record(
@@ -237,10 +397,14 @@ pub(crate) async fn record_completion_metric(pool: &SqlitePool, task: &Task) -> 
         return Ok(());
     };
 
-    let task_created_at = parse_sqlite_datetime(&task.created_at)
-        .ok_or_else(|| format!("Invalid task created_at: {}", task.created_at))?;
     let now = Utc::now().naive_utc();
-    let duration_secs = (now - task_created_at).num_seconds().max(0) as f64;
+    let duration_secs = if task.time_spent_seconds > 0 {
+        task.time_spent_seconds as f64
+    } else {
+        let task_created_at = parse_sqlite_datetime(&task.created_at)
+            .ok_or_else(|| format!("Invalid task created_at: {}", task.created_at))?;
+        (now - task_created_at).num_seconds().max(0) as f64
+    };
 
     let day_start = now
         .date()
@@ -536,6 +700,15 @@ pub async fn get_task_automation_state<R: Runtime>(
 }
 
 #[tauri::command]
+pub async fn start_task_timer<R: Runtime>(
+    app: AppHandle<R>,
+    task_id: String,
+) -> Result<Task, String> {
+    let pool = sqlite_pool(&app).await?;
+    start_task_timer_internal(&pool, &task_id).await
+}
+
+#[tauri::command]
 pub async fn create_task<R: Runtime>(
     app: AppHandle<R>,
     payload: CreateTask,
@@ -591,6 +764,9 @@ pub async fn create_task<R: Runtime>(
         automation_mode,
         last_codex_session_id: None,
         last_review_session_id: None,
+        time_started_at: None,
+        time_spent_seconds: 0,
+        completed_at: None,
         created_at: now_sqlite(),
         updated_at: now_sqlite(),
     };
@@ -968,6 +1144,15 @@ pub async fn update_task<R: Runtime>(
         .unwrap_or_else(|| current.status.clone());
     let is_archiving =
         next_status == TASK_STATUS_ARCHIVED && current.status != TASK_STATUS_ARCHIVED;
+    let completion_time_update = if next_status == "completed" && current.status != "completed" {
+        Some(build_task_completion_timer_update(
+            &current,
+            Utc::now().naive_utc(),
+        ))
+    } else {
+        None
+    };
+    let is_reopening_completed_task = should_clear_task_completed_at(&current, &next_status);
 
     if let Some(assignee_id) = updates.assignee_id.as_ref() {
         validate_assignee_for_project(&pool, assignee_id.as_deref(), &current.project_id).await?;
@@ -1080,6 +1265,23 @@ pub async fn update_task<R: Runtime>(
             .push_bind_unseparated(last_review_session_id);
         touched = true;
     }
+    if let Some((completed_at, time_spent_seconds)) = completion_time_update.clone() {
+        separated
+            .push("time_spent_seconds = ")
+            .push_bind_unseparated(time_spent_seconds);
+        separated
+            .push("time_started_at = ")
+            .push_bind_unseparated(Option::<String>::None);
+        separated
+            .push("completed_at = ")
+            .push_bind_unseparated(Some(completed_at));
+        touched = true;
+    } else if is_reopening_completed_task {
+        separated
+            .push("completed_at = ")
+            .push_bind_unseparated(Option::<String>::None);
+        touched = true;
+    }
     if is_archiving
         && current.automation_mode.as_deref() == Some(TASK_AUTOMATION_MODE_REVIEW_FIX_LOOP_V1)
     {
@@ -1164,7 +1366,29 @@ pub async fn update_task<R: Runtime>(
 
         if current.status != "completed" && next_status == "completed" {
             let updated_task = fetch_task_by_id(&pool, &id).await?;
+            if let Some((_, time_spent_seconds)) = completion_time_update {
+                insert_activity_log(
+                    &pool,
+                    "task_timer_completed",
+                    &build_task_timer_activity_details(&current.title, time_spent_seconds),
+                    updated_task.assignee_id.as_deref(),
+                    Some(&id),
+                    Some(&current.project_id),
+                )
+                .await?;
+            }
             record_completion_metric(&pool, &updated_task).await?;
+        }
+        if is_reopening_completed_task {
+            insert_activity_log(
+                &pool,
+                "task_timer_reopened",
+                &current.title,
+                current.assignee_id.as_deref(),
+                Some(&id),
+                Some(&current.project_id),
+            )
+            .await?;
         }
 
         if let Some(draft) =

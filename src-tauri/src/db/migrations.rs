@@ -937,6 +937,26 @@ pub fn get_all_migrations() -> Vec<Migration> {
             "#,
             kind: tauri_plugin_sql::MigrationKind::Up,
         },
+        Migration {
+            version: 36,
+            description: "add automatic task time tracking fields",
+            sql: r#"
+                ALTER TABLE tasks ADD COLUMN time_started_at TEXT;
+                ALTER TABLE tasks ADD COLUMN time_spent_seconds INTEGER NOT NULL DEFAULT 0;
+                ALTER TABLE tasks ADD COLUMN completed_at TEXT;
+
+                UPDATE tasks
+                SET completed_at = updated_at
+                WHERE status = 'completed'
+                  AND completed_at IS NULL;
+
+                CREATE INDEX idx_tasks_completed_at
+                    ON tasks(completed_at DESC);
+                CREATE INDEX idx_tasks_time_started_at
+                    ON tasks(time_started_at);
+            "#,
+            kind: tauri_plugin_sql::MigrationKind::Up,
+        },
     ]
 }
 
@@ -977,8 +997,8 @@ mod tests {
     }
 
     #[test]
-    fn latest_migration_version_includes_default_employee_prompt_enhancement() {
-        assert_eq!(latest_migration_version(), 35);
+    fn latest_migration_version_includes_task_time_tracking() {
+        assert_eq!(latest_migration_version(), 36);
     }
 
     #[test]
@@ -1138,6 +1158,68 @@ mod tests {
             .collect::<Vec<_>>();
 
             assert!(index_names.contains(&"idx_tasks_coordinator".to_string()));
+        });
+    }
+
+    #[test]
+    fn migration_adds_task_time_tracking_columns() {
+        tauri::async_runtime::block_on(async {
+            let pool = setup_test_pool_through(35).await;
+
+            sqlx::query(
+                r#"
+                INSERT INTO tasks (
+                    id,
+                    title,
+                    description,
+                    status,
+                    priority,
+                    project_id,
+                    assignee_id
+                ) VALUES (
+                    'completed-before-timer',
+                    '已完成旧任务',
+                    NULL,
+                    'completed',
+                    'medium',
+                    'seed-proj-1',
+                    NULL
+                )
+                "#,
+            )
+            .execute(&pool)
+            .await
+            .expect("insert pre-migration completed task");
+
+            let migration = get_all_migrations()
+                .into_iter()
+                .find(|migration| migration.version == 36)
+                .expect("find migration 36");
+            sqlx::raw_sql(migration.sql)
+                .execute(&pool)
+                .await
+                .expect("run migration 36");
+
+            let columns = sqlx::query("PRAGMA table_info(tasks)")
+                .fetch_all(&pool)
+                .await
+                .expect("fetch tasks columns");
+            let column_names = columns
+                .iter()
+                .map(|row| row.get::<String, _>("name"))
+                .collect::<Vec<_>>();
+
+            assert!(column_names.contains(&"time_started_at".to_string()));
+            assert!(column_names.contains(&"time_spent_seconds".to_string()));
+            assert!(column_names.contains(&"completed_at".to_string()));
+
+            let completed_at = sqlx::query_scalar::<_, Option<String>>(
+                "SELECT completed_at FROM tasks WHERE id = 'completed-before-timer'",
+            )
+            .fetch_one(&pool)
+            .await
+            .expect("fetch completed_at");
+            assert!(completed_at.is_some());
         });
     }
 }

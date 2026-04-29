@@ -87,6 +87,7 @@ export function TaskDetailDialog({
     deleteTaskAttachment,
     addSubtasks,
     createTask,
+    startTaskTimer,
   } = useTaskStore();
   const persistedAutomationState = useTaskStore((state) => state.automationStates[task.id]);
   const {
@@ -820,6 +821,7 @@ export function TaskDetailDialog({
       } else {
         await startCodex(assigneeId, executionInput.prompt, startOptions);
       }
+      await startTaskTimer(createdTask.id);
       await refreshEmployeeRuntimeStatus(assigneeId);
 
       setReviewFixDialogOpen(false);
@@ -940,6 +942,10 @@ export function TaskDetailDialog({
                 assigneeId={assigneeId}
                 reviewerId={reviewerId}
                 coordinatorId={coordinatorId}
+                createdAt={task.created_at}
+                timeStartedAt={task.time_started_at}
+                timeSpentSeconds={task.time_spent_seconds}
+                completedAt={task.completed_at}
                 planContent={planContent}
                 planContentDraft={planContentDraft}
                 planEditing={planContentEditing}

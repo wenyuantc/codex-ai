@@ -57,6 +57,7 @@ export function useTaskExecutionActions({
   const clearTaskCodexOutput = useEmployeeStore((state) => state.clearTaskCodexOutput);
   const refreshEmployeeRuntimeStatus = useEmployeeStore((state) => state.refreshEmployeeRuntimeStatus);
   const updateTaskStatus = useTaskStore((state) => state.updateTaskStatus);
+  const startTaskTimer = useTaskStore((state) => state.startTaskTimer);
 
   const runningSession = employeeRuntime?.sessions.find((session) => (
     session.task_id === task.id && session.session_kind === "execution"
@@ -142,6 +143,7 @@ export function useTaskExecutionActions({
       } else {
         await startCodex(assigneeId, executionInput.prompt, startOptions);
       }
+      await startTaskTimer(task.id);
       await refreshEmployeeRuntimeStatus(assigneeId);
       onStarted?.(action);
     } catch (error) {

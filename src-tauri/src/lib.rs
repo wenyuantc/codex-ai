@@ -120,6 +120,7 @@ pub fn run() {
             app::review::start_task_code_review,
             app::tasks::set_task_automation_mode,
             app::tasks::get_task_automation_state,
+            app::tasks::start_task_timer,
             task_automation::restart_task_automation,
             app::review::read_image_file,
             app::review::open_task_attachment,

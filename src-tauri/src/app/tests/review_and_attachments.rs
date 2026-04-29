@@ -120,6 +120,9 @@ fn review_prompt_uses_explicit_remote_working_dir_for_ssh_projects() {
         automation_mode: None,
         last_codex_session_id: None,
         last_review_session_id: None,
+        time_started_at: None,
+        time_spent_seconds: 0,
+        completed_at: None,
         created_at: "2026-04-16 10:00:00".to_string(),
         updated_at: "2026-04-16 10:00:00".to_string(),
     };
@@ -163,6 +166,9 @@ fn review_prompt_marks_local_projects_as_local_workspace() {
         automation_mode: None,
         last_codex_session_id: None,
         last_review_session_id: None,
+        time_started_at: None,
+        time_spent_seconds: 0,
+        completed_at: None,
         created_at: "2026-04-16 10:00:00".to_string(),
         updated_at: "2026-04-16 10:00:00".to_string(),
     };
@@ -266,6 +272,9 @@ fn local_review_context_prefers_latest_execution_worktree() {
             automation_mode: None,
             last_codex_session_id: Some("sess-exec-1".to_string()),
             last_review_session_id: None,
+            time_started_at: None,
+            time_spent_seconds: 0,
+            completed_at: None,
             created_at: "2026-04-16 10:00:00".to_string(),
             updated_at: "2026-04-16 10:00:00".to_string(),
         };

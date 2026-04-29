@@ -138,6 +138,9 @@ pub struct Task {
     pub automation_mode: Option<String>,
     pub last_codex_session_id: Option<String>,
     pub last_review_session_id: Option<String>,
+    pub time_started_at: Option<String>,
+    pub time_spent_seconds: i64,
+    pub completed_at: Option<String>,
     pub created_at: String,
     pub updated_at: String,
 }

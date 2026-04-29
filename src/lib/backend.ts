@@ -870,6 +870,10 @@ export async function updateTaskStatus(id: string, status: string): Promise<Task
   return invoke("update_task_status", { id, status });
 }
 
+export async function startTaskTimer(taskId: string): Promise<Task> {
+  return invoke("start_task_timer", { taskId });
+}
+
 export async function aiGenerateCoordinatorTaskPlan(
   input: GenerateCoordinatorTaskPlanInput,
 ): Promise<string> {

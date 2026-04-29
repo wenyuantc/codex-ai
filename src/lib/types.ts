@@ -92,6 +92,9 @@ export interface Task {
   automation_mode: TaskAutomationMode | null;
   last_codex_session_id: string | null;
   last_review_session_id: string | null;
+  time_started_at: string | null;
+  time_spent_seconds: number;
+  completed_at: string | null;
   created_at: string;
   updated_at: string;
 }

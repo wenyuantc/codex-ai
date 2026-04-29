@@ -17,6 +17,7 @@ import {
   deleteTask as deleteTaskCommand,
   getTaskAutomationState as getTaskAutomationStateCommand,
   restartTaskAutomation as restartTaskAutomationCommand,
+  startTaskTimer as startTaskTimerCommand,
   setTaskAutomationMode as setTaskAutomationModeCommand,
   updateSubtaskStatus as updateSubtaskStatusCommand,
   updateTask as updateTaskCommand,
@@ -57,6 +58,7 @@ interface TaskStore {
   ) => Promise<Task>;
   updateTaskStatus: (id: string, status: TaskStatus) => Promise<void>;
   updateTask: (id: string, updates: Partial<Pick<Task, "title" | "description" | "priority" | "status" | "assignee_id" | "reviewer_id" | "coordinator_id" | "plan_content" | "complexity" | "ai_suggestion" | "last_codex_session_id" | "last_review_session_id">>) => Promise<void>;
+  startTaskTimer: (taskId: string) => Promise<void>;
   setTaskAutomationMode: (taskId: string, automationMode: TaskAutomationMode | null) => Promise<void>;
   fetchTaskAutomationState: (taskId: string) => Promise<void>;
   restartTaskAutomation: (taskId: string) => Promise<void>;
@@ -172,6 +174,13 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
     const task = await updateTaskCommand(id, updates);
     set((state) => ({
       tasks: state.tasks.map((current) => (current.id === id ? task : current)),
+    }));
+  },
+
+  startTaskTimer: async (taskId) => {
+    const task = await startTaskTimerCommand(taskId);
+    set((state) => ({
+      tasks: state.tasks.map((current) => (current.id === taskId ? task : current)),
     }));
   },
 

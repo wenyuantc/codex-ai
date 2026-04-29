@@ -30,6 +30,35 @@ export function formatDate(dateStr: string): string {
   return parsed ? parsed.toLocaleString("zh-CN") : dateStr;
 }
 
+export function formatDuration(totalSeconds: number | null | undefined): string {
+  const safeSeconds = Math.max(0, Math.floor(Number(totalSeconds ?? 0)));
+  const hours = Math.floor(safeSeconds / 3600);
+  const minutes = Math.floor((safeSeconds % 3600) / 60);
+  const seconds = safeSeconds % 60;
+
+  if (hours > 0) {
+    return minutes > 0 ? `${hours}小时${minutes}分钟` : `${hours}小时`;
+  }
+  if (minutes > 0) {
+    return seconds > 0 ? `${minutes}分钟${seconds}秒` : `${minutes}分钟`;
+  }
+  return `${seconds}秒`;
+}
+
+export function getTaskElapsedSeconds(
+  task: Pick<Task, "time_started_at" | "time_spent_seconds">,
+  nowMs = Date.now(),
+): number {
+  const trackedSeconds = Math.max(0, Math.floor(Number(task.time_spent_seconds ?? 0)));
+  const startedAt = task.time_started_at ? parseDateValue(task.time_started_at) : null;
+
+  if (!startedAt) {
+    return trackedSeconds;
+  }
+
+  return trackedSeconds + Math.max(0, Math.floor((nowMs - startedAt.getTime()) / 1000));
+}
+
 export function getStatusColor(status: string): string {
   const colors: Record<string, string> = {
     todo: "bg-slate-500",
@@ -69,6 +98,10 @@ export function getActivityActionLabel(action: string): string {
     task_created: "创建任务",
     task_status_changed: "任务状态变更",
     task_deleted: "删除任务",
+    task_timer_started: "任务开始计时",
+    task_timer_completed: "任务计时完成",
+    task_timer_stopped: "任务停止计时",
+    task_timer_reopened: "任务重新打开",
     task_execution_started: "开始任务会话",
     task_execution_resumed: "继续任务会话",
     task_automation_enabled: "开启自动质控",

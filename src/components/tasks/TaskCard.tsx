@@ -15,6 +15,8 @@ import {
 } from "@/lib/backend";
 import {
   formatDate,
+  formatDuration,
+  getTaskElapsedSeconds,
   getPriorityColor,
   getPriorityLabel,
   getTaskActionRuntimeState,
@@ -139,6 +141,7 @@ export function TaskCard({
   const [coordinatorPlanLogs, setCoordinatorPlanLogs] = useState<string[]>([]);
   const [coordinatorPlanTerminalVisible, setCoordinatorPlanTerminalVisible] = useState(false);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
+  const [timerNow, setTimerNow] = useState(() => Date.now());
   const executionStartErrorRef = useRef<string | null>(null);
   const projects = useProjectStore((s) => s.projects);
   const employees = useEmployeeStore((s) => s.employees);
@@ -280,6 +283,17 @@ export function TaskCard({
     "blocked",
     "manual_control",
   ].includes(automationState.status);
+  const elapsedSeconds = getTaskElapsedSeconds(task, timerNow);
+  const completedAtLabel = task.completed_at
+    ? formatDate(task.completed_at)
+    : formatDate(task.updated_at);
+  const taskTimeSummary = task.status === "completed"
+    ? `完成：${completedAtLabel} · 耗时：${formatDuration(elapsedSeconds)}`
+    : task.time_started_at
+      ? `计时中：${formatDuration(elapsedSeconds)}`
+      : task.time_spent_seconds > 0
+        ? `累计：${formatDuration(elapsedSeconds)}`
+        : `创建：${formatDate(task.created_at)}`;
 
   const {
     attributes,
@@ -327,6 +341,19 @@ export function TaskCard({
       void fetchTaskAutomationState(task.id);
     }
   }, [fetchTaskAutomationState, persistedAutomationState, task.automation_mode, task.id]);
+
+  useEffect(() => {
+    if (!task.time_started_at) {
+      return;
+    }
+
+    setTimerNow(Date.now());
+    const intervalId = window.setInterval(() => {
+      setTimerNow(Date.now());
+    }, 1000);
+
+    return () => window.clearInterval(intervalId);
+  }, [task.time_started_at]);
 
   const handleRun = async (e?: React.MouseEvent) => {
     e?.stopPropagation();
@@ -700,7 +727,7 @@ export function TaskCard({
                 )}
                 <span className="flex items-center gap-0.5">
                   <Clock className="h-3 w-3" />
-                  {formatDate(task.created_at)}
+                  {taskTimeSummary}
                 </span>
               </div>
               {task.assignee_id && (

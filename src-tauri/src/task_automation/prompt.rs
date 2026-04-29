@@ -123,6 +123,9 @@ mod tests {
             automation_mode: Some("review_fix_loop_v1".to_string()),
             last_codex_session_id: None,
             last_review_session_id: None,
+            time_started_at: None,
+            time_spent_seconds: 0,
+            completed_at: None,
             created_at: "2026-04-16 10:00:00".to_string(),
             updated_at: "2026-04-16 10:00:00".to_string(),
         }

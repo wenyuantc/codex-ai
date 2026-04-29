@@ -49,6 +49,7 @@ export function CodexControls({
   const fetchSubtasks = useTaskStore((state) => state.fetchSubtasks);
   const updateTask = useTaskStore((state) => state.updateTask);
   const updateTaskStatus = useTaskStore((state) => state.updateTaskStatus);
+  const startTaskTimer = useTaskStore((state) => state.startTaskTimer);
   const projects = useProjectStore((state) => state.projects);
   const currentProjectId = useProjectStore((state) => state.currentProject?.id);
   const fetchProjects = useProjectStore((state) => state.fetchProjects);
@@ -223,6 +224,7 @@ export function CodexControls({
           imagePaths: executionInput.imagePaths,
         });
       }
+      await startTaskTimer(selectedTask.id);
       await refreshEmployeeRuntimeStatus(employeeId);
       setShowTaskDialog(false);
     } catch (error) {

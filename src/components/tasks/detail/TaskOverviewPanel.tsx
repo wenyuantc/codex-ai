@@ -1,8 +1,9 @@
-import { lazy, Suspense } from "react";
-import { Pencil, Save, Trash2, X } from "lucide-react";
+import { lazy, Suspense, useEffect, useState } from "react";
+import { Clock, Pencil, Save, Trash2, X } from "lucide-react";
 
 import type { Employee, TaskStatus } from "@/lib/types";
 import { ACTIVE_TASK_STATUSES, PRIORITIES, TASK_STATUSES } from "@/lib/types";
+import { formatDate, formatDuration, getTaskElapsedSeconds } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -25,6 +26,10 @@ interface TaskOverviewPanelProps {
   assigneeId: string;
   reviewerId: string;
   coordinatorId: string;
+  createdAt: string;
+  timeStartedAt: string | null;
+  timeSpentSeconds: number;
+  completedAt: string | null;
   planContent: string;
   planContentDraft: string;
   planEditing: boolean;
@@ -68,6 +73,10 @@ export function TaskOverviewPanel({
   assigneeId,
   reviewerId,
   coordinatorId,
+  createdAt,
+  timeStartedAt,
+  timeSpentSeconds,
+  completedAt,
   planContent,
   planContentDraft,
   planEditing,
@@ -94,6 +103,32 @@ export function TaskOverviewPanel({
   onPlanSave,
   onDeleteRequest,
 }: TaskOverviewPanelProps) {
+  const [timerNow, setTimerNow] = useState(() => Date.now());
+  const elapsedSeconds = getTaskElapsedSeconds({
+    time_started_at: timeStartedAt,
+    time_spent_seconds: timeSpentSeconds,
+  }, timerNow);
+  const timerStatus = timeStartedAt
+    ? "计时中"
+    : completedAt
+      ? "已完成"
+      : timeSpentSeconds > 0
+        ? "待继续"
+        : "未开始";
+
+  useEffect(() => {
+    if (!timeStartedAt) {
+      return;
+    }
+
+    setTimerNow(Date.now());
+    const intervalId = window.setInterval(() => {
+      setTimerNow(Date.now());
+    }, 1000);
+
+    return () => window.clearInterval(intervalId);
+  }, [timeStartedAt]);
+
   return (
     <div className="space-y-4">
       <Input
@@ -255,6 +290,34 @@ export function TaskOverviewPanel({
           <Trash2 className="h-4 w-4" />
         </button>
       </div>
+
+      <section className="rounded-md border border-border bg-muted/20 p-3">
+        <div className="mb-2 flex items-center gap-2 text-xs font-medium text-muted-foreground">
+          <Clock className="h-3.5 w-3.5" />
+          耗时汇总
+        </div>
+        <div className="grid gap-2 text-xs text-muted-foreground sm:grid-cols-2 lg:grid-cols-4">
+          <div className="rounded-md border border-border bg-background/70 px-3 py-2">
+            <span className="font-medium text-foreground">累计耗时：</span>
+            {formatDuration(elapsedSeconds)}
+          </div>
+          <div className="rounded-md border border-border bg-background/70 px-3 py-2">
+            <span className="font-medium text-foreground">计时开始：</span>
+            {timeStartedAt ? formatDate(timeStartedAt) : "未开始"}
+          </div>
+          <div className="rounded-md border border-border bg-background/70 px-3 py-2">
+            <span className="font-medium text-foreground">完成时间：</span>
+            {completedAt ? formatDate(completedAt) : "未完成"}
+          </div>
+          <div className="rounded-md border border-border bg-background/70 px-3 py-2">
+            <span className="font-medium text-foreground">计时状态：</span>
+            {timerStatus}
+          </div>
+        </div>
+        <div className="mt-2 text-[11px] text-muted-foreground">
+          创建时间：{formatDate(createdAt)}
+        </div>
+      </section>
 
       <div>
         <label className="text-xs font-medium text-muted-foreground">

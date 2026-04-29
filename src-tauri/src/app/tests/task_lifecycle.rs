@@ -19,6 +19,9 @@ fn archived_task_rejects_enabling_automation() {
         automation_mode: None,
         last_codex_session_id: None,
         last_review_session_id: None,
+        time_started_at: None,
+        time_spent_seconds: 0,
+        completed_at: None,
         created_at: "2026-04-21 00:00:00".to_string(),
         updated_at: "2026-04-21 00:00:00".to_string(),
     };
@@ -102,6 +105,9 @@ fn archiving_task_clears_pending_automation_state_and_logs_disable_activity() {
             automation_mode: Some(TASK_AUTOMATION_MODE_REVIEW_FIX_LOOP_V1.to_string()),
             last_codex_session_id: None,
             last_review_session_id: None,
+            time_started_at: None,
+            time_spent_seconds: 0,
+            completed_at: None,
             created_at: "2026-04-21 00:00:00".to_string(),
             updated_at: "2026-04-21 00:00:00".to_string(),
         };
@@ -209,6 +215,9 @@ fn insert_task_record_persists_reviewer_id() {
             automation_mode: None,
             last_codex_session_id: None,
             last_review_session_id: None,
+            time_started_at: None,
+            time_spent_seconds: 0,
+            completed_at: None,
             created_at: "2026-04-16 10:00:00".to_string(),
             updated_at: "2026-04-16 10:00:00".to_string(),
         };
@@ -226,6 +235,232 @@ fn insert_task_record_persists_reviewer_id() {
         assert_eq!(saved_task.coordinator_id.as_deref(), Some("coordinator-1"));
         assert_eq!(saved_task.plan_content.as_deref(), Some("协调员计划内容"));
         assert!(!saved_task.use_worktree);
+        assert_eq!(saved_task.time_started_at, None);
+        assert_eq!(saved_task.time_spent_seconds, 0);
+        assert_eq!(saved_task.completed_at, None);
+
+        pool.close().await;
+    });
+}
+
+#[test]
+fn start_task_timer_is_idempotent_and_logs_once() {
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("build tokio runtime");
+
+    runtime.block_on(async {
+        let pool = setup_test_pool().await;
+        insert_project(&pool, "proj-1").await;
+
+        let task = Task {
+            id: "task-timer".to_string(),
+            title: "计时任务".to_string(),
+            description: None,
+            status: "in_progress".to_string(),
+            priority: "medium".to_string(),
+            project_id: "proj-1".to_string(),
+            use_worktree: false,
+            assignee_id: None,
+            reviewer_id: None,
+            coordinator_id: None,
+            complexity: None,
+            ai_suggestion: None,
+            plan_content: None,
+            automation_mode: None,
+            last_codex_session_id: None,
+            last_review_session_id: None,
+            time_started_at: None,
+            time_spent_seconds: 0,
+            completed_at: None,
+            created_at: "2026-04-16 10:00:00".to_string(),
+            updated_at: "2026-04-16 10:00:00".to_string(),
+        };
+
+        let mut tx = pool.begin().await.expect("begin task transaction");
+        insert_task_record(&mut tx, &task)
+            .await
+            .expect("insert task record");
+        tx.commit().await.expect("commit task transaction");
+
+        let first = start_task_timer_internal(&pool, &task.id)
+            .await
+            .expect("start timer");
+        let second = start_task_timer_internal(&pool, &task.id)
+            .await
+            .expect("start timer again");
+
+        assert!(first.time_started_at.is_some());
+        assert_eq!(second.time_started_at, first.time_started_at);
+
+        let start_log_count = sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(*) FROM activity_logs WHERE task_id = $1 AND action = 'task_timer_started'",
+        )
+        .bind(&task.id)
+        .fetch_one(&pool)
+        .await
+        .expect("fetch timer activity count");
+        assert_eq!(start_log_count, 1);
+
+        pool.close().await;
+    });
+}
+
+#[test]
+fn stop_task_timer_accumulates_without_marking_completed() {
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("build tokio runtime");
+
+    runtime.block_on(async {
+        let pool = setup_test_pool().await;
+        insert_project(&pool, "proj-1").await;
+
+        let task = Task {
+            id: "task-timer-stop".to_string(),
+            title: "停止计时任务".to_string(),
+            description: None,
+            status: "in_progress".to_string(),
+            priority: "medium".to_string(),
+            project_id: "proj-1".to_string(),
+            use_worktree: false,
+            assignee_id: None,
+            reviewer_id: None,
+            coordinator_id: None,
+            complexity: None,
+            ai_suggestion: None,
+            plan_content: None,
+            automation_mode: None,
+            last_codex_session_id: None,
+            last_review_session_id: None,
+            time_started_at: Some("2026-04-16 10:00:00".to_string()),
+            time_spent_seconds: 60,
+            completed_at: None,
+            created_at: "2026-04-16 09:00:00".to_string(),
+            updated_at: "2026-04-16 10:00:00".to_string(),
+        };
+
+        let mut tx = pool.begin().await.expect("begin task transaction");
+        insert_task_record(&mut tx, &task)
+            .await
+            .expect("insert task record");
+        tx.commit().await.expect("commit task transaction");
+
+        let stopped = stop_task_timer_internal(&pool, &task.id, "自动质控阻塞")
+            .await
+            .expect("stop timer");
+
+        assert_eq!(stopped.time_started_at, None);
+        assert!(stopped.time_spent_seconds >= 60);
+        assert_eq!(stopped.completed_at, None);
+
+        let stop_log_count = sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(*) FROM activity_logs WHERE task_id = $1 AND action = 'task_timer_stopped'",
+        )
+        .bind(&task.id)
+        .fetch_one(&pool)
+        .await
+        .expect("fetch timer stop activity count");
+        assert_eq!(stop_log_count, 1);
+
+        pool.close().await;
+    });
+}
+
+#[test]
+fn completion_timer_update_accumulates_elapsed_time_and_reopen_clears_completion() {
+    let mut task = Task {
+        id: "task-completion".to_string(),
+        title: "完成计时任务".to_string(),
+        description: None,
+        status: "in_progress".to_string(),
+        priority: "medium".to_string(),
+        project_id: "proj-1".to_string(),
+        use_worktree: false,
+        assignee_id: None,
+        reviewer_id: None,
+        coordinator_id: None,
+        complexity: None,
+        ai_suggestion: None,
+        plan_content: None,
+        automation_mode: None,
+        last_codex_session_id: None,
+        last_review_session_id: None,
+        time_started_at: Some("2026-04-16 10:00:00".to_string()),
+        time_spent_seconds: 120,
+        completed_at: None,
+        created_at: "2026-04-16 09:00:00".to_string(),
+        updated_at: "2026-04-16 10:00:00".to_string(),
+    };
+    let completed_at =
+        chrono::NaiveDateTime::parse_from_str("2026-04-16 10:05:30", "%Y-%m-%d %H:%M:%S")
+            .expect("parse completed_at");
+
+    let (completed_at_label, total_seconds) =
+        build_task_completion_timer_update(&task, completed_at);
+
+    assert_eq!(completed_at_label, "2026-04-16 10:05:30");
+    assert_eq!(total_seconds, 450);
+
+    task.status = "completed".to_string();
+    task.completed_at = Some(completed_at_label);
+    task.time_started_at = None;
+    task.time_spent_seconds = total_seconds;
+
+    assert!(should_clear_task_completed_at(&task, "in_progress"));
+    assert!(!should_clear_task_completed_at(&task, "completed"));
+}
+
+#[test]
+fn completion_metric_uses_tracked_task_time_when_available() {
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("build tokio runtime");
+
+    runtime.block_on(async {
+        let pool = setup_test_pool().await;
+        insert_employee(&pool, "emp-1", "Timer User", "developer").await;
+
+        let task = Task {
+            id: "task-metric".to_string(),
+            title: "计入指标".to_string(),
+            description: None,
+            status: "completed".to_string(),
+            priority: "medium".to_string(),
+            project_id: "proj-1".to_string(),
+            use_worktree: false,
+            assignee_id: Some("emp-1".to_string()),
+            reviewer_id: None,
+            coordinator_id: None,
+            complexity: None,
+            ai_suggestion: None,
+            plan_content: None,
+            automation_mode: None,
+            last_codex_session_id: None,
+            last_review_session_id: None,
+            time_started_at: None,
+            time_spent_seconds: 3661,
+            completed_at: Some("2026-04-16 11:01:01".to_string()),
+            created_at: "2026-04-16 10:00:00".to_string(),
+            updated_at: "2026-04-16 11:01:01".to_string(),
+        };
+
+        record_completion_metric(&pool, &task)
+            .await
+            .expect("record completion metric");
+
+        let average_completion_time = sqlx::query_scalar::<_, Option<f64>>(
+            "SELECT average_completion_time FROM employee_metrics WHERE employee_id = $1 LIMIT 1",
+        )
+        .bind("emp-1")
+        .fetch_one(&pool)
+        .await
+        .expect("fetch metric");
+
+        assert_eq!(average_completion_time, Some(3661.0));
 
         pool.close().await;
     });

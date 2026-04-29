@@ -130,12 +130,13 @@ pub(crate) use shared::{
 };
 #[allow(unused_imports)]
 pub(crate) use tasks::{
-    clear_task_automation_state_for_disabled_mode, decode_task_automation_state,
-    disable_task_automation_for_archived_task, fetch_task_attachments,
-    fetch_task_automation_state_record, fetch_task_by_id, fetch_task_subtasks, insert_task_record,
-    is_task_automation_active_for_archival, record_completion_metric,
-    resolve_project_task_default_settings, validate_coordinator_for_project,
-    validate_reviewer_for_project, validate_task_archival_guard,
+    build_task_completion_timer_update, clear_task_automation_state_for_disabled_mode,
+    decode_task_automation_state, disable_task_automation_for_archived_task,
+    fetch_task_attachments, fetch_task_automation_state_record, fetch_task_by_id,
+    fetch_task_subtasks, insert_task_record, is_task_automation_active_for_archival,
+    record_completion_metric, resolve_project_task_default_settings,
+    should_clear_task_completed_at, start_task_timer_internal, stop_task_timer_internal,
+    validate_coordinator_for_project, validate_reviewer_for_project, validate_task_archival_guard,
     validate_task_automation_mode_change,
 };
 

@@ -7,10 +7,10 @@ use sqlx::SqlitePool;
 use tauri::{AppHandle, Emitter, Manager, Runtime};
 
 use crate::app::{
-    fetch_employee_by_id, fetch_project_by_id, fetch_task_automation_state_record,
-    fetch_task_by_id, insert_activity_log, insert_codex_session_event, now_sqlite,
-    parse_review_verdict_json, record_completion_metric, sqlite_pool,
-    start_task_code_review_internal, TASK_STATUS_ARCHIVED,
+    build_task_completion_timer_update, fetch_employee_by_id, fetch_project_by_id,
+    fetch_task_automation_state_record, fetch_task_by_id, insert_activity_log,
+    insert_codex_session_event, now_sqlite, parse_review_verdict_json, record_completion_metric,
+    sqlite_pool, start_task_code_review_internal, stop_task_timer_internal, TASK_STATUS_ARCHIVED,
 };
 use crate::claude::{start_claude_with_manager, stop_claude_for_automation_restart, ClaudeManager};
 use crate::codex::{
@@ -239,6 +239,7 @@ async fn finalize_terminal_failure(
             state_record,
         )
         .await?;
+        stop_task_timer_internal(pool, &task.id, "自动质控转人工处理").await?;
         insert_activity_log(
             pool,
             "task_automation_manual_control",
@@ -263,6 +264,7 @@ async fn finalize_terminal_failure(
         state_record,
     )
     .await?;
+    stop_task_timer_internal(pool, &task.id, "自动质控阻塞").await?;
     update_task_status_internal(app, pool, task, "blocked").await?;
     insert_activity_log(
         pool,
@@ -515,6 +517,7 @@ async fn handle_execution_exit(
             state_record,
         )
         .await?;
+        stop_task_timer_internal(pool, &task.id, "自动质控人工停止").await?;
         insert_activity_log(
             pool,
             "task_automation_manual_control",
@@ -609,6 +612,7 @@ async fn handle_review_exit(
             state_record,
         )
         .await?;
+        stop_task_timer_internal(pool, &task.id, "自动质控人工停止").await?;
         insert_activity_log(
             pool,
             "task_automation_manual_control",
@@ -813,6 +817,7 @@ async fn retry_pending_commit<R: Runtime>(
                 Some(&state_record),
             )
             .await?;
+            stop_task_timer_internal(pool, &task.id, "自动质控提交失败").await?;
             insert_activity_log(
                 pool,
                 "task_automation_commit_failed",
@@ -918,7 +923,7 @@ async fn retry_pending_review(
             finalize_no_reviewable_changes(app, pool, &task, state_record).await?;
             return Ok(false);
         }
-        mark_launch_failure(pool, task_id, PHASE_REVIEW_LAUNCH_FAILED, &error).await?;
+        mark_launch_failure(pool, &task, PHASE_REVIEW_LAUNCH_FAILED, &error).await?;
         return Err(error);
     }
 
@@ -968,7 +973,7 @@ async fn retry_pending_fix(
     .await;
 
     if let Err(error) = result {
-        mark_launch_failure(pool, task_id, PHASE_FIX_LAUNCH_FAILED, &error).await?;
+        mark_launch_failure(pool, &task, PHASE_FIX_LAUNCH_FAILED, &error).await?;
         return Err(error);
     }
 
@@ -1139,7 +1144,7 @@ async fn resolve_automation_execution_context(
 
 async fn mark_launch_failure(
     pool: &SqlitePool,
-    task_id: &str,
+    task: &Task,
     phase: &str,
     message: &str,
 ) -> Result<(), String> {
@@ -1152,13 +1157,15 @@ async fn mark_launch_failure(
         WHERE task_id = $1
         "#,
     )
-    .bind(task_id)
+    .bind(&task.id)
     .bind(phase)
     .bind(message)
     .bind(now_sqlite())
     .execute(pool)
     .await
     .map_err(|error| format!("Failed to mark automation launch failure: {}", error))?;
+
+    stop_task_timer_internal(pool, &task.id, "自动质控启动失败").await?;
 
     Ok(())
 }
@@ -1189,6 +1196,7 @@ async fn finalize_no_reviewable_changes(
     .await?;
 
     let current_task = fetch_task_by_id(pool, &task.id).await?;
+    stop_task_timer_internal(pool, &task.id, "自动质控无可审核改动").await?;
     if phase == PHASE_BLOCKED {
         update_task_status_internal(app, pool, &current_task, "blocked").await?;
     } else if current_task.status == "review" && task.status != "review" {
@@ -1274,12 +1282,51 @@ async fn update_task_status_internal<R: Runtime>(
         return Ok(());
     }
 
-    sqlx::query("UPDATE tasks SET status = $1 WHERE id = $2")
+    let completion_timer_update =
+        if current_task.status != "completed" && next_status == "completed" {
+            Some(build_task_completion_timer_update(
+                current_task,
+                chrono::Utc::now().naive_utc(),
+            ))
+        } else {
+            None
+        };
+    let should_clear_completed_at =
+        current_task.status == "completed" && next_status != "completed";
+
+    if let Some((completed_at, time_spent_seconds)) = completion_timer_update.as_ref() {
+        sqlx::query(
+            r#"
+            UPDATE tasks
+            SET status = $1,
+                time_spent_seconds = $2,
+                time_started_at = NULL,
+                completed_at = $3
+            WHERE id = $4
+            "#,
+        )
         .bind(next_status)
+        .bind(time_spent_seconds)
+        .bind(completed_at)
         .bind(&current_task.id)
         .execute(pool)
         .await
         .map_err(|error| format!("Failed to update task status internally: {}", error))?;
+    } else if should_clear_completed_at {
+        sqlx::query("UPDATE tasks SET status = $1, completed_at = NULL WHERE id = $2")
+            .bind(next_status)
+            .bind(&current_task.id)
+            .execute(pool)
+            .await
+            .map_err(|error| format!("Failed to update task status internally: {}", error))?;
+    } else {
+        sqlx::query("UPDATE tasks SET status = $1 WHERE id = $2")
+            .bind(next_status)
+            .bind(&current_task.id)
+            .execute(pool)
+            .await
+            .map_err(|error| format!("Failed to update task status internally: {}", error))?;
+    }
 
     insert_activity_log(
         pool,
@@ -1293,7 +1340,24 @@ async fn update_task_status_internal<R: Runtime>(
 
     if current_task.status != "completed" && next_status == "completed" {
         let updated_task = fetch_task_by_id(pool, &current_task.id).await?;
+        if let Some((_, time_spent_seconds)) = completion_timer_update {
+            insert_activity_log(
+                pool,
+                "task_timer_completed",
+                &format!(
+                    "{}（累计耗时：{}秒）",
+                    current_task.title, time_spent_seconds
+                ),
+                updated_task.assignee_id.as_deref(),
+                Some(current_task.id.as_str()),
+                Some(current_task.project_id.as_str()),
+            )
+            .await?;
+        }
         record_completion_metric(pool, &updated_task).await?;
+    }
+    if next_status == "blocked" {
+        stop_task_timer_internal(pool, &current_task.id, "自动质控阻塞").await?;
     }
 
     if let Some(draft) =
@@ -1811,6 +1875,9 @@ mod automation_working_dir_tests {
             automation_mode: Some("review_fix_loop_v1".to_string()),
             last_codex_session_id: Some("exec-1".to_string()),
             last_review_session_id: None,
+            time_started_at: None,
+            time_spent_seconds: 0,
+            completed_at: None,
             created_at: "2026-04-17 00:00:00".to_string(),
             updated_at: "2026-04-17 00:00:00".to_string(),
         }
@@ -2311,6 +2378,9 @@ mod automation_guard_tests {
             automation_mode: Some(AUTOMATION_MODE_REVIEW_FIX_LOOP_V1.to_string()),
             last_codex_session_id: None,
             last_review_session_id: None,
+            time_started_at: None,
+            time_spent_seconds: 0,
+            completed_at: None,
             created_at: "2026-04-21 00:00:00".to_string(),
             updated_at: "2026-04-21 00:00:00".to_string(),
         }
