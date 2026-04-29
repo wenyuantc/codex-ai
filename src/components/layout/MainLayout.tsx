@@ -93,11 +93,11 @@ export function MainLayout() {
   }, []);
 
   return (
-    <div className="flex h-screen overflow-hidden">
+    <div className="flex h-screen overflow-hidden bg-background text-foreground">
       <Sidebar />
-      <div className="flex flex-col flex-1 overflow-hidden">
+      <div className="flex flex-col flex-1 overflow-hidden bg-background">
         <Header />
-        <main className="flex-1 overflow-auto p-6">
+        <main className="flex-1 overflow-auto bg-background p-6">
           <Outlet />
         </main>
       </div>

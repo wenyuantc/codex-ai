@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type * as Monaco from "monaco-editor";
 
 import type { ProjectGitFileChangeRef, ProjectGitFilePreview } from "@/lib/types";
-import { detectMonacoLanguage, loadMonaco } from "@/lib/monaco";
+import { detectMonacoLanguage, getMonacoThemeName, loadMonaco } from "@/lib/monaco";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 
 interface ProjectGitFilePreviewDialogProps {
@@ -92,6 +92,7 @@ export function ProjectGitFilePreviewDialog({
 
         if (!diffEditorRef.current) {
           diffEditorRef.current = monaco.editor.createDiffEditor(editorContainerRef.current, {
+            theme: getMonacoThemeName(),
             readOnly: true,
             originalEditable: false,
             automaticLayout: true,

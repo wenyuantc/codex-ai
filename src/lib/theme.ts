@@ -35,6 +35,7 @@ export function applyTheme(mode: ThemeMode) {
   const isDark = isDarkThemeMode(mode);
 
   document.documentElement.classList.toggle("dark", isDark);
+  document.documentElement.style.colorScheme = isDark ? "dark" : "light";
   localStorage.setItem(THEME_MODE_STORAGE_KEY, mode);
   localStorage.setItem(THEME_STORAGE_KEY, isDark ? "dark" : "light");
   window.dispatchEvent(

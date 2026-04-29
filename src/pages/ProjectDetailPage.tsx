@@ -831,7 +831,7 @@ export function ProjectDetailPage() {
                   >
                     <span className="inline-flex items-center gap-1">
                       推送
-                      <span className="inline-flex items-center gap-0.5 text-sky-600">
+                      <span className="inline-flex items-center gap-0.5 text-sky-600 dark:text-sky-300">
                         <ArrowUp className="h-3.5 w-3.5" />
                         {aheadCommits}
                       </span>
@@ -847,7 +847,7 @@ export function ProjectDetailPage() {
                   >
                     <span className="inline-flex items-center gap-1">
                       拉取
-                      <span className="inline-flex items-center gap-0.5 text-amber-600">
+                      <span className="inline-flex items-center gap-0.5 text-amber-600 dark:text-amber-300">
                         <ArrowDown className="h-3.5 w-3.5" />
                         {behindCommits}
                       </span>
@@ -930,7 +930,7 @@ export function ProjectDetailPage() {
               <div
                 className={`rounded-lg border px-3 py-2 text-xs ${
                   gitOverview.git_runtime_status === "unavailable"
-                    ? "border-amber-500/30 bg-amber-500/10 text-amber-900"
+                    ? "border-amber-500/30 bg-amber-500/10 text-amber-900 dark:text-amber-200"
                     : "border-border/60 bg-secondary/30 text-muted-foreground"
                 }`}
               >

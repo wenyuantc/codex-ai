@@ -572,7 +572,7 @@ export function SessionsPage() {
                                 <div className="max-w-56 break-all text-muted-foreground">{session.working_dir}</div>
                               )}
                               {isArtifactCaptureLimited(session.artifact_capture_mode) && (
-                                <div className="rounded border border-amber-500/30 bg-amber-500/10 px-2 py-1 text-[11px] text-amber-800">
+                                <div className="rounded border border-amber-500/30 bg-amber-500/10 px-2 py-1 text-[11px] text-amber-800 dark:text-amber-200">
                                   远程变更明细受限
                                 </div>
                               )}

@@ -3,7 +3,7 @@
 @import "shadcn/tailwind.css";
 @import "@fontsource-variable/geist";
 
-@custom-variant dark (&:is(.dark *));
+@custom-variant dark (&:where(.dark, .dark *));
 
 @theme {
   --color-background: oklch(1 0 0);
@@ -153,6 +153,13 @@
 }
 
 :root {
+  color-scheme: light;
+  --color-bg-primary: oklch(1 0 0);
+  --color-bg-secondary: oklch(0.985 0 0);
+  --color-bg-tertiary: oklch(0.97 0 0);
+  --color-text-primary: oklch(0.145 0 0);
+  --color-text-secondary: oklch(0.42 0 0);
+  --color-border-subtle: oklch(0.922 0 0);
   --background: oklch(1 0 0);
   --foreground: oklch(0.145 0 0);
   --card: oklch(1 0 0);
@@ -185,4 +192,143 @@
   --sidebar-accent-foreground: oklch(0.205 0 0);
   --sidebar-border: oklch(0.922 0 0);
   --sidebar-ring: oklch(0.708 0 0);
+}
+
+.dark {
+  color-scheme: dark;
+  --color-bg-primary: oklch(0.145 0 0);
+  --color-bg-secondary: oklch(0.19 0 0);
+  --color-bg-tertiary: oklch(0.245 0 0);
+  --color-text-primary: oklch(0.985 0 0);
+  --color-text-secondary: oklch(0.76 0 0);
+  --color-border-subtle: oklch(1 0 0 / 12%);
+}
+
+@layer base {
+  html,
+  body,
+  #root {
+    min-height: 100%;
+    background: var(--background);
+    color: var(--foreground);
+  }
+
+  input,
+  select,
+  textarea {
+    background-color: var(--background);
+    color: var(--foreground);
+  }
+
+  input::placeholder,
+  textarea::placeholder {
+    color: var(--muted-foreground);
+  }
+
+  table {
+    color: var(--foreground);
+  }
+
+  pre,
+  code {
+    color: inherit;
+  }
+
+  * {
+    scrollbar-color: color-mix(in oklch, var(--muted-foreground) 45%, transparent) transparent;
+  }
+
+  ::selection {
+    background: color-mix(in oklch, var(--primary) 30%, transparent);
+    color: var(--foreground);
+  }
+}
+
+@layer utilities {
+  .dark .bg-green-100 {
+    background-color: rgb(34 197 94 / 0.16);
+  }
+
+  .dark .bg-amber-100 {
+    background-color: rgb(245 158 11 / 0.16);
+  }
+
+  .dark .bg-slate-100 {
+    background-color: rgb(148 163 184 / 0.14);
+  }
+
+  .dark .text-green-600,
+  .dark .text-green-700,
+  .dark .text-green-800,
+  .dark .text-green-900 {
+    color: rgb(134 239 172);
+  }
+
+  .dark .text-emerald-600,
+  .dark .text-emerald-700,
+  .dark .text-emerald-800,
+  .dark .text-emerald-900 {
+    color: rgb(110 231 183);
+  }
+
+  .dark .text-amber-600,
+  .dark .text-amber-700,
+  .dark .text-amber-800,
+  .dark .text-amber-900,
+  .dark .text-amber-950 {
+    color: rgb(252 211 77);
+  }
+
+  .dark .text-orange-600,
+  .dark .text-orange-700,
+  .dark .text-orange-800,
+  .dark .text-orange-900 {
+    color: rgb(253 186 116);
+  }
+
+  .dark .text-sky-600,
+  .dark .text-sky-700,
+  .dark .text-sky-800,
+  .dark .text-sky-900 {
+    color: rgb(125 211 252);
+  }
+
+  .dark .text-blue-600,
+  .dark .text-blue-700,
+  .dark .text-blue-800,
+  .dark .text-blue-900 {
+    color: rgb(147 197 253);
+  }
+
+  .dark .text-rose-600,
+  .dark .text-rose-700,
+  .dark .text-rose-800,
+  .dark .text-rose-900 {
+    color: rgb(253 164 175);
+  }
+
+  .dark .text-red-600,
+  .dark .text-red-700,
+  .dark .text-red-800,
+  .dark .text-red-900 {
+    color: rgb(252 165 165);
+  }
+
+  .dark .text-violet-600,
+  .dark .text-violet-700,
+  .dark .text-violet-800,
+  .dark .text-violet-900,
+  .dark .text-purple-600,
+  .dark .text-purple-700,
+  .dark .text-purple-800,
+  .dark .text-purple-900 {
+    color: rgb(196 181 253);
+  }
+
+  .dark .text-slate-600,
+  .dark .text-slate-700,
+  .dark .text-slate-800,
+  .dark .text-slate-900 {
+    color: rgb(203 213 225);
+  }
 }

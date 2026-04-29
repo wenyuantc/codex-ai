@@ -67,7 +67,21 @@ export function Header() {
     };
 
     window.addEventListener(THEME_CHANGE_EVENT, handleThemeChange);
-    return () => window.removeEventListener(THEME_CHANGE_EVENT, handleThemeChange);
+
+    const mediaQuery = window.matchMedia("(prefers-color-scheme: dark)");
+    const handleSystemThemeChange = () => {
+      const preference = getThemePreference();
+      if (preference === "system") {
+        setThemeMode(preference);
+        applyTheme(preference);
+      }
+    };
+
+    mediaQuery.addEventListener("change", handleSystemThemeChange);
+    return () => {
+      window.removeEventListener(THEME_CHANGE_EVENT, handleThemeChange);
+      mediaQuery.removeEventListener("change", handleSystemThemeChange);
+    };
   }, []);
 
   useEffect(() => {
