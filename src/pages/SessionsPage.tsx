@@ -13,7 +13,8 @@ import { listCodexSessions, prepareCodexSessionResume } from "@/lib/backend";
 import { startCodex } from "@/lib/codex";
 import { startClaude } from "@/lib/claude";
 import { startOpenCode } from "@/lib/opencode";
-import type { CodexSessionListItem, CodexSessionResumeStatus } from "@/lib/types";
+import type { AiProvider, CodexSessionListItem, CodexSessionResumeStatus } from "@/lib/types";
+import { AI_PROVIDER_OPTIONS, normalizeAiProvider } from "@/lib/types";
 import { formatDate, isArtifactCaptureLimited } from "@/lib/utils";
 import { useEmployeeStore } from "@/stores/employeeStore";
 import { useProjectStore } from "@/stores/projectStore";
@@ -35,6 +36,24 @@ function matchesSessionIdentifier(session: CodexSessionListItem, query: string |
     session.session_record_id,
     session.cli_session_id,
   ].some((value) => normalizeSearchText(value) === normalizedQuery);
+}
+
+function formatAiProviderLabel(provider: AiProvider) {
+  const option = AI_PROVIDER_OPTIONS.find((o) => o.value === provider);
+  return option?.label ?? provider;
+}
+
+function aiProviderBadgeVariant(provider: AiProvider): "default" | "secondary" | "outline" {
+  switch (provider) {
+    case "codex":
+      return "default";
+    case "claude":
+      return "secondary";
+    case "opencode":
+      return "outline";
+    default:
+      return "outline";
+  }
 }
 
 function formatSessionKind(kind: CodexSessionListItem["session_kind"]) {
@@ -508,6 +527,7 @@ export function SessionsPage() {
                       <tr className="border-b border-border">
                         <th className="px-4 py-3 font-medium">对话</th>
                         <th className="px-4 py-3 font-medium">状态</th>
+                        <th className="px-4 py-3 font-medium">AI 提供商</th>
                         <th className="px-4 py-3 font-medium">最近更新时间</th>
                         <th className="px-4 py-3 font-medium">关联任务</th>
                         <th className="px-4 py-3 font-medium">员工</th>
@@ -548,6 +568,11 @@ export function SessionsPage() {
                                 {formatResumeStatus(session.resume_status)}
                               </Badge>
                             </div>
+                          </td>
+                          <td className="px-4 py-3">
+                            <Badge variant={aiProviderBadgeVariant(normalizeAiProvider(session.ai_provider))}>
+                              {formatAiProviderLabel(normalizeAiProvider(session.ai_provider))}
+                            </Badge>
                           </td>
                           <td className="px-4 py-3 text-xs text-muted-foreground">
                             {formatDate(session.last_updated_at)}
