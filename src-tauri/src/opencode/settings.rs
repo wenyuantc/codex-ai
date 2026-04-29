@@ -28,7 +28,7 @@ fn normalize_opencode_model(value: Option<&str>) -> String {
 
 fn normalize_port(value: Option<u16>) -> u16 {
     match value {
-        Some(v) if v > 0 && v <= 65535 => v,
+        Some(v) if v > 0 => v,
         _ => DEFAULT_PORT,
     }
 }

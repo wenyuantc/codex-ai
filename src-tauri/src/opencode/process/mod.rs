@@ -35,10 +35,6 @@ pub use self::lifecycle::OpenCodeChild;
 
 use self::{context::*, session_runtime::*, stream::*};
 
-const REVIEW_VERDICT_START_TAG: &str = "<review_verdict>";
-const REVIEW_VERDICT_END_TAG: &str = "</review_verdict>";
-const REVIEW_REPORT_START_TAG: &str = "<review_report>";
-const REVIEW_REPORT_END_TAG: &str = "</review_report>";
 const STOP_WAIT_POLL_MS: u64 = 50;
 const STOP_WAIT_MAX_ATTEMPTS: usize = 600;
 const OPENCODE_PROVIDER_CHUNK_TIMEOUT_MS: i64 = 30 * 60 * 1000;
@@ -317,20 +313,6 @@ fn stream_opencode_sdk_server_output(
             .await;
         }
     });
-}
-
-pub(crate) fn extract_review_report(raw: &str) -> Option<String> {
-    let start = raw.find(REVIEW_REPORT_START_TAG)?;
-    let end = raw.find(REVIEW_REPORT_END_TAG)?;
-    let content_start = start + REVIEW_REPORT_START_TAG.len();
-    Some(raw[content_start..end].trim().to_string())
-}
-
-pub(crate) fn extract_review_verdict(raw: &str) -> Option<String> {
-    let start = raw.find(REVIEW_VERDICT_START_TAG)?;
-    let end = raw.find(REVIEW_VERDICT_END_TAG)?;
-    let content_start = start + REVIEW_VERDICT_START_TAG.len();
-    Some(raw[content_start..end].trim().to_string())
 }
 
 async fn emit_session_terminal_line<R: Runtime>(
@@ -1667,7 +1649,6 @@ pub async fn start_opencode_with_manager(
             session_kind,
             child.clone(),
             session_record.id.clone(),
-            file_change_store.clone(),
             vec![],
         );
     }

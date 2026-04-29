@@ -51,6 +51,7 @@ import { getEnvironmentModeLabel } from "@/lib/projects";
 import {
   normalizeAiProvider,
   normalizeAiCommitMessageLength,
+  normalizeClaudeModel,
   normalizeModelForProvider,
   normalizeAiCommitModelSource,
   normalizeReasoningEffortForProvider,
@@ -202,7 +203,7 @@ export function SettingsPage() {
   const [sshFormError, setSshFormError] = useState<string | null>(null);
   const [claudeHealth, setClaudeHealth] = useState<ClaudeHealthCheck | null>(null);
   const [claudeSdkEnabled, setClaudeSdkEnabled] = useState(false);
-  const [claudeDefaultModel, setClaudeDefaultModel] = useState("claude-sonnet-4-6");
+  const [claudeDefaultModel, setClaudeDefaultModel] = useState("sonnet");
   const [claudeDefaultEffort, setClaudeDefaultEffort] = useState("medium");
   const [claudeNodePathOverride, setClaudeNodePathOverride] = useState("");
   const [claudeCliPathOverride, setClaudeCliPathOverride] = useState("");
@@ -372,7 +373,7 @@ export function SettingsPage() {
     if (isRemoteMode) {
       setClaudeHealth(null);
       setClaudeSdkEnabled(false);
-      setClaudeDefaultModel("claude-sonnet-4-6");
+      setClaudeDefaultModel("sonnet");
       setClaudeDefaultEffort("medium");
       setClaudeNodePathOverride("");
       setClaudeCliPathOverride("");
@@ -388,7 +389,7 @@ export function SettingsPage() {
       ]);
       setClaudeHealth(health);
       setClaudeSdkEnabled(settings.sdk_enabled);
-      setClaudeDefaultModel(settings.default_model);
+      setClaudeDefaultModel(normalizeClaudeModel(settings.default_model));
       setClaudeDefaultEffort(claudeBudgetToDefaultEffort(settings.default_thinking_budget));
       setClaudeNodePathOverride(settings.node_path_override ?? "");
       setClaudeCliPathOverride(settings.cli_path_override ?? "");

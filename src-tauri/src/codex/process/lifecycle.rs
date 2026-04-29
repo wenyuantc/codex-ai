@@ -157,22 +157,10 @@ pub(super) async fn persist_execution_change_history<R: Runtime>(
             }
         } else {
             let changes = match provider {
-                CodexExecutionProvider::Sdk => sdk_file_change_store
-                    .map(|store| {
-                        let guard = store.lock().unwrap();
-                        let mut values = guard.values().cloned().collect::<Vec<_>>();
-                        values.sort_by(|left, right| left.path.cmp(&right.path));
-                        if let Some(execution_change_baseline) = execution_change_baseline {
-                            attach_session_file_change_details(
-                                &execution_change_baseline.repo_path,
-                                &execution_change_baseline.entries,
-                                values,
-                            )
-                        } else {
-                            values
-                        }
-                    })
-                    .unwrap_or_default(),
+                CodexExecutionProvider::Sdk => compute_local_sdk_execution_session_file_changes(
+                    execution_change_baseline,
+                    sdk_file_change_store,
+                )?,
                 CodexExecutionProvider::Cli => {
                     let Some(execution_change_baseline) = execution_change_baseline else {
                         return Ok(());
@@ -380,14 +368,6 @@ async fn validate_managed_process<R: Runtime>(
     }
 }
 
-pub(super) async fn get_live_managed_process<R: Runtime>(
-    app: &AppHandle<R>,
-    state: &State<'_, Arc<Mutex<CodexManager>>>,
-    employee_id: &str,
-) -> Result<Option<crate::codex::manager::ManagedCodexProcess>, String> {
-    get_live_managed_process_with_manager(app, state.inner(), employee_id).await
-}
-
 pub(super) async fn get_live_managed_process_with_manager<R: Runtime>(
     app: &AppHandle<R>,
     manager_state: &Arc<Mutex<CodexManager>>,
@@ -433,20 +413,6 @@ pub(super) async fn get_live_managed_processes_with_manager<R: Runtime>(
     }
 
     Ok(live_processes)
-}
-
-pub(super) async fn get_live_task_process_with_manager<R: Runtime>(
-    app: &AppHandle<R>,
-    manager_state: &Arc<Mutex<CodexManager>>,
-    employee_id: &str,
-    task_id: &str,
-    session_kind: CodexSessionKind,
-) -> Result<Option<crate::codex::manager::ManagedCodexProcess>, String> {
-    let live_processes =
-        get_live_managed_processes_with_manager(app, manager_state, employee_id).await?;
-    Ok(live_processes.into_iter().find(|process| {
-        process.task_id.as_deref() == Some(task_id) && process.session_kind == session_kind
-    }))
 }
 
 pub(super) async fn get_live_task_process_by_task_with_manager<R: Runtime>(

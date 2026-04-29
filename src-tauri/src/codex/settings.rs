@@ -51,14 +51,6 @@ const SUPPORTED_WORKTREE_LOCATION_MODES: &[&str] =
 const SUPPORTED_AI_COMMIT_MESSAGE_LENGTHS: &[&str] = &["title_only", "title_with_body"];
 const SUPPORTED_AI_COMMIT_MODEL_SOURCES: &[&str] = &["inherit_one_shot", "custom"];
 const SUPPORTED_ONE_SHOT_PROVIDERS: &[&str] = &["codex", "claude", "opencode"];
-const SUPPORTED_CLAUDE_MODELS: &[&str] = &[
-    "claude-opus-4-7",
-    "claude-opus-4-7[1m]",
-    "claude-opus-4-6[1m]",
-    "claude-sonnet-4-6",
-    "claude-sonnet-4-6[1m]",
-    "claude-haiku-4-5",
-];
 const SUPPORTED_CLAUDE_REASONING_EFFORTS: &[&str] =
     &["low", "medium", "high", "xhigh", "max", "auto"];
 const SUPPORTED_OPENCODE_REASONING_EFFORTS: &[&str] =
@@ -150,10 +142,7 @@ fn normalize_one_shot_provider(value: Option<&str>, is_remote: bool) -> String {
 
 fn normalize_one_shot_model(provider: &str, value: Option<&str>) -> String {
     match provider {
-        "claude" => match value.map(str::trim) {
-            Some(value) if SUPPORTED_CLAUDE_MODELS.contains(&value) => value.to_string(),
-            _ => "claude-sonnet-4-6".to_string(),
-        },
+        "claude" => crate::claude::normalize_claude_model(value),
         "opencode" => value
             .map(str::trim)
             .filter(|value| !value.is_empty())
@@ -219,24 +208,6 @@ fn normalize_ai_commit_model_source(value: Option<&str>) -> String {
     match value.map(str::trim) {
         Some(value) if SUPPORTED_AI_COMMIT_MODEL_SOURCES.contains(&value) => value.to_string(),
         _ => DEFAULT_AI_COMMIT_MODEL_SOURCE.to_string(),
-    }
-}
-
-fn validate_supported_model(value: &str) -> Result<String, String> {
-    let trimmed = value.trim();
-    if SUPPORTED_MODELS.contains(&trimmed) {
-        Ok(trimmed.to_string())
-    } else {
-        Err(format!("不支持的模型：{}", value))
-    }
-}
-
-fn validate_supported_reasoning_effort(value: &str) -> Result<String, String> {
-    let trimmed = value.trim();
-    if SUPPORTED_REASONING_EFFORTS.contains(&trimmed) {
-        Ok(trimmed.to_string())
-    } else {
-        Err(format!("不支持的推理强度：{}", value))
     }
 }
 
@@ -746,13 +717,6 @@ fn format_ai_preferred_provider_label(value: &str) -> &str {
         "claude" => "Claude",
         "opencode" => "OpenCode",
         _ => "Codex",
-    }
-}
-
-fn format_ai_commit_model_source_label(value: &str) -> &str {
-    match value {
-        "custom" => "单独指定",
-        _ => "跟随一次性 AI",
     }
 }
 
@@ -1337,11 +1301,11 @@ pub async fn install_codex_sdk<R: Runtime>(
 mod tests {
     use super::{
         default_git_preferences, default_remote_codex_settings, determine_effective_provider,
-        merge_git_preferences, normalize_raw_settings, normalize_remote_profile_settings,
-        normalize_remote_settings, normalize_task_automation_failure_strategy,
-        normalize_task_automation_max_fix_rounds, parse_node_major_version,
-        read_sdk_version_from_dir, sdk_platform_package_for_target, RawCodexSettings,
-        RawGitPreferences, SDK_INSTALL_PACKAGE_SPECS,
+        merge_git_preferences, normalize_one_shot_model, normalize_raw_settings,
+        normalize_remote_profile_settings, normalize_remote_settings,
+        normalize_task_automation_failure_strategy, normalize_task_automation_max_fix_rounds,
+        parse_node_major_version, read_sdk_version_from_dir, sdk_platform_package_for_target,
+        RawCodexSettings, RawGitPreferences, SDK_INSTALL_PACKAGE_SPECS,
     };
     use crate::db::models::{CodexSettings, GitPreferences, UpdateGitPreferences};
     use std::fs;
@@ -1476,6 +1440,22 @@ mod tests {
         assert_eq!(normalized.one_shot_model, "gpt-5.3-codex-spark");
 
         fs::remove_dir_all(base).expect("remove temp dir");
+    }
+
+    #[test]
+    fn claude_one_shot_legacy_models_are_normalized_to_cli_aliases() {
+        assert_eq!(
+            normalize_one_shot_model("claude", Some("claude-opus-4-6[1m]")),
+            "opus[1m]"
+        );
+        assert_eq!(
+            normalize_one_shot_model("claude", Some("claude-sonnet-4-6")),
+            "sonnet"
+        );
+        assert_eq!(
+            normalize_one_shot_model("claude", Some("claude-haiku-4-5")),
+            "haiku"
+        );
     }
 
     #[test]

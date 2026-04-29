@@ -84,7 +84,7 @@ pub async fn launch_opencode_bridge(
         .map_err(|error| format!("刷新 OpenCode bridge stdin 失败: {error}"))?;
     drop(stdin_writer);
 
-    Ok(OpenCodeChild::new(child, None, stdout, stderr))
+    Ok(OpenCodeChild::new(child, stdout, stderr))
 }
 
 pub async fn launch_opencode_server_bridge(
@@ -135,7 +135,7 @@ pub async fn launch_opencode_server_bridge(
         .map_err(|error| format!("刷新 OpenCode server bridge stdin 失败: {error}"))?;
     drop(stdin_writer);
 
-    Ok(OpenCodeChild::new(child, None, stdout, stderr))
+    Ok(OpenCodeChild::new(child, stdout, stderr))
 }
 
 #[cfg(unix)]

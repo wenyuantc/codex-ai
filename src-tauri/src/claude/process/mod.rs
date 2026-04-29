@@ -16,7 +16,7 @@ use crate::app::{
 };
 use crate::claude::{
     ensure_claude_sdk_runtime_layout, inspect_claude_sdk_runtime, load_claude_settings,
-    sdk_bridge_script_path, ClaudeManager,
+    normalize_claude_model, sdk_bridge_script_path, ClaudeManager,
 };
 use crate::codex::{new_node_command, CodexManager, CodexSessionKind, ExecutionChangeBaseline};
 use crate::db::models::{ClaudeOutput, CodexSessionFileChangeInput, SshConfigRecord};
@@ -34,23 +34,10 @@ pub use self::lifecycle::ClaudeChild;
 
 use self::{context::*, session_runtime::*, stream::*};
 
-pub const SUPPORTED_CLAUDE_MODELS: &[&str] = &[
-    "claude-opus-4-7",
-    "claude-opus-4-7[1m]",
-    "claude-opus-4-6[1m]",
-    "claude-sonnet-4-6",
-    "claude-sonnet-4-6[1m]",
-    "claude-haiku-4-5",
-];
-const DEFAULT_CLAUDE_MODEL: &str = "claude-sonnet-4-6";
 const SUPPORTED_REASONING_EFFORTS: &[&str] = &["low", "medium", "high", "xhigh", "max", "auto"];
 const DEFAULT_REASONING_EFFORT: &str = "high";
 const SESSION_ID_PREFIX: &str = "session id:";
 const CLAUDE_FILE_CHANGE_EVENT_PREFIX: &str = "[CLAUDE_FILE_CHANGE]";
-const REVIEW_VERDICT_START_TAG: &str = "<review_verdict>";
-const REVIEW_VERDICT_END_TAG: &str = "</review_verdict>";
-const REVIEW_REPORT_START_TAG: &str = "<review_report>";
-const REVIEW_REPORT_END_TAG: &str = "</review_report>";
 const STOP_WAIT_POLL_MS: u64 = 50;
 const STOP_WAIT_MAX_ATTEMPTS: usize = 600;
 
@@ -120,10 +107,7 @@ fn cleanup_process_artifacts(paths: &[PathBuf]) {
 }
 
 fn normalize_model(model: Option<&str>) -> String {
-    match model {
-        Some(value) if SUPPORTED_CLAUDE_MODELS.contains(&value) => value.to_string(),
-        _ => DEFAULT_CLAUDE_MODEL.to_string(),
-    }
+    normalize_claude_model(model)
 }
 
 fn normalize_reasoning_effort(effort: Option<&str>) -> &'static str {
@@ -303,7 +287,7 @@ mod tests {
         let prompt = compose_claude_prompt("修复自动质控", Some("你是审查员"));
         let log = format_claude_session_prompt_log(
             ClaudeExecutionProvider::Sdk,
-            "claude-sonnet-4-6",
+            "sonnet",
             "high",
             EXECUTION_TARGET_LOCAL,
             None,
@@ -331,7 +315,7 @@ mod tests {
 
     #[test]
     fn claude_cli_args_skip_auto_effort() {
-        let args = build_claude_cli_args("claude-sonnet-4-6", "auto", None, None);
+        let args = build_claude_cli_args("sonnet", "auto", None, None);
 
         assert!(!args.contains(&"--effort".to_string()));
         assert!(!args.contains(&"auto".to_string()));
@@ -339,12 +323,7 @@ mod tests {
 
     #[test]
     fn claude_cli_args_keep_supported_effort_and_resume() {
-        let args = build_claude_cli_args(
-            "claude-sonnet-4-6",
-            "high",
-            Some("审查代码"),
-            Some("session-123"),
-        );
+        let args = build_claude_cli_args("sonnet", "high", Some("审查代码"), Some("session-123"));
 
         assert!(args
             .windows(2)
@@ -359,7 +338,7 @@ mod tests {
 
     #[test]
     fn remote_claude_session_command_uses_shell_bootstrap() {
-        let args = build_claude_cli_args("claude-sonnet-4-6", "high", None, None);
+        let args = build_claude_cli_args("sonnet", "high", None, None);
         let command = build_remote_claude_session_command("~/repo with space", &args);
 
         assert!(command.starts_with("sh -lc "));
@@ -1441,7 +1420,6 @@ pub async fn start_claude_with_manager(
             session_kind,
             child_arc.clone(),
             session_record.id.clone(),
-            Some(sdk_file_change_store.clone()),
             cleanup_paths,
         );
     }

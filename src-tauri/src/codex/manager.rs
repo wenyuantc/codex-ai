@@ -88,6 +88,7 @@ impl CodexManager {
             .any(|process| process.employee_id == employee_id)
     }
 
+    #[cfg(test)]
     pub fn get_task_process(
         &self,
         employee_id: &str,
@@ -100,19 +101,6 @@ impl CodexManager {
                 process.employee_id == employee_id
                     && process.task_id.as_deref() == Some(task_id)
                     && process.session_kind == session_kind
-            })
-            .cloned()
-    }
-
-    pub fn get_task_process_any(
-        &self,
-        task_id: &str,
-        session_kind: CodexSessionKind,
-    ) -> Option<ManagedCodexProcess> {
-        self.processes
-            .values()
-            .find(|process| {
-                process.task_id.as_deref() == Some(task_id) && process.session_kind == session_kind
             })
             .cloned()
     }

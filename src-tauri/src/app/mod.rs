@@ -79,18 +79,20 @@ pub(crate) use remote::{
 };
 #[allow(unused_imports)]
 pub(crate) use review::{
-    build_task_attachments_from_sources, build_task_review_context_from_git_outputs,
-    build_task_review_prompt, cleanup_empty_attachment_dir, cleanup_remote_task_attachment,
-    cleanup_remote_task_attachment_paths, cleanup_remote_task_attachments_for_task,
-    cleanup_task_attachment_files, collect_remote_task_review_context, filter_image_attachments,
-    parse_review_verdict_json, record_task_review_requested_activity, remote_task_attachment_dir,
-    remote_task_attachment_path, start_task_code_review_internal,
+    build_task_attachments_from_sources, build_task_review_prompt, cleanup_empty_attachment_dir,
+    cleanup_remote_task_attachment, cleanup_remote_task_attachment_paths,
+    cleanup_remote_task_attachments_for_task, cleanup_task_attachment_files,
+    filter_image_attachments, parse_review_verdict_json, record_task_review_requested_activity,
+    remote_task_attachment_dir, remote_task_attachment_path, start_task_code_review_internal,
     sync_task_attachment_records_to_remote, sync_task_image_attachments_to_remote,
     task_attachment_dir, task_attachment_is_image, truncate_review_text,
 };
 #[cfg(test)]
 #[allow(unused_imports)]
-pub(crate) use review::{collect_local_task_review_context_for_task, collect_task_review_context};
+pub(crate) use review::{
+    build_task_review_context_from_git_outputs, collect_local_task_review_context_for_task,
+    collect_task_review_context,
+};
 #[allow(unused_imports)]
 pub(crate) use sessions::{
     compare_global_search_items, fetch_codex_session_by_id,
@@ -112,14 +114,19 @@ pub(crate) use shared::{
     EXECUTION_TARGET_SSH, FILE_CHANGE_DIFF_CHAR_LIMIT, GLOBAL_SEARCH_DEFAULT_LIMIT,
     GLOBAL_SEARCH_MAX_LIMIT, GLOBAL_SEARCH_MIN_QUERY_LENGTH, GLOBAL_SEARCH_TYPE_EMPLOYEE,
     GLOBAL_SEARCH_TYPE_PROJECT, GLOBAL_SEARCH_TYPE_SESSION, GLOBAL_SEARCH_TYPE_TASK,
-    PROJECT_TYPE_LOCAL, PROJECT_TYPE_SSH, REMOTE_TASK_ATTACHMENT_ROOT_DIR, REVIEW_DIFF_CHAR_LIMIT,
-    REVIEW_REPORT_END_TAG, REVIEW_REPORT_START_TAG, REVIEW_UNTRACKED_FILE_LIMIT,
-    REVIEW_UNTRACKED_FILE_SIZE_LIMIT, REVIEW_UNTRACKED_TOTAL_CHAR_LIMIT, REVIEW_VERDICT_END_TAG,
-    REVIEW_VERDICT_START_TAG, SDK_BRIDGE_FILE_NAME, SDK_RUNTIME_PACKAGE_JSON,
-    SQLITE_DATETIME_FORMAT, TASK_AUTOMATION_MODE_REVIEW_FIX_LOOP_V1,
-    TASK_AUTOMATION_PHASE_COMMITTING_CODE, TASK_AUTOMATION_PHASE_LAUNCHING_FIX,
-    TASK_AUTOMATION_PHASE_LAUNCHING_REVIEW, TASK_AUTOMATION_PHASE_WAITING_EXECUTION,
-    TASK_AUTOMATION_PHASE_WAITING_REVIEW, TASK_STATUS_ARCHIVED,
+    PROJECT_TYPE_LOCAL, PROJECT_TYPE_SSH, REMOTE_TASK_ATTACHMENT_ROOT_DIR, REVIEW_REPORT_END_TAG,
+    REVIEW_REPORT_START_TAG, REVIEW_VERDICT_END_TAG, REVIEW_VERDICT_START_TAG,
+    SDK_BRIDGE_FILE_NAME, SDK_RUNTIME_PACKAGE_JSON, SQLITE_DATETIME_FORMAT,
+    TASK_AUTOMATION_MODE_REVIEW_FIX_LOOP_V1, TASK_AUTOMATION_PHASE_COMMITTING_CODE,
+    TASK_AUTOMATION_PHASE_LAUNCHING_FIX, TASK_AUTOMATION_PHASE_LAUNCHING_REVIEW,
+    TASK_AUTOMATION_PHASE_WAITING_EXECUTION, TASK_AUTOMATION_PHASE_WAITING_REVIEW,
+    TASK_STATUS_ARCHIVED,
+};
+#[cfg(test)]
+#[allow(unused_imports)]
+pub(crate) use shared::{
+    REVIEW_DIFF_CHAR_LIMIT, REVIEW_UNTRACKED_FILE_LIMIT, REVIEW_UNTRACKED_FILE_SIZE_LIMIT,
+    REVIEW_UNTRACKED_TOTAL_CHAR_LIMIT,
 };
 #[allow(unused_imports)]
 pub(crate) use tasks::{

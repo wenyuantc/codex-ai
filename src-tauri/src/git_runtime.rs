@@ -20,7 +20,6 @@ const GIT_BRIDGE_FILE_NAME: &str = "git-bridge.mjs";
 const SIMPLE_GIT_PACKAGE_NAME: &str = "simple-git";
 pub(crate) const GIT_RUNTIME_PROVIDER_SIMPLE_GIT: &str = "simple_git";
 pub(crate) const GIT_RUNTIME_STATUS_READY: &str = "ready";
-pub(crate) const GIT_RUNTIME_STATUS_BOOTSTRAPPING: &str = "bootstrapping";
 pub(crate) const GIT_RUNTIME_STATUS_UNAVAILABLE: &str = "unavailable";
 const REMOTE_INSTALL_MARKER: &str = "__CODEX_AI_SIMPLE_GIT_INSTALLED__";
 
@@ -84,7 +83,6 @@ pub(crate) struct GitRuntimeChange {
 #[derive(Debug, Clone, Deserialize)]
 pub(crate) struct GitRuntimeRevisionComparison {
     pub ahead_commits: u32,
-    pub behind_commits: u32,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -92,16 +90,6 @@ pub(crate) struct GitRuntimeTextSnapshot {
     pub status: String,
     pub text: Option<String>,
     pub truncated: bool,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-pub(crate) struct GitRuntimeSnapshotEntry {
-    pub path: String,
-    pub previous_path: Option<String>,
-    pub status_x: String,
-    pub status_y: String,
-    pub content_hash: Option<String>,
-    pub text_snapshot: GitRuntimeTextSnapshot,
 }
 
 #[derive(Debug, Deserialize)]
@@ -147,16 +135,6 @@ struct GitBridgeStatusChangesResult {
 }
 
 #[derive(Debug, Deserialize)]
-struct GitBridgeSnapshotResult {
-    entries: Vec<GitRuntimeSnapshotEntry>,
-}
-
-#[derive(Debug, Deserialize)]
-struct GitBridgeHashResult {
-    content_hash: Option<String>,
-}
-
-#[derive(Debug, Deserialize)]
 struct GitBridgeTextSnapshotResult {
     snapshot: GitRuntimeTextSnapshot,
 }
@@ -165,7 +143,6 @@ struct GitBridgeTextSnapshotResult {
 struct LocalRuntimeSpec {
     bridge_path: PathBuf,
     node_path_override: Option<String>,
-    install_message: Option<String>,
 }
 
 #[derive(Debug)]
@@ -174,7 +151,6 @@ struct RemoteRuntimeSpec {
     install_dir: String,
     node_path_override: Option<String>,
     ssh_config_id: String,
-    install_message: Option<String>,
 }
 
 fn source_git_bridge_path() -> PathBuf {
@@ -232,7 +208,6 @@ async fn ensure_local_runtime<R: Runtime>(app: &AppHandle<R>) -> Result<LocalRun
         return Ok(LocalRuntimeSpec {
             bridge_path: source_bridge,
             node_path_override: settings.node_path_override.clone(),
-            install_message: None,
         });
     }
 
@@ -242,7 +217,6 @@ async fn ensure_local_runtime<R: Runtime>(app: &AppHandle<R>) -> Result<LocalRun
         return Ok(LocalRuntimeSpec {
             bridge_path,
             node_path_override: settings.node_path_override.clone(),
-            install_message: None,
         });
     }
 
@@ -287,7 +261,6 @@ async fn ensure_local_runtime<R: Runtime>(app: &AppHandle<R>) -> Result<LocalRun
     Ok(LocalRuntimeSpec {
         bridge_path,
         node_path_override: settings.node_path_override.clone(),
-        install_message: Some("本地 Git runtime 已自动补齐".to_string()),
     })
 }
 
@@ -366,7 +339,7 @@ else cd \"$install_dir\" && npm install --no-audit --no-fund {pkg_name} && print
     }
 
     let stdout = String::from_utf8_lossy(&output.stdout);
-    let install_message = if stdout.contains(REMOTE_INSTALL_MARKER) {
+    if stdout.contains(REMOTE_INSTALL_MARKER) {
         let detail = format!("{}@{}", ssh_config.username, ssh_config.host);
         let _ = insert_activity_log(
             &pool,
@@ -377,17 +350,13 @@ else cd \"$install_dir\" && npm install --no-audit --no-fund {pkg_name} && print
             None,
         )
         .await;
-        Some("远程 Git runtime 已自动补齐".to_string())
-    } else {
-        None
-    };
+    }
 
     Ok(RemoteRuntimeSpec {
         bridge_path,
         install_dir,
         node_path_override: load_remote_codex_settings(app, ssh_config_id)?.node_path_override,
         ssh_config_id: ssh_config_id.to_string(),
-        install_message,
     })
 }
 
@@ -1108,48 +1077,6 @@ pub(crate) async fn collect_status_changes<R: Runtime>(
     )
     .await?;
     Ok(result.changes)
-}
-
-pub(crate) async fn collect_snapshot<R: Runtime>(
-    app: &AppHandle<R>,
-    execution_target: &str,
-    ssh_config_id: Option<&str>,
-    repo_path: &str,
-    capture_text_snapshots: bool,
-) -> Result<Vec<GitRuntimeSnapshotEntry>, String> {
-    let result: GitBridgeSnapshotResult = call_bridge(
-        app,
-        execution_target,
-        ssh_config_id,
-        serde_json::json!({
-            "command": "collect_snapshot",
-            "repoPath": repo_path,
-            "captureTextSnapshots": capture_text_snapshots,
-        }),
-    )
-    .await?;
-    Ok(result.entries)
-}
-
-pub(crate) async fn hash_worktree_path<R: Runtime>(
-    app: &AppHandle<R>,
-    execution_target: &str,
-    ssh_config_id: Option<&str>,
-    repo_path: &str,
-    relative_path: &str,
-) -> Result<Option<String>, String> {
-    let result: GitBridgeHashResult = call_bridge(
-        app,
-        execution_target,
-        ssh_config_id,
-        serde_json::json!({
-            "command": "hash_worktree_path",
-            "repoPath": repo_path,
-            "relativePath": relative_path,
-        }),
-    )
-    .await?;
-    Ok(result.content_hash)
 }
 
 pub(crate) async fn capture_worktree_text_snapshot<R: Runtime>(

@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use tokio::sync::Mutex;
 
-use super::process::{OpenCodeChild, OpenCodeSessionKind, SdkFileChangeStore};
+use super::process::{OpenCodeChild, OpenCodeSessionKind};
 
 #[derive(Clone)]
 pub struct ManagedOpenCodeProcess {
@@ -13,7 +13,6 @@ pub struct ManagedOpenCodeProcess {
     pub session_kind: OpenCodeSessionKind,
     pub child: Arc<Mutex<OpenCodeChild>>,
     pub session_record_id: String,
-    pub sdk_file_change_store: Option<SdkFileChangeStore>,
     pub cleanup_paths: Vec<PathBuf>,
 }
 
@@ -44,7 +43,6 @@ impl OpenCodeManager {
         session_kind: OpenCodeSessionKind,
         child: Arc<Mutex<OpenCodeChild>>,
         session_record_id: String,
-        sdk_file_change_store: Option<SdkFileChangeStore>,
         cleanup_paths: Vec<PathBuf>,
     ) {
         self.processes.insert(
@@ -55,7 +53,6 @@ impl OpenCodeManager {
                 session_kind,
                 child,
                 session_record_id,
-                sdk_file_change_store,
                 cleanup_paths,
             },
         );
@@ -75,10 +72,6 @@ impl OpenCodeManager {
             .filter(|process| process.employee_id == employee_id)
             .cloned()
             .collect()
-    }
-
-    pub fn get_processes(&self) -> Vec<ManagedOpenCodeProcess> {
-        self.processes.values().cloned().collect()
     }
 
     pub fn set_sdk_server(&mut self, host: String, port: u16, child: Arc<Mutex<OpenCodeChild>>) {
@@ -103,6 +96,7 @@ impl OpenCodeManager {
         }
     }
 
+    #[cfg(test)]
     pub fn has_employee_processes(&self, employee_id: &str) -> bool {
         self.processes
             .values()
@@ -119,22 +113,6 @@ impl OpenCodeManager {
                 && process.task_id.is_none()
                 && process.session_kind == session_kind
         })
-    }
-
-    pub fn get_task_process(
-        &self,
-        employee_id: &str,
-        task_id: &str,
-        session_kind: OpenCodeSessionKind,
-    ) -> Option<ManagedOpenCodeProcess> {
-        self.processes
-            .values()
-            .find(|process| {
-                process.employee_id == employee_id
-                    && process.task_id.as_deref() == Some(task_id)
-                    && process.session_kind == session_kind
-            })
-            .cloned()
     }
 
     pub fn get_task_process_any(
@@ -171,7 +149,6 @@ mod tests {
             command.spawn().expect("spawn test child"),
             None,
             None,
-            None,
         )))
     }
 
@@ -188,7 +165,6 @@ mod tests {
                 OpenCodeSessionKind::Execution,
                 child_one.clone(),
                 "session-1".to_string(),
-                None,
                 Vec::new(),
             );
             manager.add_process(
@@ -197,7 +173,6 @@ mod tests {
                 OpenCodeSessionKind::Execution,
                 child_two.clone(),
                 "session-2".to_string(),
-                None,
                 Vec::new(),
             );
 
@@ -232,7 +207,6 @@ mod tests {
                 OpenCodeSessionKind::Execution,
                 task_child.clone(),
                 "session-1".to_string(),
-                None,
                 Vec::new(),
             );
 
@@ -244,7 +218,6 @@ mod tests {
                 OpenCodeSessionKind::Execution,
                 unbound_child.clone(),
                 "session-2".to_string(),
-                None,
                 Vec::new(),
             );
 

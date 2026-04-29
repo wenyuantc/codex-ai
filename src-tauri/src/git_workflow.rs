@@ -1054,17 +1054,14 @@ fn parse_revision_comparison_output(
     let ahead_raw = parts
         .next()
         .ok_or_else(|| format!("无法解析 revision 比较结果: {}", output.trim()))?;
-    let behind_commits = behind_raw
+    let _behind_commits = behind_raw
         .parse::<u32>()
         .map_err(|error| format!("解析 behind commits 失败: {}", error))?;
     let ahead_commits = ahead_raw
         .parse::<u32>()
         .map_err(|error| format!("解析 ahead commits 失败: {}", error))?;
 
-    Ok(git_runtime::GitRuntimeRevisionComparison {
-        ahead_commits,
-        behind_commits,
-    })
+    Ok(git_runtime::GitRuntimeRevisionComparison { ahead_commits })
 }
 
 fn compare_revisions_local(

@@ -19,10 +19,14 @@ pub(crate) const TASK_AUTOMATION_PHASE_COMMITTING_CODE: &str = "committing_code"
 pub(crate) const DB_FILE_NAME: &str = "codex-ai.db";
 pub(crate) const DB_AUTO_IMPORT_BACKUP_PREFIX: &str = "codex-ai.pre-import-backup";
 pub(crate) const SQLITE_DATETIME_FORMAT: &str = "%Y-%m-%d %H:%M:%S";
+#[cfg(test)]
 pub(crate) const REVIEW_DIFF_CHAR_LIMIT: usize = 120_000;
 pub(crate) const FILE_CHANGE_DIFF_CHAR_LIMIT: usize = 120_000;
+#[cfg(test)]
 pub(crate) const REVIEW_UNTRACKED_FILE_LIMIT: usize = 5;
+#[cfg(test)]
 pub(crate) const REVIEW_UNTRACKED_FILE_SIZE_LIMIT: u64 = 16 * 1024;
+#[cfg(test)]
 pub(crate) const REVIEW_UNTRACKED_TOTAL_CHAR_LIMIT: usize = 48_000;
 pub(crate) const SDK_BRIDGE_FILE_NAME: &str = "sdk-bridge.mjs";
 pub(crate) const SDK_RUNTIME_PACKAGE_JSON: &str =

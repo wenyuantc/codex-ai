@@ -8,14 +8,11 @@ use crate::db::models::{
 };
 
 pub const NOTIFICATION_TYPE_REVIEW_PENDING: &str = "review_pending";
-pub const NOTIFICATION_TYPE_RUN_FAILED: &str = "run_failed";
-pub const NOTIFICATION_TYPE_RUN_COMPLETED: &str = "run_completed";
 pub const NOTIFICATION_TYPE_TASK_COMPLETED: &str = "task_completed";
 pub const NOTIFICATION_TYPE_SDK_UNAVAILABLE: &str = "sdk_unavailable";
 pub const NOTIFICATION_TYPE_DATABASE_ERROR: &str = "database_error";
 pub const NOTIFICATION_TYPE_SSH_CONFIG_ERROR: &str = "ssh_config_error";
 
-pub const NOTIFICATION_SEVERITY_INFO: &str = "info";
 pub const NOTIFICATION_SEVERITY_SUCCESS: &str = "success";
 pub const NOTIFICATION_SEVERITY_WARNING: &str = "warning";
 pub const NOTIFICATION_SEVERITY_ERROR: &str = "error";
@@ -76,10 +73,6 @@ pub fn build_task_status_notification(
     }
 
     None
-}
-
-pub fn review_pending_dedupe_key(task_id: &str) -> String {
-    format!("review_pending:{task_id}")
 }
 
 pub fn sdk_unavailable_dedupe_key(scope: &str) -> String {
@@ -864,7 +857,6 @@ mod tests {
             "/settings?section=database"
         );
         assert_eq!(task_route("task-1"), "/kanban?taskId=task-1");
-        assert_eq!(review_pending_dedupe_key("task-1"), "review_pending:task-1");
         assert_eq!(database_error_dedupe_key("local"), "database_error:local");
         assert_eq!(
             ssh_missing_selection_dedupe_key(),
@@ -890,7 +882,6 @@ mod tests {
             build_notification_activity_detail(&notification),
             "sdk_health｜SDK 不可用｜error"
         );
-        assert_eq!(NOTIFICATION_TYPE_RUN_COMPLETED, "run_completed");
     }
 
     #[test]

@@ -1,17 +1,8 @@
 use super::*;
 
-const DEFAULT_CLAUDE_ONE_SHOT_MODEL: &str = "claude-sonnet-4-6";
 const DEFAULT_CLAUDE_ONE_SHOT_REASONING_EFFORT: &str = "high";
 const DEFAULT_OPENCODE_ONE_SHOT_MODEL: &str = "openai/gpt-4o";
 const DEFAULT_OPENCODE_ONE_SHOT_REASONING_EFFORT: &str = "high";
-const SUPPORTED_CLAUDE_ONE_SHOT_MODELS: &[&str] = &[
-    "claude-opus-4-7",
-    "claude-opus-4-7[1m]",
-    "claude-opus-4-6[1m]",
-    "claude-sonnet-4-6",
-    "claude-sonnet-4-6[1m]",
-    "claude-haiku-4-5",
-];
 const SUPPORTED_CLAUDE_ONE_SHOT_REASONING_EFFORTS: &[&str] =
     &["low", "medium", "high", "xhigh", "max", "auto"];
 const SUPPORTED_OPENCODE_ONE_SHOT_REASONING_EFFORTS: &[&str] =
@@ -38,10 +29,7 @@ pub(super) fn build_sdk_input_items(
 
 fn normalize_one_shot_model_for_provider(provider: &str, value: Option<&str>) -> String {
     match provider {
-        "claude" => match value.map(str::trim) {
-            Some(value) if SUPPORTED_CLAUDE_ONE_SHOT_MODELS.contains(&value) => value.to_string(),
-            _ => DEFAULT_CLAUDE_ONE_SHOT_MODEL.to_string(),
-        },
+        "claude" => crate::claude::normalize_claude_model(value),
         "opencode" => value
             .map(str::trim)
             .filter(|value| !value.is_empty())

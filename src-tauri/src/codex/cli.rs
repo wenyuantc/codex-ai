@@ -70,10 +70,6 @@ pub async fn new_ssh_command() -> Result<Command, String> {
     build_command("ssh", SSH_PATH_ENV_VARS, None, &[], None).await
 }
 
-pub async fn resolve_ssh_executable_path() -> Result<PathBuf, String> {
-    resolve_executable("ssh", SSH_PATH_ENV_VARS, None, &[]).await
-}
-
 async fn build_command(
     binary_name: &str,
     env_vars: &[&str],

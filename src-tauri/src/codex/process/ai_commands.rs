@@ -800,7 +800,7 @@ mod tests {
                 ai_commit_message_length: "title_with_body".to_string(),
                 ai_commit_preferred_provider: git_provider.to_string(),
                 ai_commit_model_source: git_model_source.to_string(),
-                ai_commit_model: "claude-sonnet-4-6".to_string(),
+                ai_commit_model: "sonnet".to_string(),
                 ai_commit_reasoning_effort: "xhigh".to_string(),
             },
             node_path_override: None,
@@ -869,14 +869,14 @@ mod tests {
             "任务 A",
             "协调员小张",
             "claude",
-            "claude-sonnet-4-6",
+            "sonnet",
             "high",
             "2026-04-28 09:00:00",
         );
 
         assert_eq!(
             details,
-            "任务：任务 A；协调员：协调员小张；Provider：claude；模型：claude-sonnet-4-6；推理等级：high；生成时间：2026-04-28 09:00:00"
+            "任务：任务 A；协调员：协调员小张；Provider：claude；模型：sonnet；推理等级：high；生成时间：2026-04-28 09:00:00"
         );
     }
 
@@ -887,13 +887,10 @@ mod tests {
         let selection = resolve_commit_message_ai_selection(&settings);
 
         assert_eq!(selection.provider_override.as_deref(), Some("claude"));
-        assert_eq!(
-            selection.model_override.as_deref(),
-            Some("claude-sonnet-4-6")
-        );
+        assert_eq!(selection.model_override.as_deref(), Some("sonnet"));
         assert_eq!(selection.reasoning_override.as_deref(), Some("xhigh"));
         assert_eq!(selection.effective_provider, "claude");
-        assert_eq!(selection.effective_model, "claude-sonnet-4-6");
+        assert_eq!(selection.effective_model, "sonnet");
         assert_eq!(selection.effective_reasoning_effort, "xhigh");
     }
 

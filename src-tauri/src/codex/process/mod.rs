@@ -673,16 +673,6 @@ pub async fn list_live_employee_processes<R: Runtime>(
     get_live_managed_processes_with_manager(app, manager_state, employee_id).await
 }
 
-pub async fn get_live_task_process<R: Runtime>(
-    app: &AppHandle<R>,
-    manager_state: &Arc<Mutex<CodexManager>>,
-    employee_id: &str,
-    task_id: &str,
-    session_kind: CodexSessionKind,
-) -> Result<Option<crate::codex::manager::ManagedCodexProcess>, String> {
-    get_live_task_process_with_manager(app, manager_state, employee_id, task_id, session_kind).await
-}
-
 pub async fn get_live_task_process_by_task<R: Runtime>(
     app: &AppHandle<R>,
     manager_state: &Arc<Mutex<CodexManager>>,

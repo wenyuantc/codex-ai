@@ -11,6 +11,7 @@ pub(crate) fn truncate_review_text(value: &str, limit: usize) -> (String, bool) 
     (truncated, true)
 }
 
+#[cfg(test)]
 fn is_supported_review_text_extension(path: &Path) -> bool {
     matches!(
         path.extension()
@@ -37,6 +38,7 @@ fn is_supported_review_text_extension(path: &Path) -> bool {
     )
 }
 
+#[cfg(test)]
 fn run_git_text(repo_path: &str, args: &[&str]) -> Result<String, String> {
     let mut command = Command::new("git");
     configure_std_command(&mut command);
@@ -54,6 +56,7 @@ fn run_git_text(repo_path: &str, args: &[&str]) -> Result<String, String> {
     }
 }
 
+#[cfg(test)]
 fn read_untracked_review_snippets(repo_path: &str, untracked_files: &[String]) -> String {
     let mut snippets = Vec::new();
     let mut consumed_chars = 0usize;
@@ -110,6 +113,7 @@ fn read_untracked_review_snippets(repo_path: &str, untracked_files: &[String]) -
     }
 }
 
+#[cfg(test)]
 fn build_untracked_review_section(untracked_files: &[String], snippets: &str) -> String {
     if untracked_files.is_empty() {
         "（无未跟踪文件）".to_string()
@@ -126,6 +130,7 @@ fn build_untracked_review_section(untracked_files: &[String], snippets: &str) ->
     }
 }
 
+#[cfg(test)]
 pub(crate) fn build_task_review_context_from_git_outputs(
     status_output: &str,
     unstaged_stat: &str,
@@ -378,106 +383,6 @@ pub(crate) async fn collect_local_task_review_context_for_task(
     Err(last_empty_change_error
         .or(last_runtime_error)
         .unwrap_or_else(|| "当前工作区没有可审核的代码改动".to_string()))
-}
-
-fn shell_join_single_quoted(args: &[&str]) -> String {
-    args.iter()
-        .map(|arg| shell_escape_single_quoted(arg))
-        .collect::<Vec<_>>()
-        .join(" ")
-}
-
-async fn run_remote_git_text<R: Runtime>(
-    app: &AppHandle<R>,
-    ssh_config: &SshConfigRecord,
-    repo_path: &str,
-    args: &[&str],
-) -> Result<String, String> {
-    let remote_command = build_remote_shell_command(
-        &format!(
-            "git -C {} {}",
-            remote_shell_path_expression(repo_path),
-            shell_join_single_quoted(args)
-        ),
-        None,
-    );
-    let output = execute_ssh_command(app, ssh_config, &remote_command, true).await?;
-
-    if output.status.success() {
-        Ok(String::from_utf8_lossy(&output.stdout).to_string())
-    } else {
-        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-        Err(if stderr.is_empty() {
-            format!("远程执行 git {:?} 失败", args)
-        } else {
-            format!(
-                "远程执行 git {:?} 失败: {}",
-                args,
-                redact_secret_text(&stderr)
-            )
-        })
-    }
-}
-
-pub(crate) async fn collect_remote_task_review_context<R: Runtime>(
-    app: &AppHandle<R>,
-    ssh_config_id: &str,
-    repo_path: &str,
-) -> Result<String, String> {
-    let pool = sqlite_pool(app).await?;
-    let ssh_config = fetch_ssh_config_record_by_id(&pool, ssh_config_id).await?;
-    let status_output =
-        run_remote_git_text(app, &ssh_config, repo_path, &["status", "--short"]).await?;
-    let unstaged_stat = run_remote_git_text(
-        app,
-        &ssh_config,
-        repo_path,
-        &["diff", "--no-ext-diff", "--stat"],
-    )
-    .await?;
-    let unstaged_diff =
-        run_remote_git_text(app, &ssh_config, repo_path, &["diff", "--no-ext-diff"]).await?;
-    let staged_stat = run_remote_git_text(
-        app,
-        &ssh_config,
-        repo_path,
-        &["diff", "--no-ext-diff", "--stat", "--cached"],
-    )
-    .await?;
-    let staged_diff = run_remote_git_text(
-        app,
-        &ssh_config,
-        repo_path,
-        &["diff", "--no-ext-diff", "--cached"],
-    )
-    .await?;
-    let untracked_output = run_remote_git_text(
-        app,
-        &ssh_config,
-        repo_path,
-        &["ls-files", "--others", "--exclude-standard"],
-    )
-    .await?;
-    let untracked_files = untracked_output
-        .lines()
-        .map(str::trim)
-        .filter(|line| !line.is_empty())
-        .map(str::to_string)
-        .collect::<Vec<_>>();
-    let untracked_section = build_untracked_review_section(
-        &untracked_files,
-        "（SSH 模式暂不采集远程未跟踪文件内容摘录，请结合未跟踪文件列表人工确认）",
-    );
-
-    build_task_review_context_from_git_outputs(
-        &status_output,
-        &unstaged_stat,
-        &unstaged_diff,
-        &staged_stat,
-        &staged_diff,
-        &untracked_files,
-        &untracked_section,
-    )
 }
 
 pub(crate) fn build_task_review_prompt(

@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use tokio::sync::Mutex;
 
-use super::process::{ClaudeChild, ClaudeSessionKind, SdkFileChangeStore};
+use super::process::{ClaudeChild, ClaudeSessionKind};
 
 #[derive(Clone)]
 pub struct ManagedClaudeProcess {
@@ -13,7 +13,6 @@ pub struct ManagedClaudeProcess {
     pub session_kind: ClaudeSessionKind,
     pub child: Arc<Mutex<ClaudeChild>>,
     pub session_record_id: String,
-    pub sdk_file_change_store: Option<SdkFileChangeStore>,
     pub cleanup_paths: Vec<PathBuf>,
 }
 
@@ -35,7 +34,6 @@ impl ClaudeManager {
         session_kind: ClaudeSessionKind,
         child: Arc<Mutex<ClaudeChild>>,
         session_record_id: String,
-        sdk_file_change_store: Option<SdkFileChangeStore>,
         cleanup_paths: Vec<PathBuf>,
     ) {
         self.processes.insert(
@@ -46,7 +44,6 @@ impl ClaudeManager {
                 session_kind,
                 child,
                 session_record_id,
-                sdk_file_change_store,
                 cleanup_paths,
             },
         );
@@ -68,30 +65,10 @@ impl ClaudeManager {
             .collect()
     }
 
-    pub fn get_processes(&self) -> Vec<ManagedClaudeProcess> {
-        self.processes.values().cloned().collect()
-    }
-
     pub fn has_employee_processes(&self, employee_id: &str) -> bool {
         self.processes
             .values()
             .any(|process| process.employee_id == employee_id)
-    }
-
-    pub fn get_task_process(
-        &self,
-        employee_id: &str,
-        task_id: &str,
-        session_kind: ClaudeSessionKind,
-    ) -> Option<ManagedClaudeProcess> {
-        self.processes
-            .values()
-            .find(|process| {
-                process.employee_id == employee_id
-                    && process.task_id.as_deref() == Some(task_id)
-                    && process.session_kind == session_kind
-            })
-            .cloned()
     }
 
     pub fn get_task_process_any(

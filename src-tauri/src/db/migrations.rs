@@ -1005,9 +1005,9 @@ mod tests {
                 WHERE id IN ('seed-emp-1', 'seed-emp-2', 'seed-emp-3', 'seed-emp-4')
                 "#,
             )
-                .execute(&pool)
-                .await
-                .expect("prepare old default employee prompts");
+            .execute(&pool)
+            .await
+            .expect("prepare old default employee prompts");
 
             let migration = get_all_migrations()
                 .into_iter()
@@ -1130,12 +1130,12 @@ mod tests {
             let index_names = sqlx::query(
                 "SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 'tasks'",
             )
-                .fetch_all(&pool)
-                .await
-                .expect("fetch task indexes")
-                .into_iter()
-                .map(|row| row.get::<String, _>("name"))
-                .collect::<Vec<_>>();
+            .fetch_all(&pool)
+            .await
+            .expect("fetch task indexes")
+            .into_iter()
+            .map(|row| row.get::<String, _>("name"))
+            .collect::<Vec<_>>();
 
             assert!(index_names.contains(&"idx_tasks_coordinator".to_string()));
         });
