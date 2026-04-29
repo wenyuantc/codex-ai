@@ -15,20 +15,13 @@ const SDK_RUNTIME_DIR_NAME: &str = "claude-sdk-runtime";
 const SDK_BRIDGE_FILE_NAME: &str = "claude-sdk-bridge.mjs";
 const SDK_PACKAGE_NAME: &str = "@anthropic-ai/claude-agent-sdk";
 const MINIMUM_NODE_MAJOR: u32 = 18;
-const DEFAULT_MODEL: &str = "claude-sonnet-4-6";
+const DEFAULT_MODEL: &str = "sonnet";
 const DEFAULT_THINKING_BUDGET: i32 = 10000;
 const CLAUDE_PROVIDER_SDK: &str = "sdk";
 const CLAUDE_PROVIDER_CLI: &str = "cli";
 const CLAUDE_PROVIDER_UNAVAILABLE: &str = "unavailable";
 
-pub const SUPPORTED_CLAUDE_MODELS: &[&str] = &[
-    "claude-opus-4-7",
-    "claude-opus-4-7[1m]",
-    "claude-opus-4-6[1m]",
-    "claude-sonnet-4-6",
-    "claude-sonnet-4-6[1m]",
-    "claude-haiku-4-5",
-];
+pub const SUPPORTED_CLAUDE_MODELS: &[&str] = &["opus", "opus[1m]", "sonnet", "sonnet[1m]", "haiku"];
 
 #[derive(Debug, Default, Deserialize, Serialize)]
 struct RawClaudeSettings {
@@ -46,10 +39,33 @@ struct RawClaudeSettings {
     sdk_install_dir: Option<String>,
 }
 
-fn normalize_claude_model(value: Option<&str>) -> String {
-    match value {
-        Some(v) if SUPPORTED_CLAUDE_MODELS.contains(&v) => v.to_string(),
-        _ => DEFAULT_MODEL.to_string(),
+pub fn normalize_claude_model(value: Option<&str>) -> String {
+    let value = value.map(str::trim).unwrap_or_default();
+    if value.is_empty() {
+        return DEFAULT_MODEL.to_string();
+    }
+
+    if SUPPORTED_CLAUDE_MODELS.contains(&value) {
+        return value.to_string();
+    }
+
+    let has_one_million_context = value.contains("[1m]");
+    if value.starts_with("claude-opus-") {
+        if has_one_million_context {
+            "opus[1m]".to_string()
+        } else {
+            "opus".to_string()
+        }
+    } else if value.starts_with("claude-sonnet-") {
+        if has_one_million_context {
+            "sonnet[1m]".to_string()
+        } else {
+            "sonnet".to_string()
+        }
+    } else if value.starts_with("claude-haiku-") {
+        "haiku".to_string()
+    } else {
+        DEFAULT_MODEL.to_string()
     }
 }
 
@@ -510,5 +526,35 @@ mod tests {
         let settings = test_settings(false);
 
         assert!(!claude_sdk_runtime_ready(&settings, true, true, true, true));
+    }
+
+    #[test]
+    fn claude_model_normalization_maps_legacy_full_names_to_cli_aliases() {
+        assert_eq!(normalize_claude_model(Some("opus")), "opus");
+        assert_eq!(normalize_claude_model(Some("opus[1m]")), "opus[1m]");
+        assert_eq!(
+            normalize_claude_model(Some("claude-opus-4-6[1m]")),
+            "opus[1m]"
+        );
+        assert_eq!(normalize_claude_model(Some("claude-opus-4-6")), "opus");
+        assert_eq!(
+            normalize_claude_model(Some("claude-sonnet-4-6[1m]")),
+            "sonnet[1m]"
+        );
+        assert_eq!(normalize_claude_model(Some("claude-haiku-4-5")), "haiku");
+        assert_eq!(normalize_claude_model(Some("unknown")), "sonnet");
+    }
+
+    #[test]
+    fn claude_sdk_bridge_loads_user_and_project_settings() {
+        let bridge = include_str!("claude_sdk_bridge.mjs");
+
+        assert!(bridge.contains("const CLAUDE_SETTING_SOURCES = [\"user\", \"project\"];"));
+        assert_eq!(
+            bridge
+                .matches("settingSources: CLAUDE_SETTING_SOURCES")
+                .count(),
+            2
+        );
     }
 }

@@ -3,6 +3,8 @@ import { chdir } from "node:process";
 import { readFile } from "node:fs/promises";
 import { extname } from "node:path";
 
+const CLAUDE_SETTING_SOURCES = ["user", "project"];
+
 function emit(line) {
   if (line && String(line).trim()) {
     stdout.write(`${String(line).trimEnd()}\n`);
@@ -107,7 +109,8 @@ async function runSession(payload) {
   const { query } = await import("@anthropic-ai/claude-agent-sdk");
 
   const options = {
-    model: payload.model || "claude-sonnet-4-6",
+    model: payload.model || "sonnet",
+    settingSources: CLAUDE_SETTING_SOURCES,
     permissionMode: "bypassPermissions",
     allowDangerouslySkipPermissions: true,
     maxTurns: payload.maxTurns || 50,
@@ -258,7 +261,8 @@ async function runOneShot(payload) {
   const { query } = await import("@anthropic-ai/claude-agent-sdk");
 
   const options = {
-    model: payload.model || "claude-sonnet-4-6",
+    model: payload.model || "sonnet",
+    settingSources: CLAUDE_SETTING_SOURCES,
     permissionMode: "bypassPermissions",
     allowDangerouslySkipPermissions: true,
     maxTurns: payload.maxTurns || 3,

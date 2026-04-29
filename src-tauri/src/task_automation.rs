@@ -1807,6 +1807,7 @@ mod automation_working_dir_tests {
             coordinator_id: None,
             complexity: None,
             ai_suggestion: None,
+            plan_content: None,
             automation_mode: Some("review_fix_loop_v1".to_string()),
             last_codex_session_id: Some("exec-1".to_string()),
             last_review_session_id: None,

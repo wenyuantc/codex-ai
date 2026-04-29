@@ -718,13 +718,7 @@ export type CodexModelId =
 export type ReasoningEffort = "low" | "medium" | "high" | "xhigh" | "max";
 
 export type AiProvider = "codex" | "claude" | "opencode";
-export type ClaudeModelId =
-  | "claude-opus-4-7"
-  | "claude-opus-4-7[1m]"
-  | "claude-opus-4-6[1m]"
-  | "claude-sonnet-4-6"
-  | "claude-sonnet-4-6[1m]"
-  | "claude-haiku-4-5";
+export type ClaudeModelId = "opus" | "opus[1m]" | "sonnet" | "sonnet[1m]" | "haiku";
 export type ModelId = CodexModelId | ClaudeModelId | string;
 export type TaskStatus = "todo" | "in_progress" | "review" | "completed" | "blocked" | "archived";
 export type TaskAutomationMode = "review_fix_loop_v1";
@@ -918,12 +912,11 @@ export const AI_PROVIDER_OPTIONS: { value: AiProvider; label: string }[] = [
 ];
 
 export const CLAUDE_MODEL_OPTIONS: { value: ClaudeModelId; label: string }[] = [
-  { value: "claude-opus-4-7", label: "Claude Opus 4.7" },
-  { value: "claude-opus-4-7[1m]", label: "Claude Opus 4.7 (1M)" },
-  { value: "claude-opus-4-6[1m]", label: "Claude Opus 4.6 (1M)" },
-  { value: "claude-sonnet-4-6", label: "Claude Sonnet 4.6" },
-  { value: "claude-sonnet-4-6[1m]", label: "Claude Sonnet 4.6 (1M)" },
-  { value: "claude-haiku-4-5", label: "Claude Haiku 4.5" },
+  { value: "opus", label: "Claude Opus" },
+  { value: "opus[1m]", label: "Claude Opus 1M" },
+  { value: "sonnet", label: "Claude Sonnet" },
+  { value: "sonnet[1m]", label: "Claude Sonnet 1M" },
+  { value: "haiku", label: "Claude Haiku" },
 ];
 
 export const CLAUDE_THINKING_BUDGET_OPTIONS: {
@@ -987,7 +980,14 @@ export function isSupportedClaudeModel(value: string): value is ClaudeModelId {
 export function normalizeClaudeModel(
   value: string | null | undefined,
 ): ClaudeModelId {
-  return value && isSupportedClaudeModel(value) ? value : "claude-sonnet-4-6";
+  const normalized = value?.trim();
+  if (!normalized) return "sonnet";
+  if (isSupportedClaudeModel(normalized)) return normalized;
+  const hasOneMillionContext = normalized.includes("[1m]");
+  if (normalized.startsWith("claude-opus-")) return hasOneMillionContext ? "opus[1m]" : "opus";
+  if (normalized.startsWith("claude-sonnet-")) return hasOneMillionContext ? "sonnet[1m]" : "sonnet";
+  if (normalized.startsWith("claude-haiku-")) return "haiku";
+  return "sonnet";
 }
 
 export function getModelOptionsForProvider(provider: AiProvider) {
@@ -997,7 +997,7 @@ export function getModelOptionsForProvider(provider: AiProvider) {
 }
 
 export function getDefaultModelForProvider(provider: AiProvider): ModelId {
-  if (provider === "claude") return "claude-sonnet-4-6";
+  if (provider === "claude") return "sonnet";
   if (provider === "opencode") return "openai/gpt-4o";
   return "gpt-5.4";
 }
