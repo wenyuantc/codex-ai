@@ -140,6 +140,8 @@ export function TaskDetailDialog({
   const [coordinatorPlanSaving, setCoordinatorPlanSaving] = useState(false);
   const [coordinatorPlanExecuting, setCoordinatorPlanExecuting] = useState(false);
   const [coordinatorPlanError, setCoordinatorPlanError] = useState<string | null>(null);
+  const [coordinatorPlanLogs, setCoordinatorPlanLogs] = useState<string[]>([]);
+  const [coordinatorPlanTerminalVisible, setCoordinatorPlanTerminalVisible] = useState(false);
   const latestReviewRequestIdRef = useRef(0);
   const executionChangeDetailRequestIdRef = useRef(0);
   const taskIdCopyResetTimerRef = useRef<number | null>(null);
@@ -152,6 +154,20 @@ export function TaskDetailDialog({
   const coordinatorCandidates = employees.filter((employee) => employee.role === "coordinator");
   const reviewerCandidates = employees.filter((employee) => employee.role === "reviewer");
   const planContentHasChanges = planContentDraft !== planContent;
+  const appendCoordinatorPlanLog = (line: string) => {
+    setCoordinatorPlanLogs((current) => [
+      ...current.slice(-199),
+      line,
+    ]);
+  };
+
+  const getCoordinatorPlanRuntimeLabel = () => {
+    const provider = coordinator?.ai_provider ?? "codex";
+    const model = coordinator?.model?.trim() || "默认模型";
+    const reasoningEffort = coordinator?.reasoning_effort?.trim() || "默认推理等级";
+    return `${provider} / ${model} / ${reasoningEffort}`;
+  };
+
   const executionActions = useTaskExecutionActions({
     task,
     assigneeId,
@@ -181,6 +197,7 @@ export function TaskDetailDialog({
     },
     onError: (message) => {
       executionStartErrorRef.current = message;
+      appendCoordinatorPlanLog(`[ERROR] ${message}`);
       setCoordinatorPlanError(message);
     },
   });
@@ -289,6 +306,8 @@ export function TaskDetailDialog({
     setCoordinatorPlanSaving(false);
     setCoordinatorPlanExecuting(false);
     setCoordinatorPlanError(null);
+    setCoordinatorPlanLogs([]);
+    setCoordinatorPlanTerminalVisible(false);
     setPlanContentDraft(task.plan_content ?? "");
     setPlanContentEditing(false);
     setPlanContentSaving(false);
@@ -494,13 +513,19 @@ export function TaskDetailDialog({
   };
 
   const generateCoordinatorPlan = async () => {
+    setCoordinatorPlanTerminalVisible(true);
     if (!coordinatorId) {
+      appendCoordinatorPlanLog("[ERROR] 当前任务未指定协调员，无法生成计划。");
       setCoordinatorPlanError("请先指定协调员。");
       return;
     }
 
     setCoordinatorPlanLoading(true);
     setCoordinatorPlanError(null);
+    appendCoordinatorPlanLog(`[计划] 准备调用协调员：${coordinator?.name ?? coordinatorId}`);
+    appendCoordinatorPlanLog(`[计划] 运行配置：${getCoordinatorPlanRuntimeLabel()}`);
+    appendCoordinatorPlanLog(`[计划] 工作目录：${projectRepoPath ?? "未配置"}`);
+    appendCoordinatorPlanLog("[计划] 正在生成协调员执行计划，可能需要一点时间...");
     try {
       const plan = await aiGenerateCoordinatorTaskPlan({
         task_id: task.id,
@@ -513,22 +538,33 @@ export function TaskDetailDialog({
       });
       const trimmedPlan = plan.trim();
       if (!trimmedPlan) {
+        appendCoordinatorPlanLog("[WARN] 协调员返回了空计划。");
         setCoordinatorPlanError("协调员未返回可用计划。");
         return;
       }
       setCoordinatorPlanDraft(trimmedPlan);
+      appendCoordinatorPlanLog(`[计划] 已收到协调员计划，共 ${trimmedPlan.length} 字。`);
     } catch (error) {
-      setCoordinatorPlanError(error instanceof Error ? error.message : String(error));
+      const message = error instanceof Error ? error.message : String(error);
+      appendCoordinatorPlanLog(`[ERROR] ${message}`);
+      setCoordinatorPlanError(message);
     } finally {
       setCoordinatorPlanLoading(false);
     }
   };
 
   const openCoordinatorPlanFlow = async () => {
+    const existingPlan = planContent.trim();
     setCoordinatorPlanError(null);
-    setCoordinatorPlanDraft(planContent.trim());
+    setCoordinatorPlanDraft(existingPlan);
+    setCoordinatorPlanLogs(
+      existingPlan
+        ? [`[计划] 已加载任务中保存的协调员计划，共 ${existingPlan.length} 字。`]
+        : [],
+    );
+    setCoordinatorPlanTerminalVisible(!existingPlan);
     setCoordinatorPlanDialogOpen(true);
-    if (!planContent.trim()) {
+    if (!existingPlan) {
       await generateCoordinatorPlan();
     }
   };
@@ -555,13 +591,18 @@ export function TaskDetailDialog({
 
     setCoordinatorPlanSaving(true);
     setCoordinatorPlanError(null);
+    setCoordinatorPlanTerminalVisible(true);
+    appendCoordinatorPlanLog(`[计划] 正在保存协调员计划，共 ${plan.length} 字。`);
     try {
       await updateTask(task.id, { plan_content: plan });
       setPlanContent(plan);
       setPlanContentDraft(plan);
       setPlanContentEditing(false);
+      appendCoordinatorPlanLog("[计划] 协调员计划已保存到任务。");
     } catch (error) {
-      setCoordinatorPlanError(error instanceof Error ? error.message : String(error));
+      const message = error instanceof Error ? error.message : String(error);
+      appendCoordinatorPlanLog(`[ERROR] ${message}`);
+      setCoordinatorPlanError(message);
     } finally {
       setCoordinatorPlanSaving(false);
     }
@@ -612,6 +653,8 @@ export function TaskDetailDialog({
       return;
     }
     if (!assigneeId) {
+      setCoordinatorPlanTerminalVisible(true);
+      appendCoordinatorPlanLog("[ERROR] 当前任务未指定执行员工，无法执行计划。");
       setCoordinatorPlanError("请先指定执行员工，再执行计划。");
       return;
     }
@@ -619,9 +662,12 @@ export function TaskDetailDialog({
     setCoordinatorPlanExecuting(true);
     setCoordinatorPlanError(null);
     executionStartErrorRef.current = null;
+    setCoordinatorPlanTerminalVisible(true);
+    appendCoordinatorPlanLog(`[执行] 正在把计划交给执行员工：${assignee?.name ?? assigneeId}`);
     try {
       await executionActions.runTask(plan);
       if (!executionStartErrorRef.current) {
+        appendCoordinatorPlanLog("[执行] 执行会话已启动，完整终端输出会继续写入任务日志。");
         setCoordinatorPlanDialogOpen(false);
       }
     } finally {
@@ -1073,11 +1119,15 @@ export function TaskDetailDialog({
         executing={coordinatorPlanExecuting}
         error={coordinatorPlanError ?? (!assigneeId ? "请先指定执行员工，再执行计划。" : null)}
         canExecute={Boolean(assigneeId)}
+        terminalLogs={coordinatorPlanLogs}
+        terminalVisible={coordinatorPlanTerminalVisible}
         onOpenChange={setCoordinatorPlanDialogOpen}
         onPlanChange={setCoordinatorPlanDraft}
         onExecute={() => void handleExecuteCoordinatorPlan()}
         onRegenerate={() => void generateCoordinatorPlan()}
         onSave={() => void handleSaveCoordinatorPlan()}
+        onToggleTerminal={() => setCoordinatorPlanTerminalVisible((visible) => !visible)}
+        onClearTerminal={() => setCoordinatorPlanLogs([])}
       />
       {reviewFixDialogOpen && assignee && (
         <ReviewFixConfirmDialog
