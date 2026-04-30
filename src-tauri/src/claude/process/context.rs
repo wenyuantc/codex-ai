@@ -33,7 +33,7 @@ pub(super) async fn resolve_task_project_execution_context<R: Runtime>(
 ) -> Result<ExecutionContext, String> {
     let pool = sqlite_pool(app).await?;
     let row = sqlx::query_as::<_, (Option<String>, String, Option<String>, Option<String>)>(
-        "SELECT projects.repo_path, projects.project_type, projects.ssh_config_id, projects.remote_repo_path FROM tasks INNER JOIN projects ON projects.id = tasks.project_id WHERE tasks.id = $1 LIMIT 1",
+        "SELECT projects.repo_path, projects.project_type, projects.ssh_config_id, projects.remote_repo_path FROM tasks INNER JOIN projects ON projects.id = tasks.project_id WHERE tasks.id = $1 AND tasks.deleted_at IS NULL AND projects.deleted_at IS NULL LIMIT 1",
     )
     .bind(task_id)
     .fetch_optional(&pool)

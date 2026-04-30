@@ -1,6 +1,14 @@
 use super::*;
 
 pub(crate) async fn fetch_task_by_id(pool: &SqlitePool, id: &str) -> Result<Task, String> {
+    sqlx::query_as::<_, Task>("SELECT * FROM tasks WHERE id = $1 AND deleted_at IS NULL LIMIT 1")
+        .bind(id)
+        .fetch_one(pool)
+        .await
+        .map_err(|error| format!("Task {} not found: {}", id, error))
+}
+
+async fn fetch_any_task_by_id(pool: &SqlitePool, id: &str) -> Result<Task, String> {
     sqlx::query_as::<_, Task>("SELECT * FROM tasks WHERE id = $1 LIMIT 1")
         .bind(id)
         .fetch_one(pool)
@@ -767,6 +775,7 @@ pub async fn create_task<R: Runtime>(
         time_started_at: None,
         time_spent_seconds: 0,
         completed_at: None,
+        deleted_at: None,
         created_at: now_sqlite(),
         updated_at: now_sqlite(),
     };
@@ -1432,47 +1441,12 @@ pub async fn update_task_status<R: Runtime>(
 pub async fn delete_task<R: Runtime>(app: AppHandle<R>, id: String) -> Result<(), String> {
     let pool = sqlite_pool(&app).await?;
     let task = fetch_task_by_id(&pool, &id).await?;
-    let project = fetch_project_by_id(&pool, &task.project_id).await?;
-    let attachment_dir = task_attachment_dir(&app, &id).ok();
-    let mut tx = pool
-        .begin()
-        .await
-        .map_err(|error| format!("Failed to start task transaction: {}", error))?;
 
-    sqlx::query("DELETE FROM activity_logs WHERE task_id = $1")
+    sqlx::query("UPDATE tasks SET deleted_at = datetime('now'), updated_at = datetime('now') WHERE id = $1")
         .bind(&id)
-        .execute(&mut *tx)
+        .execute(&pool)
         .await
-        .map_err(|error| format!("Failed to delete task activity logs: {}", error))?;
-    sqlx::query("DELETE FROM tasks WHERE id = $1")
-        .bind(&id)
-        .execute(&mut *tx)
-        .await
-        .map_err(|error| format!("Failed to delete task: {}", error))?;
-
-    tx.commit()
-        .await
-        .map_err(|error| format!("Failed to commit task delete: {}", error))?;
-
-    if let Some(attachment_dir) = attachment_dir.filter(|path| path.exists()) {
-        if let Err(error) = fs::remove_dir_all(&attachment_dir) {
-            eprintln!(
-                "[task-attachments] 删除任务附件目录失败: path={}, error={}",
-                attachment_dir.display(),
-                error
-            );
-        }
-    }
-
-    if project.project_type == PROJECT_TYPE_SSH {
-        if let Some(ssh_config_id) = project.ssh_config_id.as_deref() {
-            if let Err(error) =
-                cleanup_remote_task_attachments_for_task(&app, ssh_config_id, &task.id).await
-            {
-                eprintln!("[task-attachments] 删除远程任务附件目录失败: {}", error);
-            }
-        }
-    }
+        .map_err(|error| format!("软删除任务失败: {}", error))?;
 
     insert_activity_log(
         &pool,
@@ -1485,6 +1459,94 @@ pub async fn delete_task<R: Runtime>(app: AppHandle<R>, id: String) -> Result<()
     .await?;
 
     Ok(())
+}
+
+#[tauri::command]
+pub async fn permanently_delete_task<R: Runtime>(app: AppHandle<R>, id: String) -> Result<(), String> {
+    let pool = sqlite_pool(&app).await?;
+    let task = fetch_any_task_by_id(&pool, &id).await?;
+    let project = fetch_any_project_by_id(&pool, &task.project_id).await?;
+    let attachment_dir = task_attachment_dir(&app, &id).ok();
+    let mut tx = pool
+        .begin()
+        .await
+        .map_err(|error| format!("开始任务事务失败: {}", error))?;
+
+    sqlx::query("DELETE FROM activity_logs WHERE task_id = $1")
+        .bind(&id)
+        .execute(&mut *tx)
+        .await
+        .map_err(|error| format!("删除任务活动日志失败: {}", error))?;
+    sqlx::query("DELETE FROM tasks WHERE id = $1")
+        .bind(&id)
+        .execute(&mut *tx)
+        .await
+        .map_err(|error| format!("永久删除任务失败: {}", error))?;
+
+    insert_activity_log(
+        &mut *tx,
+        "task_permanently_deleted",
+        &task.title,
+        None,
+        None,
+        Some(&task.project_id),
+    )
+    .await?;
+
+    tx.commit()
+        .await
+        .map_err(|error| format!("提交任务永久删除失败: {}", error))?;
+
+    if let Some(attachment_dir) = attachment_dir.filter(|path| path.exists()) {
+        if let Err(error) = fs::remove_dir_all(&attachment_dir) {
+            eprintln!(
+                "[task-attachments] 永久删除任务附件目录失败: path={}, error={}",
+                attachment_dir.display(),
+                error
+            );
+        }
+    }
+
+    if project.project_type == PROJECT_TYPE_SSH {
+        if let Some(ssh_config_id) = project.ssh_config_id.as_deref() {
+            if let Err(error) =
+                cleanup_remote_task_attachments_for_task(&app, ssh_config_id, &task.id).await
+            {
+                eprintln!("[task-attachments] 永久删除远程任务附件目录失败: {}", error);
+            }
+        }
+    }
+
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn restore_task<R: Runtime>(app: AppHandle<R>, id: String) -> Result<Task, String> {
+    let pool = sqlite_pool(&app).await?;
+    let task = fetch_any_task_by_id(&pool, &id).await?;
+    if task.deleted_at.is_none() {
+        return Err("任务不在回收站中".to_string());
+    }
+
+    sqlx::query("UPDATE tasks SET deleted_at = NULL, updated_at = $1 WHERE id = $2")
+        .bind(now_sqlite())
+        .bind(&id)
+        .execute(&pool)
+        .await
+        .map_err(|error| format!("恢复任务失败: {}", error))?;
+
+    fetch_task_by_id(&pool, &id).await
+}
+
+#[tauri::command]
+pub async fn list_trashed_tasks<R: Runtime>(app: AppHandle<R>) -> Result<Vec<Task>, String> {
+    let pool = sqlite_pool(&app).await?;
+    sqlx::query_as::<_, Task>(
+        "SELECT * FROM tasks WHERE deleted_at IS NOT NULL ORDER BY deleted_at DESC",
+    )
+    .fetch_all(&pool)
+    .await
+    .map_err(|error| format!("获取回收站任务列表失败: {}", error))
 }
 
 #[tauri::command]

@@ -752,6 +752,7 @@ mod tests {
             time_started_at: None,
             time_spent_seconds: 0,
             completed_at: None,
+            deleted_at: None,
             created_at: "2026-04-20 10:00:00".to_string(),
             updated_at: "2026-04-20 10:00:00".to_string(),
         }

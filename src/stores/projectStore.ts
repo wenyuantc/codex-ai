@@ -5,6 +5,9 @@ import {
   createProject as createProjectCommand,
   createSshConfig as createSshConfigCommand,
   deleteProject as deleteProjectCommand,
+  permanentlyDeleteProject as permanentlyDeleteProjectCommand,
+  restoreProject as restoreProjectCommand,
+  listTrashedProjects as listTrashedProjectsCommand,
   deleteSshConfig as deleteSshConfigCommand,
   listSshConfigs as listSshConfigsCommand,
   runSshPasswordProbe as runSshPasswordProbeCommand,
@@ -109,7 +112,7 @@ function resolveSelectedSshConfigId(
 }
 
 async function selectProjectsFromDatabase(): Promise<Project[]> {
-  const rows = await select<Project>("SELECT * FROM projects ORDER BY updated_at DESC");
+  const rows = await select<Project>("SELECT * FROM projects WHERE deleted_at IS NULL ORDER BY updated_at DESC");
   return rows.map((project) => normalizeProject(project));
 }
 
@@ -131,6 +134,10 @@ interface ProjectStore {
   createProject: (data: CreateProjectInput) => Promise<void>;
   updateProject: (id: string, updates: UpdateProjectInput) => Promise<void>;
   deleteProject: (id: string) => Promise<void>;
+  permanentlyDeleteProject: (id: string) => Promise<void>;
+  restoreProject: (id: string) => Promise<void>;
+  trashedProjects: Project[];
+  fetchTrashedProjects: () => Promise<void>;
   createSshConfig: (data: CreateSshConfigInput) => Promise<SshConfig>;
   updateSshConfig: (id: string, updates: UpdateSshConfigInput) => Promise<SshConfig>;
   deleteSshConfig: (id: string) => Promise<void>;
@@ -147,6 +154,7 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
   loading: false,
   sshConfigsLoading: false,
   sshConfigsInitialized: false,
+  trashedProjects: [],
 
   fetchProjects: async () => {
     set({ loading: true });
@@ -345,6 +353,39 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
       currentProject: state.currentProject?.id === id ? null : state.currentProject,
     }));
     await get().fetchProjects();
+  },
+
+  permanentlyDeleteProject: async (id) => {
+    await permanentlyDeleteProjectCommand(id);
+    set((state) => ({
+      trashedProjects: state.trashedProjects.filter((project) => project.id !== id),
+    }));
+  },
+
+  restoreProject: async (id) => {
+    const prevTrashedProjects = get().trashedProjects;
+    await restoreProjectCommand(id);
+    set((state) => ({
+      trashedProjects: state.trashedProjects.filter((p) => p.id !== id),
+    }));
+    try {
+      await get().fetchProjects();
+    } catch (error) {
+      console.error("Failed to refresh projects after restore, rolling back:", error);
+      set({ trashedProjects: prevTrashedProjects });
+    }
+  },
+
+  fetchTrashedProjects: async () => {
+    try {
+      const projects = await listTrashedProjectsCommand();
+      const { environmentMode, selectedSshConfigId } = get();
+      set({
+        trashedProjects: filterProjectsByScope(projects, environmentMode, selectedSshConfigId),
+      });
+    } catch (error) {
+      console.error("Failed to fetch trashed projects:", error);
+    }
   },
 
   createSshConfig: async (data) => {

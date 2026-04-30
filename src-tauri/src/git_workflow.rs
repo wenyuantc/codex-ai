@@ -4400,6 +4400,7 @@ mod tests {
             project_type: EXECUTION_TARGET_LOCAL.to_string(),
             ssh_config_id: None,
             remote_repo_path: None,
+            deleted_at: None,
             created_at: now_sqlite(),
             updated_at: now_sqlite(),
         };
@@ -4438,6 +4439,7 @@ mod tests {
             time_started_at: None,
             time_spent_seconds: 0,
             completed_at: None,
+            deleted_at: None,
             created_at: now_sqlite(),
             updated_at: now_sqlite(),
         };
@@ -4471,6 +4473,7 @@ mod tests {
             project_type: EXECUTION_TARGET_LOCAL.to_string(),
             ssh_config_id: None,
             remote_repo_path: None,
+            deleted_at: None,
             created_at: now_sqlite(),
             updated_at: now_sqlite(),
         }

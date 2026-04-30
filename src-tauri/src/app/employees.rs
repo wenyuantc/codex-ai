@@ -66,7 +66,7 @@ async fn build_employee_runtime_status<R: Runtime>(
     {
         let session = fetch_codex_session_by_id(app, &session_record_id).await?;
         let task_title = if let Some(task_id) = session.task_id.as_deref() {
-            sqlx::query_scalar::<_, Option<String>>("SELECT title FROM tasks WHERE id = $1 LIMIT 1")
+            sqlx::query_scalar::<_, Option<String>>("SELECT title FROM tasks WHERE id = $1 AND deleted_at IS NULL LIMIT 1")
                 .bind(task_id)
                 .fetch_optional(&pool)
                 .await

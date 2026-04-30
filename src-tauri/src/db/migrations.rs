@@ -957,6 +957,24 @@ pub fn get_all_migrations() -> Vec<Migration> {
             "#,
             kind: tauri_plugin_sql::MigrationKind::Up,
         },
+        Migration {
+            version: 37,
+            description: "add soft-delete support to tasks and projects",
+            sql: r#"
+                ALTER TABLE tasks ADD COLUMN deleted_at TEXT;
+                ALTER TABLE projects ADD COLUMN deleted_at TEXT;
+            "#,
+            kind: tauri_plugin_sql::MigrationKind::Up,
+        },
+        Migration {
+            version: 38,
+            description: "add deleted_at indexes for trash queries",
+            sql: r#"
+                CREATE INDEX idx_tasks_deleted_at ON tasks(deleted_at);
+                CREATE INDEX idx_projects_deleted_at ON projects(deleted_at);
+            "#,
+            kind: tauri_plugin_sql::MigrationKind::Up,
+        },
     ]
 }
 
@@ -998,7 +1016,7 @@ mod tests {
 
     #[test]
     fn latest_migration_version_includes_task_time_tracking() {
-        assert_eq!(latest_migration_version(), 36);
+        assert_eq!(latest_migration_version(), 38);
     }
 
     #[test]

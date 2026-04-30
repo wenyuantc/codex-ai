@@ -46,7 +46,7 @@ export function EmployeePerformanceChart() {
            ORDER BY tasks_completed DESC`
         ),
         select<EmployeeLookup>("SELECT id, name, project_id FROM employees"),
-        select<Project>("SELECT * FROM projects"),
+        select<Project>("SELECT * FROM projects WHERE deleted_at IS NULL"),
       ]);
       const visibleProjectIds = new Set(
         filterProjectsByScope(

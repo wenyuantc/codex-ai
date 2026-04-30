@@ -22,6 +22,14 @@ async fn validate_project_storage_fields(
 }
 
 pub(crate) async fn fetch_project_by_id(pool: &SqlitePool, id: &str) -> Result<Project, String> {
+    sqlx::query_as::<_, Project>("SELECT * FROM projects WHERE id = $1 AND deleted_at IS NULL LIMIT 1")
+        .bind(id)
+        .fetch_one(pool)
+        .await
+        .map_err(|error| format!("Project {} not found: {}", id, error))
+}
+
+pub(crate) async fn fetch_any_project_by_id(pool: &SqlitePool, id: &str) -> Result<Project, String> {
     sqlx::query_as::<_, Project>("SELECT * FROM projects WHERE id = $1 LIMIT 1")
         .bind(id)
         .fetch_one(pool)
@@ -33,7 +41,7 @@ pub(crate) async fn ensure_project_exists(
     pool: &SqlitePool,
     project_id: &str,
 ) -> Result<(), String> {
-    sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM projects WHERE id = $1")
+    sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM projects WHERE id = $1 AND deleted_at IS NULL")
         .bind(project_id)
         .fetch_one(pool)
         .await
@@ -71,6 +79,7 @@ pub async fn create_project<R: Runtime>(
         project_type,
         ssh_config_id,
         remote_repo_path,
+        deleted_at: None,
         created_at: now_sqlite(),
         updated_at: now_sqlite(),
     };
@@ -204,10 +213,53 @@ pub async fn update_project<R: Runtime>(
 #[tauri::command]
 pub async fn delete_project<R: Runtime>(app: AppHandle<R>, id: String) -> Result<(), String> {
     let pool = sqlite_pool(&app).await?;
+    let project = fetch_project_by_id(&pool, &id).await?;
+    let now = now_sqlite();
+
     let mut tx = pool
         .begin()
         .await
-        .map_err(|error| format!("Failed to start project transaction: {}", error))?;
+        .map_err(|error| format!("开始项目事务失败: {}", error))?;
+
+    sqlx::query("UPDATE projects SET deleted_at = $1, updated_at = $1 WHERE id = $2")
+        .bind(&now)
+        .bind(&id)
+        .execute(&mut *tx)
+        .await
+        .map_err(|error| format!("软删除项目失败: {}", error))?;
+
+    sqlx::query("UPDATE tasks SET deleted_at = $1, updated_at = $1 WHERE project_id = $2 AND deleted_at IS NULL")
+        .bind(&now)
+        .bind(&id)
+        .execute(&mut *tx)
+        .await
+        .map_err(|error| format!("软删除项目任务失败: {}", error))?;
+
+    tx.commit()
+        .await
+        .map_err(|error| format!("提交项目软删除失败: {}", error))?;
+
+    insert_activity_log(
+        &pool,
+        "project_deleted",
+        &project.name,
+        None,
+        None,
+        Some(&project.id),
+    )
+    .await?;
+
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn permanently_delete_project<R: Runtime>(app: AppHandle<R>, id: String) -> Result<(), String> {
+    let pool = sqlite_pool(&app).await?;
+    let project = fetch_any_project_by_id(&pool, &id).await?;
+    let mut tx = pool
+        .begin()
+        .await
+        .map_err(|error| format!("开始项目事务失败: {}", error))?;
 
     sqlx::query(
         "DELETE FROM activity_logs WHERE project_id = $1 OR task_id IN (SELECT id FROM tasks WHERE project_id = $1)",
@@ -215,26 +267,73 @@ pub async fn delete_project<R: Runtime>(app: AppHandle<R>, id: String) -> Result
     .bind(&id)
     .execute(&mut *tx)
     .await
-    .map_err(|error| format!("Failed to delete project activity logs: {}", error))?;
+    .map_err(|error| format!("删除项目活动日志失败: {}", error))?;
     sqlx::query("UPDATE employees SET project_id = NULL WHERE project_id = $1")
         .bind(&id)
         .execute(&mut *tx)
         .await
-        .map_err(|error| format!("Failed to clear employee project ownership: {}", error))?;
+        .map_err(|error| format!("清除员工项目归属失败: {}", error))?;
     sqlx::query("DELETE FROM tasks WHERE project_id = $1")
         .bind(&id)
         .execute(&mut *tx)
         .await
-        .map_err(|error| format!("Failed to delete project tasks: {}", error))?;
+        .map_err(|error| format!("删除项目任务失败: {}", error))?;
+
+    insert_activity_log(
+        &mut *tx,
+        "project_permanently_deleted",
+        &project.name,
+        None,
+        None,
+        Some(&project.id),
+    )
+    .await?;
+
     sqlx::query("DELETE FROM projects WHERE id = $1")
         .bind(&id)
         .execute(&mut *tx)
         .await
-        .map_err(|error| format!("Failed to delete project: {}", error))?;
+        .map_err(|error| format!("永久删除项目失败: {}", error))?;
 
     tx.commit()
         .await
-        .map_err(|error| format!("Failed to commit project delete: {}", error))?;
+        .map_err(|error| format!("提交项目永久删除失败: {}", error))?;
 
     Ok(())
+}
+
+#[tauri::command]
+pub async fn restore_project<R: Runtime>(app: AppHandle<R>, id: String) -> Result<Project, String> {
+    let pool = sqlite_pool(&app).await?;
+    let project = fetch_any_project_by_id(&pool, &id).await?;
+    if project.deleted_at.is_none() {
+        return Err("项目不在回收站中".to_string());
+    }
+
+    sqlx::query("UPDATE projects SET deleted_at = NULL, updated_at = $1 WHERE id = $2")
+        .bind(now_sqlite())
+        .bind(&id)
+        .execute(&pool)
+        .await
+        .map_err(|error| format!("恢复项目失败: {}", error))?;
+
+    sqlx::query("UPDATE tasks SET deleted_at = NULL, updated_at = $1 WHERE project_id = $2 AND deleted_at IS NOT NULL")
+        .bind(now_sqlite())
+        .bind(&id)
+        .execute(&pool)
+        .await
+        .map_err(|error| format!("恢复项目任务失败: {}", error))?;
+
+    fetch_project_by_id(&pool, &id).await
+}
+
+#[tauri::command]
+pub async fn list_trashed_projects<R: Runtime>(app: AppHandle<R>) -> Result<Vec<Project>, String> {
+    let pool = sqlite_pool(&app).await?;
+    sqlx::query_as::<_, Project>(
+        "SELECT * FROM projects WHERE deleted_at IS NOT NULL ORDER BY deleted_at DESC",
+    )
+    .fetch_all(&pool)
+    .await
+    .map_err(|error| format!("获取回收站项目列表失败: {}", error))
 }

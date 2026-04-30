@@ -1,4 +1,3 @@
-import type { Project } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -9,29 +8,31 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 
-interface DeleteProjectDialogProps {
+interface ConfirmPermanentDeleteDialogProps {
   open: boolean;
-  project: Project | null;
+  title: string;
+  description: string;
+  confirmLabel?: string;
   deleting?: boolean;
   onOpenChange: (open: boolean) => void;
-  onConfirm: () => Promise<void> | void;
+  onConfirm: () => void;
 }
 
-export function DeleteProjectDialog({
+export function ConfirmPermanentDeleteDialog({
   open,
-  project,
+  title,
+  description,
+  confirmLabel = "永久删除",
   deleting = false,
   onOpenChange,
   onConfirm,
-}: DeleteProjectDialogProps) {
+}: ConfirmPermanentDeleteDialogProps) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-md" showCloseButton={!deleting}>
         <DialogHeader>
-          <DialogTitle>确认删除项目</DialogTitle>
-          <DialogDescription>
-            确认删除项目“{project?.name ?? ''}”吗？项目及其任务将移至回收站，可在回收站中恢复。
-          </DialogDescription>
+          <DialogTitle>{title}</DialogTitle>
+          <DialogDescription>{description}</DialogDescription>
         </DialogHeader>
 
         <DialogFooter className="mt-2">
@@ -46,10 +47,10 @@ export function DeleteProjectDialog({
           <Button
             type="button"
             variant="destructive"
-            onClick={() => void onConfirm()}
+            onClick={onConfirm}
             disabled={deleting}
           >
-            {deleting ? "删除中..." : "确认删除"}
+            {deleting ? "删除中..." : confirmLabel}
           </Button>
         </DialogFooter>
       </DialogContent>

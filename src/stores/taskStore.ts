@@ -15,6 +15,9 @@ import {
   deleteSubtask as deleteSubtaskCommand,
   deleteTaskAttachment as deleteTaskAttachmentCommand,
   deleteTask as deleteTaskCommand,
+  permanentlyDeleteTask as permanentlyDeleteTaskCommand,
+  restoreTask as restoreTaskCommand,
+  listTrashedTasks as listTrashedTasksCommand,
   getTaskAutomationState as getTaskAutomationStateCommand,
   restartTaskAutomation as restartTaskAutomationCommand,
   startTaskTimer as startTaskTimerCommand,
@@ -63,6 +66,10 @@ interface TaskStore {
   fetchTaskAutomationState: (taskId: string) => Promise<void>;
   restartTaskAutomation: (taskId: string) => Promise<void>;
   deleteTask: (id: string) => Promise<void>;
+  permanentlyDeleteTask: (id: string) => Promise<void>;
+  restoreTask: (id: string) => Promise<void>;
+  trashedTasks: Task[];
+  fetchTrashedTasks: () => Promise<void>;
   addTaskAttachments: (taskId: string, sourcePaths: string[]) => Promise<void>;
   deleteTaskAttachment: (taskId: string, attachmentId: string) => Promise<void>;
   addSubtask: (taskId: string, title: string) => Promise<void>;
@@ -91,6 +98,7 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
   subtasks: {},
   comments: {},
   automationStates: {},
+  trashedTasks: [],
   activeProjectId: undefined,
   loading: false,
 
@@ -98,8 +106,8 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
     set({ loading: true, activeProjectId: projectId });
     try {
       const rawTasks = projectId
-        ? await select<Task>("SELECT * FROM tasks WHERE project_id = $1 ORDER BY updated_at DESC", [projectId])
-        : await select<Task>("SELECT * FROM tasks ORDER BY updated_at DESC");
+        ? await select<Task>("SELECT * FROM tasks WHERE project_id = $1 AND deleted_at IS NULL ORDER BY updated_at DESC", [projectId])
+        : await select<Task>("SELECT * FROM tasks WHERE deleted_at IS NULL ORDER BY updated_at DESC");
       const visibleProjectIds = new Set(useProjectStore.getState().projects.map((project) => project.id));
       const tasks = rawTasks.filter((task) => visibleProjectIds.has(task.project_id));
       const automationEntries = await Promise.all(
@@ -243,6 +251,9 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
 
   deleteTask: async (id) => {
     await deleteTaskCommand(id);
+    set((state) => ({
+      tasks: state.tasks.filter((task) => task.id !== id),
+    }));
     set((state) => {
       const { [id]: _attachments, ...attachments } = state.attachments;
       const { [id]: _subtasks, ...subtasks } = state.subtasks;
@@ -250,7 +261,41 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
       const { [id]: _automationState, ...automationStates } = state.automationStates;
       return { attachments, subtasks, comments, automationStates };
     });
-    await get().fetchTasks(get().activeProjectId);
+  },
+
+  permanentlyDeleteTask: async (id) => {
+    await permanentlyDeleteTaskCommand(id);
+    set((state) => ({
+      trashedTasks: state.trashedTasks.filter((task) => task.id !== id),
+    }));
+  },
+
+  restoreTask: async (id) => {
+    const prevTrashedTasks = get().trashedTasks;
+    await restoreTaskCommand(id);
+    set((state) => ({
+      trashedTasks: state.trashedTasks.filter((t) => t.id !== id),
+    }));
+    try {
+      await get().fetchTasks(get().activeProjectId);
+    } catch (error) {
+      console.error("Failed to refresh tasks after restore, rolling back:", error);
+      set({ trashedTasks: prevTrashedTasks });
+    }
+  },
+
+  fetchTrashedTasks: async () => {
+    try {
+      const tasks = await listTrashedTasksCommand();
+      const visibleProjectIds = new Set(
+        useProjectStore.getState().projects.map((p) => p.id),
+      );
+      set({
+        trashedTasks: tasks.filter((task) => visibleProjectIds.has(task.project_id)),
+      });
+    } catch (error) {
+      console.error("Failed to fetch trashed tasks:", error);
+    }
   },
 
   addTaskAttachments: async (taskId, sourcePaths) => {

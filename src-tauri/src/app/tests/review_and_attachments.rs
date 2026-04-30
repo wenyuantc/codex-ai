@@ -123,6 +123,7 @@ fn review_prompt_uses_explicit_remote_working_dir_for_ssh_projects() {
         time_started_at: None,
         time_spent_seconds: 0,
         completed_at: None,
+        deleted_at: None,
         created_at: "2026-04-16 10:00:00".to_string(),
         updated_at: "2026-04-16 10:00:00".to_string(),
     };
@@ -135,6 +136,7 @@ fn review_prompt_uses_explicit_remote_working_dir_for_ssh_projects() {
         project_type: PROJECT_TYPE_SSH.to_string(),
         ssh_config_id: Some("ssh-1".to_string()),
         remote_repo_path: Some("/srv/demo".to_string()),
+        deleted_at: None,
         created_at: "2026-04-16 10:00:00".to_string(),
         updated_at: "2026-04-16 10:00:00".to_string(),
     };
@@ -169,6 +171,7 @@ fn review_prompt_marks_local_projects_as_local_workspace() {
         time_started_at: None,
         time_spent_seconds: 0,
         completed_at: None,
+        deleted_at: None,
         created_at: "2026-04-16 10:00:00".to_string(),
         updated_at: "2026-04-16 10:00:00".to_string(),
     };
@@ -181,6 +184,7 @@ fn review_prompt_marks_local_projects_as_local_workspace() {
         project_type: PROJECT_TYPE_LOCAL.to_string(),
         ssh_config_id: None,
         remote_repo_path: None,
+        deleted_at: None,
         created_at: "2026-04-16 10:00:00".to_string(),
         updated_at: "2026-04-16 10:00:00".to_string(),
     };
@@ -275,6 +279,7 @@ fn local_review_context_prefers_latest_execution_worktree() {
             time_started_at: None,
             time_spent_seconds: 0,
             completed_at: None,
+            deleted_at: None,
             created_at: "2026-04-16 10:00:00".to_string(),
             updated_at: "2026-04-16 10:00:00".to_string(),
         };
@@ -321,6 +326,7 @@ fn local_review_context_prefers_latest_execution_worktree() {
             project_type: PROJECT_TYPE_LOCAL.to_string(),
             ssh_config_id: None,
             remote_repo_path: None,
+            deleted_at: None,
             created_at: "2026-04-16 10:00:00".to_string(),
             updated_at: "2026-04-16 10:00:00".to_string(),
         };

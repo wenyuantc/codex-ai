@@ -1852,6 +1852,7 @@ mod automation_working_dir_tests {
             project_type: project_type.to_string(),
             ssh_config_id: Some("ssh-1".to_string()),
             remote_repo_path: remote_repo_path.map(str::to_string),
+            deleted_at: None,
             created_at: "2026-04-17 00:00:00".to_string(),
             updated_at: "2026-04-17 00:00:00".to_string(),
         }
@@ -1878,6 +1879,7 @@ mod automation_working_dir_tests {
             time_started_at: None,
             time_spent_seconds: 0,
             completed_at: None,
+            deleted_at: None,
             created_at: "2026-04-17 00:00:00".to_string(),
             updated_at: "2026-04-17 00:00:00".to_string(),
         }
@@ -2381,6 +2383,7 @@ mod automation_guard_tests {
             time_started_at: None,
             time_spent_seconds: 0,
             completed_at: None,
+            deleted_at: None,
             created_at: "2026-04-21 00:00:00".to_string(),
             updated_at: "2026-04-21 00:00:00".to_string(),
         }

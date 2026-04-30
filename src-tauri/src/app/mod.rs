@@ -67,7 +67,7 @@ pub(crate) use database::{
 #[allow(unused_imports)]
 pub(crate) use employees::fetch_employee_by_id;
 #[allow(unused_imports)]
-pub(crate) use projects::{ensure_project_exists, fetch_project_by_id};
+pub(crate) use projects::{ensure_project_exists, fetch_any_project_by_id, fetch_project_by_id};
 #[allow(unused_imports)]
 pub(crate) use remote::{
     build_remote_codex_runtime_health, build_remote_shell_command, build_ssh_command,

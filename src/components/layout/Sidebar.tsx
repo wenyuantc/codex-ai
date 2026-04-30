@@ -10,6 +10,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Bot,
+  Trash2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useHotkeys } from "react-hotkeys-hook";
@@ -23,6 +24,7 @@ const navItems = [
   { to: "/sessions", icon: MessagesSquare, label: "对话管理" },
   { to: "/employees", icon: Users, label: "员工管理" },
   { to: "/settings", icon: Settings, label: "设置" },
+  { to: "/trash", icon: Trash2, label: "回收站" },
 ];
 
 export function Sidebar() {

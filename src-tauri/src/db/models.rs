@@ -25,6 +25,7 @@ pub struct Project {
     pub project_type: String,
     pub ssh_config_id: Option<String>,
     pub remote_repo_path: Option<String>,
+    pub deleted_at: Option<String>,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -141,6 +142,7 @@ pub struct Task {
     pub time_started_at: Option<String>,
     pub time_spent_seconds: i64,
     pub completed_at: Option<String>,
+    pub deleted_at: Option<String>,
     pub created_at: String,
     pub updated_at: String,
 }

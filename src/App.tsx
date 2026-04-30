@@ -7,6 +7,7 @@ import { KanbanPage } from "@/pages/KanbanPage";
 import { EmployeesPage } from "@/pages/EmployeesPage";
 import { SessionsPage } from "@/pages/SessionsPage";
 import { SettingsPage } from "@/pages/SettingsPage";
+import { TrashPage } from "@/pages/TrashPage";
 import { ShortcutsHelpDialog } from "@/components/keyboard/ShortcutsHelpDialog";
 import { NAV_SHORTCUTS, shortcutKeys } from "@/lib/shortcuts";
 import "@/index.css";
@@ -45,6 +46,7 @@ function GlobalShortcuts() {
   useHotkeys(shortcutKeys(NAV_SHORTCUTS[3]), () => navigate("/sessions"), { preventDefault: true });
   useHotkeys(shortcutKeys(NAV_SHORTCUTS[4]), () => navigate("/employees"), { preventDefault: true });
   useHotkeys(shortcutKeys(NAV_SHORTCUTS[5]), () => navigate("/settings"), { preventDefault: true });
+  useHotkeys(shortcutKeys(NAV_SHORTCUTS[6]), () => navigate("/trash"), { preventDefault: true });
 
   return null;
 }
@@ -100,6 +102,7 @@ function App() {
           <Route path="/sessions" element={<SessionsPage />} />
           <Route path="/employees" element={<EmployeesPage />} />
           <Route path="/settings" element={<SettingsPage />} />
+          <Route path="/trash" element={<TrashPage />} />
         </Route>
       </Routes>
       <ShortcutsHelpDialog />

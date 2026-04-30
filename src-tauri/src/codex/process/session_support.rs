@@ -78,7 +78,7 @@ pub(super) async fn fetch_task_activity_context(
     task_id: &str,
 ) -> Result<(String, String), String> {
     sqlx::query_as::<_, (String, String)>(
-        "SELECT title, project_id FROM tasks WHERE id = $1 LIMIT 1",
+        "SELECT title, project_id FROM tasks WHERE id = $1 AND deleted_at IS NULL LIMIT 1",
     )
     .bind(task_id)
     .fetch_one(pool)

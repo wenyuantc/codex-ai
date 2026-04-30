@@ -121,6 +121,7 @@ export function ArchiveManagementDialog({
       `SELECT * FROM tasks
        WHERE status = $1
          AND project_id IN (${projectPlaceholders})
+         AND deleted_at IS NULL
        ORDER BY updated_at DESC, id DESC`,
       ["archived", ...visibleProjectIds],
     )

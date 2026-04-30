@@ -506,7 +506,7 @@ fn spawn_exit_watcher(
         if session_kind == CodexSessionKind::Execution {
             if let Some(task_id) = task_id.as_deref() {
                 let task_context = sqlx::query_as::<_, (String, String, Option<String>)>(
-                    "SELECT title, project_id, automation_mode FROM tasks WHERE id = $1 LIMIT 1",
+                    "SELECT title, project_id, automation_mode FROM tasks WHERE id = $1 AND deleted_at IS NULL LIMIT 1",
                 )
                 .bind(task_id)
                 .fetch_optional(&pool)

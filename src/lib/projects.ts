@@ -18,6 +18,7 @@ export function normalizeProject(project: Partial<Project> & Pick<Project, "id" 
     project_type: projectType,
     ssh_config_id: project.ssh_config_id ?? null,
     remote_repo_path: project.remote_repo_path ?? null,
+    deleted_at: project.deleted_at ?? null,
     created_at: project.created_at,
     updated_at: project.updated_at,
   };

@@ -811,6 +811,20 @@ export async function deleteProject(id: string): Promise<void> {
   return invoke("delete_project", { id });
 }
 
+export async function permanentlyDeleteProject(id: string): Promise<void> {
+  return invoke("permanently_delete_project", { id });
+}
+
+export async function restoreProject(id: string): Promise<Project> {
+  const project = await invoke<Project>("restore_project", { id });
+  return normalizeProject(project);
+}
+
+export async function listTrashedProjects(): Promise<Project[]> {
+  const projects = await invoke<Project[]>("list_trashed_projects");
+  return projects.map(normalizeProject);
+}
+
 export async function listSshConfigs(): Promise<SshConfig[]> {
   const configs = await invoke<SshConfig[]>("list_ssh_configs");
   return configs.map(normalizeSshConfig);
@@ -882,6 +896,18 @@ export async function aiGenerateCoordinatorTaskPlan(
 
 export async function deleteTask(id: string): Promise<void> {
   return invoke("delete_task", { id });
+}
+
+export async function permanentlyDeleteTask(id: string): Promise<void> {
+  return invoke("permanently_delete_task", { id });
+}
+
+export async function restoreTask(id: string): Promise<Task> {
+  return invoke("restore_task", { id });
+}
+
+export async function listTrashedTasks(): Promise<Task[]> {
+  return invoke("list_trashed_tasks");
 }
 
 export async function createSubtask(taskId: string, title: string): Promise<Subtask> {

@@ -90,7 +90,7 @@ const ACTIVITY_SELECT = `SELECT a.*, e.name as employee_name, p.name as project_
   ORDER BY a.created_at DESC, a.id DESC`;
 
 async function loadProjects() {
-  const rows = await select<Project>("SELECT * FROM projects ORDER BY updated_at DESC");
+  const rows = await select<Project>("SELECT * FROM projects WHERE deleted_at IS NULL ORDER BY updated_at DESC");
   return rows.map((project) => normalizeProject(project));
 }
 
@@ -224,7 +224,7 @@ export const useDashboardStore = create<DashboardStore>((set) => ({
     try {
       const [projects, tasks, employees, notifications] = await Promise.all([
         loadProjects(),
-        select<Task>("SELECT * FROM tasks ORDER BY updated_at DESC"),
+        select<Task>("SELECT * FROM tasks WHERE deleted_at IS NULL ORDER BY updated_at DESC"),
         select<EmployeeLookup>("SELECT id, project_id, status FROM employees"),
         select<NotificationLookup>(
           "SELECT severity, is_read FROM notifications WHERE state = 'active' ORDER BY last_triggered_at DESC",

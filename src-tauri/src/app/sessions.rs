@@ -1,7 +1,7 @@
 use super::*;
 
 pub(crate) async fn insert_activity_log(
-    pool: &SqlitePool,
+    executor: impl sqlx::Executor<'_, Database = sqlx::Sqlite>,
     action: &str,
     details: &str,
     employee_id: Option<&str>,
@@ -17,9 +17,9 @@ pub(crate) async fn insert_activity_log(
     .bind(details)
     .bind(task_id)
     .bind(project_id)
-    .execute(pool)
+    .execute(executor)
     .await
-    .map_err(|error| format!("Failed to insert activity log: {}", error))?;
+    .map_err(|error| format!("插入活动日志失败: {}", error))?;
 
     Ok(())
 }
@@ -182,7 +182,7 @@ pub(crate) async fn insert_codex_session_record<R: Runtime>(
     let pool = sqlite_pool(app).await?;
     let project_id = match task_id {
         Some(task_id) => sqlx::query_scalar::<_, Option<String>>(
-            "SELECT project_id FROM tasks WHERE id = $1 LIMIT 1",
+            "SELECT project_id FROM tasks WHERE id = $1 AND deleted_at IS NULL LIMIT 1",
         )
         .bind(task_id)
         .fetch_optional(&pool)
@@ -929,7 +929,7 @@ pub async fn search_global<R: Runtime>(
 
     if selected_types.contains(GLOBAL_SEARCH_TYPE_PROJECT) {
         let projects = sqlx::query_as::<_, Project>(
-            "SELECT * FROM projects WHERE project_type = $1 ORDER BY updated_at DESC, created_at DESC",
+            "SELECT * FROM projects WHERE project_type = $1 AND deleted_at IS NULL ORDER BY updated_at DESC, created_at DESC",
         )
         .bind(environment_mode)
         .fetch_all(&pool)
@@ -958,6 +958,8 @@ pub async fn search_global<R: Runtime>(
             FROM tasks t
             INNER JOIN projects p ON p.id = t.project_id
             WHERE p.project_type = $1
+              AND t.deleted_at IS NULL
+              AND p.deleted_at IS NULL
             ORDER BY t.updated_at DESC, t.created_at DESC
             "#,
         )

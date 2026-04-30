@@ -16,6 +16,7 @@ export const NAV_SHORTCUTS: ShortcutDef[] = [
   { id: "nav-sessions", keys: "meta+4", display: "⌘4", description: "对话管理", category: "navigation", page: "/sessions" },
   { id: "nav-employees", keys: "meta+5", display: "⌘5", description: "员工管理", category: "navigation", page: "/employees" },
   { id: "nav-settings", keys: "meta+6", display: "⌘6", description: "设置", category: "navigation", page: "/settings" },
+  { id: "nav-trash", keys: "meta+7", display: "⌘7", description: "回收站", category: "navigation", page: "/trash" },
 ];
 
 export const GLOBAL_SHORTCUTS: ShortcutDef[] = [

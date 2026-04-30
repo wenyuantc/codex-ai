@@ -34,6 +34,7 @@ export interface Project {
   project_type: ProjectType;
   ssh_config_id: string | null;
   remote_repo_path: string | null;
+  deleted_at: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -95,6 +96,7 @@ export interface Task {
   time_started_at: string | null;
   time_spent_seconds: number;
   completed_at: string | null;
+  deleted_at: string | null;
   created_at: string;
   updated_at: string;
 }
