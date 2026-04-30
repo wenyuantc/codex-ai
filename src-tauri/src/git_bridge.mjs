@@ -369,8 +369,7 @@ async function listCommitHistory(repoPath, offset = 0, limit = 20) {
   const output = (
     await gitRaw(repoPath, [
       "log",
-      "--format=%H%x1f%h%x1f%s%x1f%an%x1f%ad",
-      "--date=format:%Y-%m-%d %H:%M:%S",
+      "--format=%H%x1f%h%x1f%s%x1f%an%x1f%aI",
       `--skip=${normalizedOffset}`,
       "-n",
       String(normalizedLimit + 1),
@@ -413,8 +412,7 @@ async function getCommitDetail(repoPath, commitRef) {
     await gitRaw(repoPath, [
       "log",
       "-1",
-      "--format=%H%x1f%h%x1f%s%x1f%an%x1f%ae%x1f%ad%x1f%b",
-      "--date=format:%Y-%m-%d %H:%M:%S",
+      "--format=%H%x1f%h%x1f%s%x1f%an%x1f%ae%x1f%aI%x1f%b",
       normalizedCommitRef,
     ])
   ).trimEnd();
