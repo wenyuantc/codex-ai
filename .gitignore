@@ -26,3 +26,4 @@ dist-ssr
 .playwright-cli
 output
 .claude
+.playwright-mcp
