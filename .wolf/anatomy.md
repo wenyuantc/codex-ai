@@ -1,11 +1,12 @@
 # anatomy.md
 
-> Auto-maintained by OpenWolf. Last scanned: 2026-04-30T03:13:08.342Z
-> Files: 514 tracked | Anatomy hits: 0 | Misses: 0
+> Auto-maintained by OpenWolf. Last scanned: 2026-04-30T08:17:49.866Z
+> Files: 539 tracked | Anatomy hits: 0 | Misses: 0
 
 ## ../../../.claude/plans/
 
 - `7-serene-kernighan.md` — 键盘快捷键系统 (~992 tok)
+- `curried-toasting-balloon.md` — 回收站功能实现计划 (~1064 tok)
 
 ## ./
 
@@ -919,9 +920,53 @@
 - `tmux-hook-2026-04-14.jsonl` (~210 tok)
 - `turns-2026-04-14.jsonl` (~654 tok)
 
+## src-tauri/src/
+
+- `git_workflow.rs` — [cfg(test)] (~49163 tok)
+- `lib.rs` — run (~2266 tok)
+- `notifications.rs` — NotificationDraft: settings_route, task_route, build_task_status_notification, sdk_unavailable_dedup (~9410 tok)
+- `task_automation.rs` — spawn_resume_pending_automation, handle_session_exit_blocking, resume_pending_automation (~24924 tok)
+
+## src-tauri/src/app/
+
+- `employees.rs` — get_employee_runtime_status, get_codex_session_status, create_employee, update_employee, delete_empl (~3363 tok)
+- `mod.rs` (~1993 tok)
+- `projects.rs` — create_project, update_project, delete_project, permanently_delete_project, restore_project (~2932 tok)
+- `sessions.rs` — get_codex_session_log_lines (~13766 tok)
+- `tasks.rs` (~13892 tok)
+
+## src-tauri/src/app/tests/
+
+- `review_and_attachments.rs` — [test] (~3595 tok)
+- `task_lifecycle.rs` — [test] (~4336 tok)
+
+## src-tauri/src/claude/process/
+
+- `context.rs` (~1273 tok)
+- `mod.rs` — Enum: ClaudeSessionKind (~13158 tok)
+
+## src-tauri/src/codex/process/
+
+- `context.rs` — [derive(Clone, Debug, Eq, PartialEq)] (~2027 tok)
+- `session_runtime.rs` (~7027 tok)
+- `session_support.rs` (~1076 tok)
+
+## src-tauri/src/db/
+
+- `migrations.rs` — get_all_migrations (~14417 tok)
+- `models.rs` — Project: is_valid_task_git_context_state, is_valid_task_git_action_type (~11268 tok)
+
+## src-tauri/src/opencode/process/
+
+- `mod.rs` — Enum: OpenCodeSessionKind (~19067 tok)
+
+## src-tauri/src/task_automation/
+
+- `prompt.rs` — AutomationExecutionInput: build_automation_fix_prompt (~1547 tok)
+
 ## src/
 
-- `App.tsx` — LAST_ROUTE_STORAGE_KEY (~1019 tok)
+- `App.tsx` — LAST_ROUTE_STORAGE_KEY (~1077 tok)
 - `index.css` — Styles: 12 rules, 170 vars, 3 layers (~2767 tok)
 - `main.tsx` (~93 tok)
 - `monaco-editor-api.d.ts` (~27 tok)
@@ -947,7 +992,7 @@
 - `ActivityFeed.tsx` — ActivityFeed — uses useState, useEffect, useCallback (~1315 tok)
 - `ActivityListDialog.tsx` — PAGE_SIZE — renders modal — uses useState, useMemo, useEffect (~4194 tok)
 - `DashboardStats.tsx` — DashboardStats (~535 tok)
-- `EmployeePerformanceChart.tsx` — EmployeePerformanceChart — renders table, chart — uses useEffect (~1889 tok)
+- `EmployeePerformanceChart.tsx` — EmployeePerformanceChart — renders table (~1896 tok)
 
 ## src/components/employees/
 
@@ -980,12 +1025,12 @@
 - `Header.tsx` — ALL_PROJECTS_VALUE (~2126 tok)
 - `MainLayout.tsx` — MainLayout (~885 tok)
 - `NotificationCenter.tsx` — severityMeta — uses useNavigate, useState, useMemo (~2485 tok)
-- `Sidebar.tsx` — navItems (~1003 tok)
+- `Sidebar.tsx` — navItems (~1020 tok)
 
 ## src/components/projects/
 
 - `CreateProjectDialog.tsx` — CreateProjectDialog — renders modal — uses useState, useEffect (~2099 tok)
-- `DeleteProjectDialog.tsx` — DeleteProjectDialog — renders modal (~416 tok)
+- `DeleteProjectDialog.tsx` — DeleteProjectDialog — renders modal (~414 tok)
 - `DeleteTaskGitContextDialog.tsx` — DeleteTaskGitContextDialog — renders modal (~512 tok)
 - `EditProjectDialog.tsx` — EditProjectDialog — renders modal — uses useState, useEffect (~2253 tok)
 - `ProjectCard.tsx` — ProjectCard (~1465 tok)
@@ -1018,13 +1063,13 @@
 
 ## src/components/tasks/
 
-- `ArchiveManagementDialog.tsx` — ALL_PROJECTS_VALUE — renders table, modal — uses useState, useMemo, useEffect (~3509 tok)
+- `ArchiveManagementDialog.tsx` — ALL_PROJECTS_VALUE — renders table, modal (~3518 tok)
 - `CommentItem.tsx` — CommentItem — uses useEffect (~472 tok)
 - `CommentList.tsx` — CommentList — uses useState, useEffect (~473 tok)
 - `ContinueConversationDialog.tsx` — ContinueConversationDialog — renders modal — uses useState, useEffect (~1654 tok)
 - `CoordinatorPlanDialog.tsx` — MonacoMarkdownEditor — renders modal — uses useEffect (~2110 tok)
 - `CreateTaskDialog.tsx` — UNASSIGNED_VALUE — renders modal — uses useState, useEffect (~5983 tok)
-- `DeleteTaskDialog.tsx` — DeleteTaskDialog — renders modal (~408 tok)
+- `DeleteTaskDialog.tsx` — DeleteTaskDialog — renders modal (~407 tok)
 - `DeleteTaskWorktreeDialog.tsx` — DeleteTaskWorktreeDialog — renders modal — uses useState, useEffect (~1310 tok)
 - `InsertPlanConfirmDialog.tsx` — InsertPlanConfirmDialog — renders modal (~477 tok)
 - `KanbanBoard.tsx` — KanbanBoard — uses useState, useMemo, useEffect (~4086 tok)
@@ -1056,6 +1101,12 @@
 - `useTaskExecutionActions.ts` — Exports TaskExecutionAction, useTaskExecutionActions (~1868 tok)
 - `useTaskReviewActions.ts` — Exports useTaskReviewActions (~620 tok)
 
+## src/components/trash/
+
+- `ConfirmPermanentDeleteDialog.tsx` — ConfirmPermanentDeleteDialog — renders modal (~407 tok)
+- `TrashedProjectList.tsx` — TrashedProjectList (~1001 tok)
+- `TrashedTaskList.tsx` — TrashedTaskList (~990 tok)
+
 ## src/components/ui/
 
 - `avatar.tsx` — Avatar (~864 tok)
@@ -1082,7 +1133,7 @@
 ## src/lib/
 
 - `ai.ts` — Suggest the best assignee for a task (~942 tok)
-- `backend.ts` — Exports UpdateCodexSettingsInput, CreateProjectInput, UpdateProjectInput, CreateSshConfigInput + 31 more (~7824 tok)
+- `backend.ts` — Exports UpdateCodexSettingsInput, CreateProjectInput, UpdateProjectInput, CreateSshConfigInput + 31 (~8095 tok)
 - `claude.ts` — Exports ClaudeOutput, ClaudeExit, ClaudeSession, startClaude + 6 more (~778 tok)
 - `codex.ts` — Exports CodexOutput, CodexExit, CodexSession, TaskAutomationStateChanged + 19 more (~2113 tok)
 - `database.ts` — Exports getDb, select, execute (~168 tok)
@@ -1092,14 +1143,14 @@
 - `notificationNavigation.ts` — Exports NotificationOpenTarget, openNotificationTarget (~448 tok)
 - `notifications.ts` — Exports isTransientNotificationId, onNotificationCenterChanged, onTransientNotification, onDesktopNotificationDeliver (~307 tok)
 - `opencode.ts` — ---- Types ---- (~1136 tok)
-- `projects.ts` — Exports DEFAULT_ENVIRONMENT_MODE, normalizeProjectType, normalizeProject, getProjectTypeLabel + 5 more (~713 tok)
-- `shortcuts.ts` — Convert canonical `meta` keys to platform-appropriate modifier (~804 tok)
+- `projects.ts` — Exports DEFAULT_ENVIRONMENT_MODE, normalizeProjectType, normalizeProject, getProjectTypeLabel + 5 mo (~726 tok)
+- `shortcuts.ts` — Convert canonical `meta` keys to platform-appropriate modifier (~836 tok)
 - `shortcuts.ts` — Exports ShortcutCategory, ShortcutDef, NAV_SHORTCUTS, GLOBAL_SHORTCUTS + 3 more (~659 tok)
 - `taskAttachments.ts` — Exports IMAGE_FILE_EXTENSIONS, IMAGE_FILE_FILTERS, isTauriRuntime, normalizeDialogSelection + 5 more (~542 tok)
 - `taskPrompt.ts` — Exports TaskExecutionInput, buildTaskExecutionInput, buildTaskExecutionPrompt (~655 tok)
 - `theme.ts` — Exports ThemeMode, THEME_CHANGE_EVENT, getThemePreference, isDarkThemeMode, applyTheme (~408 tok)
-- `types.ts` — Exports ProjectType, EnvironmentMode, SshAuthType, ArtifactCaptureMode + 48 more (~8564 tok)
-- `utils.ts` — Exports cn, parseDateValue, formatDate, getStatusColor + 14 more (~2952 tok)
+- `types.ts` — Exports ProjectType, EnvironmentMode, SshAuthType, ArtifactCaptureMode + 47 more (~8608 tok)
+- `utils.ts` — Exports cn, parseDateValue, formatDate, formatDuration + 16 more (~3386 tok)
 
 ## src/pages/
 
@@ -1110,12 +1161,13 @@
 - `ProjectsPage.tsx` — ProjectsPage (~406 tok)
 - `SessionsPage.tsx` — PAGE_SIZE (~7948 tok)
 - `SettingsPage.tsx` — DATABASE_FILE_FILTERS — uses useSearchParams, useState, useMemo (~11644 tok)
+- `TrashPage.tsx` — TrashPage (~752 tok)
 
 ## src/stores/
 
-- `dashboardStore.ts` — Exports ActivityFilters, useDashboardStore (~2832 tok)
+- `dashboardStore.ts` — Exports ActivityFilters, useDashboardStore (~2846 tok)
 - `employeeStore.ts` — Exports buildTaskLogKey, useEmployeeStore (~4184 tok)
 - `logStore.ts` — Exports useLogStore (~199 tok)
 - `notificationStore.ts` — Exports useNotificationStore (~1916 tok)
-- `projectStore.ts` — Exports useProjectStore (~3365 tok)
-- `taskStore.ts` — Exports useTaskStore (~3886 tok)
+- `projectStore.ts` — Exports useProjectStore (~3776 tok)
+- `taskStore.ts` — Exports useTaskStore (~4393 tok)

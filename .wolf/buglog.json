@@ -224,6 +224,422 @@
       "related_bugs": [],
       "occurrences": 1,
       "last_seen": "2026-04-30T03:10:16.087Z"
+    },
+    {
+      "id": "bug-015",
+      "timestamp": "2026-04-30T06:25:46.264Z",
+      "error_message": "Significant refactor of ",
+      "file": "src-tauri/src/app/tasks.rs",
+      "root_cause": "4 lines replaced/restructured",
+      "fix": "Rewrote 58→111 lines (4 removed)",
+      "tags": [
+        "auto-detected",
+        "refactor",
+        "rs"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-04-30T06:25:46.264Z"
+    },
+    {
+      "id": "bug-016",
+      "timestamp": "2026-04-30T06:26:41.050Z",
+      "error_message": "Incorrect value in code",
+      "file": "src-tauri/src/app/sessions.rs",
+      "root_cause": "Had \"SELECT * FROM projects WHERE project_type = $1 OR",
+      "fix": "Changed to \"SELECT * FROM projects WHERE project_type = $1 AN",
+      "tags": [
+        "auto-detected",
+        "wrong-value",
+        "rs"
+      ],
+      "related_bugs": [],
+      "occurrences": 2,
+      "last_seen": "2026-04-30T06:26:46.335Z"
+    },
+    {
+      "id": "bug-017",
+      "timestamp": "2026-04-30T06:28:08.798Z",
+      "error_message": "Incorrect value in code",
+      "file": "src-tauri/src/app/employees.rs",
+      "root_cause": "Had \"SELECT title FROM tasks WHERE id = $1 LIMIT 1\"",
+      "fix": "Changed to \"SELECT title FROM tasks WHERE id = $1 AND deleted",
+      "tags": [
+        "auto-detected",
+        "wrong-value",
+        "rs"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-04-30T06:28:08.798Z"
+    },
+    {
+      "id": "bug-018",
+      "timestamp": "2026-04-30T06:28:14.108Z",
+      "error_message": "Incorrect value in code",
+      "file": "src-tauri/src/claude/process/mod.rs",
+      "root_cause": "Had \"SELECT title, project_id FROM tasks WHERE id = $1",
+      "fix": "Changed to \"SELECT title, project_id FROM tasks WHERE id = $1",
+      "tags": [
+        "auto-detected",
+        "wrong-value",
+        "rs"
+      ],
+      "related_bugs": [],
+      "occurrences": 2,
+      "last_seen": "2026-04-30T06:28:29.574Z"
+    },
+    {
+      "id": "bug-019",
+      "timestamp": "2026-04-30T06:28:19.270Z",
+      "error_message": "Incorrect value in code",
+      "file": "src-tauri/src/codex/process/session_support.rs",
+      "root_cause": "Had \"SELECT title, project_id FROM tasks WHERE id = $1",
+      "fix": "Changed to \"SELECT title, project_id FROM tasks WHERE id = $1",
+      "tags": [
+        "auto-detected",
+        "wrong-value",
+        "rs"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-04-30T06:28:19.270Z"
+    },
+    {
+      "id": "bug-020",
+      "timestamp": "2026-04-30T06:28:24.426Z",
+      "error_message": "Incorrect value in code",
+      "file": "src-tauri/src/codex/process/session_runtime.rs",
+      "root_cause": "Had \"SELECT title, project_id, automation_mode FROM ta",
+      "fix": "Changed to \"SELECT title, project_id, automation_mode FROM ta",
+      "tags": [
+        "auto-detected",
+        "wrong-value",
+        "rs"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-04-30T06:28:24.426Z"
+    },
+    {
+      "id": "bug-021",
+      "timestamp": "2026-04-30T06:28:34.790Z",
+      "error_message": "Incorrect value in code",
+      "file": "src-tauri/src/claude/process/context.rs",
+      "root_cause": "Had \"SELECT projects.repo_path, projects.project_type,",
+      "fix": "Changed to \"SELECT projects.repo_path, projects.project_type,",
+      "tags": [
+        "auto-detected",
+        "wrong-value",
+        "rs"
+      ],
+      "related_bugs": [],
+      "occurrences": 2,
+      "last_seen": "2026-04-30T06:28:40.033Z"
+    },
+    {
+      "id": "bug-022",
+      "timestamp": "2026-04-30T06:34:26.395Z",
+      "error_message": "Wrong reference: created_at should be deleted_at",
+      "file": "src-tauri/src/app/tests/task_lifecycle.rs",
+      "root_cause": "Used \"created_at\" instead of \"deleted_at\"",
+      "fix": "Changed created_at → deleted_at",
+      "tags": [
+        "auto-detected",
+        "wrong-reference",
+        "rs"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-04-30T06:34:26.395Z"
+    },
+    {
+      "id": "bug-023",
+      "timestamp": "2026-04-30T06:35:11.902Z",
+      "error_message": "Wrong reference: created_at should be deleted_at",
+      "file": "src-tauri/src/app/tests/review_and_attachments.rs",
+      "root_cause": "Used \"created_at\" instead of \"deleted_at\"",
+      "fix": "Changed created_at → deleted_at",
+      "tags": [
+        "auto-detected",
+        "wrong-reference",
+        "rs"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-04-30T06:35:11.902Z"
+    },
+    {
+      "id": "bug-024",
+      "timestamp": "2026-04-30T06:36:39.322Z",
+      "error_message": "Wrong reference: fetch_project_by_id should be fetch_any_project_by_id",
+      "file": "src-tauri/src/app/mod.rs",
+      "root_cause": "Used \"fetch_project_by_id\" instead of \"fetch_any_project_by_id\"",
+      "fix": "Changed fetch_project_by_id → fetch_any_project_by_id",
+      "tags": [
+        "auto-detected",
+        "wrong-reference",
+        "rs"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-04-30T06:36:39.322Z"
+    },
+    {
+      "id": "bug-025",
+      "timestamp": "2026-04-30T06:39:26.470Z",
+      "error_message": "Missing await",
+      "file": "src/lib/backend.ts",
+      "root_cause": "Async call without await — returned Promise instead of value",
+      "fix": "Added await to async call",
+      "tags": [
+        "auto-detected",
+        "async-fix",
+        "ts"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-04-30T06:39:26.470Z"
+    },
+    {
+      "id": "bug-026",
+      "timestamp": "2026-04-30T06:41:10.831Z",
+      "error_message": "Missing error handling in unknown",
+      "file": "src/stores/taskStore.ts",
+      "root_cause": "Code path had no error handling — exceptions would propagate uncaught",
+      "fix": "Added try/catch block",
+      "tags": [
+        "auto-detected",
+        "error-handling",
+        "ts"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-04-30T06:41:10.831Z"
+    },
+    {
+      "id": "bug-027",
+      "timestamp": "2026-04-30T06:42:36.577Z",
+      "error_message": "Missing error handling in unknown",
+      "file": "src/stores/projectStore.ts",
+      "root_cause": "Code path had no error handling — exceptions would propagate uncaught",
+      "fix": "Added try/catch block",
+      "tags": [
+        "auto-detected",
+        "error-handling",
+        "ts"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-04-30T06:42:36.577Z"
+    },
+    {
+      "id": "bug-028",
+      "timestamp": "2026-04-30T06:44:59.765Z",
+      "error_message": "CSS fix: to",
+      "file": "src/components/layout/Sidebar.tsx",
+      "root_cause": "to: \"/settings\", icon: Settings, label: \"设置\" → \"/trash\", icon: Trash2, label: \"回收站\"",
+      "fix": "Changed to: \"/settings\", icon: Settings, label: \"设置\" → \"/trash\", icon: Trash2, label: \"回收站\"",
+      "tags": [
+        "auto-detected",
+        "style-fix",
+        "tsx"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-04-30T06:44:59.765Z"
+    },
+    {
+      "id": "bug-029",
+      "timestamp": "2026-04-30T06:46:15.808Z",
+      "error_message": "Incorrect value in code",
+      "file": "src/stores/taskStore.ts",
+      "root_cause": "Had \"SELECT * FROM tasks WHERE project_id = $1 ORDER B",
+      "fix": "Changed to \"SELECT * FROM tasks WHERE project_id = $1 AND del",
+      "tags": [
+        "auto-detected",
+        "wrong-value",
+        "ts"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-04-30T06:46:15.808Z"
+    },
+    {
+      "id": "bug-030",
+      "timestamp": "2026-04-30T06:46:20.958Z",
+      "error_message": "Incorrect value in code",
+      "file": "src/stores/projectStore.ts",
+      "root_cause": "Had \"SELECT * FROM projects ORDER BY updated_at DESC\"",
+      "fix": "Changed to \"SELECT * FROM projects WHERE deleted_at IS NULL O",
+      "tags": [
+        "auto-detected",
+        "wrong-value",
+        "ts"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-04-30T06:46:20.958Z"
+    },
+    {
+      "id": "bug-031",
+      "timestamp": "2026-04-30T06:46:46.422Z",
+      "error_message": "Incorrect value in code",
+      "file": "src/stores/dashboardStore.ts",
+      "root_cause": "Had \"SELECT * FROM projects ORDER BY updated_at DESC\"",
+      "fix": "Changed to \"SELECT * FROM projects WHERE deleted_at IS NULL O",
+      "tags": [
+        "auto-detected",
+        "wrong-value",
+        "ts"
+      ],
+      "related_bugs": [],
+      "occurrences": 2,
+      "last_seen": "2026-04-30T06:46:51.592Z"
+    },
+    {
+      "id": "bug-032",
+      "timestamp": "2026-04-30T06:47:17.512Z",
+      "error_message": "Incorrect value in code",
+      "file": "src/components/dashboard/EmployeePerformanceChart.tsx",
+      "root_cause": "Had \"SELECT * FROM projects\"",
+      "fix": "Changed to \"SELECT * FROM projects WHERE deleted_at IS NULL\"",
+      "tags": [
+        "auto-detected",
+        "wrong-value",
+        "tsx"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-04-30T06:47:17.512Z"
+    },
+    {
+      "id": "bug-033",
+      "timestamp": "2026-04-30T06:54:33.628Z",
+      "error_message": "Wrong reference: fetchTrashedTasks should be useTaskStore",
+      "file": "src/components/trash/TrashedTaskList.tsx",
+      "root_cause": "Used \"fetchTrashedTasks\" instead of \"useTaskStore\"",
+      "fix": "Changed fetchTrashedTasks → useTaskStore",
+      "tags": [
+        "auto-detected",
+        "wrong-reference",
+        "tsx"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-04-30T06:54:33.628Z"
+    },
+    {
+      "id": "bug-034",
+      "timestamp": "2026-04-30T06:55:23.920Z",
+      "error_message": "Null/undefined access in ",
+      "file": "src/lib/projects.ts",
+      "root_cause": "Property access on potentially null/undefined value",
+      "fix": "Added null safety (optional chaining or null check)",
+      "tags": [
+        "auto-detected",
+        "null-safety",
+        "ts"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-04-30T06:55:23.920Z"
+    },
+    {
+      "id": "bug-035",
+      "timestamp": "2026-04-30T07:49:01.276Z",
+      "error_message": "Missing guard clause",
+      "file": "src/lib/utils.ts",
+      "root_cause": "No early return/throw for edge case: !dateStr",
+      "fix": "Added guard clause: if (!dateStr)",
+      "tags": [
+        "auto-detected",
+        "guard-clause",
+        "ts"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-04-30T07:49:01.276Z"
+    },
+    {
+      "id": "bug-036",
+      "timestamp": "2026-04-30T07:51:08.309Z",
+      "error_message": "Missing error handling in unknown",
+      "file": "src/stores/taskStore.ts",
+      "root_cause": "Code path had no error handling — exceptions would propagate uncaught",
+      "fix": "Added try/catch block",
+      "tags": [
+        "auto-detected",
+        "error-handling",
+        "ts"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-04-30T07:51:08.309Z"
+    },
+    {
+      "id": "bug-037",
+      "timestamp": "2026-04-30T07:51:13.668Z",
+      "error_message": "Missing error handling in unknown",
+      "file": "src/stores/projectStore.ts",
+      "root_cause": "Code path had no error handling — exceptions would propagate uncaught",
+      "fix": "Added try/catch block",
+      "tags": [
+        "auto-detected",
+        "error-handling",
+        "ts"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-04-30T07:51:13.668Z"
+    },
+    {
+      "id": "bug-038",
+      "timestamp": "2026-04-30T07:58:26.337Z",
+      "error_message": "Incorrect value in code",
+      "file": "src-tauri/src/app/tasks.rs",
+      "root_cause": "Had \"Failed to restore task: {}\"",
+      "fix": "Changed to \"恢复任务失败: {}\"",
+      "tags": [
+        "auto-detected",
+        "wrong-value",
+        "rs"
+      ],
+      "related_bugs": [],
+      "occurrences": 2,
+      "last_seen": "2026-04-30T07:58:31.774Z"
+    },
+    {
+      "id": "bug-039",
+      "timestamp": "2026-04-30T07:59:07.734Z",
+      "error_message": "Incorrect value in code",
+      "file": "src-tauri/src/app/projects.rs",
+      "root_cause": "Had \"Failed to start project transaction: {}\"",
+      "fix": "Changed to \"开始项目事务失败: {}\"",
+      "tags": [
+        "auto-detected",
+        "wrong-value",
+        "rs"
+      ],
+      "related_bugs": [],
+      "occurrences": 4,
+      "last_seen": "2026-04-30T07:59:23.253Z"
+    },
+    {
+      "id": "bug-040",
+      "timestamp": "2026-04-30T08:17:49.879Z",
+      "error_message": "Wrong reference: setTab should be switchTab",
+      "file": "src/pages/TrashPage.tsx",
+      "root_cause": "Used \"setTab\" instead of \"switchTab\"",
+      "fix": "Changed setTab → switchTab",
+      "tags": [
+        "auto-detected",
+        "wrong-reference",
+        "tsx"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-04-30T08:17:49.879Z"
     }
   ]
 }

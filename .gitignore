@@ -25,5 +25,4 @@ dist-ssr
 .omx/
 .playwright-cli
 output
-.claude
 .playwright-mcp
