@@ -1,0 +1,229 @@
+{
+  "version": 1,
+  "bugs": [
+    {
+      "id": "bug-001",
+      "timestamp": "2026-04-30T02:17:13.400Z",
+      "error_message": "Significant refactor of ",
+      "file": "src/components/search/GlobalSearchDialog.tsx",
+      "root_cause": "4 lines replaced/restructured",
+      "fix": "Rewrote 10→9 lines (4 removed)",
+      "tags": [
+        "auto-detected",
+        "refactor",
+        "tsx"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-04-30T02:17:13.400Z"
+    },
+    {
+      "id": "bug-002",
+      "timestamp": "2026-04-30T02:18:20.150Z",
+      "error_message": "Significant refactor of ",
+      "file": "src/App.tsx",
+      "root_cause": "23 lines replaced/restructured",
+      "fix": "Rewrote 32→12 lines (23 removed)",
+      "tags": [
+        "auto-detected",
+        "refactor",
+        "tsx"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-04-30T02:18:20.150Z"
+    },
+    {
+      "id": "bug-003",
+      "timestamp": "2026-04-30T02:18:25.350Z",
+      "error_message": "Wrong reference: KeyboardShortcuts should be GlobalShortcuts",
+      "file": "src/App.tsx",
+      "root_cause": "Used \"KeyboardShortcuts\" instead of \"GlobalShortcuts\"",
+      "fix": "Changed KeyboardShortcuts → GlobalShortcuts",
+      "tags": [
+        "auto-detected",
+        "wrong-reference",
+        "tsx"
+      ],
+      "related_bugs": [],
+      "occurrences": 2,
+      "last_seen": "2026-04-30T02:18:30.512Z"
+    },
+    {
+      "id": "bug-004",
+      "timestamp": "2026-04-30T02:19:38.178Z",
+      "error_message": "Type error",
+      "file": "src/components/layout/Sidebar.tsx",
+      "root_cause": "Missing or incorrect type annotation",
+      "fix": "Added type assertion/annotation",
+      "tags": [
+        "auto-detected",
+        "type-fix",
+        "tsx"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-04-30T02:19:38.178Z"
+    },
+    {
+      "id": "bug-005",
+      "timestamp": "2026-04-30T02:19:43.319Z",
+      "error_message": "Significant refactor of ",
+      "file": "src/components/layout/Sidebar.tsx",
+      "root_cause": "3 lines replaced/restructured",
+      "fix": "Rewrote 18→28 lines (3 removed)",
+      "tags": [
+        "auto-detected",
+        "refactor",
+        "tsx"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-04-30T02:19:43.319Z"
+    },
+    {
+      "id": "bug-006",
+      "timestamp": "2026-04-30T02:20:41.917Z",
+      "error_message": "Type error",
+      "file": "src/pages/KanbanPage.tsx",
+      "root_cause": "Missing or incorrect type annotation",
+      "fix": "Added type assertion/annotation",
+      "tags": [
+        "auto-detected",
+        "type-fix",
+        "tsx"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-04-30T02:20:41.917Z"
+    },
+    {
+      "id": "bug-007",
+      "timestamp": "2026-04-30T02:20:57.397Z",
+      "error_message": "Type error",
+      "file": "src/pages/ProjectsPage.tsx",
+      "root_cause": "Missing or incorrect type annotation",
+      "fix": "Added type assertion/annotation",
+      "tags": [
+        "auto-detected",
+        "type-fix",
+        "tsx"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-04-30T02:20:57.397Z"
+    },
+    {
+      "id": "bug-008",
+      "timestamp": "2026-04-30T02:57:08.349Z",
+      "error_message": "CSS fix: default, outline, subtle",
+      "file": "src/components/keyboard/Kbd.tsx",
+      "root_cause": "default: \"bg-muted text-muted-foreground border-border\", → \"bg-muted text-muted-foreground border-border dark:bg-white/10 dark:text-foreground/80\",; outline: \"bg-background text-muted-foreground border-border\", → \"bg-background text-muted-foreground border-border dark:text-foreground/80\",; subtle: \"bg-accent/40 text-muted-foreground border-transparent\", → \"bg-accent/40 text-muted-foreground border-transparent dark:bg-white/12 dark:text-foreground/85\",",
+      "fix": "Changed default: \"bg-muted text-muted-foreground border-border\", → \"bg-muted text-muted-foreground border-border dark:bg-white/10 dark:text-foreground/80\",; outline: \"bg-background text-muted-foreground border-border\", → \"bg-background text-muted-foreground border-border dark:text-foreground/80\",; subtle: \"bg-accent/40 text-muted-foreground border-transparent\", → \"bg-accent/40 text-muted-foreground border-transparent dark:bg-white/12 dark:text-foreground/85\",",
+      "tags": [
+        "auto-detected",
+        "style-fix",
+        "tsx"
+      ],
+      "related_bugs": [],
+      "occurrences": 2,
+      "last_seen": "2026-04-30T02:59:00.350Z"
+    },
+    {
+      "id": "bug-009",
+      "timestamp": "2026-04-30T03:00:45.746Z",
+      "error_message": "CSS fix: dark",
+      "file": "src/components/layout/Sidebar.tsx",
+      "root_cause": "dark: bg-white dark:text-zinc-900\" → text-zinc-900\" : \"\"",
+      "fix": "Changed dark: bg-white dark:text-zinc-900\" → text-zinc-900\" : \"\"",
+      "tags": [
+        "auto-detected",
+        "style-fix",
+        "tsx"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-04-30T03:00:45.746Z"
+    },
+    {
+      "id": "bug-010",
+      "timestamp": "2026-04-30T03:02:30.263Z",
+      "error_message": "Incorrect value in code",
+      "file": "src/components/layout/Sidebar.tsx",
+      "root_cause": "Had \"dark:text-zinc-900\"",
+      "fix": "Changed to \"text-white dark:text-zinc-900\"",
+      "tags": [
+        "auto-detected",
+        "wrong-value",
+        "tsx"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-04-30T03:02:30.263Z"
+    },
+    {
+      "id": "bug-011",
+      "timestamp": "2026-04-30T03:05:57.057Z",
+      "error_message": "Incorrect value in code",
+      "file": "src/pages/ProjectsPage.tsx",
+      "root_cause": "Had \"subtle\"",
+      "fix": "Changed to \"primary\"",
+      "tags": [
+        "auto-detected",
+        "wrong-value",
+        "tsx"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-04-30T03:05:57.057Z"
+    },
+    {
+      "id": "bug-012",
+      "timestamp": "2026-04-30T03:06:02.247Z",
+      "error_message": "Incorrect value in code",
+      "file": "src/pages/EmployeesPage.tsx",
+      "root_cause": "Had \"subtle\"",
+      "fix": "Changed to \"primary\"",
+      "tags": [
+        "auto-detected",
+        "wrong-value",
+        "tsx"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-04-30T03:06:02.247Z"
+    },
+    {
+      "id": "bug-013",
+      "timestamp": "2026-04-30T03:09:54.952Z",
+      "error_message": "Incorrect value in code",
+      "file": "src/App.tsx",
+      "root_cause": "Had \"@/index.css\"",
+      "fix": "Changed to \"@/lib/shortcuts\"",
+      "tags": [
+        "auto-detected",
+        "wrong-value",
+        "tsx"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-04-30T03:09:54.952Z"
+    },
+    {
+      "id": "bug-014",
+      "timestamp": "2026-04-30T03:10:16.087Z",
+      "error_message": "Incorrect value in code",
+      "file": "src/components/layout/Header.tsx",
+      "root_cause": "Had \" (⌘T)\"",
+      "fix": "Changed to \" (\"",
+      "tags": [
+        "auto-detected",
+        "wrong-value",
+        "tsx"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-04-30T03:10:16.087Z"
+    }
+  ]
+}

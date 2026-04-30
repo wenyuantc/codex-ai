@@ -7,8 +7,11 @@ import { KanbanPage } from "@/pages/KanbanPage";
 import { EmployeesPage } from "@/pages/EmployeesPage";
 import { SessionsPage } from "@/pages/SessionsPage";
 import { SettingsPage } from "@/pages/SettingsPage";
+import { ShortcutsHelpDialog } from "@/components/keyboard/ShortcutsHelpDialog";
+import { NAV_SHORTCUTS, shortcutKeys } from "@/lib/shortcuts";
 import "@/index.css";
 import { useEffect, useRef } from "react";
+import { useHotkeys } from "react-hotkeys-hook";
 
 const LAST_ROUTE_STORAGE_KEY = "codex-ai:last-route";
 
@@ -33,35 +36,15 @@ function persistCurrentRoute(route: string) {
   window.localStorage.setItem(LAST_ROUTE_STORAGE_KEY, route);
 }
 
-function KeyboardShortcuts() {
+function GlobalShortcuts() {
   const navigate = useNavigate();
 
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      // Only trigger if no input/textarea is focused
-      const tag = (e.target as HTMLElement).tagName;
-      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
-
-      const isMod = e.metaKey || e.ctrlKey;
-
-      if (isMod && e.key === "n") {
-        e.preventDefault();
-        navigate("/kanban");
-      } else if (isMod && e.key === "e") {
-        e.preventDefault();
-        navigate("/employees");
-      } else if (isMod && e.key === "d") {
-        e.preventDefault();
-        navigate("/");
-      } else if (isMod && e.key === "p") {
-        e.preventDefault();
-        navigate("/projects");
-      }
-    };
-
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-  }, [navigate]);
+  useHotkeys(shortcutKeys(NAV_SHORTCUTS[0]), () => navigate("/"), { preventDefault: true });
+  useHotkeys(shortcutKeys(NAV_SHORTCUTS[1]), () => navigate("/projects"), { preventDefault: true });
+  useHotkeys(shortcutKeys(NAV_SHORTCUTS[2]), () => navigate("/kanban"), { preventDefault: true });
+  useHotkeys(shortcutKeys(NAV_SHORTCUTS[3]), () => navigate("/sessions"), { preventDefault: true });
+  useHotkeys(shortcutKeys(NAV_SHORTCUTS[4]), () => navigate("/employees"), { preventDefault: true });
+  useHotkeys(shortcutKeys(NAV_SHORTCUTS[5]), () => navigate("/settings"), { preventDefault: true });
 
   return null;
 }
@@ -106,7 +89,7 @@ function RoutePersistence() {
 function App() {
   return (
     <BrowserRouter>
-      <KeyboardShortcuts />
+      <GlobalShortcuts />
       <RoutePersistence />
       <Routes>
         <Route element={<MainLayout />}>
@@ -119,6 +102,7 @@ function App() {
           <Route path="/settings" element={<SettingsPage />} />
         </Route>
       </Routes>
+      <ShortcutsHelpDialog />
     </BrowserRouter>
   );
 }

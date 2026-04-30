@@ -1,4 +1,6 @@
 import { useState } from "react";
+import { useHotkeys } from "react-hotkeys-hook";
+import { Kbd } from "@/components/keyboard/Kbd";
 import { useLocation, useSearchParams } from "react-router-dom";
 import { EmployeeList } from "@/components/employees/EmployeeList";
 import { CreateEmployeeDialog } from "@/components/employees/CreateEmployeeDialog";
@@ -15,6 +17,8 @@ export function EmployeesPage() {
     location.state as { globalSearchNonce?: number } | null
   )?.globalSearchNonce ?? null;
 
+  useHotkeys("n", () => setShowCreate(true), { preventDefault: true });
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
@@ -25,6 +29,7 @@ export function EmployeesPage() {
         >
           <Plus className="h-4 w-4" />
           添加员工
+          <Kbd variant="primary" size="xs" className="ml-1.5">N</Kbd>
         </button>
       </div>
 

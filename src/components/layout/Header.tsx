@@ -1,6 +1,8 @@
 import { useLocation, useNavigate } from "react-router-dom";
 import { Laptop, Moon, ServerCog, Sun } from "lucide-react";
 import { useEffect, useState } from "react";
+import { useHotkeys } from "react-hotkeys-hook";
+import { GLOBAL_SHORTCUTS, shortcutDisplay, shortcutKeys } from "@/lib/shortcuts";
 import { useProjectStore } from "@/stores/projectStore";
 import {
   applyTheme,
@@ -94,6 +96,11 @@ export function Header() {
       navigate("/settings");
     }
   }, [environmentMode, location.pathname, navigate, sshConfigs.length, sshConfigsInitialized]);
+
+  useHotkeys(shortcutKeys(GLOBAL_SHORTCUTS[1]), (e) => {
+    e.preventDefault();
+    toggleTheme();
+  });
 
   const toggleTheme = () => {
     const nextMode: ThemeMode = dark ? "light" : "dark";
@@ -214,7 +221,7 @@ export function Header() {
         <button
           onClick={toggleTheme}
           className="p-2 rounded-md hover:bg-accent transition-colors"
-          title={dark ? "切换亮色模式" : "切换暗色模式"}
+          title={(dark ? "切换亮色模式" : "切换暗色模式") + " (" + shortcutDisplay(GLOBAL_SHORTCUTS[1]) + ")"}
         >
           {dark ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
         </button>

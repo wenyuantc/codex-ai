@@ -1,3 +1,6 @@
+import { useHotkeys } from "react-hotkeys-hook";
+import { Kbd } from "@/components/keyboard/Kbd";
+
 import { useEffect, useMemo, useState } from "react";
 import { ChevronLeft, ChevronRight, Loader2, RefreshCw } from "lucide-react";
 import { useLocation, useSearchParams } from "react-router-dom";
@@ -168,6 +171,13 @@ export function SessionsPage() {
   const highlightedSessionNonce = (
     location.state as { globalSearchNonce?: number } | null
   )?.globalSearchNonce ?? null;
+
+  useHotkeys("r", (e) => {
+    e.preventDefault();
+    if (!loading && !refreshing) {
+      void loadSessions(true);
+    }
+  });
 
   const filteredSessions = useMemo(() => {
     const normalizedSessionIdQuery = normalizeSearchText(sessionIdQuery);
@@ -450,6 +460,7 @@ export function SessionsPage() {
           >
             {refreshing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
             刷新
+            <Kbd variant="subtle" size="xs" className="ml-1.5">R</Kbd>
           </Button>
         </div>
 

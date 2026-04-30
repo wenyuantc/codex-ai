@@ -12,6 +12,9 @@ import {
   Bot,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useHotkeys } from "react-hotkeys-hook";
+import { Kbd } from "@/components/keyboard/Kbd";
+import { GLOBAL_SHORTCUTS, NAV_SHORTCUTS, shortcutDisplay, shortcutKeys } from "@/lib/shortcuts";
 
 const navItems = [
   { to: "/", icon: LayoutDashboard, label: "仪表盘" },
@@ -24,6 +27,13 @@ const navItems = [
 
 export function Sidebar() {
   const [collapsed, setCollapsed] = useState(false);
+
+  useHotkeys(shortcutKeys(GLOBAL_SHORTCUTS[2]), (e) => {
+    e.preventDefault();
+    setCollapsed((prev) => !prev);
+  });
+
+  const getShortcut = (to: string) => NAV_SHORTCUTS.find((s) => s.page === to);
 
   return (
     <aside
@@ -42,7 +52,9 @@ export function Sidebar() {
       </div>
 
       <nav className="flex-1 space-y-1 px-2 py-2">
-        {navItems.map((item) => (
+        {navItems.map((item) => {
+          const shortcut = getShortcut(item.to);
+          return (
           <NavLink
             key={item.to}
             to={item.to}
@@ -56,10 +68,22 @@ export function Sidebar() {
               )
             }
           >
+            {({ isActive }) => (
+              <>
             <item.icon className="h-4 w-4 shrink-0" />
-            {!collapsed && <span>{item.label}</span>}
+            {!collapsed && (
+              <>
+                <span className="flex-1 truncate">{item.label}</span>
+                {shortcut && (
+                  <Kbd variant="subtle" size="xs" className={isActive ? "text-white dark:text-zinc-900" : ""}>{shortcutDisplay(shortcut)}</Kbd>
+                )}
+              </>
+            )}
+              </>
+            )}
           </NavLink>
-        ))}
+          );
+        })}
       </nav>
 
       <div className="border-t border-black/8 p-2 dark:border-white/10">

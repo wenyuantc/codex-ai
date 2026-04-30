@@ -1,3 +1,6 @@
+import { useHotkeys } from "react-hotkeys-hook";
+import { Kbd } from "@/components/keyboard/Kbd";
+
 import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { KanbanBoard } from "@/components/tasks/KanbanBoard";
@@ -31,6 +34,9 @@ export function KanbanPage() {
 
   const hasProjects = projects.length > 0;
 
+  useHotkeys("n", () => setShowCreateDialog(true), { preventDefault: true });
+  useHotkeys("a", () => setShowArchiveDialog(true), { preventDefault: true });
+
   return (
     <div className="h-full flex flex-col">
       <div className="flex items-center justify-between mb-4">
@@ -39,10 +45,12 @@ export function KanbanPage() {
           <Button onClick={() => setShowCreateDialog(true)}>
             <Plus className="h-4 w-4" />
             新建任务
+            <Kbd variant="primary" size="xs" className="ml-1.5">N</Kbd>
           </Button>
           <Button variant="outline" onClick={() => setShowArchiveDialog(true)}>
             <Archive className="h-4 w-4" />
             归档管理
+            <Kbd variant="subtle" size="xs" className="ml-1.5">A</Kbd>
           </Button>
         </div>
       </div>

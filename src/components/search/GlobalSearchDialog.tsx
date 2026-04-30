@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
+import { useHotkeys } from "react-hotkeys-hook";
+import { GLOBAL_SHORTCUTS, shortcutDisplay, shortcutKeys } from "@/lib/shortcuts";
 import {
   Bot,
   FolderKanban,
@@ -73,11 +75,10 @@ export function GlobalSearchDialog() {
   const inputRef = useRef<HTMLInputElement | null>(null);
   const requestIdRef = useRef(0);
 
-  useEffect(() => {
-    const openSearch = () => setOpen(true);
-    window.addEventListener("shortcut:command-palette", openSearch);
-    return () => window.removeEventListener("shortcut:command-palette", openSearch);
-  }, []);
+  useHotkeys(shortcutKeys(GLOBAL_SHORTCUTS[0]), (e) => {
+    e.preventDefault();
+    setOpen(true);
+  });
 
   useEffect(() => {
     if (!open) {
@@ -262,7 +263,7 @@ export function GlobalSearchDialog() {
           全局搜索
         </span>
         <span className="rounded border border-border bg-background px-1.5 py-0.5 text-[11px] text-muted-foreground/80">
-          ⌘K
+          {shortcutDisplay(GLOBAL_SHORTCUTS[0])}
         </span>
       </Button>
 

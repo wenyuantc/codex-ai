@@ -1,4 +1,6 @@
 import { useState } from "react";
+import { useHotkeys } from "react-hotkeys-hook";
+import { Kbd } from "@/components/keyboard/Kbd";
 import { ProjectList } from "@/components/projects/ProjectList";
 import { CreateProjectDialog } from "@/components/projects/CreateProjectDialog";
 import { useProjectStore } from "@/stores/projectStore";
@@ -7,6 +9,8 @@ import { Plus } from "lucide-react";
 export function ProjectsPage() {
   const [showCreate, setShowCreate] = useState(false);
   const environmentMode = useProjectStore((state) => state.environmentMode);
+
+  useHotkeys("n", () => setShowCreate(true), { preventDefault: true });
 
   return (
     <div className="space-y-4">
@@ -23,6 +27,7 @@ export function ProjectsPage() {
         >
           <Plus className="h-4 w-4" />
           新建项目
+          <Kbd variant="primary" size="xs" className="ml-1.5">N</Kbd>
         </button>
       </div>
 
