@@ -27,6 +27,7 @@ import { countStageableGitFiles } from "@/lib/gitWorkingTree";
 import { buildTaskExecutionInput } from "@/lib/taskPrompt";
 import {
   Archive,
+  CircleCheckBig,
   Bot,
   Clock,
   FolderKanban,
@@ -243,6 +244,7 @@ export function TaskCard({
     && !hasActiveSession,
   );
   const canArchiveTask = !hasActiveSession && task.status !== "archived";
+  const canMarkCompleted = task.status !== "completed" && task.status !== "archived";
   const shouldShowTaskActionBar = shouldShowActionBar;
   const gitContextBadge = getGitContextBadge(gitContext);
   const canTriggerMergeAction = Boolean(
@@ -424,6 +426,20 @@ export function TaskCard({
       await updateTaskStatus(task.id, "archived");
     } catch (error) {
       console.error("Failed to archive task:", error);
+    }
+  };
+
+  const handleMarkCompleted = async () => {
+    if (!canMarkCompleted) {
+      return;
+    }
+
+    setContextMenu(null);
+
+    try {
+      await updateTaskStatus(task.id, "completed");
+    } catch (error) {
+      console.error("Failed to mark task as completed:", error);
     }
   };
 
@@ -881,6 +897,22 @@ export function TaskCard({
                 运行
               </button>
             ))}
+            {canMarkCompleted && (
+              <>
+                {shouldShowPrimaryMenuAction && <div className="my-1 h-px bg-border" />}
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => void handleMarkCompleted()}
+                  disabled={!canMarkCompleted || isActionLoading}
+                  title={task.status === "completed" ? "任务已完成" : task.status === "archived" ? "已归档任务不能标记为已完成" : "将任务标记为已完成，自动移动到已完成列"}
+                  className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-left text-emerald-600 hover:bg-emerald-500/10 disabled:pointer-events-none disabled:opacity-50"
+                >
+                  <CircleCheckBig className="h-4 w-4" />
+                  标记已完成
+                </button>
+              </>
+            )}
             {task.last_codex_session_id && (
               <>
                 {shouldShowPrimaryMenuAction && <div className="my-1 h-px bg-border" />}
