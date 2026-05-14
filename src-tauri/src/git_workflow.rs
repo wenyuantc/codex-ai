@@ -2200,7 +2200,10 @@ pub async fn get_project_git_overview<R: Runtime>(
         let is_active = row.state != TASK_GIT_STATE_COMPLETED;
         let is_pending =
             row.pending_action_type.is_some() || row.state == TASK_GIT_STATE_ACTION_PENDING;
-        let summary = summarize_task_git_context(&app, Some(&runtime), row).await;
+        let mut summary = TaskGitContextSummary::from(row);
+        if runtime.execution_target == EXECUTION_TARGET_LOCAL {
+            summary.worktree_missing = !Path::new(&summary.worktree_path).exists();
+        }
         if is_active {
             active_contexts.push(summary.clone());
         }
@@ -2219,10 +2222,11 @@ pub async fn get_project_git_overview<R: Runtime>(
     .await
     {
         Ok(overview) => {
-            let working_tree_changes =
-                collect_working_tree_changes(&app, &runtime, &runtime.repo_path)
-                    .await
-                    .unwrap_or_default();
+            let working_tree_changes = build_working_tree_changes(
+                &runtime.repo_path,
+                &runtime.execution_target,
+                overview.working_tree_changes,
+            );
 
             Ok(ProjectGitOverview {
                 project_id: project.id,

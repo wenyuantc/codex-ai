@@ -1,6 +1,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
+use std::time::Duration;
 
 use serde::de::DeserializeOwned;
 use serde::Deserialize;
@@ -22,6 +23,7 @@ pub(crate) const GIT_RUNTIME_PROVIDER_SIMPLE_GIT: &str = "simple_git";
 pub(crate) const GIT_RUNTIME_STATUS_READY: &str = "ready";
 pub(crate) const GIT_RUNTIME_STATUS_UNAVAILABLE: &str = "unavailable";
 const REMOTE_INSTALL_MARKER: &str = "__CODEX_AI_SIMPLE_GIT_INSTALLED__";
+const REMOTE_GIT_BRIDGE_TIMEOUT_SECONDS: u64 = 12;
 
 #[derive(Debug, Clone, Deserialize)]
 pub(crate) struct GitRuntimeCommit {
@@ -66,6 +68,8 @@ pub(crate) struct GitRuntimeOverview {
     pub project_branches: Vec<String>,
     pub head_commit_sha: String,
     pub working_tree_summary: Option<String>,
+    #[serde(default)]
+    pub working_tree_changes: Vec<GitRuntimeChange>,
     pub ahead_commits: Option<u32>,
     pub behind_commits: Option<u32>,
     pub recent_commits: Vec<GitRuntimeCommit>,
@@ -459,7 +463,17 @@ async fn call_bridge<R: Runtime, T: DeserializeOwned>(
     if execution_target == EXECUTION_TARGET_SSH {
         let ssh_config_id =
             ssh_config_id.ok_or_else(|| "SSH Git 操作缺少 ssh_config_id".to_string())?;
-        call_remote_bridge(app, ssh_config_id, payload).await
+        tokio::time::timeout(
+            Duration::from_secs(REMOTE_GIT_BRIDGE_TIMEOUT_SECONDS),
+            call_remote_bridge(app, ssh_config_id, payload),
+        )
+        .await
+        .map_err(|_| {
+            format!(
+                "SSH Git 操作超过 {} 秒未返回，请稍后重试或检查远程仓库状态",
+                REMOTE_GIT_BRIDGE_TIMEOUT_SECONDS
+            )
+        })?
     } else {
         call_local_bridge(app, payload).await
     }

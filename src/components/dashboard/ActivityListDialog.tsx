@@ -19,9 +19,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { formatDate, getActivityActionLabel, getActivityDetailsLabel } from "@/lib/utils";
+import { getActivityActionLabel } from "@/lib/utils";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import type { EnvironmentMode } from "@/lib/types";
+import { ActivityLogItem } from "./ActivityLogItem";
 
 const PAGE_SIZE = 20;
 const ALL_PROJECTS_VALUE = "__all_projects__";
@@ -167,18 +168,21 @@ export function ActivityListDialog({
         }
 
         const nextTotalPages = result.total > 0 ? Math.ceil(result.total / PAGE_SIZE) : 0;
+        setTotal(result.total);
+        setAvailableActions(result.availableActions);
+
         if (nextTotalPages > 0 && page > nextTotalPages) {
+          setActivities([]);
           setPage(nextTotalPages);
           return;
         }
         if (nextTotalPages === 0 && page !== 1) {
+          setActivities([]);
           setPage(1);
           return;
         }
 
         setActivities(result.items);
-        setTotal(result.total);
-        setAvailableActions(result.availableActions);
       })
       .catch((error) => {
         console.error("Failed to fetch activity page:", error);
@@ -359,38 +363,9 @@ export function ActivityListDialog({
           ) : (
             <ScrollArea className="h-[24rem]">
               <div className="space-y-2 p-3">
-                {activities.map((activity) => {
-                  const details = getActivityDetailsLabel(activity.action, activity.details);
-
-                  return (
-                    <div
-                      key={activity.id}
-                      className="rounded-lg border border-border/60 px-3 py-2.5 text-sm"
-                    >
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className="font-medium">{getActivityActionLabel(activity.action)}</span>
-                        {activity.project_name && (
-                          <span className="rounded bg-secondary px-1.5 py-0.5 text-xs">
-                            {activity.project_name}
-                          </span>
-                        )}
-                        {activity.employee_name && (
-                          <span className="rounded bg-secondary px-1.5 py-0.5 text-xs">
-                            {activity.employee_name}
-                          </span>
-                        )}
-                      </div>
-                      {details && (
-                        <p className="mt-1 text-xs text-muted-foreground break-all">
-                          {details}
-                        </p>
-                      )}
-                      <span className="mt-1 block text-[10px] text-muted-foreground/70">
-                        {formatDate(activity.created_at)}
-                      </span>
-                    </div>
-                  );
-                })}
+                {activities.map((activity) => (
+                  <ActivityLogItem key={activity.id} activity={activity} variant="dialog" />
+                ))}
               </div>
             </ScrollArea>
           )}

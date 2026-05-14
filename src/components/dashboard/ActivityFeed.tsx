@@ -5,8 +5,8 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Activity, RefreshCw } from "lucide-react";
-import { formatDate, getActivityActionLabel, getActivityDetailsLabel } from "@/lib/utils";
 import { ActivityListDialog } from "./ActivityListDialog";
+import { ActivityLogItem } from "./ActivityLogItem";
 
 export function ActivityFeed() {
   const { recentActivities, fetchRecentActivities } = useDashboardStore();
@@ -60,41 +60,9 @@ export function ActivityFeed() {
       ) : (
         <ScrollArea className="flex-1 max-h-[400px]">
           <div className="space-y-2 pr-3">
-            {recentActivities.map((activity) => {
-              const details = getActivityDetailsLabel(activity.action, activity.details);
-
-              return (
-                <div
-                  key={activity.id}
-                  className="flex items-start gap-3 text-sm py-2 border-b border-border/50 last:border-0"
-                >
-                  <div className="w-1.5 h-1.5 rounded-full bg-primary mt-1.5 shrink-0" />
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className="font-medium">{getActivityActionLabel(activity.action)}</span>
-                      {activity.project_name && (
-                        <span className="text-xs bg-secondary px-1.5 py-0.5 rounded">
-                          {activity.project_name}
-                        </span>
-                      )}
-                      {activity.employee_name && (
-                        <span className="text-xs bg-secondary px-1.5 py-0.5 rounded">
-                          {activity.employee_name}
-                        </span>
-                      )}
-                    </div>
-                    {details && (
-                      <p className="text-xs text-muted-foreground mt-0.5 break-all">
-                        {details}
-                      </p>
-                    )}
-                    <span className="text-[10px] text-muted-foreground/70 mt-0.5 block">
-                      {formatDate(activity.created_at)}
-                    </span>
-                  </div>
-                </div>
-              );
-            })}
+            {recentActivities.map((activity) => (
+              <ActivityLogItem key={activity.id} activity={activity} />
+            ))}
           </div>
         </ScrollArea>
       )}

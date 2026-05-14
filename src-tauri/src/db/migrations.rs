@@ -975,6 +975,21 @@ pub fn get_all_migrations() -> Vec<Migration> {
             "#,
             kind: tauri_plugin_sql::MigrationKind::Up,
         },
+        Migration {
+            version: 39,
+            description: "add dashboard query indexes",
+            sql: r#"
+                CREATE INDEX idx_activity_project_created
+                    ON activity_logs(project_id, created_at DESC, id DESC);
+                CREATE INDEX idx_activity_action_created
+                    ON activity_logs(action, created_at DESC, id DESC);
+                CREATE INDEX idx_activity_created
+                    ON activity_logs(created_at DESC, id DESC);
+                CREATE INDEX idx_metrics_period_employee
+                    ON employee_metrics(period_start, employee_id);
+            "#,
+            kind: tauri_plugin_sql::MigrationKind::Up,
+        },
     ]
 }
 
@@ -1015,8 +1030,8 @@ mod tests {
     }
 
     #[test]
-    fn latest_migration_version_includes_task_time_tracking() {
-        assert_eq!(latest_migration_version(), 38);
+    fn latest_migration_version_includes_dashboard_indexes() {
+        assert_eq!(latest_migration_version(), 39);
     }
 
     #[test]
