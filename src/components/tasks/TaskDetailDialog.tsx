@@ -61,6 +61,7 @@ import { TaskExecutionChangeDetailDialog } from "./detail/TaskExecutionChangeDet
 import { TaskReviewPanel } from "./detail/TaskReviewPanel";
 import { TaskAiPanel } from "./detail/TaskAiPanel";
 import { TaskCollaborationPanel } from "./detail/TaskCollaborationPanel";
+import { TaskSessionChainPanel } from "./detail/TaskSessionChainPanel";
 
 const EMPTY_ATTACHMENTS: never[] = [];
 
@@ -148,6 +149,7 @@ export function TaskDetailDialog({
   const [testerAcceptanceLoading, setTesterAcceptanceLoading] = useState(false);
   const [testerAcceptanceError, setTesterAcceptanceError] = useState<string | null>(null);
   const [testerAcceptanceNotice, setTesterAcceptanceNotice] = useState<string | null>(null);
+  const [detailTab, setDetailTab] = useState("overview");
   const latestReviewRequestIdRef = useRef(0);
   const executionChangeDetailRequestIdRef = useRef(0);
   const taskIdCopyResetTimerRef = useRef<number | null>(null);
@@ -281,6 +283,7 @@ export function TaskDetailDialog({
       setSaveError(null);
       setReviewError(null);
       setReviewNotice(null);
+      setDetailTab("overview");
       void loadLatestReview();
       void loadExecutionChangeHistory();
     }
@@ -916,7 +919,7 @@ export function TaskDetailDialog({
             </button>
           </div>
 
-          <Tabs defaultValue="overview" className="gap-4">
+          <Tabs value={detailTab} onValueChange={setDetailTab} className="gap-4">
             <section className="space-y-3 rounded-lg border border-border/70 bg-muted/20 p-4">
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div className="space-y-1">
@@ -974,6 +977,7 @@ export function TaskDetailDialog({
               <TabsList variant="line" className="w-full min-w-max justify-start">
                 <TabsTrigger value="overview">概览</TabsTrigger>
                 <TabsTrigger value="execution">执行</TabsTrigger>
+                <TabsTrigger value="chain">执行链路</TabsTrigger>
                 <TabsTrigger value="review">审核</TabsTrigger>
                 <TabsTrigger value="ai">AI 助手</TabsTrigger>
                 <TabsTrigger value="collaboration">协作</TabsTrigger>
@@ -1061,6 +1065,10 @@ export function TaskDetailDialog({
                 onRefreshHistory={() => void loadExecutionChangeHistory()}
                 onOpenChangeDetail={(change) => void handleOpenExecutionChangeDetail(change)}
               />
+            </TabsContent>
+
+            <TabsContent value="chain">
+              <TaskSessionChainPanel taskId={task.id} active={open && detailTab === "chain"} />
             </TabsContent>
 
             <TabsContent value="review">

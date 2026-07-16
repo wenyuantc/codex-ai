@@ -11,6 +11,7 @@ import type {
   TaskExecutionChangeHistoryItem,
 } from "@/lib/types";
 import { formatDate, isArtifactCaptureLimited } from "@/lib/utils";
+import { SshArtifactLimitedNotice } from "@/components/sessions/SshArtifactLimitedNotice";
 import { TaskExecutionChangeDetailDialog } from "@/components/tasks/detail/TaskExecutionChangeDetailDialog";
 import { TaskFileChangeHistoryPanel } from "@/components/tasks/detail/TaskFileChangeHistoryPanel";
 import {
@@ -172,8 +173,8 @@ export function SessionExecutionChangesDialog({
                 </div>
               )}
               {isArtifactCaptureLimited(session.artifact_capture_mode) && (
-                <div className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-amber-800 md:col-span-2">
-                  远程变更明细受限：SSH v1 只保证远程执行与对话元数据，不承诺本地级 diff 和文件快照。
+                <div className="md:col-span-2">
+                  <SshArtifactLimitedNotice artifactCaptureMode={session.artifact_capture_mode} />
                 </div>
               )}
             </div>
@@ -195,6 +196,7 @@ export function SessionExecutionChangesDialog({
             error={historyError}
             emptyText="该执行对话还没有文件改动记录。"
             loadingText="正在加载该对话的文件改动..."
+            showSshArtifactNotice={false}
             onRefresh={() => {
               if (session) {
                 void loadHistory(session);

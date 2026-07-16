@@ -1,5 +1,6 @@
 import type { CodexSessionFileChange, TaskExecutionChangeHistoryItem } from "@/lib/types";
-import { formatDate } from "@/lib/utils";
+import { formatDate, isArtifactCaptureLimited } from "@/lib/utils";
+import { SshArtifactLimitedNotice } from "@/components/sessions/SshArtifactLimitedNotice";
 import {
   getExecutionChangeCaptureModeDescription,
   getExecutionChangeCaptureModeLabel,
@@ -18,6 +19,8 @@ interface TaskFileChangeHistoryPanelProps {
   loadingText?: string;
   onRefresh: () => void;
   onOpenChangeDetail: (change: CodexSessionFileChange) => void;
+  /** Optional override; otherwise inferred from history sessions. */
+  showSshArtifactNotice?: boolean;
 }
 
 export function TaskFileChangeHistoryPanel({
@@ -30,7 +33,16 @@ export function TaskFileChangeHistoryPanel({
   loadingText = "正在加载修改文件历史...",
   onRefresh,
   onOpenChangeDetail,
+  showSshArtifactNotice,
 }: TaskFileChangeHistoryPanelProps) {
+  const limitedFromHistory = history.some((item) =>
+    isArtifactCaptureLimited(item.session.artifact_capture_mode),
+  );
+  const shouldShowSshNotice = showSshArtifactNotice ?? limitedFromHistory;
+  const limitedMode = history.find((item) =>
+    isArtifactCaptureLimited(item.session.artifact_capture_mode),
+  )?.session.artifact_capture_mode;
+
   return (
     <div className="space-y-3 rounded-md border border-border/70 bg-muted/20 p-3">
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -47,6 +59,13 @@ export function TaskFileChangeHistoryPanel({
           {loading ? "刷新中..." : "刷新"}
         </button>
       </div>
+
+      {shouldShowSshNotice && (
+        <SshArtifactLimitedNotice
+          artifactCaptureMode={limitedMode}
+          force={showSshArtifactNotice === true && !limitedMode}
+        />
+      )}
 
       {error && (
         <div className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
@@ -102,9 +121,11 @@ export function TaskFileChangeHistoryPanel({
                 </div>
               ) : (
                 <div className="mt-3 rounded-md border border-dashed border-border px-3 py-4 text-center text-xs text-muted-foreground">
-                  {item.capture_mode === "sdk_event"
-                    ? "本次运行没有结构化文件变更记录。"
-                    : "本次 Git 快照估算未发现新增文件变更。"}
+                  {isArtifactCaptureLimited(item.session.artifact_capture_mode)
+                    ? "远程会话未回传文件级变更明细；可查看上方说明，或到远程主机检查 git 状态。"
+                    : item.capture_mode === "sdk_event"
+                      ? "本次运行没有结构化文件变更记录。"
+                      : "本次 Git 快照估算未发现新增文件变更。"}
                 </div>
               )}
             </div>
@@ -114,6 +135,11 @@ export function TaskFileChangeHistoryPanel({
         <div className="rounded-md border border-dashed border-border px-3 py-6 text-center text-xs text-muted-foreground">
           {loadingText}
         </div>
+      ) : shouldShowSshNotice ? (
+        <SshArtifactLimitedNotice
+          artifactCaptureMode={limitedMode}
+          force={!limitedMode}
+        />
       ) : (
         <div className="rounded-md border border-dashed border-border px-3 py-6 text-center text-xs text-muted-foreground">
           {emptyText}

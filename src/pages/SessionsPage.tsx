@@ -21,6 +21,7 @@ import { AI_PROVIDER_OPTIONS, normalizeAiProvider } from "@/lib/types";
 import { formatDate, isArtifactCaptureLimited } from "@/lib/utils";
 import { useEmployeeStore } from "@/stores/employeeStore";
 import { useProjectStore } from "@/stores/projectStore";
+import { SshArtifactLimitedNotice } from "@/components/sessions/SshArtifactLimitedNotice";
 
 const PAGE_SIZE = 10;
 
@@ -641,9 +642,10 @@ export function SessionsPage() {
                                 <div className="max-w-56 break-all text-muted-foreground">{session.working_dir}</div>
                               )}
                               {isArtifactCaptureLimited(session.artifact_capture_mode) && (
-                                <div className="rounded border border-amber-500/30 bg-amber-500/10 px-2 py-1 text-[11px] text-amber-800 dark:text-amber-200">
-                                  远程变更明细受限
-                                </div>
+                                <SshArtifactLimitedNotice
+                                  artifactCaptureMode={session.artifact_capture_mode}
+                                  compact
+                                />
                               )}
                             </div>
                           </td>
