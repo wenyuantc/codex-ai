@@ -1383,29 +1383,39 @@ pub async fn start_claude_with_manager(
         ),
     )
     .await;
-    emit_session_terminal_line(
-        &app,
+    let prompt_line = format_claude_session_prompt_log(
+        provider,
+        &model,
+        effort,
+        &execution_context.execution_target,
+        execution_context.target_host_label.as_deref(),
+        &run_cwd,
+        &prompt,
+        if provider == ClaudeExecutionProvider::Sdk {
+            &image_paths
+        } else {
+            &[]
+        },
+    );
+    let prompt_event_id = insert_codex_session_event_with_id(
         &pool,
         &session_record.id,
-        &employee_id,
-        task_id.as_deref(),
-        session_kind,
-        format_claude_session_prompt_log(
-            provider,
-            &model,
-            effort,
-            &execution_context.execution_target,
-            execution_context.target_host_label.as_deref(),
-            &run_cwd,
-            &prompt,
-            if provider == ClaudeExecutionProvider::Sdk {
-                &image_paths
-            } else {
-                &[]
-            },
-        ),
+        "user_prompt",
+        Some(&prompt_line),
     )
-    .await;
+    .await
+    .ok();
+    let _ = app.emit(
+        "claude-stdout",
+        ClaudeOutput {
+            employee_id: employee_id.to_string(),
+            task_id: task_id.clone(),
+            session_kind: session_kind.as_str().to_string(),
+            session_record_id: session_record.id.clone(),
+            session_event_id: prompt_event_id,
+            line: prompt_line,
+        },
+    );
 
     let sdk_file_change_store: SdkFileChangeStore = Arc::new(Mutex::new(HashMap::new()));
 

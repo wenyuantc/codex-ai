@@ -720,6 +720,37 @@ pub(super) async fn emit_session_launch_diagnostics(
         .await;
     }
 
+    let prompt_line = format_session_prompt_log(
+        provider,
+        model,
+        reasoning_effort,
+        &execution_context.execution_target,
+        ssh_config_name,
+        ssh_host,
+        execution_context.target_host_label.as_deref(),
+        run_cwd,
+        prompt,
+        image_paths,
+    );
+    let session_event_id = match insert_codex_session_event_with_id(
+        pool,
+        session_record_id,
+        "user_prompt",
+        Some(&prompt_line),
+    )
+    .await
+    {
+        Ok(event_id) => Some(event_id),
+        Err(error) => {
+            eprintln!(
+                "[codex-session] 写入用户提示词日志失败(session={}, kind={}): {}",
+                session_record_id,
+                session_kind.as_str(),
+                error
+            );
+            None
+        }
+    };
     let _ = app.emit(
         "codex-stdout",
         CodexOutput {
@@ -727,19 +758,8 @@ pub(super) async fn emit_session_launch_diagnostics(
             task_id: task_id.map(str::to_string),
             session_kind: session_kind.as_str().to_string(),
             session_record_id: session_record_id.to_string(),
-            session_event_id: None,
-            line: format_session_prompt_log(
-                provider,
-                model,
-                reasoning_effort,
-                &execution_context.execution_target,
-                ssh_config_name,
-                ssh_host,
-                execution_context.target_host_label.as_deref(),
-                run_cwd,
-                prompt,
-                image_paths,
-            ),
+            session_event_id,
+            line: prompt_line,
         },
     );
 }

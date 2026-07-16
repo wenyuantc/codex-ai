@@ -13,9 +13,9 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { listCodexSessions, prepareCodexSessionResume } from "@/lib/backend";
-import { startCodex } from "@/lib/codex";
-import { startClaude } from "@/lib/claude";
-import { startOpenCode } from "@/lib/opencode";
+import { startCodex, stopCodexSession } from "@/lib/codex";
+import { startClaude, stopClaudeSession } from "@/lib/claude";
+import { startOpenCode, stopOpenCodeSession } from "@/lib/opencode";
 import type { AiProvider, CodexSessionListItem, CodexSessionResumeStatus } from "@/lib/types";
 import { AI_PROVIDER_OPTIONS, normalizeAiProvider } from "@/lib/types";
 import { formatDate, isArtifactCaptureLimited } from "@/lib/utils";
@@ -157,6 +157,7 @@ export function SessionsPage() {
   const [continueDialogOpen, setContinueDialogOpen] = useState(false);
   const [continueSession, setContinueSession] = useState<CodexSessionListItem | null>(null);
   const [continueSubmitting, setContinueSubmitting] = useState(false);
+  const [stoppingSessionId, setStoppingSessionId] = useState<string | null>(null);
   const [logDialogOpen, setLogDialogOpen] = useState(false);
   const [logTarget, setLogTarget] = useState<SessionLogTarget | null>(null);
   const [changeDialogOpen, setChangeDialogOpen] = useState(false);
@@ -253,6 +254,7 @@ export function SessionsPage() {
     setContinueDialogOpen(false);
     setContinueSession(null);
     setContinueSubmitting(false);
+    setStoppingSessionId(null);
     setLogDialogOpen(false);
     setLogTarget(null);
     setChangeDialogOpen(false);
@@ -360,6 +362,37 @@ export function SessionsPage() {
   const openChangeDialog = (session: CodexSessionListItem) => {
     setChangeTarget(session);
     setChangeDialogOpen(true);
+  };
+
+  const handleStopSession = async (session: CodexSessionListItem) => {
+    if (stoppingSessionId) {
+      return;
+    }
+
+    setStoppingSessionId(session.session_record_id);
+    setErrorMessage(null);
+    setInfoMessage(null);
+
+    try {
+      const provider = normalizeAiProvider(session.ai_provider);
+      if (provider === "claude") {
+        await stopClaudeSession(session.session_record_id);
+      } else if (provider === "opencode") {
+        await stopOpenCodeSession(session.session_record_id);
+      } else {
+        await stopCodexSession(session.session_record_id);
+      }
+
+      if (session.employee_id) {
+        await refreshEmployeeRuntimeStatus(session.employee_id);
+      }
+      await loadSessions(true);
+      setInfoMessage(`已请求停止对话 ${session.session_id}。`);
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : "停止对话失败");
+    } finally {
+      setStoppingSessionId(null);
+    }
   };
 
   const handleContinueConversation = async (prompt: string) => {
@@ -624,6 +657,27 @@ export function SessionsPage() {
                                   onClick={() => openChangeDialog(session)}
                                 >
                                   查看改动
+                                </Button>
+                              )}
+                              {(session.status === "running" || session.status === "stopping") && (
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant="destructive"
+                                  onClick={() => void handleStopSession(session)}
+                                  disabled={
+                                    session.status === "stopping"
+                                    || stoppingSessionId === session.session_record_id
+                                  }
+                                >
+                                  {stoppingSessionId === session.session_record_id ? (
+                                    <>
+                                      <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+                                      停止中
+                                    </>
+                                  ) : (
+                                    "停止对话"
+                                  )}
                                 </Button>
                               )}
                               <Button

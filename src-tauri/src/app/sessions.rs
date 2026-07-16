@@ -425,7 +425,7 @@ fn format_session_log_line(event_type: &str, message: &str) -> Option<String> {
     }
 
     match event_type {
-        "stdout" => Some(preserved.to_string()),
+        "stdout" | "user_prompt" => Some(preserved.to_string()),
         "stderr" => Some(if preserved.starts_with('[') {
             preserved.to_string()
         } else {

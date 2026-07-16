@@ -1510,16 +1510,25 @@ pub async fn start_opencode_with_manager(
 附带图片: {} 张\n\n{prompt}",
         image_paths_resolved.len(),
     );
-    emit_session_terminal_line(
-        &app,
+    let prompt_event_id = insert_codex_session_event_with_id(
         &pool,
         &session_record.id,
-        &employee_id,
-        task_id.as_deref(),
-        session_kind,
-        prompt_log,
+        "user_prompt",
+        Some(&prompt_log),
     )
-    .await;
+    .await
+    .ok();
+    let _ = app.emit(
+        "opencode-stdout",
+        OpenCodeOutput {
+            employee_id: employee_id.to_string(),
+            task_id: task_id.clone(),
+            session_kind: session_kind.as_str().to_string(),
+            session_record_id: session_record.id.clone(),
+            session_event_id: prompt_event_id,
+            line: prompt_log,
+        },
+    );
 
     let execution_change_baseline = capture_execution_change_baseline(
         &app,
