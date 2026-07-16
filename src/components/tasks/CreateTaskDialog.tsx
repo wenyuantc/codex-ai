@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
-import { Loader2, Paperclip, Sparkles } from "lucide-react";
+import { Loader2, Paperclip, Sparkles, X } from "lucide-react";
 
 import { useTaskStore } from "@/stores/taskStore";
 import { useProjectStore } from "@/stores/projectStore";
@@ -8,8 +8,15 @@ import { useEmployeeStore } from "@/stores/employeeStore";
 import { useAiOptimizePrompt } from "@/hooks/useAiOptimizePrompt";
 import { getEmployeeRoleLabel } from "@/lib/utils";
 import { dedupePaths, isTauriRuntime, normalizeDialogSelection } from "@/lib/taskAttachments";
+import type { Tag, Task } from "@/lib/types";
 import { PRIORITIES } from "@/lib/types";
-import { getCodexSettings, getRemoteCodexSettings } from "@/lib/backend";
+import {
+  addTaskDependency,
+  getCodexSettings,
+  getRemoteCodexSettings,
+  listTags,
+  setTaskTags,
+} from "@/lib/backend";
 import { getProjectWorkingDir } from "@/lib/projects";
 import {
   Dialog,
@@ -19,6 +26,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { Badge } from "@/components/ui/badge";
 import {
   Select,
   SelectContent,
@@ -29,6 +37,7 @@ import {
 import { TaskAttachmentGrid } from "./TaskAttachmentGrid";
 
 const UNASSIGNED_VALUE = "__unassigned__";
+const NONE_VALUE = "__none__";
 
 interface CreateTaskDialogProps {
   open: boolean;
@@ -41,7 +50,7 @@ export function CreateTaskDialog({
   onOpenChange,
   projectId,
 }: CreateTaskDialogProps) {
-  const { createTask } = useTaskStore();
+  const { createTask, tasks, fetchTasks } = useTaskStore();
   const { projects, fetchProjects } = useProjectStore();
   const { employees, fetchEmployees } = useEmployeeStore();
   const optimizePrompt = useAiOptimizePrompt(open);
@@ -55,6 +64,10 @@ export function CreateTaskDialog({
   const [assigneeId, setAssigneeId] = useState("");
   const [reviewerId, setReviewerId] = useState("");
   const [coordinatorId, setCoordinatorId] = useState("");
+  const [dueDate, setDueDate] = useState("");
+  const [projectTags, setProjectTags] = useState<Tag[]>([]);
+  const [selectedTagIds, setSelectedTagIds] = useState<string[]>([]);
+  const [dependencyTaskIds, setDependencyTaskIds] = useState<string[]>([]);
   const [attachmentPaths, setAttachmentPaths] = useState<string[]>([]);
   const [createError, setCreateError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -63,6 +76,9 @@ export function CreateTaskDialog({
   const selectedProject = projects.find((project) => project.id === selectedProjectId);
   const coordinatorCandidates = employees.filter((employee) => employee.role === "coordinator");
   const reviewerCandidates = employees.filter((employee) => employee.role === "reviewer");
+  const projectTasks = tasks.filter(
+    (task: Task) => task.project_id === selectedProjectId && task.status !== "archived",
+  );
 
   useEffect(() => {
     if (open) {
@@ -120,6 +136,32 @@ export function CreateTaskDialog({
     selectedProject?.ssh_config_id,
   ]);
 
+  useEffect(() => {
+    if (!open || !selectedProjectId) {
+      setProjectTags([]);
+      return;
+    }
+
+    let cancelled = false;
+    void listTags(selectedProjectId)
+      .then((tags) => {
+        if (!cancelled) {
+          setProjectTags(tags);
+        }
+      })
+      .catch((error) => {
+        console.error("Failed to load project tags:", error);
+        if (!cancelled) {
+          setProjectTags([]);
+        }
+      });
+    void fetchTasks(selectedProjectId);
+
+    return () => {
+      cancelled = true;
+    };
+  }, [open, selectedProjectId, fetchTasks]);
+
   const handleOpen = (isOpen: boolean) => {
     if (isOpen) {
       fetchEmployees();
@@ -133,6 +175,9 @@ export function CreateTaskDialog({
       setAssigneeId("");
       setReviewerId("");
       setCoordinatorId("");
+      setDueDate("");
+      setSelectedTagIds([]);
+      setDependencyTaskIds([]);
       setAttachmentPaths([]);
       setCreateError(null);
     }
@@ -202,7 +247,7 @@ export function CreateTaskDialog({
     setCreateError(null);
     setSaving(true);
     try {
-      await createTask({
+      const created = await createTask({
         title: title.trim(),
         description: description.trim() || undefined,
         priority,
@@ -211,10 +256,20 @@ export function CreateTaskDialog({
         assignee_id: assigneeId || undefined,
         reviewer_id: reviewerId || undefined,
         coordinator_id: coordinatorId || undefined,
+        due_date: dueDate || null,
         attachment_source_paths: attachmentPaths,
       }, {
         refreshProjectId: projectId,
       });
+      if (selectedTagIds.length > 0) {
+        await setTaskTags({ task_id: created.id, tag_ids: selectedTagIds });
+      }
+      for (const dependsOnTaskId of dependencyTaskIds) {
+        await addTaskDependency({
+          task_id: created.id,
+          depends_on_task_id: dependsOnTaskId,
+        });
+      }
       handleOpen(false);
     } catch (error) {
       setCreateError(error instanceof Error ? error.message : String(error));
@@ -307,6 +362,8 @@ export function CreateTaskDialog({
                 onValueChange={(value) => {
                   const nextProjectId = value ?? "";
                   setSelectedProjectId(nextProjectId);
+                  setSelectedTagIds([]);
+                  setDependencyTaskIds([]);
                   setCreateError(null);
                 }}
               >
@@ -392,6 +449,124 @@ export function CreateTaskDialog({
                   </SelectContent>
                 </Select>
               </div>
+            </div>
+
+            <div>
+              <label className="text-xs font-medium text-muted-foreground">
+                截止日期（可选）
+              </label>
+              <Input
+                type="date"
+                value={dueDate}
+                onChange={(e) => setDueDate(e.target.value)}
+                className="mt-1"
+                disabled={saving}
+              />
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-xs font-medium text-muted-foreground">
+                标签（可选）
+              </label>
+              <div className="flex flex-wrap gap-1.5">
+                {selectedTagIds.length === 0 && (
+                  <span className="text-[11px] text-muted-foreground">未选择标签</span>
+                )}
+                {selectedTagIds.map((tagId) => {
+                  const tag = projectTags.find((item) => item.id === tagId);
+                  if (!tag) {
+                    return null;
+                  }
+                  return (
+                    <Badge key={tag.id} variant="secondary" className="gap-1 pr-1">
+                      {tag.name}
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setSelectedTagIds((current) => current.filter((id) => id !== tag.id))
+                        }
+                        className="rounded-full p-0.5 hover:bg-muted"
+                      >
+                        <X className="h-3 w-3" />
+                      </button>
+                    </Badge>
+                  );
+                })}
+              </div>
+              <Select
+                disabled={saving || !selectedProjectId || projectTags.length === 0}
+                value={NONE_VALUE}
+                onValueChange={(value) => {
+                  if (!value || value === NONE_VALUE || selectedTagIds.includes(value)) {
+                    return;
+                  }
+                  setSelectedTagIds((current) => [...current, value]);
+                }}
+              >
+                <SelectTrigger className="bg-background">
+                  <SelectValue placeholder="选择标签">选择标签</SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                  {projectTags
+                    .filter((tag) => !selectedTagIds.includes(tag.id))
+                    .map((tag) => (
+                      <SelectItem key={tag.id} value={tag.id}>
+                        {tag.name}
+                      </SelectItem>
+                    ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-xs font-medium text-muted-foreground">
+                依赖任务（可选）
+              </label>
+              <div className="flex flex-wrap gap-1.5">
+                {dependencyTaskIds.length === 0 && (
+                  <span className="text-[11px] text-muted-foreground">未选择依赖</span>
+                )}
+                {dependencyTaskIds.map((taskId) => {
+                  const depTask = projectTasks.find((item) => item.id === taskId);
+                  return (
+                    <Badge key={taskId} variant="outline" className="gap-1 pr-1">
+                      {depTask?.title ?? taskId}
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setDependencyTaskIds((current) => current.filter((id) => id !== taskId))
+                        }
+                        className="rounded-full p-0.5 hover:bg-muted"
+                      >
+                        <X className="h-3 w-3" />
+                      </button>
+                    </Badge>
+                  );
+                })}
+              </div>
+              <Select
+                disabled={saving || !selectedProjectId || projectTasks.length === 0}
+                value={NONE_VALUE}
+                onValueChange={(value) => {
+                  if (!value || value === NONE_VALUE || dependencyTaskIds.includes(value)) {
+                    return;
+                  }
+                  setDependencyTaskIds((current) => [...current, value]);
+                }}
+              >
+                <SelectTrigger className="bg-background">
+                  <SelectValue placeholder="选择依赖任务">选择依赖任务</SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                  {projectTasks
+                    .filter((item) => !dependencyTaskIds.includes(item.id))
+                    .map((item) => (
+                      <SelectItem key={item.id} value={item.id}>
+                        {item.title}
+                      </SelectItem>
+                    ))}
+                </SelectContent>
+              </Select>
             </div>
           </div>
 

@@ -53,12 +53,13 @@ import { ProjectGitActionDialog } from "@/components/projects/ProjectGitActionDi
 import { ProjectGitCommitDetailDialog } from "@/components/projects/ProjectGitCommitDetailDialog";
 import { ProjectGitRepoActionDialog } from "@/components/projects/ProjectGitRepoActionDialog";
 import { ProjectGitBranchActionDialog } from "@/components/projects/ProjectGitBranchActionDialog";
+import { ProjectMilestonesSection } from "@/components/projects/ProjectMilestonesSection";
 import { GitChangesPanel } from "@/components/git/GitChangesPanel";
 import { getGitActionButtonClassName } from "@/components/git/gitHelpers";
 import { ProjectWorktreeSection } from "@/components/git/ProjectWorktreeSection";
 import { RepoPathDisplay } from "@/components/projects/RepoPathDisplay";
 import { ArrowDown, ArrowLeft, ArrowUp, Edit2, GitBranch, Loader2, RefreshCw, ShieldAlert, Trash2 } from "lucide-react";
-import { getStatusLabel, getStatusColor, getPriorityLabel, formatDate } from "@/lib/utils";
+import { getStatusLabel, getStatusColor, getPriorityLabel, formatDate, isTaskOverdue } from "@/lib/utils";
 import { getProjectWorkingDir, getProjectTypeLabel } from "@/lib/projects";
 
 const ProjectGitFilePreviewDialog = lazy(async () => {
@@ -1192,6 +1193,8 @@ export function ProjectDetailPage() {
         ))}
       </div>
 
+      <ProjectMilestonesSection projectId={project.id} />
+
       {/* Task List */}
       <Card className="p-4">
         <h3 className="text-sm font-semibold mb-3">任务列表</h3>
@@ -1206,6 +1209,14 @@ export function ProjectDetailPage() {
               >
                 <div className={`w-1.5 h-1.5 rounded-full ${getStatusColor(task.status)}`} />
                 <span className="flex-1 font-medium truncate">{task.title}</span>
+                {isTaskOverdue(task) && (
+                  <span className="text-[11px] text-destructive">逾期</span>
+                )}
+                {task.due_date && !isTaskOverdue(task) && (
+                  <span className="text-[11px] text-muted-foreground">
+                    截止 {formatDate(task.due_date)}
+                  </span>
+                )}
                 <span className="text-xs text-muted-foreground">
                   {getPriorityLabel(task.priority)}
                 </span>

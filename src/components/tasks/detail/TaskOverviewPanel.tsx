@@ -1,10 +1,11 @@
 import { lazy, Suspense, useEffect, useState } from "react";
 import { AlertTriangle, ClipboardCheck, Clock, Network, Pencil, Save, Trash2, X } from "lucide-react";
 
-import type { Employee, TaskStatus } from "@/lib/types";
+import type { Employee, Task, TaskStatus } from "@/lib/types";
 import { ACTIVE_TASK_STATUSES, PRIORITIES, TASK_STATUSES } from "@/lib/types";
 import { formatDate, formatDuration, getTaskElapsedSeconds } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Select,
   SelectContent,
@@ -12,6 +13,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { TaskDeliverySection } from "./TaskDeliverySection";
 
 const UNASSIGNED_VALUE = "__unassigned__";
 const MonacoMarkdownEditor = lazy(() => import("./MonacoMarkdownEditor").then((module) => ({
@@ -19,6 +21,8 @@ const MonacoMarkdownEditor = lazy(() => import("./MonacoMarkdownEditor").then((m
 })));
 
 interface TaskOverviewPanelProps {
+  task: Task;
+  projectTasks: Task[];
   title: string;
   description: string;
   status: string;
@@ -27,6 +31,9 @@ interface TaskOverviewPanelProps {
   reviewerId: string;
   coordinatorId: string;
   coordinatorName?: string;
+  dueDate: string;
+  milestoneId: string;
+  blockedReason: string;
   createdAt: string;
   timeStartedAt: string | null;
   timeSpentSeconds: number;
@@ -55,6 +62,11 @@ interface TaskOverviewPanelProps {
   onAssigneeChange: (value: string) => void;
   onReviewerChange: (value: string) => void;
   onCoordinatorChange: (value: string) => void;
+  onDueDateChange: (value: string) => void;
+  onDueDateBlur: () => void;
+  onMilestoneChange: (value: string) => void;
+  onBlockedReasonChange: (value: string) => void;
+  onBlockedReasonBlur: () => void;
   onOpenCoordinatorPlan?: () => void;
   onGenerateTesterAcceptance?: () => void;
   onPlanEditStart: () => void;
@@ -62,6 +74,7 @@ interface TaskOverviewPanelProps {
   onPlanDraftChange: (value: string) => void;
   onPlanSave: () => void;
   onDeleteRequest: () => void;
+  onDeliveryError?: (message: string) => void;
 }
 
 function MonacoEditorFallback({ className }: { className: string }) {
@@ -73,6 +86,8 @@ function MonacoEditorFallback({ className }: { className: string }) {
 }
 
 export function TaskOverviewPanel({
+  task,
+  projectTasks,
   title,
   description,
   status,
@@ -81,6 +96,9 @@ export function TaskOverviewPanel({
   reviewerId,
   coordinatorId,
   coordinatorName,
+  dueDate,
+  milestoneId,
+  blockedReason,
   createdAt,
   timeStartedAt,
   timeSpentSeconds,
@@ -109,6 +127,11 @@ export function TaskOverviewPanel({
   onAssigneeChange,
   onReviewerChange,
   onCoordinatorChange,
+  onDueDateChange,
+  onDueDateBlur,
+  onMilestoneChange,
+  onBlockedReasonChange,
+  onBlockedReasonBlur,
   onOpenCoordinatorPlan,
   onGenerateTesterAcceptance,
   onPlanEditStart,
@@ -116,6 +139,7 @@ export function TaskOverviewPanel({
   onPlanDraftChange,
   onPlanSave,
   onDeleteRequest,
+  onDeliveryError,
 }: TaskOverviewPanelProps) {
   const [timerNow, setTimerNow] = useState(() => Date.now());
   const elapsedSeconds = getTaskElapsedSeconds({
@@ -306,18 +330,41 @@ export function TaskOverviewPanel({
       </div>
 
       {status === "blocked" && (
-        <div className="flex items-start gap-2 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-900 dark:text-amber-100">
-          <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-          <span>
-            任务已阻塞。建议指定协调员并打开「协调员计划」，拆解阻塞点后再交给执行员工推进。
-            {!coordinatorId && coordinatorCandidates.length > 0
-              ? " 当前项目已有协调员可选。"
-              : !coordinatorId
-                ? " 当前尚未指定协调员。"
-                : ` 当前协调员：${coordinatorName ?? "已指定"}。`}
-          </span>
+        <div className="space-y-2 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-900 dark:text-amber-100">
+          <div className="flex items-start gap-2">
+            <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+            <span>
+              任务已阻塞。建议指定协调员并打开「协调员计划」，拆解阻塞点后再交给执行员工推进。
+              {!coordinatorId && coordinatorCandidates.length > 0
+                ? " 当前项目已有协调员可选。"
+                : !coordinatorId
+                  ? " 当前尚未指定协调员。"
+                  : ` 当前协调员：${coordinatorName ?? "已指定"}。`}
+            </span>
+          </div>
+          <div>
+            <label className="text-[11px] font-medium opacity-80">阻塞原因 *</label>
+            <Textarea
+              value={blockedReason}
+              onChange={(e) => onBlockedReasonChange(e.target.value)}
+              onBlur={onBlockedReasonBlur}
+              placeholder="说明阻塞原因…"
+              className="mt-1 min-h-[64px] resize-y border-amber-500/30 bg-background/80 text-foreground"
+            />
+          </div>
         </div>
       )}
+
+      <TaskDeliverySection
+        task={task}
+        projectTasks={projectTasks}
+        dueDate={dueDate}
+        milestoneId={milestoneId}
+        onDueDateChange={onDueDateChange}
+        onDueDateBlur={onDueDateBlur}
+        onMilestoneChange={onMilestoneChange}
+        onError={onDeliveryError}
+      />
 
       {coordinatorId && onOpenCoordinatorPlan && (
         <section className="rounded-md border border-border bg-muted/20 p-3">

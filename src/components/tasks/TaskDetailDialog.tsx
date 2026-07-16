@@ -8,7 +8,6 @@ import type {
   Task,
   TaskExecutionChangeHistoryItem,
   TaskLatestReview,
-  TaskStatus,
 } from "@/lib/types";
 import {
   aiGenerateCoordinatorTaskPlan,
@@ -30,6 +29,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
+import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { buildTaskExecutionInput } from "@/lib/taskPrompt";
 import {
@@ -102,10 +102,12 @@ export function TaskDetailDialog({
     refreshEmployeeRuntimeStatus,
   } = useEmployeeStore();
   const projects = useProjectStore((s) => s.projects);
+  const storeTasks = useTaskStore((s) => s.tasks);
   const attachmentMap = useTaskStore((state) => state.attachments);
   const attachments = attachmentMap[task.id] ?? EMPTY_ATTACHMENTS;
   const project = projects.find((p) => p.id === task.project_id);
   const projectRepoPath = getProjectWorkingDir(project);
+  const projectTasks = storeTasks.filter((item) => item.project_id === task.project_id);
   const [title, setTitle] = useState(task.title);
   const [description, setDescription] = useState(task.description ?? "");
   const [priority, setPriority] = useState(task.priority);
@@ -113,6 +115,12 @@ export function TaskDetailDialog({
   const [assigneeId, setAssigneeId] = useState(task.assignee_id ?? "");
   const [reviewerId, setReviewerId] = useState(task.reviewer_id ?? "");
   const [coordinatorId, setCoordinatorId] = useState(task.coordinator_id ?? "");
+  const [dueDate, setDueDate] = useState(task.due_date ?? "");
+  const [milestoneId, setMilestoneId] = useState(task.milestone_id ?? "");
+  const [blockedReason, setBlockedReason] = useState(task.blocked_reason ?? "");
+  const [blockReasonDialogOpen, setBlockReasonDialogOpen] = useState(false);
+  const [pendingBlockedReason, setPendingBlockedReason] = useState("");
+  const [blockReasonSubmitting, setBlockReasonSubmitting] = useState(false);
   const [planContent, setPlanContent] = useState(task.plan_content ?? "");
   const [planContentDraft, setPlanContentDraft] = useState(task.plan_content ?? "");
   const [planContentEditing, setPlanContentEditing] = useState(false);
@@ -278,6 +286,9 @@ export function TaskDetailDialog({
       setAssigneeId(task.assignee_id ?? "");
       setReviewerId(task.reviewer_id ?? "");
       setCoordinatorId(task.coordinator_id ?? "");
+      setDueDate(task.due_date ?? "");
+      setMilestoneId(task.milestone_id ?? "");
+      setBlockedReason(task.blocked_reason ?? "");
       setPlanContent(task.plan_content ?? "");
       setAttachmentError(null);
       setSaveError(null);
@@ -382,7 +393,18 @@ export function TaskDetailDialog({
       } else if (field === "priority") {
         await updateTask(task.id, { priority: value });
       } else if (field === "status") {
-        await useTaskStore.getState().updateTaskStatus(task.id, value as TaskStatus);
+        if (value === "blocked") {
+          setPendingBlockedReason(blockedReason);
+          setBlockReasonDialogOpen(true);
+          return;
+        }
+        await updateTask(task.id, {
+          status: value,
+          ...(task.status === "blocked" ? { blocked_reason: null } : {}),
+        });
+        if (task.status === "blocked") {
+          setBlockedReason("");
+        }
       } else if (field === "assignee_id") {
         await updateTask(task.id, { assignee_id: value || null });
       } else if (field === "reviewer_id") {
@@ -396,10 +418,41 @@ export function TaskDetailDialog({
           setPlanContentEditing(false);
           setCoordinatorPlanDraft("");
         }
+      } else if (field === "due_date") {
+        await updateTask(task.id, { due_date: value || null });
+      } else if (field === "milestone_id") {
+        await updateTask(task.id, { milestone_id: value || null });
+      } else if (field === "blocked_reason") {
+        await updateTask(task.id, { blocked_reason: value.trim() || null });
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       setSaveError(message);
+      if (field === "status") {
+        setStatus(task.status);
+      }
+    }
+  };
+
+  const handleConfirmBlockedStatus = async () => {
+    const reason = pendingBlockedReason.trim();
+    if (!reason) {
+      setSaveError("转为阻塞状态时必须填写阻塞原因");
+      return;
+    }
+    setBlockReasonSubmitting(true);
+    setSaveError(null);
+    try {
+      await updateTask(task.id, { status: "blocked", blocked_reason: reason });
+      setStatus("blocked");
+      setBlockedReason(reason);
+      setBlockReasonDialogOpen(false);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setSaveError(message);
+      setStatus(task.status);
+    } finally {
+      setBlockReasonSubmitting(false);
     }
   };
 
@@ -986,6 +1039,8 @@ export function TaskDetailDialog({
 
             <TabsContent value="overview">
               <TaskOverviewPanel
+                task={task}
+                projectTasks={projectTasks}
                 title={title}
                 description={description}
                 status={status}
@@ -994,6 +1049,9 @@ export function TaskDetailDialog({
                 reviewerId={reviewerId}
                 coordinatorId={coordinatorId}
                 coordinatorName={coordinator?.name}
+                dueDate={dueDate}
+                milestoneId={milestoneId}
+                blockedReason={blockedReason}
                 createdAt={task.created_at}
                 timeStartedAt={task.time_started_at}
                 timeSpentSeconds={task.time_spent_seconds}
@@ -1018,6 +1076,11 @@ export function TaskDetailDialog({
                 onDescriptionChange={setDescription}
                 onDescriptionBlur={() => void handleSave("description", description)}
                 onStatusChange={(value) => {
+                  if (value === "blocked") {
+                    setPendingBlockedReason(blockedReason);
+                    setBlockReasonDialogOpen(true);
+                    return;
+                  }
                   setStatus(value);
                   void handleSave("status", value);
                 }}
@@ -1037,6 +1100,18 @@ export function TaskDetailDialog({
                   setCoordinatorId(value);
                   void handleSave("coordinator_id", value);
                 }}
+                onDueDateChange={setDueDate}
+                onDueDateBlur={() => void handleSave("due_date", dueDate)}
+                onMilestoneChange={(value) => {
+                  setMilestoneId(value);
+                  void handleSave("milestone_id", value);
+                }}
+                onBlockedReasonChange={setBlockedReason}
+                onBlockedReasonBlur={() => {
+                  if (status === "blocked") {
+                    void handleSave("blocked_reason", blockedReason);
+                  }
+                }}
                 onOpenCoordinatorPlan={() => void openCoordinatorPlanFlow()}
                 onGenerateTesterAcceptance={() => void handleGenerateTesterAcceptance()}
                 onPlanEditStart={handleStartPlanContentEdit}
@@ -1044,6 +1119,7 @@ export function TaskDetailDialog({
                 onPlanDraftChange={setPlanContentDraft}
                 onPlanSave={() => void handleSavePlanContent()}
                 onDeleteRequest={() => setDeleteDialogOpen(true)}
+                onDeliveryError={setSaveError}
               />
             </TabsContent>
 
@@ -1207,6 +1283,57 @@ export function TaskDetailDialog({
           onConfirm={handleConfirmReviewFix}
         />
       )}
+      <Dialog
+        open={blockReasonDialogOpen}
+        onOpenChange={(open) => {
+          if (blockReasonSubmitting) {
+            return;
+          }
+          setBlockReasonDialogOpen(open);
+          if (!open) {
+            setStatus(task.status);
+            setPendingBlockedReason(blockedReason);
+          }
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>填写阻塞原因</DialogTitle>
+            <DialogDescription>
+              转为阻塞状态前必须说明原因，便于协调员跟进。
+            </DialogDescription>
+          </DialogHeader>
+          <Textarea
+            value={pendingBlockedReason}
+            onChange={(e) => setPendingBlockedReason(e.target.value)}
+            placeholder="例如：等待上游接口、依赖任务未完成…"
+            className="min-h-[96px] resize-y"
+            disabled={blockReasonSubmitting}
+          />
+          <div className="flex justify-end gap-2">
+            <button
+              type="button"
+              disabled={blockReasonSubmitting}
+              onClick={() => {
+                setBlockReasonDialogOpen(false);
+                setStatus(task.status);
+                setPendingBlockedReason(blockedReason);
+              }}
+              className="rounded-md border border-input px-3 py-1.5 text-sm hover:bg-accent disabled:opacity-50"
+            >
+              取消
+            </button>
+            <button
+              type="button"
+              disabled={blockReasonSubmitting || !pendingBlockedReason.trim()}
+              onClick={() => void handleConfirmBlockedStatus()}
+              className="rounded-md bg-primary px-3 py-1.5 text-sm text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+            >
+              {blockReasonSubmitting ? "保存中…" : "确认阻塞"}
+            </button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </>
   );
 }

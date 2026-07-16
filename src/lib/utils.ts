@@ -30,6 +30,33 @@ export function formatDate(dateStr: string): string {
   return parsed ? parsed.toLocaleString("zh-CN") : dateStr;
 }
 
+/** YYYY-MM-DD prefix from a stored due_date (date-only or datetime). */
+export function getDateOnly(dateStr: string | null | undefined): string | null {
+  if (!dateStr) {
+    return null;
+  }
+  const match = dateStr.trim().match(/^(\d{4}-\d{2}-\d{2})/);
+  return match?.[1] ?? null;
+}
+
+export function todayDateOnly(): string {
+  const now = new Date();
+  const month = String(now.getMonth() + 1).padStart(2, "0");
+  const day = String(now.getDate()).padStart(2, "0");
+  return `${now.getFullYear()}-${month}-${day}`;
+}
+
+export function isTaskOverdue(
+  task: Pick<Task, "due_date" | "status">,
+  today = todayDateOnly(),
+): boolean {
+  if (!task.due_date || task.status === "completed" || task.status === "archived") {
+    return false;
+  }
+  const due = getDateOnly(task.due_date);
+  return Boolean(due && due < today);
+}
+
 export function formatDuration(totalSeconds: number | null | undefined): string {
   const safeSeconds = Math.max(0, Math.floor(Number(totalSeconds ?? 0)));
   const hours = Math.floor(safeSeconds / 3600);

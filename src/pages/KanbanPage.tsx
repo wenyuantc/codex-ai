@@ -21,6 +21,7 @@ export function KanbanPage() {
   const { fetchEmployees } = useEmployeeStore();
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [showArchiveDialog, setShowArchiveDialog] = useState(false);
+  const [overdueOnly, setOverdueOnly] = useState(false);
   const visibleProjectIdsKey = projects.map((project) => project.id).join(",");
   const targetTaskId = searchParams.get("taskId");
 
@@ -42,6 +43,12 @@ export function KanbanPage() {
       <div className="flex items-center justify-between mb-4">
         <h2 className="text-lg font-semibold">看板列表</h2>
         <div className="flex items-center gap-2">
+          <Button
+            variant={overdueOnly ? "default" : "outline"}
+            onClick={() => setOverdueOnly((current) => !current)}
+          >
+            {overdueOnly ? "仅逾期" : "全部任务"}
+          </Button>
           <Button onClick={() => setShowCreateDialog(true)}>
             <Plus className="h-4 w-4" />
             新建任务
@@ -58,6 +65,7 @@ export function KanbanPage() {
         {hasProjects ? (
           <KanbanBoard
             projectId={currentProjectId}
+            overdueOnly={overdueOnly}
             targetTaskId={targetTaskId}
             onClearTargetTask={() => {
               if (!targetTaskId) {

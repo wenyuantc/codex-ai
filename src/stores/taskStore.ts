@@ -55,12 +55,14 @@ interface TaskStore {
       assignee_id?: string;
       reviewer_id?: string;
       coordinator_id?: string;
+      due_date?: string | null;
+      milestone_id?: string | null;
       attachment_source_paths?: string[];
     },
     options?: { refreshProjectId?: string },
   ) => Promise<Task>;
   updateTaskStatus: (id: string, status: TaskStatus) => Promise<void>;
-  updateTask: (id: string, updates: Partial<Pick<Task, "title" | "description" | "priority" | "status" | "assignee_id" | "reviewer_id" | "coordinator_id" | "plan_content" | "complexity" | "ai_suggestion" | "last_codex_session_id" | "last_review_session_id">>) => Promise<void>;
+  updateTask: (id: string, updates: Partial<Pick<Task, "title" | "description" | "priority" | "status" | "assignee_id" | "reviewer_id" | "coordinator_id" | "plan_content" | "complexity" | "ai_suggestion" | "last_codex_session_id" | "last_review_session_id" | "due_date" | "blocked_reason" | "milestone_id">>) => Promise<void>;
   startTaskTimer: (taskId: string) => Promise<void>;
   setTaskAutomationMode: (taskId: string, automationMode: TaskAutomationMode | null) => Promise<void>;
   fetchTaskAutomationState: (taskId: string) => Promise<void>;
@@ -165,6 +167,8 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
       assignee_id: data.assignee_id ?? null,
       reviewer_id: data.reviewer_id ?? null,
       coordinator_id: data.coordinator_id ?? null,
+      due_date: data.due_date ?? null,
+      milestone_id: data.milestone_id ?? null,
       attachment_source_paths: data.attachment_source_paths ?? [],
     });
     await get().fetchTasks(options?.refreshProjectId ?? get().activeProjectId);

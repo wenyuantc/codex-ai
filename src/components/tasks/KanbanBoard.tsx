@@ -21,6 +21,7 @@ import {
   type TaskGitContext,
   type TaskStatus,
 } from "@/lib/types";
+import { isTaskOverdue } from "@/lib/utils";
 import { useTaskStore } from "@/stores/taskStore";
 import { useEmployeeStore } from "@/stores/employeeStore";
 import { useProjectStore } from "@/stores/projectStore";
@@ -34,14 +35,16 @@ interface KanbanBoardProps {
   projectId?: string;
   targetTaskId?: string | null;
   onClearTargetTask?: () => void;
+  overdueOnly?: boolean;
 }
 
 export function KanbanBoard({
   projectId: _projectId,
   targetTaskId,
   onClearTargetTask,
+  overdueOnly = false,
 }: KanbanBoardProps) {
-  const { tasks, moveTask, updateTaskStatus, fetchTasks } = useTaskStore();
+  const { tasks, moveTask, updateTask, updateTaskStatus, fetchTasks } = useTaskStore();
   const employees = useEmployeeStore((s) => s.employees);
   const projects = useProjectStore((s) => s.projects);
   const [activeTask, setActiveTask] = useState<Task | null>(null);
@@ -55,8 +58,11 @@ export function KanbanBoard({
   } | null>(null);
   const targetTask = targetTaskId ? tasks.find((task) => task.id === targetTaskId) ?? null : null;
   const activeTasks = useMemo(
-    () => tasks.filter((task) => task.status !== "archived"),
-    [tasks],
+    () => {
+      const visible = tasks.filter((task) => task.status !== "archived");
+      return overdueOnly ? visible.filter((task) => isTaskOverdue(task)) : visible;
+    },
+    [tasks, overdueOnly],
   );
   const projectMap = useMemo(
     () => new Map(projects.map((project) => [project.id, project])),
@@ -262,6 +268,20 @@ export function KanbanBoard({
     }
 
     if (originalStatus === targetStatus) {
+      return;
+    }
+
+    if (targetStatus === "blocked") {
+      const reason = window.prompt("请填写阻塞原因（必填）：", currentTask.blocked_reason ?? "")?.trim();
+      if (!reason) {
+        moveTask(taskId, originalStatus);
+        return;
+      }
+      void updateTask(taskId, { status: "blocked", blocked_reason: reason }).catch((error) => {
+        console.error("Failed to update task status:", error);
+        moveTask(taskId, originalStatus);
+        void fetchTasks(_projectId);
+      });
       return;
     }
 

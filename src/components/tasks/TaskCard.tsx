@@ -4,7 +4,9 @@ import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import type {
   CodexSessionKind,
+  Tag,
   Task,
+  TaskDependency,
   TaskGitCommitOverview,
   TaskGitContext,
 } from "@/lib/types";
@@ -12,6 +14,8 @@ import {
   aiGenerateCoordinatorTaskPlan,
   aiGenerateTesterAcceptance,
   getTaskGitCommitOverview,
+  listTaskDependencies,
+  listTaskTags,
   stageAllTaskGitFiles,
 } from "@/lib/backend";
 import {
@@ -23,11 +27,13 @@ import {
   getTaskActionRuntimeState,
   getTaskAutomationDisplayState,
   getTaskAutomationStatusLabel,
+  isTaskOverdue,
 } from "@/lib/utils";
 import { countStageableGitFiles } from "@/lib/gitWorkingTree";
 import { buildTaskExecutionInput } from "@/lib/taskPrompt";
 import {
   Archive,
+  Calendar,
   CircleCheckBig,
   Bot,
   ClipboardCheck,
@@ -35,6 +41,7 @@ import {
   FolderKanban,
   GitBranch,
   GripVertical,
+  Link2,
   Loader2,
   MessageSquarePlus,
   Network,
@@ -147,6 +154,8 @@ export function TaskCard({
   const [testerAcceptanceLoading, setTesterAcceptanceLoading] = useState(false);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
   const [timerNow, setTimerNow] = useState(() => Date.now());
+  const [taskTags, setTaskTags] = useState<Tag[]>([]);
+  const [dependencyCount, setDependencyCount] = useState(0);
   const executionStartErrorRef = useRef<string | null>(null);
   const projects = useProjectStore((s) => s.projects);
   const employees = useEmployeeStore((s) => s.employees);
@@ -306,6 +315,34 @@ export function TaskCard({
       : task.time_spent_seconds > 0
         ? `累计：${formatDuration(elapsedSeconds)}`
         : `创建：${formatDate(task.created_at)}`;
+  const overdue = isTaskOverdue(task);
+
+  useEffect(() => {
+    if (isOverlay) {
+      return;
+    }
+    let cancelled = false;
+    void Promise.all([
+      listTaskTags(task.id),
+      listTaskDependencies(task.id),
+    ])
+      .then(([tags, deps]: [Tag[], TaskDependency[]]) => {
+        if (cancelled) {
+          return;
+        }
+        setTaskTags(tags);
+        setDependencyCount(deps.length);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setTaskTags([]);
+          setDependencyCount(0);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isOverlay, task.id, task.updated_at]);
 
   const {
     attributes,
@@ -780,10 +817,48 @@ export function TaskCard({
                   协调员计划
                 </button>
               )}
+              {task.due_date && (
+                <span
+                  className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] ${
+                    overdue
+                      ? "bg-destructive/10 text-destructive"
+                      : "bg-muted text-muted-foreground"
+                  }`}
+                  title={overdue ? `已逾期：${formatDate(task.due_date)}` : `截止：${formatDate(task.due_date)}`}
+                >
+                  <Calendar className="h-3 w-3" />
+                  {overdue ? "逾期" : "截止"}·{formatDate(task.due_date)}
+                </span>
+              )}
+              {taskTags.slice(0, 3).map((tag) => (
+                <span
+                  key={tag.id}
+                  className="inline-flex max-w-[88px] items-center gap-1 truncate rounded-full bg-secondary px-2 py-0.5 text-[11px] text-secondary-foreground"
+                  title={tag.name}
+                >
+                  <span
+                    className="h-1.5 w-1.5 shrink-0 rounded-full"
+                    style={{ backgroundColor: tag.color || "var(--primary)" }}
+                  />
+                  {tag.name}
+                </span>
+              ))}
+              {taskTags.length > 3 && (
+                <span className="text-[11px] text-muted-foreground">+{taskTags.length - 3}</span>
+              )}
+              {dependencyCount > 0 && (
+                <span
+                  className="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-[11px] text-muted-foreground"
+                  title={`依赖 ${dependencyCount} 个任务`}
+                >
+                  <Link2 className="h-3 w-3" />
+                  依赖·{dependencyCount}
+                </span>
+              )}
               {task.status === "blocked" && (
                 <span
                   className="inline-flex items-center gap-1 rounded-full bg-amber-500/10 px-2 py-0.5 text-[11px] text-amber-800 dark:text-amber-100"
-                  title="任务已阻塞，建议指定协调员并生成协调员计划"
+                  title={task.blocked_reason?.trim() || "任务已阻塞，建议指定协调员并生成协调员计划"}
                 >
                   阻塞·建议协调
                 </span>
