@@ -261,6 +261,12 @@ export interface GenerateCoordinatorTaskPlanInput {
   working_dir?: string | null;
 }
 
+export interface GenerateTesterAcceptanceInput {
+  task_id: string;
+  tester_id?: string | null;
+  working_dir?: string | null;
+}
+
 export interface SetTaskAutomationModeInput {
   task_id: string;
   automation_mode?: TaskAutomationMode | null;
@@ -747,6 +753,35 @@ export async function getCodexSettings(): Promise<CodexSettings> {
   return invoke("get_codex_settings");
 }
 
+export interface AiPromptTemplate {
+  scene: string;
+  label: string;
+  output_goal: string;
+  scene_requirement: string;
+}
+
+export interface AiPromptTemplatesDocument {
+  templates: AiPromptTemplate[];
+}
+
+export async function getAiPromptTemplates(): Promise<AiPromptTemplatesDocument> {
+  return invoke("get_ai_prompt_templates");
+}
+
+export async function updateAiPromptTemplates(
+  templates: AiPromptTemplate[],
+): Promise<AiPromptTemplatesDocument> {
+  return invoke("update_ai_prompt_templates", { payload: { templates } });
+}
+
+export async function resetAiPromptTemplates(
+  scene?: string | null,
+): Promise<AiPromptTemplatesDocument> {
+  return invoke("reset_ai_prompt_templates", {
+    payload: scene ? { scene } : {},
+  });
+}
+
 export async function getRemoteCodexSettings(sshConfigId: string): Promise<RemoteCodexSettings> {
   return invoke("get_remote_codex_settings", { sshConfigId });
 }
@@ -892,6 +927,12 @@ export async function aiGenerateCoordinatorTaskPlan(
   input: GenerateCoordinatorTaskPlanInput,
 ): Promise<string> {
   return invoke("ai_generate_coordinator_task_plan", { payload: input });
+}
+
+export async function aiGenerateTesterAcceptance(
+  input: GenerateTesterAcceptanceInput,
+): Promise<string> {
+  return invoke("ai_generate_tester_acceptance", { payload: input });
 }
 
 export async function deleteTask(id: string): Promise<void> {

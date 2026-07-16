@@ -4,6 +4,7 @@ import { useSearchParams } from "react-router-dom";
 
 import { DatabaseSettingsTab } from "@/components/settings/DatabaseSettingsTab";
 import { GitAutomationSettingsTab } from "@/components/settings/GitAutomationSettingsTab";
+import { PromptSettingsTab } from "@/components/settings/PromptSettingsTab";
 import { RuntimeSettingsTab } from "@/components/settings/RuntimeSettingsTab";
 import { SshSettingsTab } from "@/components/settings/SshSettingsTab";
 import {
@@ -79,6 +80,7 @@ const DATABASE_FILE_FILTERS = [
 const SETTINGS_TABS: Array<{ value: SettingsTabValue; label: string }> = [
   { value: "runtime", label: "界面与运行" },
   { value: "git", label: "Git 与自动质控" },
+  { value: "prompts", label: "提示词模板" },
   { value: "ssh", label: "SSH 配置" },
   { value: "database", label: "数据库维护" },
 ];
@@ -1055,6 +1057,10 @@ export function SettingsPage() {
             onTestConnection={() => void handleTestConnection()}
             onDelete={() => void handleDeleteSshConfig()}
           />
+        </TabsContent>
+
+        <TabsContent value="prompts">
+          <PromptSettingsTab />
         </TabsContent>
 
         <TabsContent value="database">

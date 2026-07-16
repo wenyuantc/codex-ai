@@ -103,27 +103,41 @@ fn normalize_ai_optimize_prompt_field(value: Option<&str>) -> String {
 
 fn resolve_ai_optimize_prompt_scene(
     scene: &str,
-) -> Result<(&'static str, &'static str, &'static str), String> {
+    scene_override: Option<&crate::codex::AiPromptTemplate>,
+) -> Result<(String, String, String), String> {
+    if let Some(template) = scene_override {
+        let label = template.label.trim();
+        let output_goal = template.output_goal.trim();
+        let scene_requirement = template.scene_requirement.trim();
+        if !label.is_empty() && !output_goal.is_empty() && !scene_requirement.is_empty() {
+            return Ok((
+                label.to_string(),
+                output_goal.to_string(),
+                scene_requirement.to_string(),
+            ));
+        }
+    }
+
     match scene.trim() {
         "task_create" => Ok((
-            "新建任务",
-            "请输出一段适合作为任务详情的中文正文，帮助后续 AI / Codex 更准确地理解目标、范围、约束和预期产出。",
-            "可以补齐任务背景、目标、关键限制、验收期望，但不要伪造仓库细节或未提供的事实。",
+            "新建任务".to_string(),
+            "请输出一段适合作为任务详情的中文正文，帮助后续 AI / Codex 更准确地理解目标、范围、约束和预期产出。".to_string(),
+            "可以补齐任务背景、目标、关键限制、验收期望，但不要伪造仓库细节或未提供的事实。".to_string(),
         )),
         "task_continue" => Ok((
-            "任务继续对话",
-            "请输出一段适合作为续聊输入的中文正文，用于推动当前任务继续执行。",
-            "可以明确当前目标、下一步动作、需要重点检查的约束和期望反馈，让续聊内容更利于继续执行。",
+            "任务继续对话".to_string(),
+            "请输出一段适合作为续聊输入的中文正文，用于推动当前任务继续执行。".to_string(),
+            "可以明确当前目标、下一步动作、需要重点检查的约束和期望反馈，让续聊内容更利于继续执行。".to_string(),
         )),
         "session_continue" => Ok((
-            "Session 继续对话",
-            "请输出一段适合作为续聊输入的中文正文，用于在既有 Session 上继续推进工作。",
-            "可以结合 Session 摘要和关联任务，聚焦下一步动作、约束与期望结果，让续聊内容更便于延续上下文。",
+            "Session 继续对话".to_string(),
+            "请输出一段适合作为续聊输入的中文正文，用于在既有 Session 上继续推进工作。".to_string(),
+            "可以结合 Session 摘要和关联任务，聚焦下一步动作、约束与期望结果，让续聊内容更便于延续上下文。".to_string(),
         )),
         "employee_system_prompt" => Ok((
-            "员工系统提示词生成",
-            "请输出一段可直接作为 AI 员工 system prompt 使用的中文正文。",
-            "必须结合员工角色职责、专长方向和用户已填写的系统提示词草稿进行融合；如果项目上下文存在，要体现项目领域；如果信息不足，也要给出通用但可执行的员工系统提示词。",
+            "员工系统提示词生成".to_string(),
+            "请输出一段可直接作为 AI 员工 system prompt 使用的中文正文。".to_string(),
+            "必须结合员工角色职责、专长方向和用户已填写的系统提示词草稿进行融合；如果项目上下文存在，要体现项目领域；如果信息不足，也要给出通用但可执行的员工系统提示词。".to_string(),
         )),
         other => Err(format!("不支持的提示词优化场景: {}", other)),
     }
@@ -142,8 +156,10 @@ pub(super) fn build_ai_optimize_prompt_prompt(
     employee_role: Option<&str>,
     employee_specialization: Option<&str>,
     employee_draft_system_prompt: Option<&str>,
+    scene_override: Option<&crate::codex::AiPromptTemplate>,
 ) -> Result<String, String> {
-    let (scene_label, output_goal, scene_requirement) = resolve_ai_optimize_prompt_scene(scene)?;
+    let (scene_label, output_goal, scene_requirement) =
+        resolve_ai_optimize_prompt_scene(scene, scene_override)?;
 
     Ok(format!(
         "你是提示词优化助手。请基于给定的项目上下文和当前输入，直接输出一段已经优化好的中文提示词正文。\n\
@@ -197,6 +213,7 @@ pub(super) fn build_ai_generate_plan_prompt(
     task_status: &str,
     task_priority: &str,
     subtasks: &[String],
+    template_override: Option<&crate::codex::AiPromptTemplate>,
 ) -> String {
     build_ai_generate_plan_prompt_with_attachments(
         task_title,
@@ -205,6 +222,7 @@ pub(super) fn build_ai_generate_plan_prompt(
         task_priority,
         subtasks,
         &[],
+        template_override,
     )
 }
 
@@ -215,6 +233,7 @@ pub(super) fn build_ai_generate_plan_prompt_with_attachments(
     task_priority: &str,
     subtasks: &[String],
     attachments: &[String],
+    template_override: Option<&crate::codex::AiPromptTemplate>,
 ) -> String {
     let normalized_subtasks = subtasks
         .iter()
@@ -244,10 +263,8 @@ pub(super) fn build_ai_generate_plan_prompt_with_attachments(
             .join("\n")
     };
 
-    format!(
-        "你是任务规划助手。请基于给定任务信息输出一份接近 Codex /plan 风格的中文 Markdown 执行计划。\n\
-要求：\n\
-- 只返回 Markdown 正文，不要代码块，不要 JSON，不要额外客套\n\
+    let default_output_goal = "你是任务规划助手。请基于给定任务信息输出一份接近 Codex /plan 风格的中文 Markdown 执行计划。";
+    let default_scene_requirement = "- 只返回 Markdown 正文，不要代码块，不要 JSON，不要额外客套\n\
 - 需要修改/新增的文件代码关键变更\n\
 - 不要假装你已经读取仓库、查看文件、运行命令或完成验证；缺失信息请写入“风险与依赖”或“假设”\n\
 - 如果本次输入附带任务图片，也要把图片内容作为计划依据之一\n\
@@ -255,13 +272,29 @@ pub(super) fn build_ai_generate_plan_prompt_with_attachments(
 - 必须包含以下标题：# 标题、## 目标与范围、## 实施步骤、## 验收与验证、## 风险与依赖、## 假设\n\
 - “实施步骤”使用 1. 2. 3. 编号，步骤需要可执行、可验证，并吸收已有子任务中的有效信息\n\
 - 结合当前状态、优先级、任务描述和子任务安排顺序，避免空泛表述\n\
-- 如果信息不足，也要输出完整计划，并明确说明前提、依赖和缺口\n\n\
+- 如果信息不足，也要输出完整计划，并明确说明前提、依赖和缺口";
+
+    let output_goal = template_override
+        .map(|template| template.output_goal.trim())
+        .filter(|value| !value.is_empty())
+        .unwrap_or(default_output_goal);
+    let scene_requirement = template_override
+        .map(|template| template.scene_requirement.trim())
+        .filter(|value| !value.is_empty())
+        .unwrap_or(default_scene_requirement);
+
+    format!(
+        "{}\n\
+要求：\n\
+{}\n\n\
 任务标题：{}\n\
 当前状态：{}\n\
 当前优先级：{}\n\
 任务描述：{}\n\
 现有子任务：\n{}\n\
 附件列表：\n{}",
+        output_goal,
+        scene_requirement,
         task_title.trim(),
         task_status.trim(),
         task_priority.trim(),
@@ -272,6 +305,73 @@ pub(super) fn build_ai_generate_plan_prompt_with_attachments(
         },
         subtasks_block,
         attachment_block
+    )
+}
+
+pub(super) fn build_ai_generate_tester_acceptance_prompt(
+    task_title: &str,
+    task_description: &str,
+    task_status: &str,
+    task_priority: &str,
+    subtasks: &[String],
+    template_override: Option<&crate::codex::AiPromptTemplate>,
+) -> String {
+    let normalized_subtasks = subtasks
+        .iter()
+        .map(|value| value.trim())
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+        .collect::<Vec<_>>();
+
+    let subtasks_block = if normalized_subtasks.is_empty() {
+        "（暂无）".to_string()
+    } else {
+        normalized_subtasks
+            .iter()
+            .enumerate()
+            .map(|(index, title)| format!("{}. {}", index + 1, title))
+            .collect::<Vec<_>>()
+            .join("\n")
+    };
+
+    let default_output_goal =
+        "你是资深测试工程师。请基于给定任务信息输出一份中文验收/测试清单，供测试员执行验收。";
+    let default_scene_requirement = "- 只返回 Markdown 正文，不要代码块，不要 JSON，不要额外客套\n\
+- 必须包含以下标题：# 验收清单、## 验收目标、## 前置条件、## 功能验收项、## 边界与异常、## 回归关注点、## 通过标准\n\
+- “功能验收项”“边界与异常”使用可勾选的 `- [ ]` 列表，条目具体、可验证、可复现\n\
+- 结合任务标题、描述、当前状态、优先级和子任务，覆盖主流程与关键风险点\n\
+- 不要假装你已经打开应用、执行测试或查看仓库；缺失信息写入前置条件或通过标准中的假设\n\
+- 如果信息不足，也要输出完整清单，并明确说明待确认项";
+
+    let output_goal = template_override
+        .map(|template| template.output_goal.trim())
+        .filter(|value| !value.is_empty())
+        .unwrap_or(default_output_goal);
+    let scene_requirement = template_override
+        .map(|template| template.scene_requirement.trim())
+        .filter(|value| !value.is_empty())
+        .unwrap_or(default_scene_requirement);
+
+    format!(
+        "{}\n\
+要求：\n\
+{}\n\n\
+任务标题：{}\n\
+当前状态：{}\n\
+当前优先级：{}\n\
+任务描述：{}\n\
+现有子任务：\n{}",
+        output_goal,
+        scene_requirement,
+        task_title.trim(),
+        task_status.trim(),
+        task_priority.trim(),
+        if task_description.trim().is_empty() {
+            "（未填写）"
+        } else {
+            task_description.trim()
+        },
+        subtasks_block
     )
 }
 

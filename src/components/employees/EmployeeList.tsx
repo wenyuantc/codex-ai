@@ -1,6 +1,9 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useEmployeeStore } from "@/stores/employeeStore";
+import { useTaskStore } from "@/stores/taskStore";
 import { EmployeeCard } from "./EmployeeCard";
+
+const ACTIVE_TASK_STATUSES = new Set(["in_progress", "review"]);
 
 interface EmployeeListProps {
   projectId?: string;
@@ -14,11 +17,16 @@ export function EmployeeList({
   highlightedEmployeeNonce,
 }: EmployeeListProps) {
   const { employees, fetchEmployees } = useEmployeeStore();
+  const { tasks, fetchTasks } = useTaskStore();
   const [filter, setFilter] = useState<string>("all");
 
   useEffect(() => {
     void fetchEmployees();
   }, [fetchEmployees]);
+
+  useEffect(() => {
+    void fetchTasks(projectId);
+  }, [fetchTasks, projectId]);
 
   const projectEmployees = projectId
     ? employees.filter((employee) => employee.project_id === projectId)
@@ -26,6 +34,20 @@ export function EmployeeList({
   const filtered = filter === "all"
     ? projectEmployees
     : projectEmployees.filter((employee) => employee.status === filter);
+
+  const taskCountByEmployeeId = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const task of tasks) {
+      if (!task.assignee_id || !ACTIVE_TASK_STATUSES.has(task.status)) {
+        continue;
+      }
+      if (projectId && task.project_id !== projectId) {
+        continue;
+      }
+      counts.set(task.assignee_id, (counts.get(task.assignee_id) ?? 0) + 1);
+    }
+    return counts;
+  }, [projectId, tasks]);
 
   useEffect(() => {
     if (!highlightedEmployeeId || filter === "all") {
@@ -84,6 +106,7 @@ export function EmployeeList({
           <EmployeeCard
             key={emp.id}
             employee={emp}
+            taskCount={taskCountByEmployeeId.get(emp.id) ?? 0}
             highlighted={emp.id === highlightedEmployeeId}
           />
         ))}

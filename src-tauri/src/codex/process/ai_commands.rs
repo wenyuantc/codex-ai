@@ -3,16 +3,21 @@ use tauri::{AppHandle, Runtime};
 
 use super::{
     build_ai_generate_commit_message_prompt, build_ai_generate_plan_prompt,
-    build_ai_generate_plan_prompt_with_attachments, build_ai_optimize_prompt_prompt,
+    build_ai_generate_plan_prompt_with_attachments,
+    build_ai_generate_tester_acceptance_prompt, build_ai_optimize_prompt_prompt,
     parse_ai_subtasks_response, resolve_project_execution_context,
     resolve_task_project_execution_context, run_ai_command, ExecutionContext,
 };
 use crate::app::{
     fetch_employee_by_id, fetch_project_by_id, fetch_task_attachments, fetch_task_by_id,
-    fetch_task_subtasks, insert_activity_log, now_sqlite, sqlite_pool, task_attachment_is_image,
-    PROJECT_TYPE_SSH,
+    fetch_task_subtasks, insert_activity_log, new_id, now_sqlite, sqlite_pool,
+    task_attachment_is_image, PROJECT_TYPE_SSH,
 };
-use crate::codex::{load_codex_settings, load_remote_codex_settings};
+use crate::db::models::Employee;
+use crate::codex::{
+    find_ai_prompt_template, load_ai_prompt_templates, load_codex_settings,
+    load_remote_codex_settings,
+};
 
 const COMMIT_MESSAGE_PROCESS_TERMS: &[&str] =
     &["暂存", "已暂存", "工作区", "核对", "文件列表", "待提交文件"];
@@ -166,6 +171,57 @@ fn format_task_plan_generated_activity_details(
     )
 }
 
+fn format_tester_acceptance_generated_activity_details(
+    task_title: &str,
+    tester_name: &str,
+    provider: &str,
+    model: &str,
+    reasoning_effort: &str,
+    generated_at: &str,
+) -> String {
+    format!(
+        "任务：{}；测试员：{}；Provider：{}；模型：{}；推理等级：{}；生成时间：{}",
+        task_title, tester_name, provider, model, reasoning_effort, generated_at
+    )
+}
+
+fn format_tester_acceptance_comment(content: &str) -> String {
+    let trimmed = content.trim();
+    if trimmed.starts_with("[验收清单]") {
+        trimmed.to_string()
+    } else {
+        format!("[验收清单]\n{}", trimmed)
+    }
+}
+
+async fn resolve_tester_for_acceptance(
+    pool: &sqlx::SqlitePool,
+    task_reviewer_id: Option<&str>,
+    tester_id: Option<&str>,
+) -> Result<Employee, String> {
+    if let Some(tester_id) = tester_id.map(str::trim).filter(|value| !value.is_empty()) {
+        let tester = fetch_employee_by_id(pool, tester_id).await?;
+        if tester.role != "tester" {
+            return Err(format!("员工 {} 不是测试员角色，无法生成验收清单", tester.name));
+        }
+        return Ok(tester);
+    }
+
+    let Some(reviewer_id) = task_reviewer_id.map(str::trim).filter(|value| !value.is_empty())
+    else {
+        return Err("当前任务未指定测试员，请指定 tester_id 或将测试员设为审查员".to_string());
+    };
+
+    let tester = fetch_employee_by_id(pool, reviewer_id).await?;
+    if tester.role != "tester" {
+        return Err(format!(
+            "当前审查员 {} 不是测试员角色；请传入 tester_id 或指定测试员",
+            tester.name
+        ));
+    }
+    Ok(tester)
+}
+
 #[derive(Debug, Clone, Deserialize)]
 pub struct GenerateCoordinatorTaskPlanPayload {
     pub task_id: String,
@@ -174,6 +230,13 @@ pub struct GenerateCoordinatorTaskPlanPayload {
     pub description: Option<String>,
     pub status: String,
     pub priority: String,
+    pub working_dir: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct GenerateTesterAcceptancePayload {
+    pub task_id: String,
+    pub tester_id: Option<String>,
     pub working_dir: Option<String>,
 }
 
@@ -407,9 +470,23 @@ pub async fn ai_suggest_assignee(
     task_id: Option<String>,
     working_dir: Option<String>,
 ) -> Result<String, String> {
+    let templates = load_ai_prompt_templates(&app).unwrap_or_else(|_| {
+        crate::codex::default_ai_prompt_templates()
+    });
+    let template = find_ai_prompt_template(&templates, "suggest_assignee");
+    let output_goal = template
+        .map(|value| value.output_goal.as_str())
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or(
+            "Based on the following task description, suggest the best assignee from the employee list. If task images are attached, consider them as additional context.",
+        );
+    let scene_requirement = template
+        .map(|value| value.scene_requirement.as_str())
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or("Respond with just the employee ID and a brief reason.");
     let prompt = format!(
-        "Based on the following task description, suggest the best assignee from the employee list. If task images are attached, consider them as additional context.\n\nTask: {}\n\nEmployees: {}\n\nRespond with just the employee ID and a brief reason.",
-        task_description, employee_list
+        "{}\n\nTask: {}\n\nEmployees: {}\n\n{}",
+        output_goal, task_description, employee_list, scene_requirement
     );
     run_ai_command(
         &app,
@@ -491,12 +568,17 @@ pub async fn ai_generate_plan(
     task_id: Option<String>,
     working_dir: Option<String>,
 ) -> Result<String, String> {
+    let templates = load_ai_prompt_templates(&app).unwrap_or_else(|_| {
+        crate::codex::default_ai_prompt_templates()
+    });
+    let plan_template = find_ai_prompt_template(&templates, "coordinator_plan");
     let prompt = build_ai_generate_plan_prompt(
         &task_title,
         &task_description,
         &task_status,
         &task_priority,
         &subtasks,
+        plan_template,
     );
     run_ai_command(
         &app,
@@ -555,6 +637,10 @@ pub async fn ai_generate_coordinator_task_plan(
         .unwrap_or_else(|| task.description.as_deref().unwrap_or_default());
     let task_status = payload.status.trim();
     let task_priority = payload.priority.trim();
+    let templates = load_ai_prompt_templates(&app).unwrap_or_else(|_| {
+        crate::codex::default_ai_prompt_templates()
+    });
+    let plan_template = find_ai_prompt_template(&templates, "coordinator_plan");
     let prompt = build_ai_generate_plan_prompt_with_attachments(
         if task_title.is_empty() {
             &task.title
@@ -574,6 +660,7 @@ pub async fn ai_generate_coordinator_task_plan(
         },
         &subtask_titles,
         &attachment_items,
+        plan_template,
     );
     let image_paths = attachments
         .iter()
@@ -614,6 +701,99 @@ pub async fn ai_generate_coordinator_task_plan(
     .await?;
 
     Ok(result)
+}
+
+#[tauri::command]
+pub async fn ai_generate_tester_acceptance(
+    app: AppHandle,
+    payload: GenerateTesterAcceptancePayload,
+) -> Result<String, String> {
+    let pool = sqlite_pool(&app).await?;
+    let task = fetch_task_by_id(&pool, &payload.task_id).await?;
+    let tester = resolve_tester_for_acceptance(
+        &pool,
+        task.reviewer_id.as_deref(),
+        payload.tester_id.as_deref(),
+    )
+    .await?;
+
+    let project = fetch_project_by_id(&pool, &task.project_id).await?;
+    if project.project_type == PROJECT_TYPE_SSH && tester.ai_provider == "opencode" {
+        return Err(format!(
+            "测试员 {} 配置为 OpenCode，但 SSH 项目暂不支持 OpenCode 一次性 AI，请改用 Codex 或 Claude",
+            tester.name
+        ));
+    }
+
+    let subtasks = fetch_task_subtasks(&pool, &task.id).await?;
+    let subtask_titles = subtasks
+        .iter()
+        .map(|subtask| subtask.title.clone())
+        .collect::<Vec<_>>();
+    let templates = load_ai_prompt_templates(&app).unwrap_or_else(|_| {
+        crate::codex::default_ai_prompt_templates()
+    });
+    let acceptance_template = find_ai_prompt_template(&templates, "tester_acceptance");
+    let prompt = build_ai_generate_tester_acceptance_prompt(
+        &task.title,
+        task.description.as_deref().unwrap_or_default(),
+        &task.status,
+        &task.priority,
+        &subtask_titles,
+        acceptance_template,
+    );
+
+    let result = run_ai_command(
+        &app,
+        prompt,
+        None,
+        Some(task.id.clone()),
+        Some(task.project_id.clone()),
+        payload.working_dir,
+        Some(tester.ai_provider.clone()),
+        Some(tester.model.clone()),
+        Some(tester.reasoning_effort.clone()),
+    )
+    .await?;
+
+    let comment_content = format_tester_acceptance_comment(&result);
+    if comment_content.trim() == "[验收清单]" {
+        return Err("测试员未返回可用的验收清单".to_string());
+    }
+
+    let comment_id = new_id();
+    sqlx::query(
+        "INSERT INTO comments (id, task_id, employee_id, content, is_ai_generated) VALUES ($1, $2, $3, $4, $5)",
+    )
+    .bind(&comment_id)
+    .bind(&task.id)
+    .bind(&tester.id)
+    .bind(&comment_content)
+    .bind(1_i64)
+    .execute(&pool)
+    .await
+    .map_err(|error| format!("Failed to save tester acceptance comment: {}", error))?;
+
+    let generated_at = now_sqlite();
+    let details = format_tester_acceptance_generated_activity_details(
+        &task.title,
+        &tester.name,
+        &tester.ai_provider,
+        &tester.model,
+        &tester.reasoning_effort,
+        &generated_at,
+    );
+    insert_activity_log(
+        &pool,
+        "task_tester_acceptance_generated",
+        &details,
+        Some(&tester.id),
+        Some(&task.id),
+        Some(&task.project_id),
+    )
+    .await?;
+
+    Ok(comment_content)
 }
 
 #[tauri::command]
@@ -675,6 +855,10 @@ pub async fn ai_optimize_prompt(
     employee_specialization: Option<String>,
     employee_draft_system_prompt: Option<String>,
 ) -> Result<String, String> {
+    let templates = load_ai_prompt_templates(&app).unwrap_or_else(|_| {
+        crate::codex::default_ai_prompt_templates()
+    });
+    let scene_template = find_ai_prompt_template(&templates, &scene);
     let prompt = build_ai_optimize_prompt_prompt(
         &scene,
         &project_name,
@@ -688,6 +872,7 @@ pub async fn ai_optimize_prompt(
         employee_role.as_deref(),
         employee_specialization.as_deref(),
         employee_draft_system_prompt.as_deref(),
+        scene_template,
     )?;
 
     let result = run_ai_command(
@@ -703,7 +888,15 @@ pub async fn ai_optimize_prompt(
     )
     .await?;
 
-    let scene_label = resolve_ai_optimize_prompt_scene_label(&scene)?;
+    let scene_label = scene_template
+        .map(|template| template.label.as_str())
+        .filter(|label| !label.trim().is_empty())
+        .map(str::to_string)
+        .unwrap_or_else(|| {
+            resolve_ai_optimize_prompt_scene_label(&scene)
+                .unwrap_or("提示词优化")
+                .to_string()
+        });
     let (resolved_project_id, model, reasoning_effort) =
         resolve_ai_optimize_prompt_activity_context(
             &app,
@@ -714,7 +907,7 @@ pub async fn ai_optimize_prompt(
     let generated_at = now_sqlite();
     let details = format_ai_optimize_prompt_activity_details(
         &project_name,
-        scene_label,
+        &scene_label,
         &model,
         &reasoning_effort,
         &generated_at,
@@ -742,16 +935,34 @@ pub async fn ai_split_subtasks(
     task_id: Option<String>,
     working_dir: Option<String>,
 ) -> Result<Vec<String>, String> {
-    let prompt = format!(
-        "你是任务拆分助手。请根据任务标题和描述拆分 3 到 8 个可执行、可验证、粒度适中的子任务。\n\
-要求：\n\
-- 只返回 JSON，不要 Markdown，不要额外解释\n\
-- 返回格式必须是 {{\"subtasks\":[\"子任务1\",\"子任务2\"]}}\n\
+    let templates = load_ai_prompt_templates(&app).unwrap_or_else(|_| {
+        crate::codex::default_ai_prompt_templates()
+    });
+    let template = find_ai_prompt_template(&templates, "generate_subtasks");
+    let output_goal = template
+        .map(|value| value.output_goal.as_str())
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or(
+            "你是任务拆分助手。请根据任务标题和描述拆分 3 到 8 个可执行、可验证、粒度适中的子任务。",
+        );
+    let scene_requirement = template
+        .map(|value| value.scene_requirement.as_str())
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or(
+            "- 只返回 JSON，不要 Markdown，不要额外解释\n\
+- 返回格式必须是 {\"subtasks\":[\"子任务1\",\"子任务2\"]}\n\
 - 每个子任务一句话，使用中文，避免重复和空泛表述\n\
 - 如果本次输入附带图片，也要结合图片内容拆分任务\n\
-- 如果描述信息有限，也基于现有信息给出合理拆分\n\n\
+- 如果描述信息有限，也基于现有信息给出合理拆分",
+        );
+    let prompt = format!(
+        "{}\n\
+要求：\n\
+{}\n\n\
 任务标题：{}\n\
 任务描述：{}",
+        output_goal,
+        scene_requirement,
         task_title.trim(),
         task_description.trim()
     );

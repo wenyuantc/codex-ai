@@ -6,7 +6,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use super::{
     attach_session_file_change_details, build_ai_generate_commit_message_prompt,
     build_ai_generate_plan_prompt, build_ai_generate_plan_prompt_with_attachments,
-    build_ai_optimize_prompt_prompt, build_one_shot_exec_args, build_remote_codex_session_command,
+    build_ai_generate_tester_acceptance_prompt, build_ai_optimize_prompt_prompt,
+    build_one_shot_exec_args, build_remote_codex_session_command,
     build_remote_sdk_bridge_command, build_session_exec_args, commit_message_uses_process_language,
     compose_codex_prompt, compute_execution_session_file_changes_from_entries,
     detect_exec_json_output_flag, extract_review_report, extract_review_verdict,
@@ -476,6 +477,7 @@ fn builds_plan_prompt_with_required_sections_and_context() {
             "补前端预览".to_string(),
             "补插入确认弹框".to_string(),
         ],
+        None,
     );
 
     assert!(prompt.contains("# 标题"));
@@ -494,6 +496,30 @@ fn builds_plan_prompt_with_required_sections_and_context() {
 }
 
 #[test]
+fn builds_tester_acceptance_prompt_with_required_sections() {
+    let prompt = build_ai_generate_tester_acceptance_prompt(
+        "登录页记住我",
+        "用户勾选记住我后刷新仍保持登录。",
+        "review",
+        "medium",
+        &["校验 Cookie 过期".to_string(), "覆盖未勾选场景".to_string()],
+        None,
+    );
+
+    assert!(prompt.contains("# 验收清单"));
+    assert!(prompt.contains("## 验收目标"));
+    assert!(prompt.contains("## 前置条件"));
+    assert!(prompt.contains("## 功能验收项"));
+    assert!(prompt.contains("## 边界与异常"));
+    assert!(prompt.contains("## 回归关注点"));
+    assert!(prompt.contains("## 通过标准"));
+    assert!(prompt.contains("- [ ]"));
+    assert!(prompt.contains("任务标题：登录页记住我"));
+    assert!(prompt.contains("1. 校验 Cookie 过期"));
+    assert!(prompt.contains("2. 覆盖未勾选场景"));
+}
+
+#[test]
 fn builds_plan_prompt_with_attachment_metadata() {
     let prompt = build_ai_generate_plan_prompt_with_attachments(
         "为任务补协调员计划",
@@ -505,6 +531,7 @@ fn builds_plan_prompt_with_attachment_metadata() {
             "接口说明.md（类型：text/markdown；大小：1024 bytes）".to_string(),
             "design.png（类型：image/png；大小：2048 bytes）".to_string(),
         ],
+        None,
     );
 
     assert!(prompt.contains("附件列表："));
@@ -608,6 +635,7 @@ fn builds_task_create_optimized_prompt_with_project_context() {
         None,
         None,
         None,
+        None,
     )
     .expect("should build task_create prompt");
 
@@ -633,6 +661,7 @@ fn builds_task_continue_optimized_prompt_with_follow_up_context() {
         Some("当前任务需要补充前端交互"),
         Some("继续完成 AI 优化提示词能力，并补上错误提示"),
         Some("看板新建任务支持 AI 优化提示词"),
+        None,
         None,
         None,
         None,
@@ -664,6 +693,7 @@ fn builds_session_continue_optimized_prompt_with_empty_placeholders() {
         None,
         None,
         None,
+        None,
     )
     .expect("should build session_continue prompt");
 
@@ -692,6 +722,7 @@ fn builds_employee_system_prompt_with_role_specialization_and_draft() {
         Some("reviewer"),
         Some("代码审查、质量把关"),
         Some("你需要对前端改动保持严格审查"),
+        None,
     )
     .expect("should build employee_system_prompt prompt");
 
@@ -708,6 +739,7 @@ fn builds_employee_system_prompt_with_empty_placeholders() {
     let prompt = build_ai_optimize_prompt_prompt(
         "employee_system_prompt",
         "通用 AI 员工",
+        None,
         None,
         None,
         None,
