@@ -10,6 +10,7 @@ import type {
 } from "@/lib/types";
 import {
   aiGenerateCoordinatorTaskPlan,
+  aiGenerateTesterAcceptance,
   getTaskGitCommitOverview,
   stageAllTaskGitFiles,
 } from "@/lib/backend";
@@ -29,12 +30,14 @@ import {
   Archive,
   CircleCheckBig,
   Bot,
+  ClipboardCheck,
   Clock,
   FolderKanban,
   GitBranch,
   GripVertical,
   Loader2,
   MessageSquarePlus,
+  Network,
   Play,
   RotateCcw,
   ScrollText,
@@ -141,6 +144,7 @@ export function TaskCard({
   const [coordinatorPlanError, setCoordinatorPlanError] = useState<string | null>(null);
   const [coordinatorPlanLogs, setCoordinatorPlanLogs] = useState<string[]>([]);
   const [coordinatorPlanTerminalVisible, setCoordinatorPlanTerminalVisible] = useState(false);
+  const [testerAcceptanceLoading, setTesterAcceptanceLoading] = useState(false);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
   const [timerNow, setTimerNow] = useState(() => Date.now());
   const executionStartErrorRef = useRef<string | null>(null);
@@ -158,9 +162,15 @@ export function TaskCard({
   const deleteTask = useTaskStore((s) => s.deleteTask);
   const updateTask = useTaskStore((s) => s.updateTask);
   const updateTaskStatus = useTaskStore((s) => s.updateTaskStatus);
+  const fetchComments = useTaskStore((s) => s.fetchComments);
   const assignee = task.assignee_id ? employees.find((employee) => employee.id === task.assignee_id) : undefined;
   const reviewer = task.reviewer_id ? employees.find((employee) => employee.id === task.reviewer_id) : undefined;
   const coordinator = task.coordinator_id ? employees.find((employee) => employee.id === task.coordinator_id) : undefined;
+  const projectTesters = employees.filter(
+    (employee) => employee.role === "tester" && employee.project_id === task.project_id,
+  );
+  const reviewerIsTester = Boolean(reviewer && reviewer.role === "tester");
+  const canGenerateTesterAcceptance = reviewerIsTester || projectTesters.length > 0;
   const automationState = getTaskAutomationDisplayState(task, persistedAutomationState ?? null);
   const appendCoordinatorPlanLog = (line: string) => {
     setCoordinatorPlanLogs((current) => [
@@ -404,8 +414,8 @@ export function TaskCard({
     e.preventDefault();
     e.stopPropagation();
     setContextMenu({
-      x: Math.max(8, Math.min(e.clientX, window.innerWidth - 184)),
-      y: Math.max(8, Math.min(e.clientY, window.innerHeight - 120)),
+      x: Math.max(8, Math.min(e.clientX, window.innerWidth - 200)),
+      y: Math.max(8, Math.min(e.clientY, window.innerHeight - 160)),
     });
   };
 
@@ -529,6 +539,30 @@ export function TaskCard({
     setCoordinatorPlanDialogOpen(true);
     if (!existingPlan) {
       await generateCoordinatorPlan();
+    }
+  };
+
+  const handleGenerateTesterAcceptance = async () => {
+    setContextMenu(null);
+    const testerId = reviewerIsTester
+      ? task.reviewer_id
+      : projectTesters[0]?.id ?? null;
+    if (!testerId) {
+      return;
+    }
+
+    setTesterAcceptanceLoading(true);
+    try {
+      await aiGenerateTesterAcceptance({
+        task_id: task.id,
+        tester_id: testerId,
+        working_dir: projectRepoPath ?? null,
+      });
+      await fetchComments(task.id);
+    } catch (error) {
+      console.error("Failed to generate tester acceptance checklist:", error);
+    } finally {
+      setTesterAcceptanceLoading(false);
     }
   };
 
@@ -732,6 +766,28 @@ export function TaskCard({
                   {gitContextBadge.label}
                 </span>
               )}
+              {task.coordinator_id && (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    void openCoordinatorPlanFlow();
+                  }}
+                  className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 text-[11px] text-primary hover:bg-primary/20"
+                  title={coordinator ? `协调员：${coordinator.name} · 打开协调员计划` : "打开协调员计划"}
+                >
+                  <Network className="h-3 w-3" />
+                  协调员计划
+                </button>
+              )}
+              {task.status === "blocked" && (
+                <span
+                  className="inline-flex items-center gap-1 rounded-full bg-amber-500/10 px-2 py-0.5 text-[11px] text-amber-800 dark:text-amber-100"
+                  title="任务已阻塞，建议指定协调员并生成协调员计划"
+                >
+                  阻塞·建议协调
+                </span>
+              )}
             </div>
             <div className="flex items-center justify-between mt-1.5 text-xs text-muted-foreground">
               <div className="flex flex-col gap-0.5">
@@ -842,7 +898,7 @@ export function TaskCard({
             onMouseDown={() => setContextMenu(null)}
           />
           <div
-            className="fixed z-50 w-44 rounded-lg border border-border bg-popover p-1 shadow-lg"
+            className="fixed z-50 w-48 rounded-lg border border-border bg-popover p-1 shadow-lg"
             style={{ left: contextMenu.x, top: contextMenu.y }}
             role="menu"
             aria-label={`${task.title} 操作菜单`}
@@ -927,6 +983,36 @@ export function TaskCard({
                   继续对话
                 </button>
               </>
+            )}
+            {task.coordinator_id && (
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  setContextMenu(null);
+                  void openCoordinatorPlanFlow();
+                }}
+                className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-left hover:bg-accent hover:text-accent-foreground"
+              >
+                <Network className="h-4 w-4" />
+                协调员计划
+              </button>
+            )}
+            {canGenerateTesterAcceptance && (
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => void handleGenerateTesterAcceptance()}
+                disabled={testerAcceptanceLoading}
+                className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-left hover:bg-accent hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-50"
+              >
+                {testerAcceptanceLoading ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <ClipboardCheck className="h-4 w-4" />
+                )}
+                {testerAcceptanceLoading ? "生成中…" : "生成验收清单"}
+              </button>
             )}
             <button
               type="button"

@@ -12,6 +12,7 @@ import type {
 } from "@/lib/types";
 import {
   aiGenerateCoordinatorTaskPlan,
+  aiGenerateTesterAcceptance,
   prepareTaskGitExecution,
   getCodexSessionFileChangeDetail,
   getTaskExecutionChangeHistory,
@@ -82,6 +83,7 @@ export function TaskDetailDialog({
     addComment,
     fetchAttachments,
     fetchSubtasks,
+    fetchComments,
     fetchTaskAutomationState,
     addTaskAttachments,
     deleteTaskAttachment,
@@ -143,6 +145,9 @@ export function TaskDetailDialog({
   const [coordinatorPlanError, setCoordinatorPlanError] = useState<string | null>(null);
   const [coordinatorPlanLogs, setCoordinatorPlanLogs] = useState<string[]>([]);
   const [coordinatorPlanTerminalVisible, setCoordinatorPlanTerminalVisible] = useState(false);
+  const [testerAcceptanceLoading, setTesterAcceptanceLoading] = useState(false);
+  const [testerAcceptanceError, setTesterAcceptanceError] = useState<string | null>(null);
+  const [testerAcceptanceNotice, setTesterAcceptanceNotice] = useState<string | null>(null);
   const latestReviewRequestIdRef = useRef(0);
   const executionChangeDetailRequestIdRef = useRef(0);
   const taskIdCopyResetTimerRef = useRef<number | null>(null);
@@ -154,6 +159,17 @@ export function TaskDetailDialog({
   const coordinator = coordinatorId ? employees.find((employee) => employee.id === coordinatorId) : undefined;
   const coordinatorCandidates = employees.filter((employee) => employee.role === "coordinator");
   const reviewerCandidates = employees.filter((employee) => employee.role === "reviewer");
+  const projectTesters = employees.filter(
+    (employee) => employee.role === "tester" && employee.project_id === task.project_id,
+  );
+  const reviewerIsTester = Boolean(reviewer && reviewer.role === "tester");
+  const canGenerateTesterAcceptance = reviewerIsTester || projectTesters.length > 0;
+  const resolveTesterIdForAcceptance = () => {
+    if (reviewerIsTester && reviewerId) {
+      return reviewerId;
+    }
+    return projectTesters[0]?.id ?? null;
+  };
   const planContentHasChanges = planContentDraft !== planContent;
   const appendCoordinatorPlanLog = (line: string) => {
     setCoordinatorPlanLogs((current) => [
@@ -309,6 +325,9 @@ export function TaskDetailDialog({
     setCoordinatorPlanError(null);
     setCoordinatorPlanLogs([]);
     setCoordinatorPlanTerminalVisible(false);
+    setTesterAcceptanceLoading(false);
+    setTesterAcceptanceError(null);
+    setTesterAcceptanceNotice(null);
     setPlanContentDraft(task.plan_content ?? "");
     setPlanContentEditing(false);
     setPlanContentSaving(false);
@@ -567,6 +586,34 @@ export function TaskDetailDialog({
     setCoordinatorPlanDialogOpen(true);
     if (!existingPlan) {
       await generateCoordinatorPlan();
+    }
+  };
+
+  const handleGenerateTesterAcceptance = async () => {
+    const testerId = resolveTesterIdForAcceptance();
+    if (!testerId) {
+      setTesterAcceptanceError("当前项目没有可用的测试员，无法生成验收清单。");
+      setTesterAcceptanceNotice(null);
+      return;
+    }
+
+    setTesterAcceptanceLoading(true);
+    setTesterAcceptanceError(null);
+    setTesterAcceptanceNotice(null);
+    try {
+      const checklist = await aiGenerateTesterAcceptance({
+        task_id: task.id,
+        tester_id: testerId,
+        working_dir: projectRepoPath ?? null,
+      });
+      await fetchComments(task.id);
+      setTesterAcceptanceNotice(
+        `验收清单已生成并写入评论（共 ${checklist.trim().length} 字）。可在「协作」页查看。`,
+      );
+    } catch (error) {
+      setTesterAcceptanceError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setTesterAcceptanceLoading(false);
     }
   };
 
@@ -942,6 +989,7 @@ export function TaskDetailDialog({
                 assigneeId={assigneeId}
                 reviewerId={reviewerId}
                 coordinatorId={coordinatorId}
+                coordinatorName={coordinator?.name}
                 createdAt={task.created_at}
                 timeStartedAt={task.time_started_at}
                 timeSpentSeconds={task.time_spent_seconds}
@@ -957,6 +1005,10 @@ export function TaskDetailDialog({
                 saveError={saveError}
                 isRunning={isRunning || isReviewRunning}
                 deletingTask={deletingTask}
+                canGenerateTesterAcceptance={canGenerateTesterAcceptance}
+                testerAcceptanceLoading={testerAcceptanceLoading}
+                testerAcceptanceError={testerAcceptanceError}
+                testerAcceptanceNotice={testerAcceptanceNotice}
                 onTitleChange={setTitle}
                 onTitleBlur={() => void handleSave("title", title)}
                 onDescriptionChange={setDescription}
@@ -981,6 +1033,8 @@ export function TaskDetailDialog({
                   setCoordinatorId(value);
                   void handleSave("coordinator_id", value);
                 }}
+                onOpenCoordinatorPlan={() => void openCoordinatorPlanFlow()}
+                onGenerateTesterAcceptance={() => void handleGenerateTesterAcceptance()}
                 onPlanEditStart={handleStartPlanContentEdit}
                 onPlanEditCancel={handleCancelPlanContentEdit}
                 onPlanDraftChange={setPlanContentDraft}

@@ -37,10 +37,18 @@ import {
 } from "./openCodeModelSelection";
 
 const EMPLOYEE_ROLE_OPTIONS = [
-  { value: "developer", label: "开发者" },
-  { value: "reviewer", label: "审查员" },
-  { value: "tester", label: "测试员" },
-  { value: "coordinator", label: "协调员" },
+  { value: "developer", label: "开发者", hint: "负责实现任务、编写代码并推进执行。" },
+  { value: "reviewer", label: "审查员", hint: "负责代码审核，输出问题与修复建议。" },
+  {
+    value: "tester",
+    label: "测试员",
+    hint: "负责验收测试；可为任务生成中文验收清单，并协助验证完成标准。",
+  },
+  {
+    value: "coordinator",
+    label: "协调员",
+    hint: "负责任务拆解与执行计划；阻塞时可介入协调，生成协调员计划交由开发执行。",
+  },
 ] as const;
 
 const NO_PROJECT_VALUE = "__no_project__";
@@ -209,6 +217,9 @@ export function CreateEmployeeDialog({
                   ))}
                 </SelectContent>
               </Select>
+              <p className="mt-1.5 text-[11px] leading-relaxed text-muted-foreground">
+                {EMPLOYEE_ROLE_OPTIONS.find((option) => option.value === role)?.hint}
+              </p>
             </div>
 
             <div>

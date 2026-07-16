@@ -13,7 +13,7 @@ export function TrashedTaskList() {
 
   if (trashedTasks.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center gap-3 py-20 text-zinc-400">
+      <div className="flex flex-col items-center justify-center gap-3 py-20 text-muted-foreground">
         <Trash2 className="h-12 w-12" />
         <p className="text-sm">回收站为空</p>
       </div>
@@ -48,16 +48,16 @@ export function TrashedTaskList() {
         {trashedTasks.map((task) => (
           <div
             key={task.id}
-            className="flex items-center justify-between rounded-lg border border-black/10 bg-white px-4 py-3 dark:border-white/10 dark:bg-zinc-900"
+            className="flex items-center justify-between rounded-lg border border-border bg-card px-4 py-3"
           >
             <div className="min-w-0 flex-1">
-              <p className="truncate text-sm font-medium text-zinc-900 dark:text-white">
+              <p className="truncate text-sm font-medium text-foreground">
                 {task.title}
               </p>
-              <p className="text-xs text-zinc-500">
+              <p className="text-xs text-muted-foreground">
                 删除于 {timeAgo(task.deleted_at)}
                 {task.status && (
-                  <span className="ml-2 rounded bg-zinc-100 px-1.5 py-0.5 text-xs dark:bg-zinc-800">
+                  <span className="ml-2 rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
                     {getStatusLabel(task.status)}
                   </span>
                 )}

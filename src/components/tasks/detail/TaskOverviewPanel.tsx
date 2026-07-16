@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect, useState } from "react";
-import { Clock, Pencil, Save, Trash2, X } from "lucide-react";
+import { AlertTriangle, ClipboardCheck, Clock, Network, Pencil, Save, Trash2, X } from "lucide-react";
 
 import type { Employee, TaskStatus } from "@/lib/types";
 import { ACTIVE_TASK_STATUSES, PRIORITIES, TASK_STATUSES } from "@/lib/types";
@@ -26,6 +26,7 @@ interface TaskOverviewPanelProps {
   assigneeId: string;
   reviewerId: string;
   coordinatorId: string;
+  coordinatorName?: string;
   createdAt: string;
   timeStartedAt: string | null;
   timeSpentSeconds: number;
@@ -41,6 +42,10 @@ interface TaskOverviewPanelProps {
   saveError: string | null;
   isRunning: boolean;
   deletingTask: boolean;
+  canGenerateTesterAcceptance?: boolean;
+  testerAcceptanceLoading?: boolean;
+  testerAcceptanceError?: string | null;
+  testerAcceptanceNotice?: string | null;
   onTitleChange: (value: string) => void;
   onTitleBlur: () => void;
   onDescriptionChange: (value: string) => void;
@@ -50,6 +55,8 @@ interface TaskOverviewPanelProps {
   onAssigneeChange: (value: string) => void;
   onReviewerChange: (value: string) => void;
   onCoordinatorChange: (value: string) => void;
+  onOpenCoordinatorPlan?: () => void;
+  onGenerateTesterAcceptance?: () => void;
   onPlanEditStart: () => void;
   onPlanEditCancel: () => void;
   onPlanDraftChange: (value: string) => void;
@@ -73,6 +80,7 @@ export function TaskOverviewPanel({
   assigneeId,
   reviewerId,
   coordinatorId,
+  coordinatorName,
   createdAt,
   timeStartedAt,
   timeSpentSeconds,
@@ -88,6 +96,10 @@ export function TaskOverviewPanel({
   saveError,
   isRunning,
   deletingTask,
+  canGenerateTesterAcceptance = false,
+  testerAcceptanceLoading = false,
+  testerAcceptanceError = null,
+  testerAcceptanceNotice = null,
   onTitleChange,
   onTitleBlur,
   onDescriptionChange,
@@ -97,6 +109,8 @@ export function TaskOverviewPanel({
   onAssigneeChange,
   onReviewerChange,
   onCoordinatorChange,
+  onOpenCoordinatorPlan,
+  onGenerateTesterAcceptance,
   onPlanEditStart,
   onPlanEditCancel,
   onPlanDraftChange,
@@ -290,6 +304,84 @@ export function TaskOverviewPanel({
           <Trash2 className="h-4 w-4" />
         </button>
       </div>
+
+      {status === "blocked" && (
+        <div className="flex items-start gap-2 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-900 dark:text-amber-100">
+          <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+          <span>
+            任务已阻塞。建议指定协调员并打开「协调员计划」，拆解阻塞点后再交给执行员工推进。
+            {!coordinatorId && coordinatorCandidates.length > 0
+              ? " 当前项目已有协调员可选。"
+              : !coordinatorId
+                ? " 当前尚未指定协调员。"
+                : ` 当前协调员：${coordinatorName ?? "已指定"}。`}
+          </span>
+        </div>
+      )}
+
+      {coordinatorId && onOpenCoordinatorPlan && (
+        <section className="rounded-md border border-border bg-muted/20 p-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="space-y-1">
+              <div className="flex items-center gap-2 text-sm font-medium text-foreground">
+                <Network className="h-4 w-4 text-primary" />
+                协调员计划
+              </div>
+              <p className="text-[11px] text-muted-foreground">
+                {coordinatorName
+                  ? `由 ${coordinatorName} 生成执行计划，确认后交给指派员工执行。`
+                  : "已指定协调员。可生成或查看协调员执行计划。"}
+                {planContent.trim()
+                  ? " 任务中已保存一份计划内容。"
+                  : " 当前还没有保存的协调员计划。"}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={onOpenCoordinatorPlan}
+              className="inline-flex h-8 items-center gap-1.5 rounded-md border border-input bg-background px-3 text-xs font-medium hover:bg-accent"
+            >
+              <Network className="h-3.5 w-3.5" />
+              {planContent.trim() ? "查看协调员计划" : "生成协调员计划"}
+            </button>
+          </div>
+        </section>
+      )}
+
+      {canGenerateTesterAcceptance && onGenerateTesterAcceptance && (
+        <section className="rounded-md border border-border bg-muted/20 p-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="space-y-1">
+              <div className="flex items-center gap-2 text-sm font-medium text-foreground">
+                <ClipboardCheck className="h-4 w-4 text-primary" />
+                验收清单
+              </div>
+              <p className="text-[11px] text-muted-foreground">
+                由测试员基于任务标题、描述与子任务生成中文验收清单，结果会写入任务评论（前缀「[验收清单]」）。
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={onGenerateTesterAcceptance}
+              disabled={testerAcceptanceLoading}
+              className="inline-flex h-8 items-center gap-1.5 rounded-md border border-input bg-background px-3 text-xs font-medium hover:bg-accent disabled:opacity-50"
+            >
+              <ClipboardCheck className="h-3.5 w-3.5" />
+              {testerAcceptanceLoading ? "生成中…" : "生成验收清单"}
+            </button>
+          </div>
+          {testerAcceptanceError && (
+            <div className="mt-2 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+              {testerAcceptanceError}
+            </div>
+          )}
+          {testerAcceptanceNotice && !testerAcceptanceError && (
+            <div className="mt-2 rounded-md border border-border bg-background/70 px-3 py-2 text-xs text-muted-foreground">
+              {testerAcceptanceNotice}
+            </div>
+          )}
+        </section>
+      )}
 
       <section className="rounded-md border border-border bg-muted/20 p-3">
         <div className="mb-2 flex items-center gap-2 text-xs font-medium text-muted-foreground">

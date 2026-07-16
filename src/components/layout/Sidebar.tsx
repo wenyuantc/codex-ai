@@ -44,10 +44,10 @@ export function Sidebar() {
         collapsed ? "w-16" : "w-56"
       )}
     >
-      <div className="flex h-14 items-center gap-2 border-b border-black/8 px-4 text-zinc-900 dark:border-white/10 dark:text-white">
+      <div className="flex h-14 items-center gap-2 border-b border-sidebar-border px-4 text-sidebar-foreground">
         <Bot className="h-6 w-6 text-sidebar-primary shrink-0" />
         {!collapsed && (
-          <span className="truncate text-sm font-semibold tracking-tight text-zinc-900 dark:text-white">
+          <span className="truncate text-sm font-semibold tracking-tight text-sidebar-foreground">
             AI员工协作系统
           </span>
         )}
@@ -65,8 +65,8 @@ export function Sidebar() {
               cn(
                 "flex items-center gap-3 px-3 py-2 rounded-md text-sm transition-colors",
                 isActive
-                  ? "bg-zinc-900 text-white font-medium dark:bg-white dark:text-zinc-900"
-                  : "text-zinc-600 hover:bg-black/5 hover:text-zinc-900 dark:text-white/72 dark:hover:bg-white/8 dark:hover:text-white"
+                  ? "bg-sidebar-primary text-sidebar-primary-foreground font-medium"
+                  : "text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
               )
             }
           >
@@ -77,7 +77,13 @@ export function Sidebar() {
               <>
                 <span className="flex-1 truncate">{item.label}</span>
                 {shortcut && (
-                  <Kbd variant="subtle" size="xs" className={isActive ? "text-white dark:text-zinc-900" : ""}>{shortcutDisplay(shortcut)}</Kbd>
+                  <Kbd
+                    variant="subtle"
+                    size="xs"
+                    className={isActive ? "text-sidebar-primary-foreground" : ""}
+                  >
+                    {shortcutDisplay(shortcut)}
+                  </Kbd>
                 )}
               </>
             )}
@@ -88,10 +94,10 @@ export function Sidebar() {
         })}
       </nav>
 
-      <div className="border-t border-black/8 p-2 dark:border-white/10">
+      <div className="border-t border-sidebar-border p-2">
         <button
           onClick={() => setCollapsed(!collapsed)}
-          className="flex w-full items-center justify-center rounded-md px-3 py-2 text-zinc-600 transition-colors hover:bg-black/5 hover:text-zinc-900 dark:text-white/72 dark:hover:bg-white/8 dark:hover:text-white"
+          className="flex w-full items-center justify-center rounded-md px-3 py-2 text-sidebar-foreground/70 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
         >
           {collapsed ? (
             <ChevronRight className="h-4 w-4" />

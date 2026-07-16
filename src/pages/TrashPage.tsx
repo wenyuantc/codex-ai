@@ -29,23 +29,23 @@ export function TrashPage() {
   return (
     <div className="flex flex-col gap-6 p-6">
       <div className="flex items-center gap-3">
-        <Trash2 className="h-6 w-6 text-zinc-500" />
-        <h1 className="text-xl font-semibold text-zinc-900 dark:text-white">回收站</h1>
+        <Trash2 className="h-6 w-6 text-muted-foreground" />
+        <h1 className="text-xl font-semibold text-foreground">回收站</h1>
       </div>
 
-      <div className="flex gap-2 border-b border-black/10 dark:border-white/10">
+      <div className="flex gap-2 border-b border-border">
         <button
           type="button"
           onClick={() => switchTab("tasks")}
           className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
             tab === "tasks"
-              ? "border-zinc-900 text-zinc-900 dark:border-white dark:text-white"
-              : "border-transparent text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300"
+              ? "border-foreground text-foreground"
+              : "border-transparent text-muted-foreground hover:text-foreground"
           }`}
         >
           已删除任务
           {trashedTasks.length > 0 && (
-            <span className="ml-1.5 rounded-full bg-zinc-200 px-1.5 py-0.5 text-xs dark:bg-zinc-700">
+            <span className="ml-1.5 rounded-full bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
               {trashedTasks.length}
             </span>
           )}
@@ -55,13 +55,13 @@ export function TrashPage() {
           onClick={() => switchTab("projects")}
           className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
             tab === "projects"
-              ? "border-zinc-900 text-zinc-900 dark:border-white dark:text-white"
-              : "border-transparent text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300"
+              ? "border-foreground text-foreground"
+              : "border-transparent text-muted-foreground hover:text-foreground"
           }`}
         >
           已删除项目
           {trashedProjects.length > 0 && (
-            <span className="ml-1.5 rounded-full bg-zinc-200 px-1.5 py-0.5 text-xs dark:bg-zinc-700">
+            <span className="ml-1.5 rounded-full bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
               {trashedProjects.length}
             </span>
           )}
