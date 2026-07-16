@@ -17,12 +17,12 @@
 - [x] 项目详情 Git工作流增加回滚功能 和 选择文件，点击全局回滚
 - [x] 项目详情 Git工作流增加 Git Worktree管理 显示所有Worktree可以删除，提交，点击可以查看修改文件列表展示 可以暂存和工作区文件 一样，可以将工作区文件拆分成组件复用
 - [x] 设置页面 需要分成不同的tab这样后面增加新的设置不会乱
-- [ ] 看板任务右键菜单增加功能：标记已完成，自动移动端已完成
-- [ ] 对话管理切换项目的时候没有根据切换的项目隔离数据
+- [x] 看板任务右键菜单增加功能：标记已完成，自动移动端已完成
+- [x] 对话管理切换项目的时候没有根据切换的项目隔离数据
 -  [ ] Session管理 继续对话需要可以停止对话，继续对话后可以查看继续对话内容,继续内容要记录
 -  [ ] 员工 测试员和协调员感觉没有用到，这个测试员和协调员有什么不，或者你觉得测试员和协调员应该干什么好？
 -  [ ] 设置页面增加 每个AI功能的提示词配置，如果用户配置不对，可以重置，点击重置就是原来的默认的提示词
--  [ ] 仪表盘 最近活动 有些key没有转换 task_review_completed task_review_started task_review_requested employee_project_membership_conflict_migrated
+-  [x] 仪表盘 最近活动 有些key没有转换 task_review_completed task_review_started task_review_requested employee_project_membership_conflict_migrated（以及分支/回滚/回收站等缺失 key）
 -  [ ] 全部页面支持黑夜模式
 -  [ ] 增加菜单Mcp管理功能
 -  [ ] 所有页面都要支持暗夜模式

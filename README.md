@@ -175,10 +175,10 @@ npm run dev                            # 前端开发服务器
 npm run build                          # TypeScript 检查 + Vite 构建
 npm run preview                        # 预览构建产物
 npm run tauri:dev                      # 完整 Tauri 开发环境
-npm run tauri:build                    # Tauri 桌面打包
+npm run tauri                          # 透传 tauri CLI（如 tauri build）
 npm run tauri:dmg:no-sign              # macOS 未签名 DMG
-npm run tauri:linux                    # Linux 打包
-npm run tauri:windows                  # Windows 打包
+npm run tauri:linux                    # Linux 打包（AppImage/deb/rpm）
+npm run tauri:windows                  # Windows 打包（NSIS/MSI）
 cargo test --manifest-path src-tauri/Cargo.toml               # Rust 集成测试
 cargo test --manifest-path src-tauri/Cargo.toml <test_name>   # 运行单个测试
 ```
