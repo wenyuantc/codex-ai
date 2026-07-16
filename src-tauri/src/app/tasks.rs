@@ -105,7 +105,7 @@ pub(crate) async fn insert_task_record(
     task: &Task,
 ) -> Result<(), String> {
     sqlx::query(
-        "INSERT INTO tasks (id, title, description, status, priority, project_id, use_worktree, assignee_id, reviewer_id, coordinator_id, ai_suggestion, plan_content, automation_mode, time_started_at, time_spent_seconds, completed_at, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)",
+        "INSERT INTO tasks (id, title, description, status, priority, project_id, use_worktree, assignee_id, reviewer_id, coordinator_id, ai_suggestion, plan_content, automation_mode, time_started_at, time_spent_seconds, completed_at, due_date, blocked_reason, milestone_id, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)",
     )
     .bind(&task.id)
     .bind(&task.title)
@@ -123,11 +123,39 @@ pub(crate) async fn insert_task_record(
     .bind(&task.time_started_at)
     .bind(task.time_spent_seconds)
     .bind(&task.completed_at)
+    .bind(&task.due_date)
+    .bind(&task.blocked_reason)
+    .bind(&task.milestone_id)
     .bind(&task.created_at)
     .bind(&task.updated_at)
     .execute(&mut **tx)
     .await
     .map_err(|error| format!("Failed to create task: {}", error))?;
+
+    Ok(())
+}
+
+pub(crate) async fn ensure_milestone_belongs_to_project(
+    pool: &SqlitePool,
+    milestone_id: Option<&str>,
+    project_id: &str,
+) -> Result<(), String> {
+    let Some(milestone_id) = milestone_id else {
+        return Ok(());
+    };
+
+    let exists = sqlx::query_scalar::<_, i64>(
+        "SELECT COUNT(*) FROM milestones WHERE id = $1 AND project_id = $2",
+    )
+    .bind(milestone_id)
+    .bind(project_id)
+    .fetch_one(pool)
+    .await
+    .map_err(|error| format!("校验里程碑失败: {}", error))?;
+
+    if exists == 0 {
+        return Err("里程碑不存在或不属于当前项目".to_string());
+    }
 
     Ok(())
 }
@@ -733,6 +761,10 @@ pub async fn create_task<R: Runtime>(
         &payload.project_id,
     )
     .await?;
+    let due_date = normalize_optional_text(payload.due_date.as_deref());
+    let milestone_id = normalize_optional_text(payload.milestone_id.as_deref());
+    ensure_milestone_belongs_to_project(&pool, milestone_id.as_deref(), &payload.project_id)
+        .await?;
     let project = fetch_project_by_id(&pool, &payload.project_id).await?;
     let settings = resolve_project_task_default_settings(
         &project.project_type,
@@ -776,6 +808,9 @@ pub async fn create_task<R: Runtime>(
         time_spent_seconds: 0,
         completed_at: None,
         deleted_at: None,
+        due_date,
+        blocked_reason: None,
+        milestone_id,
         created_at: now_sqlite(),
         updated_at: now_sqlite(),
     };
@@ -908,6 +943,18 @@ pub async fn create_task<R: Runtime>(
         Some(&task.project_id),
     )
     .await?;
+
+    if let Some(due_date) = task.due_date.as_deref() {
+        insert_activity_log(
+            &pool,
+            "task_due_date_set",
+            &format!("{}（截止日期：{}）", task.title, due_date),
+            None,
+            Some(&task.id),
+            Some(&task.project_id),
+        )
+        .await?;
+    }
 
     if task.use_worktree {
         insert_activity_log(
@@ -1162,6 +1209,31 @@ pub async fn update_task<R: Runtime>(
         None
     };
     let is_reopening_completed_task = should_clear_task_completed_at(&current, &next_status);
+    let entering_blocked = next_status == "blocked" && current.status != "blocked";
+    let leaving_blocked = current.status == "blocked" && next_status != "blocked";
+
+    let normalized_due_date = updates.due_date.as_ref().map(|value| {
+        value
+            .as_deref()
+            .and_then(|due_date| normalize_optional_text(Some(due_date)))
+    });
+    let normalized_milestone_id = updates.milestone_id.as_ref().map(|value| {
+        value
+            .as_deref()
+            .and_then(|milestone_id| normalize_optional_text(Some(milestone_id)))
+    });
+    let normalized_blocked_reason = updates.blocked_reason.as_ref().map(|value| {
+        value
+            .as_deref()
+            .and_then(|blocked_reason| normalize_optional_text(Some(blocked_reason)))
+    });
+
+    if entering_blocked {
+        match &normalized_blocked_reason {
+            Some(Some(value)) if !value.trim().is_empty() => {}
+            _ => return Err("转为阻塞状态时必须填写阻塞原因".to_string()),
+        }
+    }
 
     if let Some(assignee_id) = updates.assignee_id.as_ref() {
         validate_assignee_for_project(&pool, assignee_id.as_deref(), &current.project_id).await?;
@@ -1178,6 +1250,10 @@ pub async fn update_task<R: Runtime>(
         validate_coordinator_for_project(&pool, coordinator_id.as_deref(), &current.project_id)
             .await?;
     }
+    if let Some(milestone_id) = normalized_milestone_id.as_ref() {
+        ensure_milestone_belongs_to_project(&pool, milestone_id.as_deref(), &current.project_id)
+            .await?;
+    }
     let normalized_plan_content = updates.plan_content.as_ref().map(|value| {
         value
             .as_deref()
@@ -1190,6 +1266,13 @@ pub async fn update_task<R: Runtime>(
     let effective_plan_content = if normalized_plan_content.is_some() {
         normalized_plan_content.clone()
     } else if coordinator_changed && current.plan_content.is_some() {
+        Some(None)
+    } else {
+        None
+    };
+    let effective_blocked_reason = if normalized_blocked_reason.is_some() {
+        normalized_blocked_reason.clone()
+    } else if leaving_blocked {
         Some(None)
     } else {
         None
@@ -1272,6 +1355,24 @@ pub async fn update_task<R: Runtime>(
         separated
             .push("last_review_session_id = ")
             .push_bind_unseparated(last_review_session_id);
+        touched = true;
+    }
+    if let Some(due_date) = normalized_due_date.clone() {
+        separated
+            .push("due_date = ")
+            .push_bind_unseparated(due_date);
+        touched = true;
+    }
+    if let Some(blocked_reason) = effective_blocked_reason.clone() {
+        separated
+            .push("blocked_reason = ")
+            .push_bind_unseparated(blocked_reason);
+        touched = true;
+    }
+    if let Some(milestone_id) = normalized_milestone_id.clone() {
+        separated
+            .push("milestone_id = ")
+            .push_bind_unseparated(milestone_id);
         touched = true;
     }
     if let Some((completed_at, time_spent_seconds)) = completion_time_update.clone() {
@@ -1362,6 +1463,40 @@ pub async fn update_task<R: Runtime>(
         }
     }
 
+    if let Some(updated_due_date) = normalized_due_date {
+        if current.due_date != updated_due_date {
+            insert_activity_log(
+                &pool,
+                "task_due_date_set",
+                &format!(
+                    "{}（截止日期：{}）",
+                    current.title,
+                    updated_due_date.as_deref().unwrap_or("已清除")
+                ),
+                None,
+                Some(&id),
+                Some(&current.project_id),
+            )
+            .await?;
+        }
+    }
+
+    if let Some(updated_blocked_reason) = effective_blocked_reason {
+        if current.blocked_reason != updated_blocked_reason {
+            if let Some(reason) = updated_blocked_reason.as_deref() {
+                insert_activity_log(
+                    &pool,
+                    "task_blocked_reason_set",
+                    &format!("{}（阻塞原因：{}）", current.title, reason),
+                    None,
+                    Some(&id),
+                    Some(&current.project_id),
+                )
+                .await?;
+            }
+        }
+    }
+
     if next_status != current.status {
         insert_activity_log(
             &pool,
@@ -1432,6 +1567,9 @@ pub async fn update_task_status<R: Runtime>(
             plan_content: None,
             last_codex_session_id: None,
             last_review_session_id: None,
+            due_date: None,
+            blocked_reason: None,
+            milestone_id: None,
         },
     )
     .await

@@ -51,6 +51,7 @@ use crate::notifications::{
 use crate::process_spawn::configure_std_command;
 
 pub(crate) mod database;
+pub(crate) mod delivery;
 pub(crate) mod employees;
 pub(crate) mod projects;
 pub(crate) mod remote;

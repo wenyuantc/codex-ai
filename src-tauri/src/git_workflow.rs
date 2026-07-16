@@ -4444,6 +4444,9 @@ mod tests {
             time_spent_seconds: 0,
             completed_at: None,
             deleted_at: None,
+            due_date: None,
+            blocked_reason: None,
+            milestone_id: None,
             created_at: now_sqlite(),
             updated_at: now_sqlite(),
         };

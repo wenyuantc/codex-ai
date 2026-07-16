@@ -23,6 +23,9 @@ fn archived_task_rejects_enabling_automation() {
         time_spent_seconds: 0,
         completed_at: None,
         deleted_at: None,
+        due_date: None,
+        blocked_reason: None,
+        milestone_id: None,
         created_at: "2026-04-21 00:00:00".to_string(),
         updated_at: "2026-04-21 00:00:00".to_string(),
     };
@@ -110,6 +113,9 @@ fn archiving_task_clears_pending_automation_state_and_logs_disable_activity() {
             time_spent_seconds: 0,
             completed_at: None,
             deleted_at: None,
+            due_date: None,
+            blocked_reason: None,
+            milestone_id: None,
             created_at: "2026-04-21 00:00:00".to_string(),
             updated_at: "2026-04-21 00:00:00".to_string(),
         };
@@ -221,6 +227,9 @@ fn insert_task_record_persists_reviewer_id() {
             time_spent_seconds: 0,
             completed_at: None,
             deleted_at: None,
+            due_date: None,
+            blocked_reason: None,
+            milestone_id: None,
             created_at: "2026-04-16 10:00:00".to_string(),
             updated_at: "2026-04-16 10:00:00".to_string(),
         };
@@ -278,6 +287,9 @@ fn start_task_timer_is_idempotent_and_logs_once() {
             time_spent_seconds: 0,
             completed_at: None,
             deleted_at: None,
+            due_date: None,
+            blocked_reason: None,
+            milestone_id: None,
             created_at: "2026-04-16 10:00:00".to_string(),
             updated_at: "2026-04-16 10:00:00".to_string(),
         };
@@ -343,6 +355,9 @@ fn stop_task_timer_accumulates_without_marking_completed() {
             time_spent_seconds: 60,
             completed_at: None,
             deleted_at: None,
+            due_date: None,
+            blocked_reason: None,
+            milestone_id: None,
             created_at: "2026-04-16 09:00:00".to_string(),
             updated_at: "2026-04-16 10:00:00".to_string(),
         };
@@ -397,6 +412,9 @@ fn completion_timer_update_accumulates_elapsed_time_and_reopen_clears_completion
         time_spent_seconds: 120,
         completed_at: None,
         deleted_at: None,
+        due_date: None,
+        blocked_reason: None,
+        milestone_id: None,
         created_at: "2026-04-16 09:00:00".to_string(),
         updated_at: "2026-04-16 10:00:00".to_string(),
     };
@@ -451,6 +469,9 @@ fn completion_metric_uses_tracked_task_time_when_available() {
             time_spent_seconds: 3661,
             completed_at: Some("2026-04-16 11:01:01".to_string()),
             deleted_at: None,
+            due_date: None,
+            blocked_reason: None,
+            milestone_id: None,
             created_at: "2026-04-16 10:00:00".to_string(),
             updated_at: "2026-04-16 11:01:01".to_string(),
         };

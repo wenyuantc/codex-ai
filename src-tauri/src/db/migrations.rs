@@ -990,6 +990,56 @@ pub fn get_all_migrations() -> Vec<Migration> {
             "#,
             kind: tauri_plugin_sql::MigrationKind::Up,
         },
+        Migration {
+            version: 40,
+            description: "add delivery management fields milestones tags dependencies",
+            sql: r#"
+                ALTER TABLE tasks ADD COLUMN due_date TEXT;
+                ALTER TABLE tasks ADD COLUMN blocked_reason TEXT;
+                ALTER TABLE tasks ADD COLUMN milestone_id TEXT;
+
+                CREATE TABLE milestones (
+                  id TEXT PRIMARY KEY,
+                  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+                  name TEXT NOT NULL,
+                  due_date TEXT,
+                  description TEXT,
+                  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+                );
+
+                CREATE TABLE tags (
+                  id TEXT PRIMARY KEY,
+                  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+                  name TEXT NOT NULL,
+                  color TEXT,
+                  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                  UNIQUE(project_id, name)
+                );
+
+                CREATE TABLE task_tags (
+                  task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+                  tag_id TEXT NOT NULL REFERENCES tags(id) ON DELETE CASCADE,
+                  PRIMARY KEY (task_id, tag_id)
+                );
+
+                CREATE TABLE task_dependencies (
+                  id TEXT PRIMARY KEY,
+                  task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+                  depends_on_task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+                  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                  UNIQUE(task_id, depends_on_task_id),
+                  CHECK(task_id != depends_on_task_id)
+                );
+
+                CREATE INDEX idx_tasks_due_date ON tasks(due_date);
+                CREATE INDEX idx_milestones_project ON milestones(project_id);
+                CREATE INDEX idx_tags_project ON tags(project_id);
+                CREATE INDEX idx_task_deps_task ON task_dependencies(task_id);
+                CREATE INDEX idx_task_deps_depends ON task_dependencies(depends_on_task_id);
+            "#,
+            kind: tauri_plugin_sql::MigrationKind::Up,
+        },
     ]
 }
 
@@ -1030,8 +1080,8 @@ mod tests {
     }
 
     #[test]
-    fn latest_migration_version_includes_dashboard_indexes() {
-        assert_eq!(latest_migration_version(), 39);
+    fn latest_migration_version_includes_delivery_management() {
+        assert_eq!(latest_migration_version(), 40);
     }
 
     #[test]
@@ -1039,6 +1089,42 @@ mod tests {
         for (index, migration) in get_all_migrations().iter().enumerate() {
             assert_eq!(migration.version, index as i64 + 1);
         }
+    }
+
+    #[test]
+    fn migration_40_adds_delivery_management_schema() {
+        tauri::async_runtime::block_on(async {
+            let pool = setup_test_pool().await;
+
+            let task_columns: Vec<String> = sqlx::query(
+                "SELECT name FROM pragma_table_info('tasks') WHERE name IN ('due_date', 'blocked_reason', 'milestone_id') ORDER BY name",
+            )
+            .fetch_all(&pool)
+            .await
+            .expect("query task columns")
+            .into_iter()
+            .map(|row| row.get::<String, _>("name"))
+            .collect();
+            assert_eq!(
+                task_columns,
+                vec![
+                    "blocked_reason".to_string(),
+                    "due_date".to_string(),
+                    "milestone_id".to_string()
+                ]
+            );
+
+            for table in ["milestones", "tags", "task_tags", "task_dependencies"] {
+                let exists: i64 = sqlx::query_scalar(
+                    "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = $1",
+                )
+                .bind(table)
+                .fetch_one(&pool)
+                .await
+                .unwrap_or_else(|error| panic!("check table {}: {}", table, error));
+                assert_eq!(exists, 1, "expected table {}", table);
+            }
+        });
     }
 
     #[test]

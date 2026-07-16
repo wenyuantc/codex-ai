@@ -44,9 +44,12 @@ import type {
   TaskAutomationMode,
   TaskAutomationState,
   TaskAttachment,
+  TaskDependency,
   TaskGitContext,
   TaskExecutionChangeHistoryItem,
   TaskLatestReview,
+  Milestone,
+  Tag,
 } from "./types";
 
 type RawHealthCheck = CodexHealthCheck & {
@@ -233,6 +236,9 @@ export interface CreateTaskInput {
   assignee_id?: string | null;
   reviewer_id?: string | null;
   coordinator_id?: string | null;
+  plan_content?: string | null;
+  due_date?: string | null;
+  milestone_id?: string | null;
   attachment_source_paths?: string[];
 }
 
@@ -249,6 +255,38 @@ export interface UpdateTaskInput {
   ai_suggestion?: string | null;
   last_codex_session_id?: string | null;
   last_review_session_id?: string | null;
+  due_date?: string | null;
+  blocked_reason?: string | null;
+  milestone_id?: string | null;
+}
+
+export interface CreateMilestoneInput {
+  project_id: string;
+  name: string;
+  due_date?: string | null;
+  description?: string | null;
+}
+
+export interface UpdateMilestoneInput {
+  name?: string;
+  due_date?: string | null;
+  description?: string | null;
+}
+
+export interface CreateTagInput {
+  project_id: string;
+  name: string;
+  color?: string | null;
+}
+
+export interface SetTaskTagsInput {
+  task_id: string;
+  tag_ids: string[];
+}
+
+export interface AddTaskDependencyInput {
+  task_id: string;
+  depends_on_task_id: string;
 }
 
 export interface GenerateCoordinatorTaskPlanInput {
@@ -917,6 +955,54 @@ export async function updateTask(id: string, updates: UpdateTaskInput): Promise<
 
 export async function updateTaskStatus(id: string, status: string): Promise<Task> {
   return invoke("update_task_status", { id, status });
+}
+
+export async function listMilestones(projectId: string): Promise<Milestone[]> {
+  return invoke("list_milestones", { projectId });
+}
+
+export async function createMilestone(input: CreateMilestoneInput): Promise<Milestone> {
+  return invoke("create_milestone", { payload: input });
+}
+
+export async function updateMilestone(id: string, updates: UpdateMilestoneInput): Promise<Milestone> {
+  return invoke("update_milestone", { id, updates });
+}
+
+export async function deleteMilestone(id: string): Promise<void> {
+  return invoke("delete_milestone", { id });
+}
+
+export async function listTags(projectId: string): Promise<Tag[]> {
+  return invoke("list_tags", { projectId });
+}
+
+export async function createTag(input: CreateTagInput): Promise<Tag> {
+  return invoke("create_tag", { payload: input });
+}
+
+export async function deleteTag(id: string): Promise<void> {
+  return invoke("delete_tag", { id });
+}
+
+export async function listTaskTags(taskId: string): Promise<Tag[]> {
+  return invoke("list_task_tags", { taskId });
+}
+
+export async function setTaskTags(input: SetTaskTagsInput): Promise<Tag[]> {
+  return invoke("set_task_tags", { payload: input });
+}
+
+export async function listTaskDependencies(taskId: string): Promise<TaskDependency[]> {
+  return invoke("list_task_dependencies", { taskId });
+}
+
+export async function addTaskDependency(input: AddTaskDependencyInput): Promise<TaskDependency> {
+  return invoke("add_task_dependency", { payload: input });
+}
+
+export async function removeTaskDependency(id: string): Promise<void> {
+  return invoke("remove_task_dependency", { id });
 }
 
 export async function startTaskTimer(taskId: string): Promise<Task> {

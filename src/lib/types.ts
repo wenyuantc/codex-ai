@@ -97,8 +97,41 @@ export interface Task {
   time_spent_seconds: number;
   completed_at: string | null;
   deleted_at: string | null;
+  due_date: string | null;
+  blocked_reason: string | null;
+  milestone_id: string | null;
   created_at: string;
   updated_at: string;
+}
+
+export interface Milestone {
+  id: string;
+  project_id: string;
+  name: string;
+  due_date: string | null;
+  description: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface Tag {
+  id: string;
+  project_id: string;
+  name: string;
+  color: string | null;
+  created_at: string;
+}
+
+export interface TaskTag {
+  task_id: string;
+  tag_id: string;
+}
+
+export interface TaskDependency {
+  id: string;
+  task_id: string;
+  depends_on_task_id: string;
+  created_at: string;
 }
 
 export interface TaskAttachment {

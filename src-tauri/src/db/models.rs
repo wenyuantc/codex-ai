@@ -143,8 +143,45 @@ pub struct Task {
     pub time_spent_seconds: i64,
     pub completed_at: Option<String>,
     pub deleted_at: Option<String>,
+    pub due_date: Option<String>,
+    pub blocked_reason: Option<String>,
+    pub milestone_id: Option<String>,
     pub created_at: String,
     pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+pub struct Milestone {
+    pub id: String,
+    pub project_id: String,
+    pub name: String,
+    pub due_date: Option<String>,
+    pub description: Option<String>,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+pub struct Tag {
+    pub id: String,
+    pub project_id: String,
+    pub name: String,
+    pub color: Option<String>,
+    pub created_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+pub struct TaskTag {
+    pub task_id: String,
+    pub tag_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+pub struct TaskDependency {
+    pub id: String,
+    pub task_id: String,
+    pub depends_on_task_id: String,
+    pub created_at: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
@@ -708,6 +745,8 @@ pub struct CreateTask {
     pub reviewer_id: Option<String>,
     pub coordinator_id: Option<String>,
     pub plan_content: Option<String>,
+    pub due_date: Option<String>,
+    pub milestone_id: Option<String>,
     pub attachment_source_paths: Option<Vec<String>>,
 }
 
@@ -734,6 +773,48 @@ pub struct UpdateTask {
     pub last_codex_session_id: Option<Option<String>>,
     #[serde(default, deserialize_with = "deserialize_explicit_nullable")]
     pub last_review_session_id: Option<Option<String>>,
+    #[serde(default, deserialize_with = "deserialize_explicit_nullable")]
+    pub due_date: Option<Option<String>>,
+    #[serde(default, deserialize_with = "deserialize_explicit_nullable")]
+    pub blocked_reason: Option<Option<String>>,
+    #[serde(default, deserialize_with = "deserialize_explicit_nullable")]
+    pub milestone_id: Option<Option<String>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CreateMilestone {
+    pub project_id: String,
+    pub name: String,
+    pub due_date: Option<String>,
+    pub description: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UpdateMilestone {
+    pub name: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_explicit_nullable")]
+    pub due_date: Option<Option<String>>,
+    #[serde(default, deserialize_with = "deserialize_explicit_nullable")]
+    pub description: Option<Option<String>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CreateTag {
+    pub project_id: String,
+    pub name: String,
+    pub color: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SetTaskTagsPayload {
+    pub task_id: String,
+    pub tag_ids: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AddTaskDependencyPayload {
+    pub task_id: String,
+    pub depends_on_task_id: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
