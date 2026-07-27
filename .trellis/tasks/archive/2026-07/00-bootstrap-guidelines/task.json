@@ -1,0 +1,34 @@
+{
+  "id": "00-bootstrap-guidelines",
+  "name": "00-bootstrap-guidelines",
+  "title": "Bootstrap Guidelines",
+  "description": "Fill in project development guidelines for AI agents",
+  "status": "completed",
+  "dev_type": "docs",
+  "scope": null,
+  "package": null,
+  "priority": "P1",
+  "creator": "codex-ai",
+  "assignee": "codex-ai",
+  "createdAt": "2026-07-27",
+  "completedAt": "2026-07-27",
+  "branch": null,
+  "base_branch": null,
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [
+    ".trellis/spec/frontend/",
+    ".trellis/spec/backend/",
+    ".trellis/spec/guides/",
+    ".trellis/scripts/common/task_context.py"
+  ],
+  "notes": "Bootstrap completed via /trellis-spec-bootstrap: filled frontend, added backend layer, projectized guides. Also fixed task_context.py f-string syntax for Python 3.11.",
+  "meta": {
+    "bootstrap": "complete",
+    "completed_by": "trellis-spec-bootstrap"
+  }
+}
