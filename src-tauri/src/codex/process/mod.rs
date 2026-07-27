@@ -60,6 +60,9 @@ use self::{
 };
 
 const SUPPORTED_MODELS: &[&str] = &[
+    "gpt-5.6-sol",
+    "gpt-5.6-terra",
+    "gpt-5.6-luna",
     "gpt-5.5",
     "gpt-5.4",
     "gpt-5.2-codex",
@@ -70,7 +73,7 @@ const SUPPORTED_MODELS: &[&str] = &[
     "gpt-5.2",
     "gpt-5.1-codex-mini",
 ];
-const SUPPORTED_REASONING_EFFORTS: &[&str] = &["low", "medium", "high", "xhigh"];
+const SUPPORTED_REASONING_EFFORTS: &[&str] = &["low", "medium", "high", "xhigh", "max"];
 const SESSION_ID_PREFIX: &str = "session id:";
 const SDK_FILE_CHANGE_EVENT_PREFIX: &str = "[CODEX_FILE_CHANGE]";
 const REVIEW_VERDICT_START_TAG: &str = "<review_verdict>";
@@ -210,6 +213,9 @@ fn codex_session_kind_to_claude(
 fn normalize_model(model: Option<&str>) -> &'static str {
     match model {
         Some(value) if SUPPORTED_MODELS.contains(&value) => match value {
+            "gpt-5.6-sol" => "gpt-5.6-sol",
+            "gpt-5.6-terra" => "gpt-5.6-terra",
+            "gpt-5.6-luna" => "gpt-5.6-luna",
             "gpt-5.5" => "gpt-5.5",
             "gpt-5.4" => "gpt-5.4",
             "gpt-5.2-codex" => "gpt-5.2-codex",
@@ -232,6 +238,7 @@ fn normalize_reasoning_effort(reasoning_effort: Option<&str>) -> &'static str {
             "medium" => "medium",
             "high" => "high",
             "xhigh" => "xhigh",
+            "max" => "max",
             _ => "high",
         },
         _ => "high",

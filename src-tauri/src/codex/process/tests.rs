@@ -12,7 +12,8 @@ use super::{
     compose_codex_prompt, compute_execution_session_file_changes_from_entries,
     detect_exec_json_output_flag, extract_review_report, extract_review_verdict,
     extract_session_id_from_output, format_session_prompt_log, hash_worktree_path, normalize_model,
-    normalize_session_file_change_paths, parse_ai_subtasks_response, parse_cli_json_event_line,
+    normalize_reasoning_effort, normalize_session_file_change_paths, parse_ai_subtasks_response,
+    parse_cli_json_event_line,
     parse_sdk_bridge_output, parse_sdk_file_change_event, sdk_codex_path_override_allowed_for_os,
     should_capture_execution_change_baseline, validate_generated_commit_message, CliJsonOutputFlag,
     CliJsonStreamState, CodexExecutionProvider, CodexSessionKind, TextSnapshot,
@@ -325,6 +326,9 @@ fn one_shot_exec_args_include_images_before_prompt() {
 
 #[test]
 fn normalize_model_accepts_new_codex_variants() {
+    assert_eq!(normalize_model(Some("gpt-5.6-sol")), "gpt-5.6-sol");
+    assert_eq!(normalize_model(Some("gpt-5.6-terra")), "gpt-5.6-terra");
+    assert_eq!(normalize_model(Some("gpt-5.6-luna")), "gpt-5.6-luna");
     assert_eq!(normalize_model(Some("gpt-5.2-codex")), "gpt-5.2-codex");
     assert_eq!(
         normalize_model(Some("gpt-5.1-codex-max")),
@@ -338,6 +342,14 @@ fn normalize_model_accepts_new_codex_variants() {
         normalize_model(Some("gpt-5.1-codex-mini")),
         "gpt-5.1-codex-mini"
     );
+}
+
+#[test]
+fn normalize_reasoning_effort_accepts_max() {
+    assert_eq!(normalize_reasoning_effort(Some("max")), "max");
+    assert_eq!(normalize_reasoning_effort(Some("xhigh")), "xhigh");
+    assert_eq!(normalize_reasoning_effort(Some("high")), "high");
+    assert_eq!(normalize_reasoning_effort(Some("unknown")), "high");
 }
 
 #[test]

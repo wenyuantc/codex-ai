@@ -34,6 +34,9 @@ const DEFAULT_AI_COMMIT_MESSAGE_LENGTH: &str = "title_with_body";
 const DEFAULT_AI_COMMIT_PREFERRED_PROVIDER: &str = "codex";
 const DEFAULT_AI_COMMIT_MODEL_SOURCE: &str = "inherit_one_shot";
 const SUPPORTED_MODELS: &[&str] = &[
+    "gpt-5.6-sol",
+    "gpt-5.6-terra",
+    "gpt-5.6-luna",
     "gpt-5.5",
     "gpt-5.4",
     "gpt-5.2-codex",
@@ -44,7 +47,7 @@ const SUPPORTED_MODELS: &[&str] = &[
     "gpt-5.2",
     "gpt-5.1-codex-mini",
 ];
-const SUPPORTED_REASONING_EFFORTS: &[&str] = &["low", "medium", "high", "xhigh"];
+const SUPPORTED_REASONING_EFFORTS: &[&str] = &["low", "medium", "high", "xhigh", "max"];
 const SUPPORTED_TASK_AUTOMATION_FAILURE_STRATEGIES: &[&str] = &["blocked", "manual_control"];
 const SUPPORTED_WORKTREE_LOCATION_MODES: &[&str] =
     &["repo_sibling_hidden", "repo_child_hidden", "custom_root"];

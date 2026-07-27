@@ -744,6 +744,9 @@ export type CodexSessionResumeStatus =
   | "stopping"
   | "invalid";
 export type CodexModelId =
+  | "gpt-5.6-sol"
+  | "gpt-5.6-terra"
+  | "gpt-5.6-luna"
   | "gpt-5.5"
   | "gpt-5.4"
   | "gpt-5.2-codex"
@@ -901,6 +904,9 @@ export function normalizeAiCommitModelSource(
 }
 
 export const CODEX_MODEL_OPTIONS: { value: CodexModelId; label: string }[] = [
+  { value: "gpt-5.6-sol", label: "GPT-5.6-Sol" },
+  { value: "gpt-5.6-terra", label: "GPT-5.6-Terra" },
+  { value: "gpt-5.6-luna", label: "GPT-5.6-Luna" },
   { value: "gpt-5.5", label: "GPT-5.5" },
   { value: "gpt-5.4", label: "GPT-5.4" },
   { value: "gpt-5.2-codex", label: "GPT-5.2-Codex" },
@@ -916,7 +922,8 @@ export const REASONING_EFFORT_OPTIONS: { value: ReasoningEffort; label: string }
   { value: "low", label: "低" },
   { value: "medium", label: "中" },
   { value: "high", label: "高" },
-  { value: "max", label: "最高" },
+  { value: "xhigh", label: "最高" },
+  { value: "max", label: "极高" },
 ];
 
 export function isSupportedCodexModel(value: string): value is CodexModelId {
