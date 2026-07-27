@@ -16,6 +16,8 @@ import {
   CODEX_MODEL_OPTIONS,
   CLAUDE_MODEL_OPTIONS,
   CLAUDE_THINKING_BUDGET_OPTIONS,
+  GROK_MODEL_OPTIONS,
+  GROK_EFFORT_OPTIONS,
   OPENCODE_EFFORT_OPTIONS,
   REASONING_EFFORT_OPTIONS,
   TASK_AUTOMATION_FAILURE_STRATEGY_OPTIONS,
@@ -115,6 +117,7 @@ export function GitAutomationSettingsTab({
   const isGitAiCustom = aiCommitModelSource === "custom";
   const isGitClaudeProvider = gitAiProvider === "claude";
   const isGitOpenCodeProvider = gitAiProvider === "opencode";
+  const isGitGrokProvider = gitAiProvider === "grok";
   const availableGitProviders = AI_PROVIDER_OPTIONS.filter(
     (option) => !(isRemoteMode && option.value === "opencode"),
   );
@@ -133,13 +136,17 @@ export function GitAutomationSettingsTab({
     ? CLAUDE_THINKING_BUDGET_OPTIONS.filter((option) => option.value !== "auto")
     : isGitOpenCodeProvider
       ? OPENCODE_EFFORT_OPTIONS
-      : REASONING_EFFORT_OPTIONS;
+      : isGitGrokProvider
+        ? GROK_EFFORT_OPTIONS
+        : REASONING_EFFORT_OPTIONS;
 
   const gitProviderLabel = isGitClaudeProvider
     ? "Claude"
     : isGitOpenCodeProvider
       ? "OpenCode"
-      : "Codex";
+      : isGitGrokProvider
+        ? "Grok"
+        : "Codex";
 
   return (
     <div className="space-y-6">
@@ -470,7 +477,11 @@ export function GitAutomationSettingsTab({
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {(isGitClaudeProvider ? CLAUDE_MODEL_OPTIONS : CODEX_MODEL_OPTIONS).map((option) => (
+                  {(isGitClaudeProvider
+                    ? CLAUDE_MODEL_OPTIONS
+                    : isGitGrokProvider
+                      ? GROK_MODEL_OPTIONS
+                      : CODEX_MODEL_OPTIONS).map((option) => (
                     <SelectItem key={option.value} value={option.value}>
                       {option.label}
                     </SelectItem>

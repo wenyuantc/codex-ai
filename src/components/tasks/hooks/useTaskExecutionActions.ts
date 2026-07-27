@@ -2,6 +2,7 @@ import { useState } from "react";
 
 import { startCodex, stopCodexSession } from "@/lib/codex";
 import { startClaude, stopClaudeSession } from "@/lib/claude";
+import { startGrok, stopGrokSession } from "@/lib/grok";
 import { startOpenCode, stopOpenCodeSession } from "@/lib/opencode";
 import { prepareTaskGitExecution } from "@/lib/backend";
 import type { Employee, ProjectType, Task } from "@/lib/types";
@@ -140,6 +141,8 @@ export function useTaskExecutionActions({
           resumeSessionId: executionInput.resumeSessionId,
           imagePaths: executionInput.imagePaths,
         });
+      } else if (assignee?.ai_provider === "grok") {
+        await startGrok(assigneeId, executionInput.prompt, startOptions);
       } else {
         await startCodex(assigneeId, executionInput.prompt, startOptions);
       }
@@ -175,6 +178,8 @@ export function useTaskExecutionActions({
         await stopClaudeSession(runningSession.session_record_id);
       } else if (runningSession.ai_provider === "opencode") {
         await stopOpenCodeSession(runningSession.session_record_id);
+      } else if (runningSession.ai_provider === "grok") {
+        await stopGrokSession(runningSession.session_record_id);
       } else {
         await stopCodexSession(runningSession.session_record_id);
       }

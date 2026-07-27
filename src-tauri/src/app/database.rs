@@ -632,6 +632,23 @@ async fn resolve_local_one_shot_runtime<R: Runtime>(
             };
             (channel.to_string(), opencode_health.sdk_status_message)
         }
+        "grok" => {
+            let grok_settings = match crate::grok::load_grok_settings(app) {
+                Ok(settings) => settings,
+                Err(error) => {
+                    return (
+                        "unavailable".to_string(),
+                        format!("读取 Grok 设置失败：{error}"),
+                    );
+                }
+            };
+            let grok_health = crate::grok::inspect_grok_runtime(app, &grok_settings).await;
+            if grok_health.cli_available {
+                ("cli".to_string(), grok_health.status_message)
+            } else {
+                ("unavailable".to_string(), grok_health.status_message)
+            }
+        }
         _ => (
             codex_sdk_health.one_shot_effective_provider.clone(),
             codex_sdk_health.status_message.clone(),
@@ -820,6 +837,16 @@ pub fn get_ai_provider_capabilities() -> Vec<crate::db::models::AiProviderCapabi
         crate::db::models::AiProviderCapabilities {
             provider: "opencode".to_string(),
             label: "OpenCode".to_string(),
+            start: true,
+            stop: true,
+            restart: false,
+            send_input: false,
+            resume: true,
+            notes: "支持启动/停止/续聊；不支持独立 restart 与会话中 send_input。".to_string(),
+        },
+        crate::db::models::AiProviderCapabilities {
+            provider: "grok".to_string(),
+            label: "Grok".to_string(),
             start: true,
             stop: true,
             restart: false,

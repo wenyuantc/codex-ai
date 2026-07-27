@@ -184,7 +184,9 @@ export function useTaskAiActions({
           ? "Claude"
           : settingsResult.value.one_shot_preferred_provider === "opencode"
             ? "OpenCode"
-            : "Codex";
+            : settingsResult.value.one_shot_preferred_provider === "grok"
+              ? "Grok"
+              : "Codex";
       appendAiLog(
         `[${operation}] 一次性 AI 配置：Provider ${providerLabel} / 模型 ${settingsResult.value.one_shot_model} / 推理 ${settingsResult.value.one_shot_reasoning_effort}`,
       );
@@ -198,7 +200,9 @@ export function useTaskAiActions({
           ? "Claude"
           : healthResult.value.one_shot_effective_provider === "opencode"
             ? "OpenCode"
-            : "Codex";
+            : healthResult.value.one_shot_effective_provider === "grok"
+              ? "Grok"
+              : "Codex";
       const channelLabel =
         healthResult.value.one_shot_effective_channel === "sdk"
           ? environmentMode === "ssh"

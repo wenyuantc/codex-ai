@@ -23,6 +23,13 @@ import {
   type ClaudeSession,
 } from "@/lib/claude";
 import {
+  onGrokExit,
+  onGrokOutput,
+  onGrokSession,
+  type GrokOutput,
+  type GrokSession,
+} from "@/lib/grok";
+import {
   onOpenCodeExit,
   onOpenCodeOutput,
   onOpenCodeSession,
@@ -454,6 +461,52 @@ export const useEmployeeStore = create<EmployeeStore>((set, get) => ({
               void get().updateEmployeeStatus(
                 exit.employee_id,
                 exit.code === 0 ? "offline" : "error",
+              );
+            }
+          })();
+        }),
+        onGrokOutput((output: GrokOutput) => {
+          get().addCodexOutput(
+            output.employee_id,
+            output.line,
+            output.task_id,
+            output.session_kind,
+            output.session_record_id,
+            output.session_event_id,
+          );
+        }),
+        onGrokSession((session: GrokSession) => {
+          set((state) => ({
+            employees: state.employees.map((employee) => (
+              employee.id === session.employee_id
+                ? { ...employee, status: "busy" }
+                : employee
+            )),
+          }));
+          void get().refreshEmployeeRuntimeStatus(session.employee_id);
+        }),
+        onGrokExit((exit) => {
+          if (exit.line) {
+            get().addCodexOutput(
+              exit.employee_id,
+              exit.line,
+              exit.task_id,
+              exit.session_kind,
+              exit.session_record_id,
+              exit.session_event_id,
+            );
+          }
+
+          void (async () => {
+            const runtime = await syncEmployeeRuntime(exit.employee_id).catch((error) => {
+              console.error(`Failed to sync runtime after Grok exit for ${exit.employee_id}:`, error);
+              return null;
+            });
+
+            if (!runtime?.running) {
+              void get().updateEmployeeStatus(
+                exit.employee_id,
+                exit.status === "exited" ? "offline" : "error",
               );
             }
           })();

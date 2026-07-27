@@ -594,7 +594,7 @@ export function CreateTaskDialog({
 
                     const employee = employees.find((emp) => emp.id === value);
                     return employee
-                      ? `${employee.name} (${getEmployeeRoleLabel(employee.role)}) · ${employee.ai_provider === "claude" ? "Claude" : employee.ai_provider === "opencode" ? "OpenCode" : "Codex"}`
+                      ? `${employee.name} (${getEmployeeRoleLabel(employee.role)}) · ${employee.ai_provider === "claude" ? "Claude" : employee.ai_provider === "opencode" ? "OpenCode" : employee.ai_provider === "grok" ? "Grok" : "Codex"}`
                       : "未指派";
                   }}
                 </SelectValue>
@@ -603,7 +603,7 @@ export function CreateTaskDialog({
                 <SelectItem value={UNASSIGNED_VALUE}>未指派</SelectItem>
                 {employees.map((emp) => (
                   <SelectItem key={emp.id} value={emp.id}>
-                    {emp.name} ({getEmployeeRoleLabel(emp.role)}) · {emp.ai_provider === "claude" ? "Claude" : emp.ai_provider === "opencode" ? "OpenCode" : "Codex"}
+                    {emp.name} ({getEmployeeRoleLabel(emp.role)}) · {emp.ai_provider === "claude" ? "Claude" : emp.ai_provider === "opencode" ? "OpenCode" : emp.ai_provider === "grok" ? "Grok" : "Codex"}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -631,7 +631,7 @@ export function CreateTaskDialog({
 
                     const employee = reviewerCandidates.find((emp) => emp.id === value);
                     return employee
-                      ? `${employee.name} (${getEmployeeRoleLabel(employee.role)}) · ${employee.ai_provider === "claude" ? "Claude" : employee.ai_provider === "opencode" ? "OpenCode" : "Codex"}`
+                      ? `${employee.name} (${getEmployeeRoleLabel(employee.role)}) · ${employee.ai_provider === "claude" ? "Claude" : employee.ai_provider === "opencode" ? "OpenCode" : employee.ai_provider === "grok" ? "Grok" : "Codex"}`
                       : "未指定";
                   }}
                 </SelectValue>
@@ -640,7 +640,7 @@ export function CreateTaskDialog({
                 <SelectItem value={UNASSIGNED_VALUE}>未指定</SelectItem>
                 {reviewerCandidates.map((emp) => (
                   <SelectItem key={emp.id} value={emp.id}>
-                    {emp.name} ({getEmployeeRoleLabel(emp.role)}) · {emp.ai_provider === "claude" ? "Claude" : emp.ai_provider === "opencode" ? "OpenCode" : "Codex"}
+                    {emp.name} ({getEmployeeRoleLabel(emp.role)}) · {emp.ai_provider === "claude" ? "Claude" : emp.ai_provider === "opencode" ? "OpenCode" : emp.ai_provider === "grok" ? "Grok" : "Codex"}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -673,7 +673,7 @@ export function CreateTaskDialog({
 
                     const employee = coordinatorCandidates.find((emp) => emp.id === value);
                     return employee
-                      ? `${employee.name} (${getEmployeeRoleLabel(employee.role)}) · ${employee.ai_provider === "claude" ? "Claude" : employee.ai_provider === "opencode" ? "OpenCode" : "Codex"}`
+                      ? `${employee.name} (${getEmployeeRoleLabel(employee.role)}) · ${employee.ai_provider === "claude" ? "Claude" : employee.ai_provider === "opencode" ? "OpenCode" : employee.ai_provider === "grok" ? "Grok" : "Codex"}`
                       : "未指定";
                   }}
                 </SelectValue>
@@ -682,7 +682,7 @@ export function CreateTaskDialog({
                 <SelectItem value={UNASSIGNED_VALUE}>未指定</SelectItem>
                 {coordinatorCandidates.map((emp) => (
                   <SelectItem key={emp.id} value={emp.id}>
-                    {emp.name} ({getEmployeeRoleLabel(emp.role)}) · {emp.ai_provider === "claude" ? "Claude" : emp.ai_provider === "opencode" ? "OpenCode" : "Codex"}
+                    {emp.name} ({getEmployeeRoleLabel(emp.role)}) · {emp.ai_provider === "claude" ? "Claude" : emp.ai_provider === "opencode" ? "OpenCode" : emp.ai_provider === "grok" ? "Grok" : "Codex"}
                   </SelectItem>
                 ))}
               </SelectContent>

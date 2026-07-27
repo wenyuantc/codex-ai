@@ -9,6 +9,13 @@ async fn list_live_opencode_employee_processes(
     manager.get_employee_processes(employee_id)
 }
 
+async fn list_live_grok_employee_processes(
+    state: &Arc<tokio::sync::Mutex<crate::grok::GrokManager>>,
+    employee_id: &str,
+) -> Vec<crate::grok::ManagedGrokProcess> {
+    crate::grok::list_live_grok_employee_processes(state, employee_id).await
+}
+
 pub(crate) async fn fetch_employee_by_id(pool: &SqlitePool, id: &str) -> Result<Employee, String> {
     sqlx::query_as::<_, Employee>("SELECT * FROM employees WHERE id = $1 LIMIT 1")
         .bind(id)
@@ -36,6 +43,7 @@ async fn build_employee_runtime_status<R: Runtime>(
     manager_state: &Arc<Mutex<CodexManager>>,
     claude_manager_state: &Arc<tokio::sync::Mutex<ClaudeManager>>,
     opencode_manager_state: &Arc<tokio::sync::Mutex<opencode::OpenCodeManager>>,
+    grok_manager_state: &Arc<tokio::sync::Mutex<crate::grok::GrokManager>>,
     employee_id: &str,
 ) -> Result<EmployeeRuntimeStatus, String> {
     let live_codex_processes =
@@ -44,10 +52,14 @@ async fn build_employee_runtime_status<R: Runtime>(
         crate::claude::list_live_claude_employee_processes(claude_manager_state, employee_id).await;
     let live_opencode_processes =
         list_live_opencode_employee_processes(opencode_manager_state, employee_id).await;
+    let live_grok_processes =
+        list_live_grok_employee_processes(grok_manager_state, employee_id).await;
     let pool = sqlite_pool(app).await?;
     let latest_session = fetch_latest_employee_session(app, employee_id).await?;
-    let total =
-        live_codex_processes.len() + live_claude_processes.len() + live_opencode_processes.len();
+    let total = live_codex_processes.len()
+        + live_claude_processes.len()
+        + live_opencode_processes.len()
+        + live_grok_processes.len();
     let mut sessions = Vec::with_capacity(total);
 
     for session_record_id in live_codex_processes
@@ -60,6 +72,11 @@ async fn build_employee_runtime_status<R: Runtime>(
         )
         .chain(
             live_opencode_processes
+                .into_iter()
+                .map(|process| process.session_record_id),
+        )
+        .chain(
+            live_grok_processes
                 .into_iter()
                 .map(|process| process.session_record_id),
         )
@@ -108,6 +125,7 @@ pub async fn get_employee_runtime_status<R: Runtime>(
     state: State<'_, Arc<Mutex<CodexManager>>>,
     claude_state: State<'_, Arc<tokio::sync::Mutex<ClaudeManager>>>,
     opencode_state: State<'_, Arc<tokio::sync::Mutex<opencode::OpenCodeManager>>>,
+    grok_state: State<'_, Arc<tokio::sync::Mutex<crate::grok::GrokManager>>>,
     employee_id: String,
 ) -> Result<EmployeeRuntimeStatus, String> {
     build_employee_runtime_status(
@@ -115,6 +133,7 @@ pub async fn get_employee_runtime_status<R: Runtime>(
         state.inner(),
         claude_state.inner(),
         opencode_state.inner(),
+        grok_state.inner(),
         &employee_id,
     )
     .await
@@ -126,6 +145,7 @@ pub async fn get_codex_session_status<R: Runtime>(
     state: State<'_, Arc<Mutex<CodexManager>>>,
     claude_state: State<'_, Arc<tokio::sync::Mutex<ClaudeManager>>>,
     opencode_state: State<'_, Arc<tokio::sync::Mutex<opencode::OpenCodeManager>>>,
+    grok_state: State<'_, Arc<tokio::sync::Mutex<crate::grok::GrokManager>>>,
     employee_id: String,
 ) -> Result<CodexRuntimeStatus, String> {
     let runtime = build_employee_runtime_status(
@@ -133,6 +153,7 @@ pub async fn get_codex_session_status<R: Runtime>(
         state.inner(),
         claude_state.inner(),
         opencode_state.inner(),
+        grok_state.inner(),
         &employee_id,
     )
     .await?;
@@ -295,6 +316,7 @@ pub async fn delete_employee<R: Runtime>(
     state: State<'_, Arc<Mutex<CodexManager>>>,
     claude_state: State<'_, Arc<tokio::sync::Mutex<ClaudeManager>>>,
     opencode_state: State<'_, Arc<tokio::sync::Mutex<opencode::OpenCodeManager>>>,
+    grok_state: State<'_, Arc<tokio::sync::Mutex<crate::grok::GrokManager>>>,
     id: String,
 ) -> Result<(), String> {
     if !crate::codex::list_live_employee_processes(&app, state.inner(), &id)
@@ -314,6 +336,12 @@ pub async fn delete_employee<R: Runtime>(
         .is_empty()
     {
         return Err("员工仍有运行中的 OpenCode 会话，不能删除".to_string());
+    }
+    if !list_live_grok_employee_processes(grok_state.inner(), &id)
+        .await
+        .is_empty()
+    {
+        return Err("员工仍有运行中的 Grok 会话，不能删除".to_string());
     }
 
     let pool = sqlite_pool(&app).await?;

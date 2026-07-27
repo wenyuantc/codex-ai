@@ -15,6 +15,7 @@ import { Input } from "@/components/ui/input";
 import { listCodexSessions, prepareCodexSessionResume } from "@/lib/backend";
 import { startCodex, stopCodexSession } from "@/lib/codex";
 import { startClaude, stopClaudeSession } from "@/lib/claude";
+import { startGrok, stopGrokSession } from "@/lib/grok";
 import { startOpenCode, stopOpenCodeSession } from "@/lib/opencode";
 import type { AiProvider, CodexSessionListItem, CodexSessionResumeStatus } from "@/lib/types";
 import { AI_PROVIDER_OPTIONS, normalizeAiProvider } from "@/lib/types";
@@ -54,6 +55,8 @@ function aiProviderBadgeVariant(provider: AiProvider): "default" | "secondary" |
     case "claude":
       return "secondary";
     case "opencode":
+      return "outline";
+    case "grok":
       return "outline";
     default:
       return "outline";
@@ -416,6 +419,8 @@ export function SessionsPage() {
       const provider = normalizeAiProvider(session.ai_provider);
       if (provider === "claude") {
         await stopClaudeSession(session.session_record_id);
+      } else if (provider === "grok") {
+        await stopGrokSession(session.session_record_id);
       } else if (provider === "opencode") {
         await stopOpenCodeSession(session.session_record_id);
       } else {
@@ -466,6 +471,8 @@ export function SessionsPage() {
 
       if (preview.ai_provider === "claude") {
         await startClaude(preview.employee_id, prompt, startOptions);
+      } else if (preview.ai_provider === "grok") {
+        await startGrok(preview.employee_id, prompt, startOptions);
       } else if (preview.ai_provider === "opencode") {
         await startOpenCode({
           employeeId: preview.employee_id,

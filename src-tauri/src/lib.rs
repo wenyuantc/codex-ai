@@ -4,6 +4,7 @@ mod codex;
 mod db;
 mod git_runtime;
 mod git_workflow;
+mod grok;
 mod notifications;
 mod opencode;
 mod process_spawn;
@@ -16,6 +17,7 @@ use std::sync::{Arc, Mutex};
 
 use claude::ClaudeManager;
 use codex::CodexManager;
+use grok::GrokManager;
 use opencode::OpenCodeManager;
 use tauri::Manager;
 
@@ -37,6 +39,7 @@ pub fn run() {
             tray::create_tray(app)?;
             app.manage(Arc::new(Mutex::new(CodexManager::new())));
             app.manage(Arc::new(tokio::sync::Mutex::new(ClaudeManager::new())));
+            app.manage(Arc::new(tokio::sync::Mutex::new(GrokManager::new())));
             let opencode_manager = Arc::new(tokio::sync::Mutex::new(OpenCodeManager::new()));
             app.manage(opencode_manager.clone());
             let app_handle = app.handle().clone();
@@ -142,6 +145,7 @@ pub fn run() {
             app::remote::delete_ssh_config,
             app::remote::probe_ssh_password_auth,
             app::remote::validate_remote_codex_health,
+            app::remote::validate_remote_grok_health,
             app::remote::install_remote_codex_sdk,
             app::employees::create_employee,
             app::employees::update_employee,
@@ -210,6 +214,12 @@ pub fn run() {
             claude::start_claude,
             claude::stop_claude_session,
             claude::stop_claude,
+            grok::get_grok_settings,
+            grok::update_grok_settings,
+            grok::check_grok_health,
+            grok::start_grok,
+            grok::stop_grok_session,
+            grok::stop_grok,
             opencode::get_opencode_settings,
             opencode::update_opencode_settings,
             opencode::check_opencode_sdk_health,

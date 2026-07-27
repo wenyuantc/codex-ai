@@ -8,6 +8,8 @@ import {
   CODEX_MODEL_OPTIONS,
   CLAUDE_MODEL_OPTIONS,
   CLAUDE_THINKING_BUDGET_OPTIONS,
+  GROK_MODEL_OPTIONS,
+  GROK_EFFORT_OPTIONS,
   REASONING_EFFORT_OPTIONS,
   OPENCODE_EFFORT_OPTIONS,
   type AiProvider,
@@ -79,8 +81,20 @@ export function CreateEmployeeDialog({
   const [opencodeModelsLoading, setOpenCodeModelsLoading] = useState(false);
   const [opencodeModelError, setOpenCodeModelError] = useState<string | null>(null);
 
-  const modelOptions = aiProvider === "claude" ? CLAUDE_MODEL_OPTIONS : aiProvider === "opencode" ? opencodeModels : CODEX_MODEL_OPTIONS;
-  const effortOptions = aiProvider === "claude" ? CLAUDE_THINKING_BUDGET_OPTIONS : aiProvider === "opencode" ? OPENCODE_EFFORT_OPTIONS : REASONING_EFFORT_OPTIONS;
+  const modelOptions = aiProvider === "claude"
+    ? CLAUDE_MODEL_OPTIONS
+    : aiProvider === "opencode"
+      ? opencodeModels
+      : aiProvider === "grok"
+        ? GROK_MODEL_OPTIONS
+        : CODEX_MODEL_OPTIONS;
+  const effortOptions = aiProvider === "claude"
+    ? CLAUDE_THINKING_BUDGET_OPTIONS
+    : aiProvider === "opencode"
+      ? OPENCODE_EFFORT_OPTIONS
+      : aiProvider === "grok"
+        ? GROK_EFFORT_OPTIONS
+        : REASONING_EFFORT_OPTIONS;
 
   const selectedModelCapabilities = aiProvider === "opencode"
     ? opencodeModels.find((m) => m.value === model)?.capabilities ?? null

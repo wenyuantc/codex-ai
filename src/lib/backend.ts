@@ -7,6 +7,9 @@ import type {
   ClaudeHealthCheck,
   ClaudeSettings,
   ClaudeSdkInstallResult,
+  GrokHealthCheck,
+  GrokSettings,
+  RemoteGrokHealthCheck,
   CodexHealthCheck,
   CodexSdkInstallResult,
   CodexSettings,
@@ -1030,6 +1033,26 @@ export async function checkClaudeSdkHealth(): Promise<ClaudeHealthCheck> {
 
 export async function installClaudeSdk(): Promise<ClaudeSdkInstallResult> {
   return invoke("install_claude_sdk");
+}
+
+export async function getGrokSettings(): Promise<GrokSettings> {
+  return invoke("get_grok_settings");
+}
+
+export async function updateGrokSettings(
+  updates: Partial<GrokSettings>,
+): Promise<GrokSettings> {
+  return invoke("update_grok_settings", { updates });
+}
+
+export async function checkGrokHealth(): Promise<GrokHealthCheck> {
+  return invoke("check_grok_health");
+}
+
+export async function validateRemoteGrokHealth(
+  sshConfigId: string,
+): Promise<RemoteGrokHealthCheck> {
+  return invoke("validate_remote_grok_health", { sshConfigId });
 }
 
 export async function createProject(input: CreateProjectInput): Promise<Project> {

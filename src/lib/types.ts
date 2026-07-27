@@ -755,9 +755,10 @@ export type CodexModelId =
   | "gpt-5.1-codex-mini";
 export type ReasoningEffort = "low" | "medium" | "high" | "xhigh" | "max";
 
-export type AiProvider = "codex" | "claude" | "opencode";
+export type AiProvider = "codex" | "claude" | "opencode" | "grok";
 export type ClaudeModelId = "opus" | "opus[1m]" | "sonnet" | "sonnet[1m]" | "haiku";
-export type ModelId = CodexModelId | ClaudeModelId | string;
+export type GrokModelId = "grok-4.5";
+export type ModelId = CodexModelId | ClaudeModelId | GrokModelId | string;
 export type TaskStatus = "todo" | "in_progress" | "review" | "completed" | "blocked" | "archived";
 export type TaskAutomationMode = "review_fix_loop_v1";
 export type TaskAutomationPhase =
@@ -947,6 +948,7 @@ export const AI_PROVIDER_OPTIONS: { value: AiProvider; label: string }[] = [
   { value: "codex", label: "Codex (OpenAI)" },
   { value: "claude", label: "Claude (Anthropic)" },
   { value: "opencode", label: "OpenCode (开源)" },
+  { value: "grok", label: "Grok" },
 ];
 
 export const CLAUDE_MODEL_OPTIONS: { value: ClaudeModelId; label: string }[] = [
@@ -955,6 +957,16 @@ export const CLAUDE_MODEL_OPTIONS: { value: ClaudeModelId; label: string }[] = [
   { value: "sonnet", label: "Claude Sonnet" },
   { value: "sonnet[1m]", label: "Claude Sonnet 1M" },
   { value: "haiku", label: "Claude Haiku" },
+];
+
+export const GROK_MODEL_OPTIONS: { value: GrokModelId; label: string }[] = [
+  { value: "grok-4.5", label: "Grok 4.5" },
+];
+
+export const GROK_EFFORT_OPTIONS: { value: string; label: string }[] = [
+  { value: "high", label: "高" },
+  { value: "medium", label: "中" },
+  { value: "low", label: "低" },
 ];
 
 export const CLAUDE_THINKING_BUDGET_OPTIONS: {
@@ -977,6 +989,10 @@ export function isSupportedClaudeReasoningEffort(value: string): boolean {
   return CLAUDE_THINKING_BUDGET_OPTIONS.some((option) => option.value === value);
 }
 
+export function isSupportedGrokReasoningEffort(value: string): boolean {
+  return GROK_EFFORT_OPTIONS.some((option) => option.value === value);
+}
+
 export function normalizeReasoningEffortForProvider(
   provider: AiProvider,
   value: string | null | undefined,
@@ -991,6 +1007,12 @@ export function normalizeReasoningEffortForProvider(
     return value && OPENCODE_EFFORT_OPTIONS.some((option) => option.value === value)
       ? value
       : "high";
+  }
+
+  if (provider === "grok") {
+    return value && isSupportedGrokReasoningEffort(value)
+      ? value
+      : getDefaultReasoningEffortForProvider(provider);
   }
 
   return normalizeReasoningEffort(value);
@@ -1008,11 +1030,19 @@ export function normalizeModelForProvider(
     return value && value.trim().length > 0 ? value.trim() : "openai/gpt-4o";
   }
 
+  if (provider === "grok") {
+    return normalizeGrokModel(value);
+  }
+
   return normalizeCodexModel(value);
 }
 
 export function isSupportedClaudeModel(value: string): value is ClaudeModelId {
   return CLAUDE_MODEL_OPTIONS.some((option) => option.value === value);
+}
+
+export function isSupportedGrokModel(value: string): value is GrokModelId {
+  return GROK_MODEL_OPTIONS.some((option) => option.value === value);
 }
 
 export function normalizeClaudeModel(
@@ -1028,15 +1058,25 @@ export function normalizeClaudeModel(
   return "sonnet";
 }
 
+export function normalizeGrokModel(
+  value: string | null | undefined,
+): GrokModelId {
+  const normalized = value?.trim();
+  if (normalized && isSupportedGrokModel(normalized)) return normalized;
+  return "grok-4.5";
+}
+
 export function getModelOptionsForProvider(provider: AiProvider) {
   if (provider === "claude") return CLAUDE_MODEL_OPTIONS;
   if (provider === "opencode") return [];
+  if (provider === "grok") return GROK_MODEL_OPTIONS;
   return CODEX_MODEL_OPTIONS;
 }
 
 export function getDefaultModelForProvider(provider: AiProvider): ModelId {
   if (provider === "claude") return "sonnet";
   if (provider === "opencode") return "openai/gpt-4o";
+  if (provider === "grok") return "grok-4.5";
   return "gpt-5.4";
 }
 
@@ -1045,6 +1085,7 @@ export function normalizeAiProvider(
 ): AiProvider {
   if (value === "claude") return "claude";
   if (value === "opencode") return "opencode";
+  if (value === "grok") return "grok";
   return "codex";
 }
 
@@ -1076,6 +1117,27 @@ export interface ClaudeSdkInstallResult {
   install_dir: string;
   node_version: string | null;
   message: string;
+}
+
+export interface GrokSettings {
+  default_model: string;
+  default_reasoning_effort: string;
+  cli_path_override: string | null;
+}
+
+export interface GrokHealthCheck {
+  cli_available: boolean;
+  cli_version: string | null;
+  cli_path: string | null;
+  status_message: string;
+  checked_at: string;
+}
+
+export interface RemoteGrokHealthCheck {
+  available: boolean;
+  version: string | null;
+  message: string;
+  checked_at: string;
 }
 
 export const ACTIVE_TASK_STATUSES: {

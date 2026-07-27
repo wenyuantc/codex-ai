@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { listCodexSessions, prepareCodexSessionResume } from "@/lib/backend";
 import { startClaude, stopClaudeSession } from "@/lib/claude";
+import { startGrok, stopGrokSession } from "@/lib/grok";
 import { startCodex, stopCodexSession } from "@/lib/codex";
 import { select } from "@/lib/database";
 import { startOpenCode, stopOpenCodeSession } from "@/lib/opencode";
@@ -46,6 +47,8 @@ function aiProviderBadgeVariant(provider: AiProvider): "default" | "secondary" |
     case "claude":
       return "secondary";
     case "opencode":
+      return "outline";
+    case "grok":
       return "outline";
     default:
       return "outline";
@@ -280,6 +283,8 @@ export function TaskSessionChainPanel({ taskId, active = true }: TaskSessionChai
           taskGitContextId: preview.task_git_context_id ?? undefined,
           resumeSessionId: preview.resolved_session_id,
         });
+      } else if (preview.ai_provider === "grok") {
+        await startGrok(preview.employee_id, prompt, startOptions);
       } else {
         await startCodex(preview.employee_id, prompt, startOptions);
       }
@@ -311,6 +316,8 @@ export function TaskSessionChainPanel({ taskId, active = true }: TaskSessionChai
         await stopClaudeSession(session.session_record_id);
       } else if (provider === "opencode") {
         await stopOpenCodeSession(session.session_record_id);
+      } else if (provider === "grok") {
+        await stopGrokSession(session.session_record_id);
       } else {
         await stopCodexSession(session.session_record_id);
       }

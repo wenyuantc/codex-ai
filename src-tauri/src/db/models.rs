@@ -1210,6 +1210,71 @@ pub struct ClaudeSession {
     pub session_id: String,
 }
 
+// ========== Grok Types ==========
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GrokSettings {
+    pub default_model: String,
+    pub default_reasoning_effort: String,
+    pub cli_path_override: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UpdateGrokSettings {
+    pub default_model: Option<String>,
+    pub default_reasoning_effort: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_explicit_nullable")]
+    pub cli_path_override: Option<Option<String>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GrokHealthCheck {
+    pub cli_available: bool,
+    pub cli_version: Option<String>,
+    pub cli_path: Option<String>,
+    pub status_message: String,
+    pub checked_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RemoteGrokHealthCheck {
+    pub available: bool,
+    pub version: Option<String>,
+    pub message: String,
+    pub checked_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GrokOutput {
+    pub employee_id: String,
+    pub task_id: Option<String>,
+    pub session_kind: String,
+    pub session_record_id: String,
+    pub session_event_id: Option<String>,
+    pub line: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GrokExit {
+    pub employee_id: String,
+    pub task_id: Option<String>,
+    pub session_kind: String,
+    pub session_record_id: String,
+    pub session_event_id: Option<String>,
+    pub status: String,
+    pub line: Option<String>,
+    pub code: Option<i32>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GrokSession {
+    pub employee_id: String,
+    pub task_id: Option<String>,
+    pub session_kind: String,
+    pub session_record_id: String,
+    pub session_id: String,
+}
+
 // ========== OpenCode Types ==========
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

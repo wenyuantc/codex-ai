@@ -758,6 +758,27 @@ pub async fn start_codex_with_manager(
                 ));
             }
         }
+        if let Some(grok_state) =
+            app.try_state::<Arc<tokio::sync::Mutex<crate::grok::GrokManager>>>()
+        {
+            let manager = grok_state.lock().await;
+            if manager
+                .get_task_process_any(
+                    task_id,
+                    match session_kind {
+                        CodexSessionKind::Review => crate::grok::GrokSessionKind::Review,
+                        _ => crate::grok::GrokSessionKind::Execution,
+                    },
+                )
+                .is_some()
+            {
+                return Err(format!(
+                    "任务{}的{}会话已在运行",
+                    task_id,
+                    session_kind.as_str()
+                ));
+            }
+        }
     } else if get_live_managed_process_with_manager(&app, &manager_state, &employee_id)
         .await?
         .is_some()
@@ -766,15 +787,30 @@ pub async fn start_codex_with_manager(
             "员工{}已有未绑定任务的 Codex 会话在运行",
             employee_id
         ));
-    } else if let Some(claude_state) =
-        app.try_state::<Arc<tokio::sync::Mutex<crate::claude::ClaudeManager>>>()
-    {
-        let manager = claude_state.lock().await;
-        if manager.has_employee_processes(&employee_id) {
-            return Err(format!(
-                "员工{}已有未绑定任务的 Claude 会话在运行",
-                employee_id
-            ));
+    } else {
+        // Claude / Grok 必须独立检查：不能用 else-if 链，否则 ClaudeManager
+        // 一旦存在（应用启动后恒为 true）会短路掉 Grok 冲突检测。
+        if let Some(claude_state) =
+            app.try_state::<Arc<tokio::sync::Mutex<crate::claude::ClaudeManager>>>()
+        {
+            let manager = claude_state.lock().await;
+            if manager.has_employee_processes(&employee_id) {
+                return Err(format!(
+                    "员工{}已有未绑定任务的 Claude 会话在运行",
+                    employee_id
+                ));
+            }
+        }
+        if let Some(grok_state) =
+            app.try_state::<Arc<tokio::sync::Mutex<crate::grok::GrokManager>>>()
+        {
+            let manager = grok_state.lock().await;
+            if manager.has_employee_processes(&employee_id) {
+                return Err(format!(
+                    "员工{}已有未绑定任务的 Grok 会话在运行",
+                    employee_id
+                ));
+            }
         }
     }
 

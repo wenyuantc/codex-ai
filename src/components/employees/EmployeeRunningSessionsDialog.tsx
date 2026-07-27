@@ -19,7 +19,7 @@ function formatSessionKind(sessionKind: EmployeeRunningSession["session_kind"]) 
 }
 
   function formatAiProvider(provider: EmployeeRunningSession["ai_provider"]) {
-    return provider === "claude" ? "Claude" : provider === "opencode" ? "OpenCode" : "Codex";
+    return provider === "claude" ? "Claude" : provider === "opencode" ? "OpenCode" : provider === "grok" ? "Grok" : "Codex";
   }
 
 export function EmployeeRunningSessionsDialog({

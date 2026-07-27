@@ -21,6 +21,10 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   backupDatabase,
   checkClaudeSdkHealth,
+  checkGrokHealth,
+  getGrokSettings,
+  updateGrokSettings,
+  validateRemoteGrokHealth,
   createSshConfig as createSshConfigCommand,
   deleteSshConfig as deleteSshConfigCommand,
   getClaudeSettings,
@@ -64,6 +68,8 @@ import {
   type AiCommitMessageLength,
   type AiCommitModelSource,
   type ClaudeHealthCheck,
+  type GrokHealthCheck,
+  type RemoteGrokHealthCheck,
   type CodexHealthCheck,
   type CodexSettings,
   type GitPreferences,
@@ -226,6 +232,14 @@ export function SettingsPage() {
   const [opencodeActionError, setOpenCodeActionError] = useState<string | null>(null);
   const [opencodeModelList, setOpenCodeModelList] = useState<OpenCodeModelInfo[]>([]);
   const [opencodeModelListLoading, setOpenCodeModelListLoading] = useState(false);
+  const [grokHealth, setGrokHealth] = useState<GrokHealthCheck | null>(null);
+  const [remoteGrokHealth, setRemoteGrokHealth] = useState<RemoteGrokHealthCheck | null>(null);
+  const [grokDefaultModel, setGrokDefaultModel] = useState("grok-4.5");
+  const [grokDefaultEffort, setGrokDefaultEffort] = useState("high");
+  const [grokCliPathOverride, setGrokCliPathOverride] = useState("");
+  const [grokActionLoading, setGrokActionLoading] = useState<"save" | null>(null);
+  const [grokActionMessage, setGrokActionMessage] = useState<string | null>(null);
+  const [grokActionError, setGrokActionError] = useState<string | null>(null);
 
   const selectedSshConfig = useMemo(
     () => sshConfigs.find((config) => config.id === selectedSshConfigId) ?? null,
@@ -403,6 +417,58 @@ export function SettingsPage() {
     }
   }
 
+  async function loadGrokState() {
+    try {
+      const [health, settings] = await Promise.all([
+        checkGrokHealth(),
+        getGrokSettings(),
+      ]);
+      setGrokHealth(health);
+      setGrokDefaultModel(settings.default_model || "grok-4.5");
+      setGrokDefaultEffort(settings.default_reasoning_effort || "high");
+      setGrokCliPathOverride(settings.cli_path_override ?? "");
+      setGrokActionError(null);
+
+      if (isRemoteMode && selectedSshConfigId) {
+        try {
+          setRemoteGrokHealth(await validateRemoteGrokHealth(selectedSshConfigId));
+        } catch (error) {
+          setRemoteGrokHealth({
+            available: false,
+            version: null,
+            message: error instanceof Error ? error.message : "远程 Grok 健康检查失败",
+            checked_at: new Date().toISOString().slice(0, 19).replace("T", " "),
+          });
+        }
+      } else {
+        setRemoteGrokHealth(null);
+      }
+    } catch (error) {
+      console.error("Failed to load Grok settings:", error);
+      setGrokHealth(null);
+      setGrokActionError(error instanceof Error ? error.message : "加载 Grok 设置失败");
+    }
+  }
+
+  async function handleSaveGrokSettings() {
+    setGrokActionLoading("save");
+    setGrokActionError(null);
+    setGrokActionMessage(null);
+    try {
+      await updateGrokSettings({
+        default_model: grokDefaultModel,
+        default_reasoning_effort: grokDefaultEffort,
+        cli_path_override: grokCliPathOverride.trim() || null,
+      });
+      setGrokActionMessage("Grok 设置已保存");
+      await loadGrokState();
+    } catch (error) {
+      setGrokActionError(error instanceof Error ? error.message : "保存 Grok 设置失败");
+    } finally {
+      setGrokActionLoading(null);
+    }
+  }
+
   useEffect(() => {
     applyTheme(themeMode);
   }, [themeMode]);
@@ -430,6 +496,7 @@ export function SettingsPage() {
   useEffect(() => {
     void loadRuntimeState();
     void loadClaudeState();
+    void loadGrokState();
     void loadOpenCodeState();
   }, [environmentMode, selectedSshConfigId]);
 
@@ -994,6 +1061,19 @@ export function SettingsPage() {
             onOpenCodeSave={() => void handleSaveOpenCodeSettings()}
             onOpenCodeInstall={() => void handleInstallOpenCodeSdk()}
             onOpenCodeRefresh={() => void loadOpenCodeState()}
+            grokHealth={grokHealth}
+            remoteGrokHealth={remoteGrokHealth}
+            grokDefaultModel={grokDefaultModel}
+            grokDefaultEffort={grokDefaultEffort}
+            grokCliPathOverride={grokCliPathOverride}
+            grokActionLoading={grokActionLoading}
+            grokActionMessage={grokActionMessage}
+            grokActionError={grokActionError}
+            onGrokDefaultModelChange={setGrokDefaultModel}
+            onGrokDefaultEffortChange={setGrokDefaultEffort}
+            onGrokCliPathOverrideChange={setGrokCliPathOverride}
+            onGrokSave={() => void handleSaveGrokSettings()}
+            onGrokRefresh={() => void loadGrokState()}
           />
         </TabsContent>
 

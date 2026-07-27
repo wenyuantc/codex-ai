@@ -4,6 +4,7 @@ import { Loader2, Play, Search, Square } from "lucide-react";
 import { prepareTaskGitExecution, startTaskCodeReview } from "@/lib/backend";
 import { startCodex, stopCodexSession } from "@/lib/codex";
 import { startClaude, stopClaudeSession } from "@/lib/claude";
+import { startGrok, stopGrokSession } from "@/lib/grok";
 import { startOpenCode, stopOpenCodeSession } from "@/lib/opencode";
 import { getProjectWorkingDir } from "@/lib/projects";
 import { buildTaskExecutionInput } from "@/lib/taskPrompt";
@@ -213,6 +214,16 @@ export function CodexControls({
           taskGitContextId,
           imagePaths: executionInput.imagePaths,
         });
+      } else if (aiProvider === "grok") {
+        await startGrok(employeeId, executionInput.prompt, {
+          model,
+          reasoningEffort,
+          systemPrompt,
+          workingDir,
+          taskId: selectedTask.id,
+          taskGitContextId,
+          imagePaths: executionInput.imagePaths,
+        });
       } else {
         await startCodex(employeeId, executionInput.prompt, {
           model,
@@ -261,6 +272,9 @@ export function CodexControls({
           }
           if (session.ai_provider === "opencode") {
             return stopOpenCodeSession(session.session_record_id);
+          }
+          if (session.ai_provider === "grok") {
+            return stopGrokSession(session.session_record_id);
           }
           return stopCodexSession(session.session_record_id);
         }),

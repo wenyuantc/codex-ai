@@ -96,7 +96,6 @@ impl OpenCodeManager {
         }
     }
 
-    #[cfg(test)]
     pub fn has_employee_processes(&self, employee_id: &str) -> bool {
         self.processes
             .values()

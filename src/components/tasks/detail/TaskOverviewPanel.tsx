@@ -246,7 +246,7 @@ export function TaskOverviewPanel({
                   }
 
                   const emp = employees.find((e) => e.id === value);
-                  return emp ? `${emp.name} · ${emp.ai_provider === "claude" ? "Claude" : emp.ai_provider === "opencode" ? "OpenCode" : "Codex"}` : "未指派";
+                  return emp ? `${emp.name} · ${emp.ai_provider === "claude" ? "Claude" : emp.ai_provider === "opencode" ? "OpenCode" : emp.ai_provider === "grok" ? "Grok" : "Codex"}` : "未指派";
                 }}
               </SelectValue>
             </SelectTrigger>
@@ -254,7 +254,7 @@ export function TaskOverviewPanel({
               <SelectItem value={UNASSIGNED_VALUE}>未指派</SelectItem>
               {employees.map((emp) => (
                 <SelectItem key={emp.id} value={emp.id}>
-                  {emp.name} · {emp.ai_provider === "claude" ? "Claude" : emp.ai_provider === "opencode" ? "OpenCode" : "Codex"}
+                  {emp.name} · {emp.ai_provider === "claude" ? "Claude" : emp.ai_provider === "opencode" ? "OpenCode" : emp.ai_provider === "grok" ? "Grok" : "Codex"}
                 </SelectItem>
               ))}
             </SelectContent>
@@ -275,7 +275,7 @@ export function TaskOverviewPanel({
                   }
 
                   const emp = employees.find((e) => e.id === value);
-                  return emp ? `${emp.name} · ${emp.ai_provider === "claude" ? "Claude" : emp.ai_provider === "opencode" ? "OpenCode" : "Codex"}` : "未指定";
+                  return emp ? `${emp.name} · ${emp.ai_provider === "claude" ? "Claude" : emp.ai_provider === "opencode" ? "OpenCode" : emp.ai_provider === "grok" ? "Grok" : "Codex"}` : "未指定";
                 }}
               </SelectValue>
             </SelectTrigger>
@@ -283,7 +283,7 @@ export function TaskOverviewPanel({
               <SelectItem value={UNASSIGNED_VALUE}>未指定</SelectItem>
               {reviewerCandidates.map((emp) => (
                 <SelectItem key={emp.id} value={emp.id}>
-                  {emp.name} · {emp.ai_provider === "claude" ? "Claude" : emp.ai_provider === "opencode" ? "OpenCode" : "Codex"}
+                  {emp.name} · {emp.ai_provider === "claude" ? "Claude" : emp.ai_provider === "opencode" ? "OpenCode" : emp.ai_provider === "grok" ? "Grok" : "Codex"}
                 </SelectItem>
               ))}
             </SelectContent>
@@ -304,7 +304,7 @@ export function TaskOverviewPanel({
                   }
 
                   const emp = coordinatorCandidates.find((e) => e.id === value);
-                  return emp ? `${emp.name} · ${emp.ai_provider === "claude" ? "Claude" : emp.ai_provider === "opencode" ? "OpenCode" : "Codex"}` : "未指定";
+                  return emp ? `${emp.name} · ${emp.ai_provider === "claude" ? "Claude" : emp.ai_provider === "opencode" ? "OpenCode" : emp.ai_provider === "grok" ? "Grok" : "Codex"}` : "未指定";
                 }}
               </SelectValue>
             </SelectTrigger>
@@ -312,7 +312,7 @@ export function TaskOverviewPanel({
               <SelectItem value={UNASSIGNED_VALUE}>未指定</SelectItem>
               {coordinatorCandidates.map((emp) => (
                 <SelectItem key={emp.id} value={emp.id}>
-                  {emp.name} · {emp.ai_provider === "claude" ? "Claude" : emp.ai_provider === "opencode" ? "OpenCode" : "Codex"}
+                  {emp.name} · {emp.ai_provider === "claude" ? "Claude" : emp.ai_provider === "opencode" ? "OpenCode" : emp.ai_provider === "grok" ? "Grok" : "Codex"}
                 </SelectItem>
               ))}
             </SelectContent>

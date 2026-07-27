@@ -1,5 +1,6 @@
 use super::*;
 use crate::claude::{start_claude_with_manager, ClaudeManager};
+use crate::grok::{start_grok_with_manager, GrokManager};
 
 pub(crate) fn truncate_review_text(value: &str, limit: usize) -> (String, bool) {
     let trimmed = value.trim();
@@ -1089,6 +1090,27 @@ pub(crate) async fn start_task_code_review_internal(
         start_claude_with_manager(
             app.clone(),
             claude_manager,
+            reviewer.id.clone(),
+            review_prompt,
+            Some(reviewer.model.clone()),
+            Some(reviewer.reasoning_effort.clone()),
+            reviewer.system_prompt.clone(),
+            Some(review_working_dir),
+            Some(task.id.clone()),
+            None,
+            None,
+            None,
+            Some("review".to_string()),
+        )
+        .await?;
+    } else if reviewer.ai_provider == "grok" {
+        let grok_manager = app
+            .state::<Arc<tokio::sync::Mutex<GrokManager>>>()
+            .inner()
+            .clone();
+        start_grok_with_manager(
+            app.clone(),
+            grok_manager,
             reviewer.id.clone(),
             review_prompt,
             Some(reviewer.model.clone()),

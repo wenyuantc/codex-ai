@@ -24,6 +24,7 @@ use crate::db::models::{
 use crate::git_workflow::{
     auto_commit_task_worktree, mark_task_git_context_session_finished, TaskGitAutoCommitOutcome,
 };
+use crate::grok::{start_grok_with_manager, stop_grok_for_automation_restart, GrokManager};
 use crate::notifications::{build_task_status_notification, publish_one_time_notification};
 use crate::opencode::{start_opencode_with_manager, OpenCodeManager};
 
@@ -1045,6 +1046,27 @@ async fn start_automation_fix_round(
             Some(execution_input.image_paths),
         )
         .await
+    } else if assignee.ai_provider == "grok" {
+        let manager = app
+            .state::<Arc<tokio::sync::Mutex<GrokManager>>>()
+            .inner()
+            .clone();
+        start_grok_with_manager(
+            app.clone(),
+            manager,
+            assignee.id.clone(),
+            execution_input.prompt,
+            Some(assignee.model.clone()),
+            Some(assignee.reasoning_effort.clone()),
+            assignee.system_prompt.clone(),
+            Some(execution_context.working_dir),
+            Some(task.id.clone()),
+            execution_context.task_git_context_id,
+            None,
+            Some(execution_input.image_paths),
+            Some("execution".to_string()),
+        )
+        .await
     } else {
         let manager = app.state::<Arc<Mutex<CodexManager>>>().inner().clone();
         start_codex_with_manager(
@@ -1608,7 +1630,18 @@ async fn stop_running_session_for_automation_restart(
         return Ok(true);
     }
 
-    stop_claude_for_automation_restart(app, employee_id, Some(expected_session_record_id), message)
+    if stop_claude_for_automation_restart(
+        app,
+        employee_id,
+        Some(expected_session_record_id),
+        message,
+    )
+    .await?
+    {
+        return Ok(true);
+    }
+
+    stop_grok_for_automation_restart(app, employee_id, Some(expected_session_record_id), message)
         .await
 }
 

@@ -1,11 +1,9 @@
-use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use sqlx::SqlitePool;
 use tauri::{AppHandle, Emitter, Manager, Runtime, State};
-use tokio::io::AsyncWriteExt;
 
 use crate::app::{
     build_remote_shell_command, build_ssh_command, fetch_ssh_config_record_by_id,
@@ -14,15 +12,15 @@ use crate::app::{
     shell_escape_single_quoted, sqlite_pool, update_codex_session_record,
     validate_runtime_working_dir, EXECUTION_TARGET_LOCAL, EXECUTION_TARGET_SSH,
 };
-use crate::claude::{
-    ensure_claude_sdk_runtime_layout, inspect_claude_sdk_runtime, load_claude_settings,
-    normalize_claude_model, sdk_bridge_script_path, ClaudeManager,
-};
-use crate::codex::{new_node_command, CodexManager, CodexSessionKind, ExecutionChangeBaseline};
-use crate::db::models::{ClaudeOutput, CodexSessionFileChangeInput, SshConfigRecord};
+use crate::codex::{CodexManager, CodexSessionKind, ExecutionChangeBaseline};
+use crate::db::models::{GrokOutput, SshConfigRecord};
 use crate::git_workflow::{
     mark_task_git_context_running, mark_task_git_context_session_finished,
     validate_task_git_context_launch,
+};
+use crate::grok::{
+    load_grok_settings, normalize_grok_model, normalize_grok_reasoning_effort,
+    resolve_grok_executable_path, GrokManager,
 };
 
 mod context;
@@ -30,73 +28,53 @@ mod lifecycle;
 mod session_runtime;
 mod stream;
 
-pub use self::lifecycle::ClaudeChild;
+pub use self::lifecycle::GrokChild;
+pub use self::stream::aggregate_grok_one_shot_output;
 
-use self::{context::*, session_runtime::*, stream::*};
+use self::{context::*, session_runtime::*};
 
-const SUPPORTED_REASONING_EFFORTS: &[&str] = &["low", "medium", "high", "xhigh", "max", "auto"];
-const DEFAULT_REASONING_EFFORT: &str = "high";
-const SESSION_ID_PREFIX: &str = "session id:";
-const CLAUDE_FILE_CHANGE_EVENT_PREFIX: &str = "[CLAUDE_FILE_CHANGE]";
 const STOP_WAIT_POLL_MS: u64 = 50;
 const STOP_WAIT_MAX_ATTEMPTS: usize = 600;
 
-pub type SdkFileChangeStore = Arc<Mutex<HashMap<String, CodexSessionFileChangeInput>>>;
-
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum ClaudeSessionKind {
+pub enum GrokSessionKind {
     Execution,
     Review,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum ClaudeExecutionProvider {
-    Sdk,
-    Cli,
-}
-
-impl ClaudeExecutionProvider {
-    fn label(self) -> &'static str {
-        match self {
-            ClaudeExecutionProvider::Sdk => "Claude Agent SDK",
-            ClaudeExecutionProvider::Cli => "Claude CLI",
-        }
-    }
-}
-
-impl ClaudeSessionKind {
+impl GrokSessionKind {
     pub fn as_str(self) -> &'static str {
         match self {
-            ClaudeSessionKind::Execution => "execution",
-            ClaudeSessionKind::Review => "review",
+            GrokSessionKind::Execution => "execution",
+            GrokSessionKind::Review => "review",
         }
     }
 
     fn activity_start_action(self, resumed: bool) -> &'static str {
         match self {
-            ClaudeSessionKind::Execution => {
+            GrokSessionKind::Execution => {
                 if resumed {
                     "task_execution_resumed"
                 } else {
                     "task_execution_started"
                 }
             }
-            ClaudeSessionKind::Review => "task_review_started",
+            GrokSessionKind::Review => "task_review_started",
         }
     }
 }
 
-fn normalize_session_kind(session_kind: Option<&str>) -> ClaudeSessionKind {
+fn normalize_session_kind(session_kind: Option<&str>) -> GrokSessionKind {
     match session_kind {
-        Some("review") => ClaudeSessionKind::Review,
-        _ => ClaudeSessionKind::Execution,
+        Some("review") => GrokSessionKind::Review,
+        _ => GrokSessionKind::Execution,
     }
 }
 
-fn claude_session_kind_to_codex(session_kind: ClaudeSessionKind) -> CodexSessionKind {
+fn grok_session_kind_to_codex(session_kind: GrokSessionKind) -> CodexSessionKind {
     match session_kind {
-        ClaudeSessionKind::Execution => CodexSessionKind::Execution,
-        ClaudeSessionKind::Review => CodexSessionKind::Review,
+        GrokSessionKind::Execution => CodexSessionKind::Execution,
+        GrokSessionKind::Review => CodexSessionKind::Review,
     }
 }
 
@@ -106,47 +84,36 @@ fn cleanup_process_artifacts(paths: &[PathBuf]) {
     }
 }
 
-fn normalize_model(model: Option<&str>) -> String {
-    normalize_claude_model(model)
-}
-
-fn normalize_reasoning_effort(effort: Option<&str>) -> &'static str {
-    match effort {
-        Some(value) if SUPPORTED_REASONING_EFFORTS.contains(&value) => match value {
-            "low" => "low",
-            "medium" => "medium",
-            "high" => "high",
-            "xhigh" => "xhigh",
-            "max" => "max",
-            "auto" => "auto",
-            _ => DEFAULT_REASONING_EFFORT,
-        },
-        _ => DEFAULT_REASONING_EFFORT,
-    }
-}
-
-fn build_claude_cli_args(
+/// Grok headless CLI 参数。
+/// 使用 `--permission-mode bypassPermissions` 实现非交互自动批准工具调用。
+pub fn build_grok_cli_args(
+    prompt: &str,
     model: &str,
     effort: &str,
     system_prompt: Option<&str>,
     resume_session_id: Option<&str>,
+    cwd: Option<&str>,
 ) -> Vec<String> {
-    let mut args = vec!["-p".to_string(), "--model".to_string(), model.to_string()];
-
-    if effort != "auto" {
-        args.push("--effort".to_string());
-        args.push(effort.to_string());
-    }
-
-    args.extend([
+    let mut args = vec![
+        "-p".to_string(),
+        prompt.to_string(),
+        "-m".to_string(),
+        model.to_string(),
+        "--reasoning-effort".to_string(),
+        effort.to_string(),
         "--output-format".to_string(),
-        "stream-json".to_string(),
+        "streaming-json".to_string(),
         "--permission-mode".to_string(),
         "bypassPermissions".to_string(),
-    ]);
+    ];
+
+    if let Some(cwd) = cwd.map(str::trim).filter(|value| !value.is_empty()) {
+        args.push("--cwd".to_string());
+        args.push(cwd.to_string());
+    }
 
     if let Some(sp) = system_prompt.map(str::trim).filter(|s| !s.is_empty()) {
-        args.push("--system-prompt".to_string());
+        args.push("--system-prompt-override".to_string());
         args.push(sp.to_string());
     }
 
@@ -158,7 +125,20 @@ fn build_claude_cli_args(
     args
 }
 
-fn build_remote_claude_session_command(run_cwd: &str, cli_args: &[String]) -> String {
+/// One-shot 使用 plain 输出更易聚合，不带 streaming-json。
+pub fn build_grok_one_shot_cli_args(model: &str, effort: &str) -> Vec<String> {
+    vec![
+        "-p".to_string(),
+        "-m".to_string(),
+        model.to_string(),
+        "--reasoning-effort".to_string(),
+        effort.to_string(),
+        "--permission-mode".to_string(),
+        "bypassPermissions".to_string(),
+    ]
+}
+
+pub fn build_remote_grok_session_command(run_cwd: &str, cli_args: &[String]) -> String {
     let escaped_args = cli_args
         .iter()
         .map(|arg| shell_escape_single_quoted(arg))
@@ -166,7 +146,7 @@ fn build_remote_claude_session_command(run_cwd: &str, cli_args: &[String]) -> St
 
     build_remote_shell_command(
         &format!(
-            "cd {} && exec claude {}",
+            "cd {} && exec grok {}",
             remote_shell_path_expression(run_cwd),
             escaped_args.join(" "),
         ),
@@ -174,33 +154,7 @@ fn build_remote_claude_session_command(run_cwd: &str, cli_args: &[String]) -> St
     )
 }
 
-fn effort_to_thinking_budget(effort: &str) -> Option<i32> {
-    match effort {
-        "low" => Some(5_000),
-        "medium" => Some(10_000),
-        "high" => Some(16_000),
-        "xhigh" => Some(32_000),
-        "max" => Some(128_000),
-        "auto" => None,
-        _ => Some(10_000),
-    }
-}
-
-fn thinking_budget_to_effort(budget: i32) -> &'static str {
-    if budget >= 128_000 {
-        "max"
-    } else if budget >= 32_000 {
-        "xhigh"
-    } else if budget >= 16_000 {
-        "high"
-    } else if budget >= 10_000 {
-        "medium"
-    } else {
-        "low"
-    }
-}
-
-fn compose_claude_prompt(task_description: &str, system_prompt: Option<&str>) -> String {
+fn compose_grok_prompt(task_description: &str, system_prompt: Option<&str>) -> String {
     let task_description = task_description.trim();
     let system_prompt = system_prompt
         .map(str::trim)
@@ -215,8 +169,7 @@ fn compose_claude_prompt(task_description: &str, system_prompt: Option<&str>) ->
     }
 }
 
-fn format_claude_session_prompt_log(
-    provider: ClaudeExecutionProvider,
+fn format_grok_session_prompt_log(
     model: &str,
     effort: &str,
     execution_target: &str,
@@ -253,20 +206,14 @@ fn format_claude_session_prompt_log(
     };
 
     format!(
-        "[PROMPT] 即将发送给 Claude 的完整提示词\n\
-运行通道: {}\n\
+        "[PROMPT] 即将发送给 Grok 的完整提示词\n\
+运行通道: Grok CLI\n\
 模型: {}\n\
 推理强度: {}\n\
 {}\n\
 工作目录: {}\n\
 {}\n\n{}",
-        provider.label(),
-        model,
-        effort,
-        runtime_block,
-        working_dir,
-        image_block,
-        prompt
+        model, effort, runtime_block, working_dir, image_block, prompt
     )
 }
 
@@ -278,169 +225,13 @@ pub(crate) fn extract_review_verdict(raw: &str) -> Option<String> {
     crate::codex::extract_review_verdict(raw)
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn claude_prompt_log_includes_full_prompt_and_runtime() {
-        let prompt = compose_claude_prompt("修复自动质控", Some("你是审查员"));
-        let log = format_claude_session_prompt_log(
-            ClaudeExecutionProvider::Sdk,
-            "sonnet",
-            "high",
-            EXECUTION_TARGET_LOCAL,
-            None,
-            "/tmp/project",
-            &prompt,
-            &[],
-        );
-
-        assert!(log.contains("[PROMPT] 即将发送给 Claude 的完整提示词"));
-        assert!(log.contains("运行通道: Claude Agent SDK"));
-        assert!(log.contains("<employee_system_prompt>"));
-        assert!(log.contains("你是审查员"));
-        assert!(log.contains("<task>"));
-        assert!(log.contains("修复自动质控"));
-    }
-
-    #[test]
-    fn thinking_budget_defaults_map_to_nearest_effort() {
-        assert_eq!(thinking_budget_to_effort(5_000), "low");
-        assert_eq!(thinking_budget_to_effort(10_000), "medium");
-        assert_eq!(thinking_budget_to_effort(16_000), "high");
-        assert_eq!(thinking_budget_to_effort(32_000), "xhigh");
-        assert_eq!(thinking_budget_to_effort(128_000), "max");
-    }
-
-    #[test]
-    fn claude_cli_args_skip_auto_effort() {
-        let args = build_claude_cli_args("sonnet", "auto", None, None);
-
-        assert!(!args.contains(&"--effort".to_string()));
-        assert!(!args.contains(&"auto".to_string()));
-    }
-
-    #[test]
-    fn claude_cli_args_keep_supported_effort_and_resume() {
-        let args = build_claude_cli_args("sonnet", "high", Some("审查代码"), Some("session-123"));
-
-        assert!(args
-            .windows(2)
-            .any(|pair| pair[0] == "--effort" && pair[1] == "high"));
-        assert!(args
-            .windows(2)
-            .any(|pair| pair[0] == "--system-prompt" && pair[1] == "审查代码"));
-        assert!(args
-            .windows(2)
-            .any(|pair| pair[0] == "--resume" && pair[1] == "session-123"));
-    }
-
-    #[test]
-    fn remote_claude_session_command_uses_shell_bootstrap() {
-        let args = build_claude_cli_args("sonnet", "high", None, None);
-        let command = build_remote_claude_session_command("~/repo with space", &args);
-
-        assert!(command.starts_with("sh -lc "));
-        assert!(command.contains("PATH="));
-        assert!(command.contains("\"$HOME/.local/bin\""));
-        assert!(command.contains("exec claude"));
-        assert!(command.contains("$HOME/repo with space"));
-        assert!(!command.contains("修复"));
-        assert!(!command.contains("bug"));
-    }
-}
-
-fn resolve_claude_binary_path(
-    settings: &crate::db::models::ClaudeSettings,
-) -> Result<PathBuf, String> {
-    if let Some(cli_path_override) = settings
-        .cli_path_override
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-    {
-        return Ok(PathBuf::from(cli_path_override));
-    }
-
-    let install_dir = PathBuf::from(&settings.sdk_install_dir);
-    let bin_name = if cfg!(target_os = "windows") {
-        "claude.exe"
-    } else {
-        "claude"
-    };
-    let pkg_bin = install_dir
-        .join("node_modules")
-        .join("@anthropic-ai")
-        .join("claude-code")
-        .join("bin")
-        .join(bin_name);
-    if pkg_bin.exists() {
-        return Ok(pkg_bin);
-    }
-
-    Ok(PathBuf::from("claude"))
-}
-
-fn upsert_sdk_file_change_event(store: &SdkFileChangeStore, event: SdkFileChangeEvent) {
-    let mut guard = store.lock().unwrap();
-    for change in event.changes {
-        let path = change.path.unwrap_or_default().trim().to_string();
-        if path.is_empty() {
-            continue;
-        }
-        let Some(change_kind) = normalize_file_change_kind(change.kind.as_deref()) else {
-            continue;
-        };
-        guard.insert(
-            path.clone(),
-            CodexSessionFileChangeInput {
-                path,
-                change_type: change_kind.to_string(),
-                capture_mode: "sdk_event".to_string(),
-                previous_path: change
-                    .previous_path
-                    .map(|v| v.trim().to_string())
-                    .filter(|v| !v.is_empty()),
-                detail: None,
-            },
-        );
-    }
-}
-
-fn normalize_file_change_kind(value: Option<&str>) -> Option<&'static str> {
-    match value.map(|v| v.trim().to_ascii_lowercase()) {
-        Some(v) if matches!(v.as_str(), "add" | "added" | "create" | "created") => Some("added"),
-        Some(v)
-            if matches!(
-                v.as_str(),
-                "modify"
-                    | "modified"
-                    | "update"
-                    | "updated"
-                    | "change"
-                    | "changed"
-                    | "edit"
-                    | "edited"
-            ) =>
-        {
-            Some("modified")
-        }
-        Some(v) if matches!(v.as_str(), "delete" | "deleted" | "remove" | "removed") => {
-            Some("deleted")
-        }
-        Some(v) if matches!(v.as_str(), "rename" | "renamed" | "move" | "moved") => Some("renamed"),
-        _ => None,
-    }
-}
-
 async fn emit_session_terminal_line<R: Runtime>(
     app: &AppHandle<R>,
     pool: &SqlitePool,
     session_record_id: &str,
     employee_id: &str,
     task_id: Option<&str>,
-    session_kind: ClaudeSessionKind,
+    session_kind: GrokSessionKind,
     line: String,
 ) {
     let event_id =
@@ -449,8 +240,8 @@ async fn emit_session_terminal_line<R: Runtime>(
             .ok();
 
     let _ = app.emit(
-        "claude-stdout",
-        ClaudeOutput {
+        "grok-stdout",
+        GrokOutput {
             employee_id: employee_id.to_string(),
             task_id: task_id.map(String::from),
             session_kind: session_kind.as_str().to_string(),
@@ -473,19 +264,19 @@ async fn fetch_task_activity_context(
     .await
     .map_err(|error| {
         format!(
-            "Failed to resolve task {} for Claude activity log: {}",
+            "Failed to resolve task {} for Grok activity log: {}",
             task_id, error
         )
     })
 }
 
-async fn write_claude_task_session_activity<R: Runtime>(
+async fn write_grok_task_session_activity<R: Runtime>(
     app: &AppHandle<R>,
     pool: &SqlitePool,
     session_record_id: &str,
     employee_id: &str,
     task_id: Option<&str>,
-    session_kind: ClaudeSessionKind,
+    session_kind: GrokSessionKind,
     resume_session_id: Option<&str>,
     execution_target: &str,
 ) {
@@ -496,7 +287,7 @@ async fn write_claude_task_session_activity<R: Runtime>(
     let result = async {
         let (task_title, project_id) = fetch_task_activity_context(pool, task_id).await?;
         let action = if execution_target == EXECUTION_TARGET_SSH
-            && session_kind == ClaudeSessionKind::Execution
+            && session_kind == GrokSessionKind::Execution
         {
             "remote_task_session_started"
         } else {
@@ -530,7 +321,7 @@ async fn write_claude_task_session_activity<R: Runtime>(
             employee_id,
             Some(task_id),
             session_kind,
-            format!("[WARN] Claude 活动日志写入失败: {error}"),
+            format!("[WARN] Grok 活动日志写入失败: {error}"),
         )
         .await;
     }
@@ -540,47 +331,47 @@ async fn ensure_no_cross_provider_conflict<R: Runtime>(
     app: &AppHandle<R>,
     employee_id: &str,
     task_id: Option<&str>,
-    session_kind: ClaudeSessionKind,
+    session_kind: GrokSessionKind,
 ) -> Result<(), String> {
-    let Some(codex_state) = app.try_state::<Arc<Mutex<CodexManager>>>() else {
-        return Ok(());
-    };
-
-    if let Some(task_id) = task_id {
-        if crate::codex::get_live_task_process_by_task(
-            app,
-            codex_state.inner(),
-            task_id,
-            claude_session_kind_to_codex(session_kind),
-        )
-        .await?
-        .is_some()
+    if let Some(codex_state) = app.try_state::<Arc<std::sync::Mutex<CodexManager>>>() {
+        if let Some(task_id) = task_id {
+            if crate::codex::get_live_task_process_by_task(
+                app,
+                codex_state.inner(),
+                task_id,
+                grok_session_kind_to_codex(session_kind),
+            )
+            .await?
+            .is_some()
+            {
+                return Err(format!(
+                    "任务{}的{}会话已在运行",
+                    task_id,
+                    session_kind.as_str()
+                ));
+            }
+        } else if !crate::codex::list_live_employee_processes(app, codex_state.inner(), employee_id)
+            .await?
+            .is_empty()
         {
             return Err(format!(
-                "任务{}的{}会话已在运行",
-                task_id,
-                session_kind.as_str()
+                "员工{}已有未绑定任务的 Codex 会话在运行",
+                employee_id
             ));
         }
-    } else if !crate::codex::list_live_employee_processes(app, codex_state.inner(), employee_id)
-        .await?
-        .is_empty()
-    {
-        return Err(format!(
-            "员工{}已有未绑定任务的 Codex 会话在运行",
-            employee_id
-        ));
     }
 
-    if let Some(grok_state) = app.try_state::<Arc<tokio::sync::Mutex<crate::grok::GrokManager>>>() {
-        let manager = grok_state.lock().await;
+    if let Some(claude_state) =
+        app.try_state::<Arc<tokio::sync::Mutex<crate::claude::ClaudeManager>>>()
+    {
+        let manager = claude_state.lock().await;
         if let Some(task_id) = task_id {
             if manager
                 .get_task_process_any(
                     task_id,
                     match session_kind {
-                        ClaudeSessionKind::Review => crate::grok::GrokSessionKind::Review,
-                        ClaudeSessionKind::Execution => crate::grok::GrokSessionKind::Execution,
+                        GrokSessionKind::Execution => crate::claude::ClaudeSessionKind::Execution,
+                        GrokSessionKind::Review => crate::claude::ClaudeSessionKind::Review,
                     },
                 )
                 .is_some()
@@ -593,7 +384,33 @@ async fn ensure_no_cross_provider_conflict<R: Runtime>(
             }
         } else if manager.has_employee_processes(employee_id) {
             return Err(format!(
-                "员工{}已有未绑定任务的 Grok 会话在运行",
+                "员工{}已有未绑定任务的 Claude 会话在运行",
+                employee_id
+            ));
+        }
+    }
+
+    if let Some(opencode_state) =
+        app.try_state::<Arc<tokio::sync::Mutex<crate::opencode::OpenCodeManager>>>()
+    {
+        let manager = opencode_state.lock().await;
+        if let Some(task_id) = task_id {
+            if manager
+                .get_task_process_any(
+                    task_id,
+                    crate::opencode::OpenCodeSessionKind::Execution,
+                )
+                .is_some()
+            {
+                return Err(format!(
+                    "任务{}的{}会话已在运行",
+                    task_id,
+                    session_kind.as_str()
+                ));
+            }
+        } else if manager.has_employee_processes(employee_id) {
+            return Err(format!(
+                "员工{}已有未绑定任务的 OpenCode 会话在运行",
                 employee_id
             ));
         }
@@ -602,7 +419,7 @@ async fn ensure_no_cross_provider_conflict<R: Runtime>(
     Ok(())
 }
 
-async fn finalize_claude_launch_failure<R: Runtime>(
+async fn finalize_grok_launch_failure<R: Runtime>(
     app: &AppHandle<R>,
     pool: &SqlitePool,
     session_record_id: &str,
@@ -636,18 +453,18 @@ async fn finalize_claude_launch_failure<R: Runtime>(
     }
 }
 
-async fn capture_claude_execution_change_baseline<R: Runtime>(
+async fn capture_grok_execution_change_baseline<R: Runtime>(
     app: &AppHandle<R>,
     pool: &SqlitePool,
     session_record_id: &str,
     employee_id: &str,
     task_id: Option<&str>,
-    session_kind: ClaudeSessionKind,
+    session_kind: GrokSessionKind,
     execution_target: &str,
     run_cwd: &str,
     ssh_config: Option<&SshConfigRecord>,
 ) -> Option<ExecutionChangeBaseline> {
-    if session_kind != ClaudeSessionKind::Execution {
+    if session_kind != GrokSessionKind::Execution {
         return None;
     }
 
@@ -659,7 +476,7 @@ async fn capture_claude_execution_change_baseline<R: Runtime>(
             employee_id,
             task_id,
             session_kind,
-            "[SSH] 正在采集远程仓库基线，用于展示本次 Claude 会话改动...".to_string(),
+            "[SSH] 正在采集远程仓库基线，用于展示本次 Grok 会话改动...".to_string(),
         )
         .await;
     }
@@ -710,7 +527,7 @@ async fn capture_claude_execution_change_baseline<R: Runtime>(
                 task_id,
                 session_kind,
                 format!(
-                    "[WARN] Claude 会话文件基线采集失败，文件详情将退化为最佳努力快照: {error}"
+                    "[WARN] Grok 会话文件基线采集失败，文件详情将退化为最佳努力快照: {error}"
                 ),
             )
             .await;
@@ -735,9 +552,9 @@ fn configure_process_group(command: &mut tokio::process::Command) {
 fn configure_process_group(_command: &mut tokio::process::Command) {}
 
 #[tauri::command]
-pub async fn start_claude(
+pub async fn start_grok(
     app: AppHandle,
-    state: State<'_, Arc<tokio::sync::Mutex<ClaudeManager>>>,
+    state: State<'_, Arc<tokio::sync::Mutex<GrokManager>>>,
     employee_id: String,
     task_description: String,
     model: Option<String>,
@@ -750,7 +567,7 @@ pub async fn start_claude(
     image_paths: Option<Vec<String>>,
     session_kind: Option<String>,
 ) -> Result<(), String> {
-    start_claude_with_manager(
+    start_grok_with_manager(
         app,
         state.inner().clone(),
         employee_id,
@@ -768,9 +585,9 @@ pub async fn start_claude(
     .await
 }
 
-pub async fn start_claude_with_manager(
+pub async fn start_grok_with_manager(
     app: AppHandle,
-    manager_state: Arc<tokio::sync::Mutex<ClaudeManager>>,
+    manager_state: Arc<tokio::sync::Mutex<GrokManager>>,
     employee_id: String,
     task_description: String,
     model: Option<String>,
@@ -801,7 +618,7 @@ pub async fn start_claude_with_manager(
         let manager = manager_state.lock().await;
         if manager.has_employee_processes(&employee_id) {
             return Err(format!(
-                "员工{}已有未绑定任务的 Claude 会话在运行",
+                "员工{}已有未绑定任务的 Grok 会话在运行",
                 employee_id
             ));
         }
@@ -820,7 +637,7 @@ pub async fn start_claude_with_manager(
         execution_context
             .working_dir
             .clone()
-            .ok_or_else(|| "SSH 项目缺少远程仓库目录，无法启动 Claude。".to_string())?
+            .ok_or_else(|| "SSH 项目缺少远程仓库目录，无法启动 Grok。".to_string())?
     };
 
     if let (Some(task_id), Some(task_git_context_id)) =
@@ -836,22 +653,18 @@ pub async fn start_claude_with_manager(
 
     let pool = sqlite_pool(&app).await?;
 
-    let claude_settings = load_claude_settings(&app)?;
-    let model = normalize_model(
+    let grok_settings = load_grok_settings(&app)?;
+    let model = normalize_grok_model(
         model
             .as_deref()
-            .or(Some(claude_settings.default_model.as_str())),
+            .or(Some(grok_settings.default_model.as_str())),
     );
-    let requested_effort = reasoning_effort
-        .as_deref()
-        .map(|effort| normalize_reasoning_effort(Some(effort)));
-    let effort = requested_effort
-        .unwrap_or_else(|| thinking_budget_to_effort(claude_settings.default_thinking_budget));
-    let thinking_budget = match requested_effort {
-        Some(effort) => effort_to_thinking_budget(effort),
-        None => Some(claude_settings.default_thinking_budget),
-    };
-    let prompt = compose_claude_prompt(&task_description, system_prompt.as_deref());
+    let effort = normalize_grok_reasoning_effort(
+        reasoning_effort
+            .as_deref()
+            .or(Some(grok_settings.default_reasoning_effort.as_str())),
+    );
+    let prompt = compose_grok_prompt(&task_description, system_prompt.as_deref());
     let requested_image_paths = image_paths;
 
     let session_record = insert_codex_session_record(
@@ -867,15 +680,15 @@ pub async fn start_claude_with_manager(
         execution_context.ssh_config_id.as_deref(),
         execution_context.target_host_label.as_deref(),
         &execution_context.artifact_capture_mode,
-        Some("claude"),
-        thinking_budget,
+        Some("grok"),
+        None,
     )
     .await?;
 
     let mut git_context_marked_running = false;
     if let Some(task_git_context_id) = task_git_context_id.as_deref() {
         if let Err(error) = mark_task_git_context_running(&pool, task_git_context_id).await {
-            finalize_claude_launch_failure(
+            finalize_grok_launch_failure(
                 &app,
                 &pool,
                 &session_record.id,
@@ -894,11 +707,11 @@ pub async fn start_claude_with_manager(
         &pool,
         &session_record.id,
         "session_requested",
-        Some("Claude 会话创建成功，准备启动运行时"),
+        Some("Grok 会话创建成功，准备启动运行时"),
     )
     .await
     {
-        finalize_claude_launch_failure(
+        finalize_grok_launch_failure(
             &app,
             &pool,
             &session_record.id,
@@ -920,7 +733,7 @@ pub async fn start_claude_with_manager(
             task_id.as_deref(),
             session_kind,
             format!(
-                "[SSH] 正在准备远程 Claude 会话，目标 {}，工作目录 {}",
+                "[SSH] 正在准备远程 Grok 会话，目标 {}，工作目录 {}",
                 execution_context
                     .target_host_label
                     .as_deref()
@@ -943,7 +756,7 @@ pub async fn start_claude_with_manager(
         {
             Ok(result) => result,
             Err(error) => {
-                finalize_claude_launch_failure(
+                finalize_grok_launch_failure(
                     &app,
                     &pool,
                     &session_record.id,
@@ -964,7 +777,7 @@ pub async fn start_claude_with_manager(
             &employee_id,
             task_id.as_deref(),
             session_kind,
-            format!("[WARN] Claude 附件图片不存在，已跳过: {missing_path}"),
+            format!("[WARN] Grok 附件图片不存在，已跳过: {missing_path}"),
         )
         .await;
     }
@@ -977,21 +790,29 @@ pub async fn start_claude_with_manager(
             task_id.as_deref(),
             session_kind,
             format!(
-                "[WARN] SSH Claude 会话缺少任务上下文，已忽略 {} 张本地图片附件。",
+                "[WARN] SSH Grok 会话缺少任务上下文，已忽略 {} 张本地图片附件。",
                 ignored_remote_image_count
             ),
         )
         .await;
     }
 
-    let claude_health = inspect_claude_sdk_runtime(&app, &claude_settings).await;
-
-    let cli_args = build_claude_cli_args(
-        &model,
-        effort,
-        system_prompt.as_deref(),
-        resume_session_id.as_deref(),
-    );
+    // Grok headless CLI 不支持直接附带本地图片。
+    if !image_paths.is_empty() {
+        emit_session_terminal_line(
+            &app,
+            &pool,
+            &session_record.id,
+            &employee_id,
+            task_id.as_deref(),
+            session_kind,
+            format!(
+                "[WARN] Grok CLI 当前不支持直接附带本地图片，已跳过 {} 张图片附件。",
+                image_paths.len()
+            ),
+        )
+        .await;
+    }
 
     let ssh_config_for_artifact_capture =
         if execution_context.execution_target == EXECUTION_TARGET_SSH {
@@ -999,7 +820,7 @@ pub async fn start_claude_with_manager(
                 Some(ssh_config_id) => ssh_config_id,
                 None => {
                     let error = "SSH 会话缺少 ssh_config_id".to_string();
-                    finalize_claude_launch_failure(
+                    finalize_grok_launch_failure(
                         &app,
                         &pool,
                         &session_record.id,
@@ -1016,7 +837,7 @@ pub async fn start_claude_with_manager(
             match fetch_ssh_config_record_by_id(&pool, ssh_config_id).await {
                 Ok(ssh_config) => Some(ssh_config),
                 Err(error) => {
-                    finalize_claude_launch_failure(
+                    finalize_grok_launch_failure(
                         &app,
                         &pool,
                         &session_record.id,
@@ -1033,7 +854,7 @@ pub async fn start_claude_with_manager(
             None
         };
 
-    let execution_change_baseline = capture_claude_execution_change_baseline(
+    let execution_change_baseline = capture_grok_execution_change_baseline(
         &app,
         &pool,
         &session_record.id,
@@ -1046,20 +867,39 @@ pub async fn start_claude_with_manager(
     )
     .await;
 
-    let (mut child, cleanup_paths, provider) = if execution_context.execution_target
-        == EXECUTION_TARGET_SSH
-    {
+    // 远程：cwd 由 shell `cd` 提供，避免与 --cwd 冲突；本地：spawn cwd + 可选 --cwd。
+    let cli_args = if execution_context.execution_target == EXECUTION_TARGET_SSH {
+        build_grok_cli_args(
+            &prompt,
+            &model,
+            &effort,
+            system_prompt.as_deref(),
+            resume_session_id.as_deref(),
+            None,
+        )
+    } else {
+        build_grok_cli_args(
+            &prompt,
+            &model,
+            &effort,
+            system_prompt.as_deref(),
+            resume_session_id.as_deref(),
+            Some(&run_cwd),
+        )
+    };
+
+    let (child, cleanup_paths) = if execution_context.execution_target == EXECUTION_TARGET_SSH {
         let ssh_config = ssh_config_for_artifact_capture
             .as_ref()
-            .expect("SSH config is prepared before Claude launch");
+            .expect("SSH config is prepared before Grok launch");
 
-        let remote_command = build_remote_claude_session_command(&run_cwd, &cli_args);
+        let remote_command = build_remote_grok_session_command(&run_cwd, &cli_args);
 
         let (mut command, askpass_path) =
             match build_ssh_command(&app, &ssh_config, Some(&remote_command), true, false).await {
                 Ok(result) => result,
                 Err(error) => {
-                    finalize_claude_launch_failure(
+                    finalize_grok_launch_failure(
                         &app,
                         &pool,
                         &session_record.id,
@@ -1073,7 +913,7 @@ pub async fn start_claude_with_manager(
                 }
             };
         command
-            .stdin(std::process::Stdio::piped())
+            .stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped());
         configure_process_group(&mut command);
@@ -1081,10 +921,10 @@ pub async fn start_claude_with_manager(
         let child = match command.spawn() {
             Ok(child) => child,
             Err(error) => {
-                let message = format!("启动远程 Claude 会话失败: {error}");
+                let message = format!("启动远程 Grok 会话失败: {error}");
                 let cleanup_paths = askpass_path.iter().cloned().collect::<Vec<_>>();
                 cleanup_process_artifacts(&cleanup_paths);
-                finalize_claude_launch_failure(
+                finalize_grok_launch_failure(
                     &app,
                     &pool,
                     &session_record.id,
@@ -1097,96 +937,12 @@ pub async fn start_claude_with_manager(
                 return Err(message);
             }
         };
-        (
-            child,
-            askpass_path.into_iter().collect::<Vec<_>>(),
-            ClaudeExecutionProvider::Cli,
-        )
-    } else if claude_health.effective_provider == "sdk" {
-        let install_dir = PathBuf::from(&claude_settings.sdk_install_dir);
-        let bridge_path = sdk_bridge_script_path(&install_dir);
-        let sdk_child = match ensure_claude_sdk_runtime_layout(&install_dir) {
-            Ok(()) => match new_node_command(claude_settings.node_path_override.as_deref()).await {
-                Ok(mut command) => {
-                    command
-                        .arg(&bridge_path)
-                        .current_dir(&run_cwd)
-                        .stdin(std::process::Stdio::piped())
-                        .stdout(std::process::Stdio::piped())
-                        .stderr(std::process::Stdio::piped());
-                    configure_process_group(&mut command);
-
-                    match command.spawn() {
-                        Ok(child) => Some(child),
-                        Err(error) => {
-                            eprintln!("[claude-sdk] SDK 会话启动失败，回退 CLI: {error}");
-                            None
-                        }
-                    }
-                }
-                Err(error) => {
-                    eprintln!("[claude-sdk] Node 不可用，回退 CLI: {error}");
-                    None
-                }
-            },
-            Err(error) => {
-                eprintln!("[claude-sdk] 刷新 SDK bridge 失败，回退 CLI: {error}");
-                None
-            }
-        };
-
-        if let Some(child) = sdk_child {
-            (child, Vec::new(), ClaudeExecutionProvider::Sdk)
-        } else {
-            let claude_bin = match resolve_claude_binary_path(&claude_settings) {
-                Ok(path) => path,
-                Err(error) => {
-                    finalize_claude_launch_failure(
-                        &app,
-                        &pool,
-                        &session_record.id,
-                        task_git_context_id.as_deref(),
-                        git_context_marked_running,
-                        "spawn_failed",
-                        &error,
-                    )
-                    .await;
-                    return Err(error);
-                }
-            };
-            let mut command = tokio::process::Command::new(&claude_bin);
-            command
-                .args(&cli_args)
-                .current_dir(&run_cwd)
-                .stdin(std::process::Stdio::piped())
-                .stdout(std::process::Stdio::piped())
-                .stderr(std::process::Stdio::piped());
-            configure_process_group(&mut command);
-
-            let child = match command.spawn() {
-                Ok(child) => child,
-                Err(error) => {
-                    let message = format!("启动 Claude 会话失败: {error}");
-                    finalize_claude_launch_failure(
-                        &app,
-                        &pool,
-                        &session_record.id,
-                        task_git_context_id.as_deref(),
-                        git_context_marked_running,
-                        "spawn_failed",
-                        &message,
-                    )
-                    .await;
-                    return Err(message);
-                }
-            };
-            (child, Vec::new(), ClaudeExecutionProvider::Cli)
-        }
+        (child, askpass_path.into_iter().collect::<Vec<_>>())
     } else {
-        let claude_bin = match resolve_claude_binary_path(&claude_settings) {
+        let grok_bin = match resolve_grok_executable_path(&grok_settings).await {
             Ok(path) => path,
             Err(error) => {
-                finalize_claude_launch_failure(
+                finalize_grok_launch_failure(
                     &app,
                     &pool,
                     &session_record.id,
@@ -1199,11 +955,11 @@ pub async fn start_claude_with_manager(
                 return Err(error);
             }
         };
-        let mut command = tokio::process::Command::new(&claude_bin);
+        let mut command = tokio::process::Command::new(&grok_bin);
         command
             .args(&cli_args)
             .current_dir(&run_cwd)
-            .stdin(std::process::Stdio::piped())
+            .stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped());
         configure_process_group(&mut command);
@@ -1211,8 +967,10 @@ pub async fn start_claude_with_manager(
         let child = match command.spawn() {
             Ok(child) => child,
             Err(error) => {
-                let message = format!("启动 Claude 会话失败: {error}");
-                finalize_claude_launch_failure(
+                let message = format!(
+                    "启动 Grok 会话失败: {error}。请确认已安装 Grok Build CLI（`grok`），并完成 `grok login`。"
+                );
+                finalize_grok_launch_failure(
                     &app,
                     &pool,
                     &session_record.id,
@@ -1225,154 +983,18 @@ pub async fn start_claude_with_manager(
                 return Err(message);
             }
         };
-        (child, Vec::new(), ClaudeExecutionProvider::Cli)
+        (child, Vec::new())
     };
-
-    if provider == ClaudeExecutionProvider::Cli && !image_paths.is_empty() {
-        emit_session_terminal_line(
-            &app,
-            &pool,
-            &session_record.id,
-            &employee_id,
-            task_id.as_deref(),
-            session_kind,
-            format!(
-                "[WARN] Claude CLI 当前不支持直接附带本地图片，已跳过 {} 张图片附件。",
-                image_paths.len()
-            ),
-        )
-        .await;
-    }
-
-    if provider == ClaudeExecutionProvider::Cli {
-        match child.stdin.take() {
-            Some(mut stdin) => {
-                if let Err(error) = stdin.write_all(prompt.as_bytes()).await {
-                    let message = format!("写入 Claude CLI 提示词失败: {error}");
-                    let _ = child.kill().await;
-                    cleanup_process_artifacts(&cleanup_paths);
-                    finalize_claude_launch_failure(
-                        &app,
-                        &pool,
-                        &session_record.id,
-                        task_git_context_id.as_deref(),
-                        git_context_marked_running,
-                        "spawn_failed",
-                        &message,
-                    )
-                    .await;
-                    return Err(message);
-                }
-                if let Err(error) = stdin.shutdown().await {
-                    let message = format!("关闭 Claude CLI stdin 失败: {error}");
-                    let _ = child.kill().await;
-                    cleanup_process_artifacts(&cleanup_paths);
-                    finalize_claude_launch_failure(
-                        &app,
-                        &pool,
-                        &session_record.id,
-                        task_git_context_id.as_deref(),
-                        git_context_marked_running,
-                        "spawn_failed",
-                        &message,
-                    )
-                    .await;
-                    return Err(message);
-                }
-            }
-            None => {
-                let message = "Claude CLI stdin 不可用，无法发送提示词".to_string();
-                let _ = child.kill().await;
-                cleanup_process_artifacts(&cleanup_paths);
-                finalize_claude_launch_failure(
-                    &app,
-                    &pool,
-                    &session_record.id,
-                    task_git_context_id.as_deref(),
-                    git_context_marked_running,
-                    "spawn_failed",
-                    &message,
-                )
-                .await;
-                return Err(message);
-            }
-        }
-    }
-
-    if provider == ClaudeExecutionProvider::Sdk {
-        let payload = match serde_json::to_vec(&serde_json::json!({
-            "mode": "session",
-            "prompt": prompt.clone(),
-            "imagePaths": image_paths.clone(),
-            "model": model.clone(),
-            "effort": requested_effort,
-            "thinkingBudgetTokens": thinking_budget,
-            "workingDirectory": run_cwd.clone(),
-            "resumeSessionId": resume_session_id.clone(),
-            "claudePathOverride": claude_settings.cli_path_override.clone(),
-        })) {
-            Ok(payload) => payload,
-            Err(error) => {
-                let message = format!("序列化 Claude SDK 会话参数失败: {error}");
-                let _ = child.kill().await;
-                cleanup_process_artifacts(&cleanup_paths);
-                finalize_claude_launch_failure(
-                    &app,
-                    &pool,
-                    &session_record.id,
-                    task_git_context_id.as_deref(),
-                    git_context_marked_running,
-                    "spawn_failed",
-                    &message,
-                )
-                .await;
-                return Err(message);
-            }
-        };
-
-        if let Some(mut stdin) = child.stdin.take() {
-            if let Err(error) = stdin.write_all(&payload).await {
-                let message = format!("写入 Claude SDK 会话参数失败: {error}");
-                let _ = child.kill().await;
-                cleanup_process_artifacts(&cleanup_paths);
-                finalize_claude_launch_failure(
-                    &app,
-                    &pool,
-                    &session_record.id,
-                    task_git_context_id.as_deref(),
-                    git_context_marked_running,
-                    "spawn_failed",
-                    &message,
-                )
-                .await;
-                return Err(message);
-            }
-            if let Err(error) = stdin.shutdown().await {
-                let message = format!("关闭 Claude SDK stdin 失败: {error}");
-                let _ = child.kill().await;
-                cleanup_process_artifacts(&cleanup_paths);
-                finalize_claude_launch_failure(
-                    &app,
-                    &pool,
-                    &session_record.id,
-                    task_git_context_id.as_deref(),
-                    git_context_marked_running,
-                    "spawn_failed",
-                    &message,
-                )
-                .await;
-                return Err(message);
-            }
-        }
-    }
 
     if let Err(error) =
         update_codex_session_record(&app, &session_record.id, Some("running"), None, None, None)
             .await
     {
+        // 进程已启动但状态更新失败：尽量清理。
+        let mut child = child;
         let _ = child.kill().await;
         cleanup_process_artifacts(&cleanup_paths);
-        finalize_claude_launch_failure(
+        finalize_grok_launch_failure(
             &app,
             &pool,
             &session_record.id,
@@ -1404,25 +1026,17 @@ pub async fn start_claude_with_manager(
         &employee_id,
         task_id.as_deref(),
         session_kind,
-        format!(
-            "[Claude] 通过 {} 启动会话{target_label} model={model} effort={effort}",
-            provider.label(),
-        ),
+        format!("[Grok] 通过 Grok CLI 启动会话{target_label} model={model} effort={effort}"),
     )
     .await;
-    let prompt_line = format_claude_session_prompt_log(
-        provider,
+    let prompt_line = format_grok_session_prompt_log(
         &model,
-        effort,
+        &effort,
         &execution_context.execution_target,
         execution_context.target_host_label.as_deref(),
         &run_cwd,
         &prompt,
-        if provider == ClaudeExecutionProvider::Sdk {
-            &image_paths
-        } else {
-            &[]
-        },
+        &[],
     );
     let prompt_event_id = insert_codex_session_event_with_id(
         &pool,
@@ -1433,8 +1047,8 @@ pub async fn start_claude_with_manager(
     .await
     .ok();
     let _ = app.emit(
-        "claude-stdout",
-        ClaudeOutput {
+        "grok-stdout",
+        GrokOutput {
             employee_id: employee_id.to_string(),
             task_id: task_id.clone(),
             session_kind: session_kind.as_str().to_string(),
@@ -1444,10 +1058,8 @@ pub async fn start_claude_with_manager(
         },
     );
 
-    let sdk_file_change_store: SdkFileChangeStore = Arc::new(Mutex::new(HashMap::new()));
-
-    let claude_child = ClaudeChild::new(child);
-    let child_arc = Arc::new(tokio::sync::Mutex::new(claude_child));
+    let grok_child = GrokChild::new(child);
+    let child_arc = Arc::new(tokio::sync::Mutex::new(grok_child));
 
     {
         let mut manager = manager_state.lock().await;
@@ -1462,7 +1074,7 @@ pub async fn start_claude_with_manager(
     }
 
     if let Ok(pool) = sqlite_pool(&app).await {
-        write_claude_task_session_activity(
+        write_grok_task_session_activity(
             &app,
             &pool,
             &session_record.id,
@@ -1475,7 +1087,7 @@ pub async fn start_claude_with_manager(
         .await;
     }
 
-    spawn_claude_session_runtime(
+    spawn_grok_session_runtime(
         app,
         manager_state,
         child_arc,
@@ -1484,25 +1096,23 @@ pub async fn start_claude_with_manager(
         task_id,
         task_git_context_id,
         session_kind,
-        provider,
         execution_change_baseline,
-        sdk_file_change_store,
         run_cwd,
     );
 
     Ok(())
 }
 
-pub async fn list_live_claude_employee_processes(
-    manager_state: &Arc<tokio::sync::Mutex<ClaudeManager>>,
+pub async fn list_live_grok_employee_processes(
+    manager_state: &Arc<tokio::sync::Mutex<GrokManager>>,
     employee_id: &str,
-) -> Vec<crate::claude::manager::ManagedClaudeProcess> {
+) -> Vec<crate::grok::manager::ManagedGrokProcess> {
     let manager = manager_state.lock().await;
     manager.get_employee_processes(employee_id)
 }
 
-async fn wait_until_claude_process_stops(
-    manager_state: &Arc<tokio::sync::Mutex<ClaudeManager>>,
+async fn wait_until_grok_process_stops(
+    manager_state: &Arc<tokio::sync::Mutex<GrokManager>>,
     session_record_id: &str,
 ) {
     for _ in 0..STOP_WAIT_MAX_ATTEMPTS {
@@ -1525,9 +1135,9 @@ async fn wait_until_claude_process_stops(
     }
 }
 
-async fn stop_claude_process_with_manager<R: Runtime>(
+async fn stop_grok_process_with_manager<R: Runtime>(
     app: &AppHandle<R>,
-    manager_state: &Arc<tokio::sync::Mutex<ClaudeManager>>,
+    manager_state: &Arc<tokio::sync::Mutex<GrokManager>>,
     session_record_id: &str,
     event_type: &str,
     message: &str,
@@ -1551,29 +1161,29 @@ async fn stop_claude_process_with_manager<R: Runtime>(
         &process.employee_id,
         process.task_id.as_deref(),
         process.session_kind,
-        format!("[Claude] {message}"),
+        format!("[Grok] {message}"),
     )
     .await;
 
     let mut child = process.child.lock().await;
     if let Err(error) = child.kill_process_group() {
-        eprintln!("[claude-stop] killpg failed, fallback to child.kill(): {error}");
+        eprintln!("[grok-stop] killpg failed, fallback to child.kill(): {error}");
     }
     child.kill().await?;
     drop(child);
-    wait_until_claude_process_stops(manager_state, session_record_id).await;
+    wait_until_grok_process_stops(manager_state, session_record_id).await;
 
     Ok(true)
 }
 
-pub(crate) async fn stop_claude_for_automation_restart<R: Runtime>(
+pub(crate) async fn stop_grok_for_automation_restart<R: Runtime>(
     app: &AppHandle<R>,
     employee_id: &str,
     expected_session_record_id: Option<&str>,
     message: &str,
 ) -> Result<bool, String> {
     let manager_state = app
-        .state::<Arc<tokio::sync::Mutex<ClaudeManager>>>()
+        .state::<Arc<tokio::sync::Mutex<GrokManager>>>()
         .inner()
         .clone();
     let Some(expected_session_record_id) = expected_session_record_id else {
@@ -1593,7 +1203,7 @@ pub(crate) async fn stop_claude_for_automation_restart<R: Runtime>(
         return Err("当前员工正在执行其他任务，无法重启这条自动化步骤".to_string());
     }
 
-    stop_claude_process_with_manager(
+    stop_grok_process_with_manager(
         app,
         &manager_state,
         expected_session_record_id,
@@ -1604,12 +1214,12 @@ pub(crate) async fn stop_claude_for_automation_restart<R: Runtime>(
 }
 
 #[tauri::command]
-pub async fn stop_claude_session(
+pub async fn stop_grok_session(
     app: AppHandle,
-    state: State<'_, Arc<tokio::sync::Mutex<ClaudeManager>>>,
+    state: State<'_, Arc<tokio::sync::Mutex<GrokManager>>>,
     session_record_id: String,
 ) -> Result<(), String> {
-    if !stop_claude_process_with_manager(
+    if !stop_grok_process_with_manager(
         &app,
         state.inner(),
         &session_record_id,
@@ -1618,16 +1228,16 @@ pub async fn stop_claude_session(
     )
     .await?
     {
-        return Err(format!("未找到 Claude 会话 {session_record_id}"));
+        return Err(format!("未找到 Grok 会话 {session_record_id}"));
     }
 
     Ok(())
 }
 
 #[tauri::command]
-pub async fn stop_claude(
+pub async fn stop_grok(
     app: AppHandle,
-    state: State<'_, Arc<tokio::sync::Mutex<ClaudeManager>>>,
+    state: State<'_, Arc<tokio::sync::Mutex<GrokManager>>>,
     employee_id: String,
 ) -> Result<(), String> {
     let processes = {
@@ -1636,7 +1246,7 @@ pub async fn stop_claude(
     };
 
     for process in processes {
-        stop_claude_process_with_manager(
+        stop_grok_process_with_manager(
             &app,
             state.inner(),
             &process.session_record_id,
@@ -1647,4 +1257,75 @@ pub async fn stop_claude(
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn grok_cli_args_include_headless_contract() {
+        let args = build_grok_cli_args(
+            "修复 bug",
+            "grok-4.5",
+            "high",
+            Some("你是工程师"),
+            Some("sess-1"),
+            Some("/tmp/project"),
+        );
+
+        assert!(args.windows(2).any(|pair| pair[0] == "-p" && pair[1] == "修复 bug"));
+        assert!(args
+            .windows(2)
+            .any(|pair| pair[0] == "-m" && pair[1] == "grok-4.5"));
+        assert!(args.windows(2).any(|pair| {
+            pair[0] == "--reasoning-effort" && pair[1] == "high"
+        }));
+        assert!(args.windows(2).any(|pair| {
+            pair[0] == "--output-format" && pair[1] == "streaming-json"
+        }));
+        assert!(args.windows(2).any(|pair| {
+            pair[0] == "--permission-mode" && pair[1] == "bypassPermissions"
+        }));
+        assert!(args.windows(2).any(|pair| {
+            pair[0] == "--system-prompt-override" && pair[1] == "你是工程师"
+        }));
+        assert!(args
+            .windows(2)
+            .any(|pair| pair[0] == "--resume" && pair[1] == "sess-1"));
+        assert!(args
+            .windows(2)
+            .any(|pair| pair[0] == "--cwd" && pair[1] == "/tmp/project"));
+    }
+
+    #[test]
+    fn remote_grok_session_command_uses_shell_bootstrap() {
+        let args = build_grok_cli_args("task", "grok-4.5", "high", None, None, None);
+        let command = build_remote_grok_session_command("~/repo with space", &args);
+
+        assert!(command.starts_with("sh -lc "));
+        assert!(command.contains("exec grok"));
+        assert!(command.contains("$HOME/repo with space"));
+    }
+
+    #[test]
+    fn grok_prompt_log_includes_full_prompt_and_runtime() {
+        let prompt = compose_grok_prompt("修复自动质控", Some("你是审查员"));
+        let log = format_grok_session_prompt_log(
+            "grok-4.5",
+            "high",
+            EXECUTION_TARGET_LOCAL,
+            None,
+            "/tmp/project",
+            &prompt,
+            &[],
+        );
+
+        assert!(log.contains("[PROMPT] 即将发送给 Grok 的完整提示词"));
+        assert!(log.contains("运行通道: Grok CLI"));
+        assert!(log.contains("<employee_system_prompt>"));
+        assert!(log.contains("你是审查员"));
+        assert!(log.contains("<task>"));
+        assert!(log.contains("修复自动质控"));
+    }
 }

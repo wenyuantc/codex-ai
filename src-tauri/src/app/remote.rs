@@ -1374,6 +1374,11 @@ fn resolve_remote_one_shot_runtime(
             "unavailable".to_string(),
             "SSH 模式下暂不支持 OpenCode 一次性 AI".to_string(),
         ),
+        "grok" => (
+            "cli".to_string(),
+            "SSH 模式下 Grok 一次性 AI 使用远端 Grok CLI（远端需已安装并 `grok login`）"
+                .to_string(),
+        ),
         _ => (
             runtime.one_shot_effective_provider.clone(),
             runtime.status_message.clone(),
@@ -1628,4 +1633,58 @@ printf 'SDK_VERSION=%s\\nNODE_VERSION=%s\\n' \"$sdk_version\" \"$node_version\""
     )
     .await;
     Ok(result)
+}
+
+#[tauri::command]
+pub async fn validate_remote_grok_health<R: Runtime>(
+    app: AppHandle<R>,
+    ssh_config_id: String,
+) -> Result<crate::db::models::RemoteGrokHealthCheck, String> {
+    let pool = sqlite_pool(&app).await?;
+    let ssh_config = fetch_ssh_config_record_by_id(&pool, &ssh_config_id).await?;
+    let checked_at = now_sqlite();
+    let remote_command = build_remote_shell_command(
+        "if command -v grok >/dev/null 2>&1; then grok --version; else echo '__GROK_MISSING__'; exit 127; fi",
+        None,
+    );
+
+    match execute_ssh_command(&app, &ssh_config, &remote_command, true).await {
+        Ok(output) => {
+            let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+            if output.status.success() && !stdout.contains("__GROK_MISSING__") {
+                let version = stdout
+                    .lines()
+                    .map(str::trim)
+                    .find(|line| !line.is_empty())
+                    .map(ToOwned::to_owned);
+                Ok(crate::db::models::RemoteGrokHealthCheck {
+                    available: true,
+                    version: version.clone(),
+                    message: match version {
+                        Some(version) => format!("远程 Grok CLI 可用（{version}）"),
+                        None => "远程 Grok CLI 可用".to_string(),
+                    },
+                    checked_at,
+                })
+            } else {
+                let detail = if !stderr.is_empty() {
+                    redact_secret_text(&stderr)
+                } else if !stdout.is_empty() {
+                    redact_secret_text(&stdout)
+                } else {
+                    "未找到 grok 可执行文件".to_string()
+                };
+                Ok(crate::db::models::RemoteGrokHealthCheck {
+                    available: false,
+                    version: None,
+                    message: format!(
+                        "远程 Grok CLI 不可用：{detail}。请在远程安装 Grok Build CLI 并执行 `grok login`。"
+                    ),
+                    checked_at,
+                })
+            }
+        }
+        Err(error) => Err(format!("探测远程 Grok 健康状态失败: {error}")),
+    }
 }

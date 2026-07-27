@@ -1,10 +1,12 @@
 use super::*;
 
 const DEFAULT_CLAUDE_ONE_SHOT_REASONING_EFFORT: &str = "high";
+const DEFAULT_GROK_ONE_SHOT_REASONING_EFFORT: &str = "high";
 const DEFAULT_OPENCODE_ONE_SHOT_MODEL: &str = "openai/gpt-4o";
 const DEFAULT_OPENCODE_ONE_SHOT_REASONING_EFFORT: &str = "high";
 const SUPPORTED_CLAUDE_ONE_SHOT_REASONING_EFFORTS: &[&str] =
     &["low", "medium", "high", "xhigh", "max", "auto"];
+const SUPPORTED_GROK_ONE_SHOT_REASONING_EFFORTS: &[&str] = &["high", "medium", "low"];
 const SUPPORTED_OPENCODE_ONE_SHOT_REASONING_EFFORTS: &[&str] =
     &["default", "low", "medium", "high", "xhigh", "max"];
 
@@ -30,6 +32,7 @@ pub(super) fn build_sdk_input_items(
 fn normalize_one_shot_model_for_provider(provider: &str, value: Option<&str>) -> String {
     match provider {
         "claude" => crate::claude::normalize_claude_model(value),
+        "grok" => crate::grok::normalize_grok_model(value),
         "opencode" => value
             .map(str::trim)
             .filter(|value| !value.is_empty())
@@ -47,6 +50,12 @@ fn normalize_one_shot_reasoning_for_provider(provider: &str, value: Option<&str>
             }
             _ => DEFAULT_CLAUDE_ONE_SHOT_REASONING_EFFORT.to_string(),
         },
+        "grok" => match value.map(str::trim) {
+            Some(value) if SUPPORTED_GROK_ONE_SHOT_REASONING_EFFORTS.contains(&value) => {
+                value.to_string()
+            }
+            _ => DEFAULT_GROK_ONE_SHOT_REASONING_EFFORT.to_string(),
+        },
         "opencode" => match value.map(str::trim) {
             Some(value) if SUPPORTED_OPENCODE_ONE_SHOT_REASONING_EFFORTS.contains(&value) => {
                 value.to_string()
@@ -60,6 +69,7 @@ fn normalize_one_shot_reasoning_for_provider(provider: &str, value: Option<&str>
 fn normalize_one_shot_provider_for_target(value: Option<&str>, execution_target: &str) -> String {
     match value.map(str::trim) {
         Some("claude") => "claude".to_string(),
+        Some("grok") => "grok".to_string(),
         Some("opencode") if execution_target != EXECUTION_TARGET_SSH => "opencode".to_string(),
         Some("codex") => "codex".to_string(),
         _ => "codex".to_string(),
@@ -485,6 +495,118 @@ async fn run_claude_one_shot_via_remote_cli<R: Runtime>(
     }
 }
 
+async fn run_grok_one_shot_via_cli<R: Runtime>(
+    app: &AppHandle<R>,
+    prompt: String,
+    model: &str,
+    reasoning_effort: &str,
+    working_dir: Option<&str>,
+) -> Result<String, String> {
+    let grok_settings = crate::grok::load_grok_settings(app)?;
+    let grok_bin = crate::grok::resolve_grok_executable_path(&grok_settings).await?;
+    let mut command = tokio::process::Command::new(&grok_bin);
+    let mut args = crate::grok::build_grok_one_shot_cli_args(model, reasoning_effort);
+    // prompt 通过 -p 传入，避免依赖 stdin 的 headless 行为差异
+    if let Some(p_index) = args.iter().position(|arg| arg == "-p") {
+        args.insert(p_index + 1, prompt.clone());
+    } else {
+        args.insert(0, "-p".to_string());
+        args.insert(1, prompt.clone());
+    }
+    command
+        .args(&args)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped());
+    if let Some(run_cwd) = working_dir.map(str::trim).filter(|value| !value.is_empty()) {
+        command.current_dir(run_cwd);
+    }
+
+    let output = command
+        .output()
+        .await
+        .map_err(|error| format!("启动 Grok CLI 失败: {error}"))?;
+    if output.status.success() {
+        Ok(crate::grok::aggregate_grok_one_shot_output(
+            &String::from_utf8_lossy(&output.stdout),
+        ))
+    } else {
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        Err(if stderr.is_empty() {
+            "Grok CLI 调用失败。请确认已安装 grok 并完成登录（grok login）。".to_string()
+        } else if stderr.to_ascii_lowercase().contains("auth")
+            || stderr.to_ascii_lowercase().contains("login")
+            || stderr.to_ascii_lowercase().contains("unauthor")
+        {
+            format!("Grok CLI 未认证或登录失效：{stderr}。请执行 `grok login`。")
+        } else {
+            format!("Grok CLI 调用失败：{stderr}")
+        })
+    }
+}
+
+async fn run_grok_one_shot_via_remote_cli<R: Runtime>(
+    app: &AppHandle<R>,
+    ssh_config_id: &str,
+    prompt: String,
+    model: &str,
+    reasoning_effort: &str,
+    working_dir: Option<&str>,
+) -> Result<String, String> {
+    let ssh_config = fetch_ssh_config_record_by_id(&sqlite_pool(app).await?, ssh_config_id).await?;
+    let run_cwd = working_dir
+        .map(normalize_runtime_path_string)
+        .ok_or_else(|| "SSH 一次性 AI 缺少远程工作目录".to_string())?;
+    let mut remote_args = crate::grok::build_grok_one_shot_cli_args(model, reasoning_effort);
+    if let Some(p_index) = remote_args.iter().position(|arg| arg == "-p") {
+        remote_args.insert(p_index + 1, prompt.clone());
+    } else {
+        remote_args.insert(0, "-p".to_string());
+        remote_args.insert(1, prompt.clone());
+    }
+    let remote_args = remote_args
+        .into_iter()
+        .map(|value| crate::app::shell_escape_single_quoted(&value))
+        .collect::<Vec<_>>()
+        .join(" ");
+    let remote_command = build_remote_shell_command(
+        &format!(
+            "cd {} && exec grok {}",
+            remote_shell_path_expression(&run_cwd),
+            remote_args
+        ),
+        None,
+    );
+    let output =
+        crate::app::execute_ssh_command(app, &ssh_config, &remote_command, true).await?;
+
+    if output.status.success() {
+        Ok(crate::grok::aggregate_grok_one_shot_output(
+            &String::from_utf8_lossy(&output.stdout),
+        ))
+    } else {
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        Err(if stderr.is_empty() {
+            "远端 Grok CLI 调用失败。请确认远端已安装 grok 并完成 `grok login`。".to_string()
+        } else if stderr.to_ascii_lowercase().contains("auth")
+            || stderr.to_ascii_lowercase().contains("login")
+            || stderr.to_ascii_lowercase().contains("unauthor")
+            || stderr.contains("not found")
+            || stderr.contains("No such file")
+        {
+            format!(
+                "远端 Grok CLI 调用失败：{}。请在远程执行 `grok login` 或确认已安装 grok。",
+                crate::app::redact_secret_text(&stderr)
+            )
+        } else {
+            format!(
+                "远端 Grok CLI 调用失败：{}",
+                crate::app::redact_secret_text(&stderr)
+            )
+        })
+    }
+}
+
 fn parse_opencode_one_shot_output(stdout: &[u8], stderr: &[u8]) -> Result<String, String> {
     let mut output_lines = Vec::new();
     let mut error_lines = Vec::new();
@@ -779,6 +901,31 @@ pub(super) async fn run_ai_command<R: Runtime>(
                 .as_deref()
                 .ok_or_else(|| "SSH 一次性 AI 缺少 ssh_config_id".to_string())?;
             run_claude_one_shot_via_remote_cli(
+                app,
+                ssh_config_id,
+                prompt,
+                &one_shot_model,
+                &one_shot_reasoning_effort,
+                working_dir.as_deref(),
+            )
+            .await
+        }
+        (EXECUTION_TARGET_LOCAL, "grok") => {
+            run_grok_one_shot_via_cli(
+                app,
+                prompt,
+                &one_shot_model,
+                &one_shot_reasoning_effort,
+                working_dir.as_deref(),
+            )
+            .await
+        }
+        (EXECUTION_TARGET_SSH, "grok") => {
+            let ssh_config_id = execution_context
+                .ssh_config_id
+                .as_deref()
+                .ok_or_else(|| "SSH 一次性 AI 缺少 ssh_config_id".to_string())?;
+            run_grok_one_shot_via_remote_cli(
                 app,
                 ssh_config_id,
                 prompt,

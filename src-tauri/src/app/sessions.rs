@@ -412,6 +412,7 @@ async fn has_running_session_conflict<R: Runtime>(
     app: &AppHandle<R>,
     manager_state: &Arc<Mutex<CodexManager>>,
     claude_manager_state: &Arc<tokio::sync::Mutex<ClaudeManager>>,
+    grok_manager_state: &Arc<tokio::sync::Mutex<crate::grok::GrokManager>>,
     employee_id: Option<&str>,
     task_id: Option<&str>,
     session_kind: &str,
@@ -431,7 +432,19 @@ async fn has_running_session_conflict<R: Runtime>(
                 .get_task_process_any(task_id, resolve_claude_session_kind(session_kind))
                 .is_some()
         };
-        return Ok(has_codex_conflict || has_claude_conflict);
+        let has_grok_conflict = {
+            let manager = grok_manager_state.lock().await;
+            manager
+                .get_task_process_any(
+                    task_id,
+                    match session_kind {
+                        "review" => crate::grok::GrokSessionKind::Review,
+                        _ => crate::grok::GrokSessionKind::Execution,
+                    },
+                )
+                .is_some()
+        };
+        return Ok(has_codex_conflict || has_claude_conflict || has_grok_conflict);
     }
 
     let Some(employee_id) = employee_id else {
@@ -446,8 +459,12 @@ async fn has_running_session_conflict<R: Runtime>(
         !crate::claude::list_live_claude_employee_processes(claude_manager_state, employee_id)
             .await
             .is_empty();
+    let has_grok_processes =
+        !crate::grok::list_live_grok_employee_processes(grok_manager_state, employee_id)
+            .await
+            .is_empty();
 
-    Ok(has_codex_processes || has_claude_processes)
+    Ok(has_codex_processes || has_claude_processes || has_grok_processes)
 }
 
 fn format_session_log_line(event_type: &str, message: &str) -> Option<String> {
@@ -1146,6 +1163,7 @@ pub async fn list_codex_sessions<R: Runtime>(
     app: AppHandle<R>,
     state: State<'_, Arc<Mutex<CodexManager>>>,
     claude_state: State<'_, Arc<tokio::sync::Mutex<ClaudeManager>>>,
+    grok_state: State<'_, Arc<tokio::sync::Mutex<crate::grok::GrokManager>>>,
 ) -> Result<Vec<CodexSessionListItem>, String> {
     let mut items = query_codex_session_list(&app).await?;
     let employee_ids = items
@@ -1161,9 +1179,13 @@ pub async fn list_codex_sessions<R: Runtime>(
         let live_claude_processes =
             crate::claude::list_live_claude_employee_processes(claude_state.inner(), &employee_id)
                 .await;
+        let live_grok_processes =
+            crate::grok::list_live_grok_employee_processes(grok_state.inner(), &employee_id).await;
         running_by_employee.insert(
             employee_id.clone(),
-            !live_processes.is_empty() || !live_claude_processes.is_empty(),
+            !live_processes.is_empty()
+                || !live_claude_processes.is_empty()
+                || !live_grok_processes.is_empty(),
         );
         for process in live_processes {
             if let Some(task_id) = process.task_id.as_deref() {
@@ -1174,6 +1196,14 @@ pub async fn list_codex_sessions<R: Runtime>(
             }
         }
         for process in live_claude_processes {
+            if let Some(task_id) = process.task_id.as_deref() {
+                running_by_task_session.insert(running_task_session_key(
+                    task_id,
+                    process.session_kind.as_str(),
+                ));
+            }
+        }
+        for process in live_grok_processes {
             if let Some(task_id) = process.task_id.as_deref() {
                 running_by_task_session.insert(running_task_session_key(
                     task_id,
@@ -1218,6 +1248,7 @@ pub async fn prepare_codex_session_resume<R: Runtime>(
     app: AppHandle<R>,
     state: State<'_, Arc<Mutex<CodexManager>>>,
     claude_state: State<'_, Arc<tokio::sync::Mutex<ClaudeManager>>>,
+    grok_state: State<'_, Arc<tokio::sync::Mutex<crate::grok::GrokManager>>>,
     session_id: String,
 ) -> Result<CodexSessionResumePreview, String> {
     let mut items = query_codex_session_list(&app).await?;
@@ -1256,6 +1287,7 @@ pub async fn prepare_codex_session_resume<R: Runtime>(
         &app,
         state.inner(),
         claude_state.inner(),
+        grok_state.inner(),
         item.employee_id.as_deref(),
         item.task_id.as_deref(),
         &item.session_kind,

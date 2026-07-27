@@ -14,13 +14,17 @@ import {
   CODEX_MODEL_OPTIONS,
   CLAUDE_MODEL_OPTIONS,
   CLAUDE_THINKING_BUDGET_OPTIONS,
+  GROK_MODEL_OPTIONS,
+  GROK_EFFORT_OPTIONS,
   OPENCODE_EFFORT_OPTIONS,
   REASONING_EFFORT_OPTIONS,
   type AiProvider,
   type ClaudeHealthCheck,
   type CodexHealthCheck,
   type CodexSettings,
+  type GrokHealthCheck,
   type RemoteCodexHealthCheck,
+  type RemoteGrokHealthCheck,
 } from "@/lib/types";
 import type { OpenCodeHealthCheck, OpenCodeModelInfo } from "@/lib/opencode";
 import { type ThemeMode } from "@/lib/theme";
@@ -92,6 +96,19 @@ interface RuntimeSettingsTabProps {
   onOpenCodeSave: () => void;
   onOpenCodeInstall: () => void;
   onOpenCodeRefresh: () => void;
+  grokHealth: GrokHealthCheck | null;
+  remoteGrokHealth: RemoteGrokHealthCheck | null;
+  grokDefaultModel: string;
+  grokDefaultEffort: string;
+  grokCliPathOverride: string;
+  grokActionLoading: "save" | null;
+  grokActionMessage: string | null;
+  grokActionError: string | null;
+  onGrokDefaultModelChange: (model: string) => void;
+  onGrokDefaultEffortChange: (effort: string) => void;
+  onGrokCliPathOverrideChange: (path: string) => void;
+  onGrokSave: () => void;
+  onGrokRefresh: () => void;
 }
 
 const themeOptions: { value: ThemeMode; label: string; icon: LucideIcon }[] = [
@@ -170,6 +187,19 @@ export function RuntimeSettingsTab({
   onOpenCodeSave,
   onOpenCodeInstall,
   onOpenCodeRefresh,
+  grokHealth,
+  remoteGrokHealth,
+  grokDefaultModel,
+  grokDefaultEffort,
+  grokCliPathOverride,
+  grokActionLoading,
+  grokActionMessage,
+  grokActionError,
+  onGrokDefaultModelChange,
+  onGrokDefaultEffortChange,
+  onGrokCliPathOverrideChange,
+  onGrokSave,
+  onGrokRefresh,
 }: RuntimeSettingsTabProps) {
   const taskProviderLabel =
     codexHealth?.task_execution_effective_provider === "sdk" ? "SDK" : "exec（自动回退）";
@@ -178,7 +208,9 @@ export function RuntimeSettingsTab({
       ? "Claude"
       : oneShotPreferredProvider === "opencode"
         ? "OpenCode"
-        : "Codex";
+        : oneShotPreferredProvider === "grok"
+          ? "Grok"
+          : "Codex";
   const oneShotChannelLabel = (() => {
     const channel = codexHealth?.one_shot_effective_channel;
     if (channel === "sdk") return "SDK";
@@ -196,6 +228,7 @@ export function RuntimeSettingsTab({
   const isOneShotCodexProvider = oneShotPreferredProvider === "codex";
   const isOneShotClaudeProvider = oneShotPreferredProvider === "claude";
   const isOneShotOpenCodeProvider = oneShotPreferredProvider === "opencode";
+  const isOneShotGrokProvider = oneShotPreferredProvider === "grok";
   const oneShotOpenCodeModelOptions = opencodeModelList.length > 0
     ? opencodeModelList
     : [{
@@ -216,7 +249,9 @@ export function RuntimeSettingsTab({
       modelId: opencodeDefaultModel.includes("/") ? opencodeDefaultModel.split("/").slice(1).join("/") : opencodeDefaultModel,
       capabilities: null,
     }];
-  const canUseOneShotSdkToggle = !isRemoteMode || isOneShotCodexProvider || isOneShotOpenCodeProvider;
+  const canUseOneShotSdkToggle = !isRemoteMode
+    ? (isOneShotCodexProvider || isOneShotClaudeProvider || isOneShotOpenCodeProvider)
+    : (isOneShotCodexProvider || isOneShotOpenCodeProvider);
   const selectedOneShotStatusMessage = codexHealth?.one_shot_status_message;
 
   return (
@@ -468,7 +503,9 @@ export function RuntimeSettingsTab({
             </label>
           ) : (
             <div className="rounded-md border border-dashed border-border px-3 py-3 text-sm text-muted-foreground">
-              SSH 模式下 Claude 一次性 AI 固定通过远端 Claude CLI 执行。
+              {isOneShotGrokProvider
+                ? "SSH 模式下 Grok 一次性 AI 固定通过远端 Grok CLI 执行（远端需已安装并 `grok login`）。"
+                : "SSH 模式下 Claude 一次性 AI 固定通过远端 Claude CLI 执行。"}
             </div>
           )}
         </div>
@@ -538,7 +575,11 @@ export function RuntimeSettingsTab({
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {(isOneShotClaudeProvider ? CLAUDE_MODEL_OPTIONS : CODEX_MODEL_OPTIONS).map((option) => (
+                  {(isOneShotClaudeProvider
+                    ? CLAUDE_MODEL_OPTIONS
+                    : isOneShotGrokProvider
+                      ? GROK_MODEL_OPTIONS
+                      : CODEX_MODEL_OPTIONS).map((option) => (
                     <SelectItem key={option.value} value={option.value}>
                       {option.label}
                     </SelectItem>
@@ -574,7 +615,9 @@ export function RuntimeSettingsTab({
                   ? CLAUDE_DEFAULT_THINKING_BUDGET_OPTIONS
                   : isOneShotOpenCodeProvider
                     ? OPENCODE_EFFORT_OPTIONS
-                    : REASONING_EFFORT_OPTIONS).map((option) => (
+                    : isOneShotGrokProvider
+                      ? GROK_EFFORT_OPTIONS
+                      : REASONING_EFFORT_OPTIONS).map((option) => (
                   <SelectItem key={option.value} value={option.value}>
                     {option.label}
                   </SelectItem>
@@ -964,6 +1007,109 @@ export function RuntimeSettingsTab({
             {opencodeActionError && <p className="text-xs text-destructive">{opencodeActionError}</p>}
           </div>
         )}
+      </div>
+
+      <div className="space-y-4 rounded-lg border border-border bg-card p-4">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <h3 className="mb-1 text-sm font-medium">Grok 配置</h3>
+            <p className="text-xs text-muted-foreground">
+              使用 xAI Grok Build CLI（`grok`）执行任务会话与一次性 AI。远程认证依赖远端已登录，应用不会注入密钥。
+            </p>
+          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={onGrokRefresh}
+            disabled={healthLoading || grokActionLoading !== null}
+          >
+            <RefreshCw className="mr-1.5 h-3.5 w-3.5" />
+            刷新
+          </Button>
+        </div>
+
+        <div className="rounded-md border border-border px-3 py-3 text-xs text-muted-foreground space-y-1">
+          <p>本地状态：{grokHealth?.status_message ?? "尚未检测"}</p>
+          {grokHealth?.cli_path ? <p>本地路径：{grokHealth.cli_path}</p> : null}
+          {grokHealth?.cli_version ? <p>本地版本：{grokHealth.cli_version}</p> : null}
+          {isRemoteMode ? (
+            <>
+              <p>远程状态：{remoteGrokHealth?.message ?? "尚未检测当前 SSH 目标"}</p>
+              {remoteGrokHealth?.version ? <p>远程版本：{remoteGrokHealth.version}</p> : null}
+            </>
+          ) : null}
+        </div>
+
+        <div className="grid gap-3 md:grid-cols-2">
+          <div className="space-y-2">
+            <label className="text-sm font-medium">默认模型</label>
+            <Select
+              value={grokDefaultModel}
+              onValueChange={(value) => {
+                if (value) onGrokDefaultModelChange(value);
+              }}
+              disabled={healthLoading || grokActionLoading !== null}
+            >
+              <SelectTrigger className="bg-background">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {GROK_MODEL_OPTIONS.map((option) => (
+                  <SelectItem key={option.value} value={option.value}>
+                    {option.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-2">
+            <label className="text-sm font-medium">默认推理强度</label>
+            <Select
+              value={grokDefaultEffort}
+              onValueChange={(value) => {
+                if (value) onGrokDefaultEffortChange(value);
+              }}
+              disabled={healthLoading || grokActionLoading !== null}
+            >
+              <SelectTrigger className="bg-background">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {GROK_EFFORT_OPTIONS.map((option) => (
+                  <SelectItem key={option.value} value={option.value}>
+                    {option.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+
+        <div className="space-y-2">
+          <label className="text-sm font-medium">CLI 路径覆盖（可选）</label>
+          <Input
+            value={grokCliPathOverride}
+            onChange={(event) => onGrokCliPathOverrideChange(event.target.value)}
+            placeholder="例如 /Users/you/.grok/bin/grok"
+            disabled={healthLoading || grokActionLoading !== null}
+          />
+          <p className="text-xs text-muted-foreground">
+            留空时按 `GROK_CLI_PATH` / `~/.grok/bin` / PATH 自动查找。
+          </p>
+        </div>
+
+        {(grokActionMessage || grokActionError) && (
+          <div className={`rounded-md border px-3 py-2 text-sm ${grokActionError ? "border-destructive/40 text-destructive" : "border-border text-muted-foreground"}`}>
+            {grokActionError ?? grokActionMessage}
+          </div>
+        )}
+
+        <div className="flex justify-end">
+          <Button onClick={onGrokSave} disabled={healthLoading || grokActionLoading !== null}>
+            {grokActionLoading === "save" ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : null}
+            保存 Grok 设置
+          </Button>
+        </div>
       </div>
     </div>
   );

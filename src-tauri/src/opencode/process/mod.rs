@@ -419,7 +419,7 @@ async fn write_opencode_task_session_activity<R: Runtime>(
 
 async fn ensure_no_cross_provider_conflict<R: Runtime>(
     app: &AppHandle<R>,
-    _employee_id: &str,
+    employee_id: &str,
     task_id: Option<&str>,
     _session_kind: OpenCodeSessionKind,
 ) -> Result<(), String> {
@@ -456,6 +456,20 @@ async fn ensure_no_cross_provider_conflict<R: Runtime>(
                     task_id
                 ));
             }
+        }
+    }
+
+    if let Some(grok_state) = app.try_state::<Arc<tokio::sync::Mutex<crate::grok::GrokManager>>>() {
+        let manager = grok_state.lock().await;
+        if let Some(task_id) = task_id {
+            if manager
+                .get_task_process_any(task_id, crate::grok::GrokSessionKind::Execution)
+                .is_some()
+            {
+                return Err(format!("任务{}的会话已在运行", task_id));
+            }
+        } else if manager.has_employee_processes(employee_id) {
+            return Err(format!("员工{}已有未绑定任务的 Grok 会话在运行", employee_id));
         }
     }
 

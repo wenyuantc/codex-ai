@@ -50,7 +50,8 @@ const SUPPORTED_WORKTREE_LOCATION_MODES: &[&str] =
     &["repo_sibling_hidden", "repo_child_hidden", "custom_root"];
 const SUPPORTED_AI_COMMIT_MESSAGE_LENGTHS: &[&str] = &["title_only", "title_with_body"];
 const SUPPORTED_AI_COMMIT_MODEL_SOURCES: &[&str] = &["inherit_one_shot", "custom"];
-const SUPPORTED_ONE_SHOT_PROVIDERS: &[&str] = &["codex", "claude", "opencode"];
+const SUPPORTED_ONE_SHOT_PROVIDERS: &[&str] = &["codex", "claude", "opencode", "grok"];
+const SUPPORTED_GROK_REASONING_EFFORTS: &[&str] = &["high", "medium", "low"];
 const SUPPORTED_CLAUDE_REASONING_EFFORTS: &[&str] =
     &["low", "medium", "high", "xhigh", "max", "auto"];
 const SUPPORTED_OPENCODE_REASONING_EFFORTS: &[&str] =
@@ -131,6 +132,7 @@ struct RawCodexSettingsDocument {
 fn normalize_one_shot_provider(value: Option<&str>, is_remote: bool) -> String {
     match value.map(str::trim) {
         Some("claude") => "claude".to_string(),
+        Some("grok") => "grok".to_string(),
         Some("opencode") if !is_remote => "opencode".to_string(),
         Some("codex") => "codex".to_string(),
         Some(value) if SUPPORTED_ONE_SHOT_PROVIDERS.contains(&value) && !is_remote => {
@@ -143,6 +145,7 @@ fn normalize_one_shot_provider(value: Option<&str>, is_remote: bool) -> String {
 fn normalize_one_shot_model(provider: &str, value: Option<&str>) -> String {
     match provider {
         "claude" => crate::claude::normalize_claude_model(value),
+        "grok" => crate::grok::normalize_grok_model(value),
         "opencode" => value
             .map(str::trim)
             .filter(|value| !value.is_empty())
@@ -159,6 +162,10 @@ fn normalize_one_shot_reasoning_effort(provider: &str, value: Option<&str>) -> S
     match provider {
         "claude" => match value.map(str::trim) {
             Some(value) if SUPPORTED_CLAUDE_REASONING_EFFORTS.contains(&value) => value.to_string(),
+            _ => DEFAULT_ONE_SHOT_REASONING_EFFORT.to_string(),
+        },
+        "grok" => match value.map(str::trim) {
+            Some(value) if SUPPORTED_GROK_REASONING_EFFORTS.contains(&value) => value.to_string(),
             _ => DEFAULT_ONE_SHOT_REASONING_EFFORT.to_string(),
         },
         "opencode" => match value.map(str::trim) {
@@ -716,6 +723,7 @@ fn format_ai_preferred_provider_label(value: &str) -> &str {
     match value {
         "claude" => "Claude",
         "opencode" => "OpenCode",
+        "grok" => "Grok",
         _ => "Codex",
     }
 }
@@ -1301,7 +1309,8 @@ pub async fn install_codex_sdk<R: Runtime>(
 mod tests {
     use super::{
         default_git_preferences, default_remote_codex_settings, determine_effective_provider,
-        merge_git_preferences, normalize_one_shot_model, normalize_raw_settings,
+        merge_git_preferences, normalize_one_shot_model, normalize_one_shot_provider,
+        normalize_one_shot_reasoning_effort, normalize_raw_settings,
         normalize_remote_profile_settings, normalize_remote_settings,
         normalize_task_automation_failure_strategy, normalize_task_automation_max_fix_rounds,
         parse_node_major_version, read_sdk_version_from_dir, sdk_platform_package_for_target,
@@ -1455,6 +1464,24 @@ mod tests {
         assert_eq!(
             normalize_one_shot_model("claude", Some("claude-haiku-4-5")),
             "haiku"
+        );
+    }
+
+    #[test]
+    fn grok_one_shot_provider_and_model_are_normalized() {
+        assert_eq!(normalize_one_shot_provider(Some("grok"), false), "grok");
+        assert_eq!(normalize_one_shot_provider(Some("grok"), true), "grok");
+        assert_eq!(
+            normalize_one_shot_model("grok", Some("unknown-model")),
+            "grok-4.5"
+        );
+        assert_eq!(
+            normalize_one_shot_reasoning_effort("grok", Some("medium")),
+            "medium"
+        );
+        assert_eq!(
+            normalize_one_shot_reasoning_effort("grok", Some("auto")),
+            "high"
         );
     }
 

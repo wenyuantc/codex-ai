@@ -39,6 +39,7 @@ import {
 } from "@/lib/taskAttachments";
 import { startCodex } from "@/lib/codex";
 import { startClaude } from "@/lib/claude";
+import { startGrok } from "@/lib/grok";
 import { startOpenCode } from "@/lib/opencode";
 import { getProjectWorkingDir } from "@/lib/projects";
 import type { TaskAutomationDisplayState } from "@/lib/utils";
@@ -921,6 +922,8 @@ export function TaskDetailDialog({
           taskGitContextId,
           imagePaths: executionInput.imagePaths,
         });
+      } else if (assignee?.ai_provider === "grok") {
+        await startGrok(assigneeId, executionInput.prompt, startOptions);
       } else {
         await startCodex(assigneeId, executionInput.prompt, startOptions);
       }
