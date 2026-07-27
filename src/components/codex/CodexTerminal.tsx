@@ -37,6 +37,9 @@ export function CodexTerminal({ taskId, sessionRecordId, sessionKind = "executio
   function getLineColor(line: string): string {
     if (line.startsWith("[ERROR]")) return "text-red-400";
     if (line.startsWith("[EXIT]")) return "text-yellow-400";
+    if (line.startsWith("[思考]")) return "text-zinc-500";
+    if (line.startsWith("[命令]") || line.startsWith("[工具]")) return "text-cyan-400";
+    if (line.startsWith("[STDERR]")) return "text-orange-400";
     return "text-green-400";
   }
 

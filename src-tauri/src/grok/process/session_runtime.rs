@@ -12,7 +12,9 @@ use crate::db::models::{GrokExit, GrokOutput, GrokSession};
 use crate::git_workflow::mark_task_git_context_session_finished;
 use crate::task_automation;
 
-use super::stream::{parse_grok_json_event_line, GrokJsonStreamState};
+use super::stream::{
+    flush_grok_json_stream_state, parse_grok_json_event_line, GrokJsonStreamState,
+};
 use super::{
     extract_review_report, extract_review_verdict, GrokChild, GrokManager, GrokSessionKind,
     STOP_WAIT_MAX_ATTEMPTS, STOP_WAIT_POLL_MS,
@@ -201,6 +203,24 @@ pub(super) fn spawn_grok_session_runtime(
                         sk,
                         &session_id,
                         line,
+                    )
+                    .await;
+                }
+
+                // 进程结束时刷出 thought/text 未完成行，避免丢最后一段输出
+                let flushed = flush_grok_json_stream_state(&mut json_state);
+                for emitted_line in flushed.lines {
+                    if let Some(captured) = captured.as_ref() {
+                        push_captured_line(captured, emitted_line.clone());
+                    }
+                    emit_grok_output_line(
+                        &app,
+                        &pool,
+                        &emp_id,
+                        t_id.as_ref(),
+                        sk,
+                        &session_id,
+                        emitted_line,
                     )
                     .await;
                 }
