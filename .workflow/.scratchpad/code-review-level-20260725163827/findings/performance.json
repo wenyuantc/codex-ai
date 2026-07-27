@@ -1,0 +1,17 @@
+{
+  "dimension": "performance",
+  "level": "max",
+  "findings": [
+    {
+      "id": "F-032",
+      "dimension": "performance",
+      "severity": "Info",
+      "title": "性能热点 LOC 数字抽样核验通过",
+      "file": "docs/analysis/05-quality-risks.md",
+      "line": 67,
+      "evidence": "git_workflow 5515、task_automation 2943、ProjectDetail 1425、TaskDetail 1339、TaskCard 1290、Settings 1081 与现码一致。",
+      "suggestion": "保留基线；大拆分后更新 LOC 表。",
+      "source": "trace-deps"
+    }
+  ]
+}

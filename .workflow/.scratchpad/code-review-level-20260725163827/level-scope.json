@@ -1,0 +1,38 @@
+{
+  "level": "max",
+  "scope": {
+    "mode": "git_diff",
+    "staged_only": false,
+    "base_ref": null,
+    "paths": [],
+    "files": [
+      ".openclaude/settings.local.json",
+      "docs/analysis/00-architecture-overview.md",
+      "docs/analysis/01-domain-capability-matrix.md",
+      "docs/analysis/02-data-model-audit.md",
+      "docs/analysis/03-ipc-command-catalog.md",
+      "docs/analysis/04-runtime-lifecycle.md",
+      "docs/analysis/05-quality-risks.md",
+      "docs/analysis/06-tech-debt-roadmap.md",
+      "docs/analysis/README.md"
+    ],
+    "diff_stat": "untracked only (no staged/unstaged tracked diffs)"
+  },
+  "policy": {
+    "depth": "exhaustive",
+    "dimensions": ["correctness", "readability", "performance", "security", "testing", "architecture"],
+    "severity_floor": "Info",
+    "max_files": 500,
+    "max_lines_per_file": 2000,
+    "agents": ["Explore", "general-purpose"],
+    "tools": ["Read", "Grep", "Glob", "Bash", "Agent"],
+    "cross_file": true,
+    "dependency_trace": true,
+    "adversarial": true,
+    "architecture_deep": true,
+    "parallel": true
+  },
+  "user_args": "max",
+  "created_at": "2026-07-25T16:38:27.000Z",
+  "notes": "Only untracked files; no modified tracked files. Reviewing analysis docs against codebase for factual accuracy and risk quality."
+}

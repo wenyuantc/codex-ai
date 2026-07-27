@@ -1,0 +1,31 @@
+{
+  "status": "DONE",
+  "level": "max",
+  "total_findings": 34,
+  "by_severity": {
+    "Critical": 3,
+    "High": 11,
+    "Medium": 11,
+    "Low": 6,
+    "Info": 3
+  },
+  "report_path": ".workflow/.scratchpad/code-review-level-20260725163827/review-report.md",
+  "quality": {
+    "has_overview": true,
+    "has_level_summary": true,
+    "findings_have_location": true,
+    "findings_have_suggestion": true,
+    "severity_counts_match": true,
+    "agents_ran": true,
+    "adversarial": true
+  },
+  "truncated": false,
+  "scope": "untracked docs/analysis + .openclaude only",
+  "agent_sources": [
+    "trace-deps",
+    "security-pass",
+    "adversarial",
+    "architecture"
+  ],
+  "completed_at": "2026-07-25T16:45:24.383034+00:00"
+}

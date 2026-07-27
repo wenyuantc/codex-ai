@@ -1,0 +1,17 @@
+{
+  "dimension": "readability",
+  "level": "max",
+  "findings": [
+    {
+      "id": "F-031",
+      "dimension": "readability",
+      "severity": "Low",
+      "title": "分析系列整体可读性良好，但跨文档重复与矛盾点缺索引",
+      "file": "docs/analysis/README.md",
+      "line": 17,
+      "evidence": "阅读顺序清晰；但 00/05/06 对边界风险分级不完全一致，无「已知矛盾/更新日志」。",
+      "suggestion": "README 增加变更日志与 severity 统一表；交叉引用 UNVERIFIED 清单单一来源。",
+      "source": "primary"
+    }
+  ]
+}

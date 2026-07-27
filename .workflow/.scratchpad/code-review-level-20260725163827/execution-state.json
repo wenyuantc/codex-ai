@@ -1,0 +1,30 @@
+{
+  "started_at": "2026-07-25T16:38:27.000Z",
+  "skill": "code-review-level",
+  "user_args": "max",
+  "phases_completed": [
+    {
+      "id": "00-spec-study",
+      "output": "spec-study-complete.flag"
+    },
+    {
+      "id": "01-parse-level-scope",
+      "output": "level-scope.json"
+    },
+    {
+      "id": "02-collect-context",
+      "output": "context.json"
+    },
+    {
+      "id": "03-leveled-review",
+      "output": "findings.json"
+    },
+    {
+      "id": "04-generate-report",
+      "output": "review-report.md"
+    }
+  ],
+  "current_phase": null,
+  "errors": [],
+  "completed_at": "2026-07-25T16:45:24.383034+00:00"
+}

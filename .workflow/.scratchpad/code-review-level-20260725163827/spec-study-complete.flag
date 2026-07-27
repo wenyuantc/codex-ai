@@ -1,0 +1,11 @@
+{
+  "status": "completed",
+  "specs_loaded": 8,
+  "internalized": {
+    "levels": ["low", "medium", "high", "xhigh", "max"],
+    "dimensions": ["correctness", "readability", "performance", "security", "testing", "architecture"],
+    "default_level": "medium",
+    "default_scope": "git_diff"
+  },
+  "timestamp": "2026-07-25T16:38:27.000Z"
+}

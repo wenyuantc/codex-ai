@@ -1,0 +1,149 @@
+{
+  "dimension": "correctness",
+  "level": "max",
+  "findings": [
+    {
+      "id": "F-001",
+      "dimension": "correctness",
+      "severity": "Critical",
+      "title": "文档未披露：冷启动 orphan recovery 无差别将 running 会话标 failed，可能毒化自动化",
+      "file": "docs/analysis/04-runtime-lifecycle.md",
+      "line": 125,
+      "evidence": "04 仅写「orphan recovery 防双开」。代码 task_automation.rs:361-386 recover_orphaned_running_sessions 将所有 status='running' AND ended_at IS NULL 的会话 UPDATE 为 failed/exit_code=1，不区分进程是否仍存活；随后 replay 可能把 waiting_review/waiting_execution 推向 terminal failure，误阻塞任务。",
+      "suggestion": "文档写清冷启动有损 reconcile；实现改为仅 Manager 无 live process 时标记 interrupted；区分 app_restart_interrupted 与真实失败，避免误 finalize_terminal_failure。",
+      "source": "adversarial"
+    },
+    {
+      "id": "F-002",
+      "dimension": "correctness",
+      "severity": "Critical",
+      "title": "文档未披露：resume_pending 单任务失败 fail-stop 且未过滤软删任务",
+      "file": "docs/analysis/04-runtime-lifecycle.md",
+      "line": 119,
+      "evidence": "fetch_pending_automation_task_ids（task_automation.rs:307-328）只过滤 automation_mode/status!=archived/phase，无 deleted_at IS NULL。resume 循环对 retry_* 使用 ?，单任务 Err 中止后续全部恢复。软删后 phase 仍可能 pending，与 trash 交叉。",
+      "suggestion": "SQL 加 deleted_at 过滤；软删时停 automation；resume 改为 per-task try/continue；文档声明启动恢复非全量保证。",
+      "source": "adversarial"
+    },
+    {
+      "id": "F-008",
+      "dimension": "correctness",
+      "severity": "High",
+      "title": "AI 多引擎路由错误指向 determine_effective_provider",
+      "file": "docs/analysis/01-domain-capability-matrix.md",
+      "line": 73,
+      "evidence": "脚注要求结合 determine_effective_provider 确认多引擎路由。该函数（codex/settings.rs）仅返回 sdk|exec 传输层，非 ai_provider→claude/opencode 路由。真实分支在 ai_commands/one_shot 与 task_automation assignee.ai_provider。",
+      "suggestion": "脚注改为：传输层看 determine_effective_provider(sdk|exec)；跨引擎看 employee/settings 的 ai_provider 与 automation 启动分支。",
+      "source": "trace-deps"
+    },
+    {
+      "id": "F-010",
+      "dimension": "correctness",
+      "severity": "High",
+      "title": "软删/回收站被标 ✅，未描述进程与 automation 泄漏及 restore 过宽",
+      "file": "docs/analysis/01-domain-capability-matrix.md",
+      "line": 40,
+      "evidence": "delete_task 仅 SET deleted_at，不 stop 会话、不改 automation。restore_project 可复活项目删除前已独立进回收站的任务。永久删项目不清理 worktree。",
+      "suggestion": "能力矩阵对 soft-delete 改为 ⚠️；补充删除矩阵（DB/进程/worktree/附件）；实现软删时 stop session + disable automation。",
+      "source": "adversarial"
+    },
+    {
+      "id": "F-012",
+      "dimension": "correctness",
+      "severity": "High",
+      "title": "Claude.md 过时架构数字未列入产品文档债，易与 analysis 对撞",
+      "file": "docs/analysis/05-quality-risks.md",
+      "line": 100,
+      "evidence": "Claude.md 仍写「45 commands / 7 pages / 前端从不直写库」。analysis 证明 149 commands、8 页、前端 SELECT+INSERT。05 未点名 Claude.md/Agents.md。",
+      "suggestion": "P0-4/P2-8 扩展同步修订 Claude.md；README 声明权威优先级：analysis/ADR > 过时 agent 指南数字。",
+      "source": "architecture"
+    },
+    {
+      "id": "F-013",
+      "dimension": "correctness",
+      "severity": "High",
+      "title": "设置页 Tab 数量与路由描述过时（四→五）",
+      "file": "docs/analysis/05-quality-risks.md",
+      "line": 123,
+      "evidence": "文档写「设置四 Tab」。SettingsPage.tsx:80-86 为 5 项：runtime/git/prompts/ssh/database。00:119 路由说明同样漏「提示词模板」。",
+      "suggestion": "统一改为 5 Tab，并在 00 路由表补上 prompts。",
+      "source": "trace-deps"
+    },
+    {
+      "id": "F-014",
+      "dimension": "correctness",
+      "severity": "High",
+      "title": "审核通过后先标 completed 再 commit 的状态机分叉未文档化",
+      "file": "docs/analysis/04-runtime-lifecycle.md",
+      "line": 110,
+      "evidence": "automation 在 verdict.passed 且 auto-commit 时先 update_task_status completed，再 phase=committing_code；commit 失败则 phase=commit_failed 但任务已 completed。04 阶段表未描述该不变量破坏。",
+      "suggestion": "commit 成功后再 completed；文档增加 status×phase 不变量与故障表。",
+      "source": "adversarial"
+    },
+    {
+      "id": "F-018",
+      "dimension": "correctness",
+      "severity": "Medium",
+      "title": "IPC「基本对齐」掩盖 3 个前端零引用的注册命令",
+      "file": "docs/analysis/03-ipc-command-catalog.md",
+      "line": 12,
+      "evidence": "149 注册与 149 注解属实；前端 invoke 字面量 146。orphan commands：get_task_git_context、open_project_git_file、get_ssh_config 前端无引用。",
+      "suggestion": "统计表增加「仅后端注册」列；CI 检查 invoke ⊆ handler 与 handler 未使用清单。",
+      "source": "trace-deps"
+    },
+    {
+      "id": "F-023",
+      "dimension": "correctness",
+      "severity": "Medium",
+      "title": "前端 SQL 读消费者清单不完整",
+      "file": "docs/analysis/00-architecture-overview.md",
+      "line": 76,
+      "evidence": "除 dashboard/task/employee/project stores 外，logStore、ArchiveManagementDialog、TaskSessionChainPanel、EmployeePerformanceChart、lib/ai.ts 也 import database。",
+      "suggestion": "全量枚举 plugin-sql 调用点并分类；评估收紧权限时覆盖组件 ad-hoc SELECT。",
+      "source": "architecture"
+    },
+    {
+      "id": "F-026",
+      "dimension": "correctness",
+      "severity": "Low",
+      "title": "索引「约 58」是 CREATE 次数非稳态唯一索引数",
+      "file": "docs/analysis/02-data-model-audit.md",
+      "line": 102,
+      "evidence": "迁移含索引重建，稳态唯一索引 < 58。",
+      "suggestion": "改为「迁移约 58 次 CREATE INDEX（含重建）」并建议 schema 枚举稳态数。",
+      "source": "trace-deps"
+    },
+    {
+      "id": "F-027",
+      "dimension": "correctness",
+      "severity": "Low",
+      "title": "project_employees 停写可收口为已验证",
+      "file": "docs/analysis/02-data-model-audit.md",
+      "line": 95,
+      "evidence": "全库 project_employees 仅 migrations.rs；业务无读写。",
+      "suggestion": "状态改为 ✅ 业务层无读写；是否 DROP 为可选清理。",
+      "source": "trace-deps"
+    },
+    {
+      "id": "F-028",
+      "dimension": "correctness",
+      "severity": "Low",
+      "title": "00 将测试规模近似为 app/tests ~1.6k，易被读成全库",
+      "file": "docs/analysis/00-architecture-overview.md",
+      "line": 160,
+      "evidence": "app/tests ~1.6k 属实；全库 #[test] 约 221；05 已写 200+。00 措辞偏窄。",
+      "suggestion": "与 05 对齐：集成测试 + 模块内单测；仍无前端测试。",
+      "source": "trace-deps"
+    },
+    {
+      "id": "F-033",
+      "dimension": "correctness",
+      "severity": "Info",
+      "title": "核心量化声明与现码大体一致（149/40/0.4.0/6 stores/8 pages）",
+      "file": "docs/analysis/03-ipc-command-catalog.md",
+      "line": 7,
+      "evidence": "generate_handler 149；#[tauri::command] 149；invoke 字面量 146；迁移 max 40；version 0.4.0；stores 6；pages 8；边界违规位点一致。",
+      "suggestion": "CI 冻结 149/40/dead-command 列表防漂移。",
+      "source": "trace-deps"
+    }
+  ]
+}

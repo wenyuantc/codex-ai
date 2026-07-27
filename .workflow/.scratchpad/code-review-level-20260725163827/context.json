@@ -1,0 +1,47 @@
+{
+  "level": "max",
+  "policy_snapshot": {
+    "depth": "exhaustive",
+    "dimensions": ["correctness", "readability", "performance", "security", "testing", "architecture"],
+    "max_files": 500,
+    "agents": ["Explore", "general-purpose"],
+    "cross_file": true,
+    "adversarial": true
+  },
+  "scope_mode": "git_diff",
+  "files": [
+    "docs/analysis/05-quality-risks.md",
+    "docs/analysis/03-ipc-command-catalog.md",
+    "docs/analysis/02-data-model-audit.md",
+    "docs/analysis/04-runtime-lifecycle.md",
+    "docs/analysis/00-architecture-overview.md",
+    "docs/analysis/01-domain-capability-matrix.md",
+    "docs/analysis/06-tech-debt-roadmap.md",
+    "docs/analysis/README.md",
+    ".openclaude/settings.local.json"
+  ],
+  "file_details": [
+    {"path": "docs/analysis/00-architecture-overview.md", "ext": "md", "has_diff": false, "sample_chars": 6285},
+    {"path": "docs/analysis/01-domain-capability-matrix.md", "ext": "md", "has_diff": false, "sample_chars": 5346},
+    {"path": "docs/analysis/02-data-model-audit.md", "ext": "md", "has_diff": false, "sample_chars": 6525},
+    {"path": "docs/analysis/03-ipc-command-catalog.md", "ext": "md", "has_diff": false, "sample_chars": 6236},
+    {"path": "docs/analysis/04-runtime-lifecycle.md", "ext": "md", "has_diff": false, "sample_chars": 5509},
+    {"path": "docs/analysis/05-quality-risks.md", "ext": "md", "has_diff": false, "sample_chars": 4970},
+    {"path": "docs/analysis/06-tech-debt-roadmap.md", "ext": "md", "has_diff": false, "sample_chars": 5777},
+    {"path": "docs/analysis/README.md", "ext": "md", "has_diff": false, "sample_chars": 956},
+    {"path": ".openclaude/settings.local.json", "ext": "json", "has_diff": false, "sample_chars": 3}
+  ],
+  "languages": ["markdown", "json"],
+  "risk_areas": [
+    {"path": "docs/analysis/05-quality-risks.md", "tags": ["security", "config"]},
+    {"path": "docs/analysis/03-ipc-command-catalog.md", "tags": ["security", "data"]},
+    {"path": "docs/analysis/02-data-model-audit.md", "tags": ["data", "security"]},
+    {"path": "docs/analysis/04-runtime-lifecycle.md", "tags": ["concurrency", "config"]},
+    {"path": ".openclaude/settings.local.json", "tags": ["config"]}
+  ],
+  "truncated": false,
+  "total_candidates": 9,
+  "diff_stat": "untracked only",
+  "created_at": "2026-07-25T16:38:27.000Z",
+  "review_intent": "Max-level adversarial review of analysis documentation accuracy vs live codebase, plus residual risk quality of documented claims"
+}

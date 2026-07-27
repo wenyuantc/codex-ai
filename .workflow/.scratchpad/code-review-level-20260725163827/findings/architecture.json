@@ -1,0 +1,116 @@
+{
+  "dimension": "architecture",
+  "level": "max",
+  "findings": [
+    {
+      "id": "F-007",
+      "dimension": "architecture",
+      "severity": "High",
+      "title": "路线图将体验 C 置于正确性之前，可能误配工程资源",
+      "file": "docs/analysis/06-tech-debt-roadmap.md",
+      "line": 3,
+      "evidence": "README/06 主推体验打磨 C，P0 仅 activity 写与 capabilities；git confirm/resume 毒化/软删交叉排在测试或体验旁路。对抗审查显示冷启动与 Git confirm 可导致误完成/误阻塞/双执行。",
+      "suggestion": "重排：resume 守卫 + soft-delete 运行时清理 + git confirm 原子化 + 禁用 sql/shell execute 高于看板 UX；更新一句话结论。",
+      "source": "adversarial"
+    },
+    {
+      "id": "F-009",
+      "dimension": "architecture",
+      "severity": "High",
+      "title": "自动质控审核路径硬编码 Codex，与「三引擎统一」叙述矛盾",
+      "file": "docs/analysis/04-runtime-lifecycle.md",
+      "line": 127,
+      "evidence": "retry_pending_review（task_automation.rs:904-905）固定 CodexManager + start_task_code_review_internal；fix 路径才按 ai_provider 分 Claude/OpenCode/Codex。01/04 未写死「automation review = Codex-only」。",
+      "suggestion": "能力矩阵拆分 review vs fix 引擎列；文档写死 review 仅 Codex 或实现 reviewer provider 路由。",
+      "source": "adversarial"
+    },
+    {
+      "id": "F-011",
+      "dimension": "architecture",
+      "severity": "High",
+      "title": "读路径是结构性双轨，文档弱化为「仍混用」",
+      "file": "docs/analysis/00-architecture-overview.md",
+      "line": 71,
+      "evidence": "ADR 要求 store 只缓存并调 command；核心领域读主路径是 plugin-sql SELECT（stores + 多个组件）。00 把写标「少量泄漏」、读标「仍混用」，低估默认架构形态。",
+      "suggestion": "边界状态拆成：写路径 P0 泄漏 vs 读路径 CQRS 双轨；更新 ADR 明确是否允许只读 plugin-sql。",
+      "source": "architecture"
+    },
+    {
+      "id": "F-017",
+      "dimension": "architecture",
+      "severity": "Medium",
+      "title": "OpenCode 已接入 automation fix 启动，仍标 UNVERIFIED 过保守",
+      "file": "docs/analysis/04-runtime-lifecycle.md",
+      "line": 127,
+      "evidence": "task_automation 已 import OpenCodeManager 并在 ai_provider==opencode 启动修复会话。未验证的是全 phase 对称性，不是「是否接入」。",
+      "suggestion": "用 phase×provider 矩阵：fix launch ✅；review Codex-only；resume/SSH/commit 待验证。",
+      "source": "trace-deps"
+    },
+    {
+      "id": "F-019",
+      "dimension": "architecture",
+      "severity": "Medium",
+      "title": "「Rust 服务层」夸大：实为胖 command 处理器 + 平级写库模块",
+      "file": "docs/analysis/00-architecture-overview.md",
+      "line": 35,
+      "evidence": "app/* 无独立 repository/domain；git_workflow/task_automation/engines 平级直写 SQLite。对外边界是 Tauri commands，对内非分层服务。",
+      "suggestion": "00 明确：服务边界=IPC；内部为模块化单体胖 handler。拆分目标为 domain 模块而非仅切文件。",
+      "source": "architecture"
+    },
+    {
+      "id": "F-020",
+      "dimension": "architecture",
+      "severity": "Medium",
+      "title": "共库并发/WAL/restore 一致性模型完全缺失",
+      "file": "docs/analysis/00-architecture-overview.md",
+      "line": 47,
+      "evidence": "前端 plugin-sql 与后端 SQLx 共享同库；未文档化连接、busy、写事务所有者、restore 时前端缓存失效。",
+      "suggestion": "00/04 增加 SQLite 访问模型：共享 pool、写事务归属、re-fetch 策略、restore 互斥。",
+      "source": "architecture"
+    },
+    {
+      "id": "F-021",
+      "dimension": "architecture",
+      "severity": "Medium",
+      "title": "事件总线契约未作为一等架构面",
+      "file": "docs/analysis/03-ipc-command-catalog.md",
+      "line": 136,
+      "evidence": "03 仅一句事件靠 listen；实际有 automation/session/notification 等多事件与 live 合成日志，无清单与 payload schema。",
+      "suggestion": "新增 event-catalog：事件名、发射点、订阅点、payload、去重语义。",
+      "source": "architecture"
+    },
+    {
+      "id": "F-022",
+      "dimension": "architecture",
+      "severity": "Medium",
+      "title": "遗留前端启发式 AI（lib/ai.ts）双轨未记录",
+      "file": "docs/analysis/01-domain-capability-matrix.md",
+      "line": 67,
+      "evidence": "AISuggestDialog 等走 lib/ai.ts 本地规则+SQL，与 IPC ai_* 并行；组件疑似死代码但路径存在。",
+      "suggestion": "能力矩阵标注启发式 vs 真 AI command；清理死代码或统一入口。",
+      "source": "trace-deps"
+    },
+    {
+      "id": "F-024",
+      "dimension": "architecture",
+      "severity": "Medium",
+      "title": "spawn_resume 与用户操作无同步屏障未文档化",
+      "file": "docs/analysis/04-runtime-lifecycle.md",
+      "line": 13,
+      "evidence": "lib.rs fire-and-forget resume，窗口可交互；可与手动 start/set_automation 并发写 phase。",
+      "suggestion": "恢复完成前 automation gate 或 per-task lock；UI 显示 resuming。",
+      "source": "adversarial"
+    },
+    {
+      "id": "F-029",
+      "dimension": "architecture",
+      "severity": "Low",
+      "title": "Manager 锁模型不对称未评估架构风险",
+      "file": "docs/analysis/04-runtime-lifecycle.md",
+      "line": 5,
+      "evidence": "Codex=std Mutex，Claude/OpenCode=tokio Mutex；跨引擎编排存在阻塞风险未入债项。",
+      "suggestion": "05/P1 增加统一 async Mutex 债项。",
+      "source": "architecture"
+    }
+  ]
+}

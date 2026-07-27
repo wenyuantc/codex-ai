@@ -1,0 +1,17 @@
+{
+  "dimension": "testing",
+  "level": "max",
+  "findings": [
+    {
+      "id": "F-030",
+      "dimension": "testing",
+      "severity": "Medium",
+      "title": "关键正确性路径缺测试网，文档建议正确但未绑定 P0",
+      "file": "docs/analysis/05-quality-risks.md",
+      "line": 42,
+      "evidence": "无前端测试、无 automation 属性测试、无 git confirm 契约测试；package.json 无 test script。P0-3 仅「手工+单测」，git confirm 在 P1-4。",
+      "suggestion": "将 automation resume 矩阵、git confirm 原子 claim、soft-delete 守卫升为 P0 测试闸门。",
+      "source": "primary"
+    }
+  ]
+}
