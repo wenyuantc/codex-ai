@@ -1,0 +1,7 @@
+{"file": ".trellis/spec/backend/ai-engines.md", "reason": "AI engine module layout, shared sessions, local/SSH lifecycle for new grok engine"}
+{"file": ".trellis/spec/backend/command-guidelines.md", "reason": "Tauri command shape when registering start_grok/stop/health"}
+{"file": ".trellis/spec/backend/directory-structure.md", "reason": "Where to place src-tauri/src/grok/ relative to codex/claude/opencode"}
+{"file": ".trellis/spec/frontend/type-safety.md", "reason": "AiProvider union and normalize helpers conventions"}
+{"file": ".trellis/spec/frontend/data-access.md", "reason": "IPC wrappers in src/lib/* without invoke from components"}
+{"file": ".trellis/tasks/07-27-grok-build-ssh-support/prd.md", "reason": "Authoritative requirements and acceptance criteria"}
+{"file": ".trellis/tasks/07-27-grok-build-ssh-support/design.md", "reason": "Architecture, CLI contracts, one-shot/SSH design"}

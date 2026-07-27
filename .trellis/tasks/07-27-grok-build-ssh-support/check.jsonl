@@ -1,0 +1,6 @@
+{"file": ".trellis/spec/backend/ai-engines.md", "reason": "Verify grok engine follows shared session + local/SSH expectations"}
+{"file": ".trellis/spec/backend/testing.md", "reason": "Rust test patterns for normalize and command builders"}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "Build/smoke expectations before claiming done"}
+{"file": ".trellis/tasks/07-27-grok-build-ssh-support/prd.md", "reason": "Acceptance criteria checklist for trellis-check"}
+{"file": ".trellis/tasks/07-27-grok-build-ssh-support/design.md", "reason": "Contracts to verify capabilities, auth A, headless shape"}
+{"file": ".trellis/tasks/07-27-grok-build-ssh-support/implement.md", "reason": "Validation commands and review gates"}

@@ -44,7 +44,7 @@ src/
 | Feature-only hook | `src/components/<domain>/hooks/useX.ts` |
 | Cross-page hook | `src/hooks/useX.ts` |
 | Shared type | `src/lib/types.ts` |
-| Tauri command wrapper | `src/lib/backend.ts` |
+| Tauri command wrapper | `src/lib/backend.ts` (CRUD/shared) or engine client `src/lib/codex.ts` / `claude.ts` / `opencode.ts` / `grok.ts` |
 | Domain helper (non-UI) | `src/lib/<topic>.ts` (`projects.ts`, `taskPrompt.ts`, ...) |
 | Global cache / mutations orchestration | `src/stores/<domain>Store.ts` |
 | Settings subsection | `src/components/settings/<Name>SettingsTab.tsx` |

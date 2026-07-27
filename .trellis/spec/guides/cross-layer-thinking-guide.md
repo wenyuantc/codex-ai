@@ -47,6 +47,7 @@ If any step is “unknown”, stop and find the existing closest flow (`create_t
 | Soft delete | `deleted_at` filters on active lists | projects/tasks fetch helpers |
 | Activity action | stable snake_case key + Chinese label | `insert_activity_log`, `getActivityActionLabel` |
 | Execution target | `local` / `ssh` + artifact mode | shared constants, SSH banner |
+| AI provider | `ai_provider` union + start/stop/label/one-shot branches for **every** engine | `types.ts` `AiProvider`, engine `src/lib/*.ts`, `task_automation`, settings normalize |
 | Employee membership | only `employees.project_id` | employees commands + CLAUDE/README |
 | Schema | migration version bump | `db/migrations.rs` |
 | Permissions | frontend cannot SQL-write | `capabilities/default.json`, `database.ts` |
@@ -67,8 +68,11 @@ If yes, check the SSH path:
 - `ssh_config_id` / remote repo path validation
 - remote runtime health / password probe gates
 - artifact capture limitations (`ssh_git_status`, `ssh_none`)
+- for a new AI engine: remote spawn + one-shot + health (or explicit out-of-scope), not only local start
 
 Do not ship a local-only happy path for a domain that already has remote execution.
+
+When touching `ai_provider` branches, search the whole tree for `claude`/`opencode` ternaries and `SUPPORTED_ONE_SHOT_PROVIDERS` — “else Codex” silently breaks new providers like Grok.
 
 ---
 

@@ -14,7 +14,7 @@
 | IPC | `#[tauri::command]` functions registered in `src-tauri/src/lib.rs` |
 | Models | `src-tauri/src/db/models.rs` |
 | Migrations | Inline versioned list in `src-tauri/src/db/migrations.rs` |
-| AI engines | `codex/`, `claude/`, `opencode/` managers + process submodules |
+| AI engines | `codex/`, `claude/`, `opencode/`, `grok/` managers + process submodules |
 | Git | `git_workflow.rs` + `git_runtime.rs` |
 | Automation | `task_automation.rs` (+ prompt submodule) |
 

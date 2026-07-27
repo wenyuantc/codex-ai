@@ -31,6 +31,7 @@ src-tauri/
     ├── codex/                  # Codex engine manager/process/settings/mcp/secrets
     ├── claude/                 # Claude engine
     ├── opencode/               # OpenCode engine
+    ├── grok/                   # Grok Build CLI engine (manager/settings/process)
     ├── git_workflow.rs         # project/task git commands
     ├── git_runtime.rs
     ├── task_automation.rs      # review-fix loop orchestration
@@ -53,7 +54,7 @@ src-tauri/
 | DB maintenance / provider capabilities | `app/database.rs` |
 | Shared pure helpers / constants | `app/shared.rs` |
 | Git UX commands | `git_workflow.rs` |
-| Engine process lifecycle | `codex|claude|opencode` |
+| Engine process lifecycle | `codex|claude|opencode|grok` |
 | Auto review/fix state machine | `task_automation.rs` |
 | Sticky/transient notifications | `notifications.rs` |
 
@@ -69,7 +70,7 @@ src-tauri/
 ## State Managed At Startup (`lib.rs`)
 
 - SQL plugin with migrations for `sqlite:codex-ai.db`
-- `CodexManager`, `ClaudeManager`, `OpenCodeManager` in Tauri state
+- `CodexManager`, `ClaudeManager`, `OpenCodeManager`, `GrokManager` in Tauri state
 - Tray + window size restore
 - Resume pending task automation
 - Optional OpenCode SDK server spawn on startup
