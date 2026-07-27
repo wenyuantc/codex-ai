@@ -15,7 +15,12 @@ export async function select<T>(query: string, params?: unknown[]): Promise<T[]>
   return db.select(query, params) as Promise<T[]>;
 }
 
-export async function execute(query: string, params?: unknown[]): Promise<void> {
-  const db = await getDb();
-  await db.execute(query, params);
+/**
+ * @deprecated Frontend writes are blocked by capabilities (no sql:allow-execute).
+ * Use Tauri commands (e.g. logActivity) for all mutations.
+ */
+export async function execute(_query: string, _params?: unknown[]): Promise<void> {
+  throw new Error(
+    "前端禁止直接执行写 SQL。请改用后端 Tauri command（例如 logActivity）。",
+  );
 }

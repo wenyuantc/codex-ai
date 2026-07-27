@@ -188,7 +188,10 @@ export function CreateTaskDialog({
     const selected = await openFileDialog({
       directory: false,
       multiple: true,
-      title: "选择任务附件",
+      title: "选择任务附件（图片/文档/日志）",
+      filters: [
+        { name: "Attachments", extensions: ["png", "jpg", "jpeg", "gif", "webp", "bmp", "svg", "pdf", "md", "txt", "log", "json", "csv", "doc", "docx", "zip"] },
+      ],
     });
 
     const nextPaths = dedupePaths([

@@ -4,6 +4,7 @@ import { useProjectStore } from "@/stores/projectStore";
 import { useTaskStore } from "@/stores/taskStore";
 import { useEmployeeStore } from "@/stores/employeeStore";
 import {
+  checkProjectRepoHealth,
   deleteTaskGitContextRecord,
   getProjectGitCommitDetail,
   getProjectGitCommitFilePreview,
@@ -17,6 +18,7 @@ import {
   stageProjectGitFile,
   unstageAllProjectGitFiles,
   unstageProjectGitFile,
+  type ProjectRepoHealth,
 } from "@/lib/backend";
 import {
   countStagedGitFiles,
@@ -138,6 +140,9 @@ export function ProjectDetailPage() {
   const [showEdit, setShowEdit] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [repoHealth, setRepoHealth] = useState<ProjectRepoHealth | null>(null);
+  const [repoHealthLoading, setRepoHealthLoading] = useState(false);
+  const [repoHealthError, setRepoHealthError] = useState<string | null>(null);
   const [gitOverview, setGitOverview] = useState<ProjectGitOverview | null>(null);
   const [gitOverviewLoading, setGitOverviewLoading] = useState(false);
   const [gitOverviewError, setGitOverviewError] = useState<string | null>(null);
@@ -205,6 +210,40 @@ export function ProjectDetailPage() {
 
     setProjectEmployees(employees.filter((employee) => employee.project_id === id));
   }, [employees, id]);
+
+  useEffect(() => {
+    if (!project) {
+      setRepoHealth(null);
+      setRepoHealthError(null);
+      setRepoHealthLoading(false);
+      return;
+    }
+
+    let active = true;
+    setRepoHealthLoading(true);
+    setRepoHealthError(null);
+    void checkProjectRepoHealth(project.id)
+      .then((health) => {
+        if (active) {
+          setRepoHealth(health);
+        }
+      })
+      .catch((error) => {
+        if (active) {
+          setRepoHealth(null);
+          setRepoHealthError(error instanceof Error ? error.message : String(error));
+        }
+      })
+      .finally(() => {
+        if (active) {
+          setRepoHealthLoading(false);
+        }
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [project]);
 
   useEffect(() => {
     if (!project) {
@@ -718,13 +757,60 @@ export function ProjectDetailPage() {
         </Card>
       )}
 
-      <Card className="p-4">
-        <h3 className="mb-3 text-sm font-semibold">仓库信息</h3>
+      <Card className="p-4 space-y-3">
+        <div className="flex items-center justify-between gap-2">
+          <h3 className="text-sm font-semibold">仓库信息 / 接入预检</h3>
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={repoHealthLoading || !project}
+            onClick={() => {
+              if (!project) return;
+              setRepoHealthLoading(true);
+              setRepoHealthError(null);
+              void checkProjectRepoHealth(project.id)
+                .then(setRepoHealth)
+                .catch((error) => {
+                  setRepoHealth(null);
+                  setRepoHealthError(error instanceof Error ? error.message : String(error));
+                })
+                .finally(() => setRepoHealthLoading(false));
+            }}
+          >
+            {repoHealthLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+            重新预检
+          </Button>
+        </div>
         <RepoPathDisplay
           repoPath={getProjectWorkingDir(project)}
           projectType={project.project_type}
           showCopyAction
         />
+        {repoHealthError && <p className="text-xs text-destructive">{repoHealthError}</p>}
+        {repoHealth && (
+          <div
+            className={`rounded-md border px-3 py-2 text-xs ${
+              repoHealth.accessible
+                ? "border-green-500/30 bg-green-500/10 text-green-900 dark:text-green-100"
+                : "border-amber-500/30 bg-amber-500/10 text-amber-950 dark:text-amber-100"
+            }`}
+          >
+            <p className="font-medium">{repoHealth.message}</p>
+            <ul className="mt-2 space-y-1">
+              {repoHealth.checks.map((check) => (
+                <li key={check.key} className="flex items-start gap-2">
+                  <span className={check.passed ? "text-green-700 dark:text-green-300" : "text-amber-800 dark:text-amber-200"}>
+                    {check.passed ? "✓" : "!"}
+                  </span>
+                  <span>
+                    <span className="font-medium">{check.label}：</span>
+                    {check.detail}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
       </Card>
 
       <Card className="p-4 space-y-4">

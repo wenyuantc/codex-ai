@@ -71,6 +71,8 @@ interface TaskCardProps {
   isOverlay?: boolean;
   hideRunAction?: boolean;
   highlighted?: boolean;
+  selected?: boolean;
+  onToggleSelected?: (taskId: string) => void;
   gitContext?: TaskGitContext | null;
   projectBranches?: string[];
   onOpenLog?: (taskId: string, sessionKind?: CodexSessionKind) => void;
@@ -126,6 +128,8 @@ export function TaskCard({
   isOverlay,
   hideRunAction = false,
   highlighted = false,
+  selected = false,
+  onToggleSelected,
   gitContext = null,
   projectBranches = [],
   onOpenLog,
@@ -751,7 +755,25 @@ export function TaskCard({
             <GripVertical className="h-4 w-4" />
           </button>
           <div className="flex-1 min-w-0">
-            <p className="text-sm font-medium truncate">{task.title}</p>
+            <div className="flex items-start gap-2">
+              <p className="min-w-0 flex-1 text-sm font-medium truncate">{task.title}</p>
+              {onToggleSelected && (
+                <label
+                  className="mt-0.5 shrink-0 cursor-pointer rounded p-0.5 hover:bg-muted"
+                  title={selected ? "取消选择" : "选择任务"}
+                  onClick={(e) => e.stopPropagation()}
+                  onPointerDown={(e) => e.stopPropagation()}
+                >
+                  <input
+                    type="checkbox"
+                    className="h-3.5 w-3.5 accent-primary"
+                    checked={selected}
+                    onChange={() => onToggleSelected(task.id)}
+                    aria-label={`选择任务 ${task.title}`}
+                  />
+                </label>
+              )}
+            </div>
             {task.description && (
               <p className="text-xs text-muted-foreground mt-1 line-clamp-2">
                 {task.description}

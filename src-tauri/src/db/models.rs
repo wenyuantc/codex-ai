@@ -818,6 +818,142 @@ pub struct AddTaskDependencyPayload {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LogActivityPayload {
+    pub action: String,
+    pub details: String,
+    #[serde(default)]
+    pub employee_id: Option<String>,
+    #[serde(default)]
+    pub task_id: Option<String>,
+    #[serde(default)]
+    pub project_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BatchUpdateTasksPayload {
+    pub task_ids: Vec<String>,
+    #[serde(default)]
+    pub status: Option<String>,
+    #[serde(default)]
+    pub assignee_id: Option<String>,
+    #[serde(default)]
+    pub clear_assignee: Option<bool>,
+    #[serde(default)]
+    pub priority: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProjectRepoHealth {
+    pub project_id: String,
+    pub project_type: String,
+    pub path: Option<String>,
+    pub path_exists: bool,
+    pub is_directory: bool,
+    pub is_git_repo: bool,
+    pub current_branch: Option<String>,
+    pub is_dirty: Option<bool>,
+    pub accessible: bool,
+    pub message: String,
+    pub checks: Vec<ProjectRepoHealthCheck>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProjectRepoHealthCheck {
+    pub key: String,
+    pub label: String,
+    pub passed: bool,
+    pub detail: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DatabaseBackupScope {
+    pub includes: Vec<String>,
+    pub excludes: Vec<String>,
+    pub note: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AiProviderCapabilities {
+    pub provider: String,
+    pub label: String,
+    pub start: bool,
+    pub stop: bool,
+    pub restart: bool,
+    pub send_input: bool,
+    pub resume: bool,
+    pub notes: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct McpServerConfig {
+    pub id: String,
+    pub name: String,
+    pub command: String,
+    pub args: Vec<String>,
+    #[serde(default)]
+    pub env: Vec<McpEnvVar>,
+    pub enabled: bool,
+    #[serde(default)]
+    pub notes: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct McpEnvVar {
+    pub key: String,
+    pub value: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct McpServersDocument {
+    pub servers: Vec<McpServerConfig>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UpdateMcpServersPayload {
+    pub servers: Vec<McpServerConfig>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DashboardReportSummary {
+    pub total_tasks: i64,
+    pub completed_tasks: i64,
+    pub overdue_tasks: i64,
+    pub blocked_tasks: i64,
+    pub in_progress_tasks: i64,
+    pub completion_rate: f64,
+    pub weekly_completed: Vec<DashboardTrendPoint>,
+    pub employee_workload: Vec<DashboardWorkloadItem>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DashboardTrendPoint {
+    pub label: String,
+    pub count: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DashboardWorkloadItem {
+    pub employee_id: String,
+    pub employee_name: String,
+    pub active_tasks: i64,
+    pub completed_tasks: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExportTasksCsvPayload {
+    #[serde(default)]
+    pub project_id: Option<String>,
+    #[serde(default)]
+    pub environment_mode: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExportTasksCsvResult {
+    pub csv: String,
+    pub row_count: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SetTaskAutomationModePayload {
     pub task_id: String,
     #[serde(default, deserialize_with = "deserialize_explicit_nullable")]

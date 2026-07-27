@@ -2,10 +2,47 @@ import { isTauri } from "@tauri-apps/api/core";
 
 export const IMAGE_FILE_EXTENSIONS = ["png", "jpg", "jpeg", "gif", "webp", "bmp", "svg"];
 
+export const DOCUMENT_FILE_EXTENSIONS = [
+  "pdf",
+  "md",
+  "txt",
+  "log",
+  "json",
+  "csv",
+  "doc",
+  "docx",
+  "xls",
+  "xlsx",
+  "ppt",
+  "pptx",
+  "zip",
+];
+
+export const ATTACHMENT_FILE_EXTENSIONS = [
+  ...IMAGE_FILE_EXTENSIONS,
+  ...DOCUMENT_FILE_EXTENSIONS,
+];
+
 export const IMAGE_FILE_FILTERS = [
   {
     name: "Images",
     extensions: IMAGE_FILE_EXTENSIONS,
+  },
+];
+
+/** 任务附件：图片 + 常见文档/日志（非图片会作为元数据上下文，不一定作为视觉输入）。 */
+export const ATTACHMENT_FILE_FILTERS = [
+  {
+    name: "Attachments",
+    extensions: ATTACHMENT_FILE_EXTENSIONS,
+  },
+  {
+    name: "Images",
+    extensions: IMAGE_FILE_EXTENSIONS,
+  },
+  {
+    name: "Documents",
+    extensions: DOCUMENT_FILE_EXTENSIONS,
   },
 ];
 

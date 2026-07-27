@@ -1,6 +1,6 @@
 import { create } from "zustand";
 
-import { execute, select } from "@/lib/database";
+import { select } from "@/lib/database";
 import {
   createProject as createProjectCommand,
   createSshConfig as createSshConfigCommand,
@@ -10,6 +10,7 @@ import {
   listTrashedProjects as listTrashedProjectsCommand,
   deleteSshConfig as deleteSshConfigCommand,
   listSshConfigs as listSshConfigsCommand,
+  logActivity as logActivityCommand,
   runSshPasswordProbe as runSshPasswordProbeCommand,
   updateProject as updateProjectCommand,
   updateSshConfig as updateSshConfigCommand,
@@ -67,14 +68,10 @@ function persistSshConfigId(sshConfigId: string | null) {
 
 async function recordEnvironmentModeSwitch(environmentMode: EnvironmentMode) {
   try {
-    await execute(
-      "INSERT INTO activity_logs (id, employee_id, action, details, task_id, project_id, created_at) VALUES (?1, NULL, ?2, ?3, NULL, NULL, datetime('now'))",
-      [
-        globalThis.crypto?.randomUUID?.() ?? `env-${Date.now()}`,
-        "environment_mode_switched",
-        environmentMode === "ssh" ? "切换到 SSH 模式" : "切换到本地模式",
-      ],
-    );
+    await logActivityCommand({
+      action: "environment_mode_switched",
+      details: environmentMode === "ssh" ? "切换到 SSH 模式" : "切换到本地模式",
+    });
   } catch (error) {
     console.error("Failed to record environment mode switch:", error);
   }
@@ -82,14 +79,10 @@ async function recordEnvironmentModeSwitch(environmentMode: EnvironmentMode) {
 
 async function recordSshHostSelection(sshConfig: SshConfig) {
   try {
-    await execute(
-      "INSERT INTO activity_logs (id, employee_id, action, details, task_id, project_id, created_at) VALUES (?1, NULL, ?2, ?3, NULL, NULL, datetime('now'))",
-      [
-        globalThis.crypto?.randomUUID?.() ?? `ssh-host-${Date.now()}`,
-        "ssh_host_selected",
-        `切换 SSH 主机到 ${sshConfig.name} (${sshConfig.username}@${sshConfig.host}:${sshConfig.port})`,
-      ],
-    );
+    await logActivityCommand({
+      action: "ssh_host_selected",
+      details: `切换 SSH 主机到 ${sshConfig.name} (${sshConfig.username}@${sshConfig.host}:${sshConfig.port})`,
+    });
   } catch (error) {
     console.error("Failed to record SSH host selection:", error);
   }
@@ -131,7 +124,7 @@ interface ProjectStore {
   setCurrentProject: (project: Project | null) => void;
   setEnvironmentMode: (environmentMode: EnvironmentMode) => Promise<{ redirectToSettings: boolean }>;
   setSelectedSshConfigId: (sshConfigId: string | null) => void;
-  createProject: (data: CreateProjectInput) => Promise<void>;
+  createProject: (data: CreateProjectInput) => Promise<Project>;
   updateProject: (id: string, updates: UpdateProjectInput) => Promise<void>;
   deleteProject: (id: string) => Promise<void>;
   permanentlyDeleteProject: (id: string) => Promise<void>;
@@ -331,7 +324,7 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
   },
 
   createProject: async (data) => {
-    await createProjectCommand({
+    const project = await createProjectCommand({
       ...data,
       description: data.description ?? null,
       project_type: data.project_type ?? "local",
@@ -340,6 +333,7 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
       remote_repo_path: data.project_type === "ssh" ? data.remote_repo_path ?? null : null,
     });
     await get().fetchProjects();
+    return project;
   },
 
   updateProject: async (id, updates) => {

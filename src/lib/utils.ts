@@ -235,6 +235,9 @@ export function getActivityActionLabel(action: string): string {
     remote_session_artifact_limited: "远程会话变更明细受限",
     remote_artifact_capture_limited: "远程会话变更明细受限",
     global_search_navigated: "使用全局搜索跳转",
+    tasks_batch_updated: "批量更新任务",
+    mcp_servers_updated: "更新 MCP 配置",
+    mcp_servers_reset: "重置 MCP 配置",
     notification_created: "创建通知提醒",
     notification_resolved: "通知已恢复",
   };

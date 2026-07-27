@@ -27,3 +27,8 @@ dist-ssr
 output
 .playwright-mcp
 .openclaude
+.claude
+.cursor
+.agents
+.codex
+.opencode

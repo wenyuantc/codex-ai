@@ -36,6 +36,12 @@ interface KanbanBoardProps {
   targetTaskId?: string | null;
   onClearTargetTask?: () => void;
   overdueOnly?: boolean;
+  blockedOnly?: boolean;
+  milestoneId?: string | null;
+  tagId?: string | null;
+  keyword?: string;
+  selectedTaskIds?: string[];
+  onToggleTaskSelection?: (taskId: string) => void;
 }
 
 export function KanbanBoard({
@@ -43,6 +49,12 @@ export function KanbanBoard({
   targetTaskId,
   onClearTargetTask,
   overdueOnly = false,
+  blockedOnly = false,
+  milestoneId = null,
+  tagId: _tagId = null,
+  keyword = "",
+  selectedTaskIds = [],
+  onToggleTaskSelection,
 }: KanbanBoardProps) {
   const { tasks, moveTask, updateTask, updateTaskStatus, fetchTasks } = useTaskStore();
   const employees = useEmployeeStore((s) => s.employees);
@@ -59,10 +71,21 @@ export function KanbanBoard({
   const targetTask = targetTaskId ? tasks.find((task) => task.id === targetTaskId) ?? null : null;
   const activeTasks = useMemo(
     () => {
-      const visible = tasks.filter((task) => task.status !== "archived");
-      return overdueOnly ? visible.filter((task) => isTaskOverdue(task)) : visible;
+      const normalized = keyword.trim().toLowerCase();
+      return tasks
+        .filter((task) => task.status !== "archived")
+        .filter((task) => (overdueOnly ? isTaskOverdue(task) : true))
+        .filter((task) => (blockedOnly ? task.status === "blocked" : true))
+        .filter((task) => (milestoneId ? task.milestone_id === milestoneId : true))
+        .filter((task) =>
+          !normalized
+            ? true
+            : task.title.toLowerCase().includes(normalized)
+              || (task.description ?? "").toLowerCase().includes(normalized),
+        );
+      // tagId 需要 task_tags 异步映射；当前先保留入口，后续可在卡片徽章层过滤
     },
-    [tasks, overdueOnly],
+    [tasks, overdueOnly, blockedOnly, milestoneId, keyword],
   );
   const projectMap = useMemo(
     () => new Map(projects.map((project) => [project.id, project])),
@@ -464,6 +487,8 @@ export function KanbanBoard({
               color={status.color}
               tasks={getTasksByStatus(status.value)}
               highlightedTaskId={targetTaskId}
+              selectedTaskIds={selectedTaskIds}
+              onToggleTaskSelection={onToggleTaskSelection}
               taskGitContextMap={taskGitContextMap}
               projectGitBranchMap={projectGitBranchMap}
               onOpenLog={(taskId, sessionKind) => setLogRequest({ taskId, sessionKind })}

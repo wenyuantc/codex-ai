@@ -777,6 +777,207 @@ pub async fn health_check<R: Runtime>(app: AppHandle<R>) -> Result<CodexHealthCh
 }
 
 #[tauri::command]
+pub fn get_database_backup_scope() -> crate::db::models::DatabaseBackupScope {
+    crate::db::models::DatabaseBackupScope {
+        includes: vec![
+            "SQLite 全库数据（项目/任务/员工/会话/活动日志/交付字段等）".to_string(),
+            "已应用的数据库迁移版本记录".to_string(),
+        ],
+        excludes: vec![
+            "任务附件文件目录（图片/文档本体）".to_string(),
+            "密钥环中的 SSH 密码/私钥口令等敏感密钥".to_string(),
+            "应用配置目录中的 AI Prompt 模板 JSON".to_string(),
+            "应用配置目录中的 MCP 服务器 JSON".to_string(),
+            "窗口尺寸等本地 UI 状态".to_string(),
+        ],
+        note: "当前「导出 SQL」仅覆盖数据库本体，不等于完整灾备。若需完整恢复，请额外备份配置目录与附件目录。".to_string(),
+    }
+}
+
+#[tauri::command]
+pub fn get_ai_provider_capabilities() -> Vec<crate::db::models::AiProviderCapabilities> {
+    vec![
+        crate::db::models::AiProviderCapabilities {
+            provider: "codex".to_string(),
+            label: "Codex".to_string(),
+            start: true,
+            stop: true,
+            restart: true,
+            send_input: true,
+            resume: true,
+            notes: "完整支持启动/停止/重启/发送输入/续聊。".to_string(),
+        },
+        crate::db::models::AiProviderCapabilities {
+            provider: "claude".to_string(),
+            label: "Claude".to_string(),
+            start: true,
+            stop: true,
+            restart: false,
+            send_input: false,
+            resume: true,
+            notes: "支持启动/停止/续聊；不支持独立 restart 与会话中 send_input。".to_string(),
+        },
+        crate::db::models::AiProviderCapabilities {
+            provider: "opencode".to_string(),
+            label: "OpenCode".to_string(),
+            start: true,
+            stop: true,
+            restart: false,
+            send_input: false,
+            resume: true,
+            notes: "支持启动/停止/续聊；不支持独立 restart 与会话中 send_input。".to_string(),
+        },
+    ]
+}
+
+async fn count_tasks_with_scope(
+    pool: &SqlitePool,
+    project_id: Option<&str>,
+    environment_mode: Option<&str>,
+    extra_predicate: &str,
+) -> Result<i64, String> {
+    let mut builder = QueryBuilder::<Sqlite>::new(
+        "SELECT COUNT(*) FROM tasks t INNER JOIN projects p ON p.id = t.project_id WHERE t.deleted_at IS NULL AND p.deleted_at IS NULL",
+    );
+    if let Some(pid) = project_id.map(str::trim).filter(|v| !v.is_empty()) {
+        builder.push(" AND t.project_id = ");
+        builder.push_bind(pid);
+    }
+    match environment_mode {
+        Some("ssh") => {
+            builder.push(" AND p.project_type = ");
+            builder.push_bind("ssh");
+        }
+        Some("local") => {
+            builder.push(" AND p.project_type = ");
+            builder.push_bind("local");
+        }
+        _ => {}
+    }
+    if !extra_predicate.is_empty() {
+        builder.push(" ");
+        builder.push(extra_predicate);
+    }
+    builder
+        .build_query_scalar::<i64>()
+        .fetch_one(pool)
+        .await
+        .map_err(|e| format!("统计任务失败: {e}"))
+}
+
+#[tauri::command]
+pub async fn get_dashboard_report_summary<R: Runtime>(
+    app: AppHandle<R>,
+    project_id: Option<String>,
+    environment_mode: Option<String>,
+) -> Result<crate::db::models::DashboardReportSummary, String> {
+    use crate::db::models::{
+        DashboardReportSummary, DashboardTrendPoint, DashboardWorkloadItem,
+    };
+
+    let pool = sqlite_pool(&app).await?;
+    let project_id = project_id.as_deref();
+    let environment_mode = environment_mode.as_deref();
+
+    let total_tasks =
+        count_tasks_with_scope(&pool, project_id, environment_mode, "").await?;
+    let completed_tasks = count_tasks_with_scope(
+        &pool,
+        project_id,
+        environment_mode,
+        "AND t.status = 'completed'",
+    )
+    .await?;
+    let blocked_tasks = count_tasks_with_scope(
+        &pool,
+        project_id,
+        environment_mode,
+        "AND t.status = 'blocked'",
+    )
+    .await?;
+    let in_progress_tasks = count_tasks_with_scope(
+        &pool,
+        project_id,
+        environment_mode,
+        "AND t.status = 'in_progress'",
+    )
+    .await?;
+    let overdue_tasks = count_tasks_with_scope(
+        &pool,
+        project_id,
+        environment_mode,
+        "AND t.due_date IS NOT NULL AND t.due_date < date('now') AND t.status NOT IN ('completed', 'archived')",
+    )
+    .await?;
+
+    let completion_rate = if total_tasks > 0 {
+        (completed_tasks as f64 / total_tasks as f64) * 100.0
+    } else {
+        0.0
+    };
+
+    let mut weekly_completed = Vec::new();
+    for days_ago in (0..7).rev() {
+        let label: String = sqlx::query_scalar(&format!("SELECT date('now', '-{days_ago} day')"))
+            .fetch_one(&pool)
+            .await
+            .unwrap_or_else(|_| format!("d-{days_ago}"));
+        let count = count_tasks_with_scope(
+            &pool,
+            project_id,
+            environment_mode,
+            &format!(
+                "AND t.completed_at IS NOT NULL AND date(t.completed_at) = date('now', '-{days_ago} day')"
+            ),
+        )
+        .await
+        .unwrap_or(0);
+        weekly_completed.push(DashboardTrendPoint {
+            label: label.chars().skip(5).collect::<String>(),
+            count,
+        });
+    }
+
+    let workload_rows = sqlx::query_as::<_, (String, String, i64, i64)>(
+        r#"
+        SELECT e.id, e.name,
+          COALESCE(SUM(CASE WHEN t.status IN ('todo','in_progress','review','blocked') THEN 1 ELSE 0 END), 0) AS active_tasks,
+          COALESCE(SUM(CASE WHEN t.status = 'completed' THEN 1 ELSE 0 END), 0) AS completed_tasks
+        FROM employees e
+        LEFT JOIN tasks t ON t.assignee_id = e.id AND t.deleted_at IS NULL
+        LEFT JOIN projects p ON p.id = t.project_id AND p.deleted_at IS NULL
+        GROUP BY e.id, e.name
+        ORDER BY active_tasks DESC, completed_tasks DESC
+        LIMIT 12
+        "#,
+    )
+    .fetch_all(&pool)
+    .await
+    .map_err(|e| format!("统计员工负载失败: {e}"))?;
+
+    let employee_workload = workload_rows
+        .into_iter()
+        .map(|(employee_id, employee_name, active_tasks, completed_tasks)| DashboardWorkloadItem {
+            employee_id,
+            employee_name,
+            active_tasks,
+            completed_tasks,
+        })
+        .collect();
+
+    Ok(DashboardReportSummary {
+        total_tasks,
+        completed_tasks,
+        overdue_tasks,
+        blocked_tasks,
+        in_progress_tasks,
+        completion_rate,
+        weekly_completed,
+        employee_workload,
+    })
+}
+
+#[tauri::command]
 pub async fn backup_database<R: Runtime>(
     app: AppHandle<R>,
     destination_path: String,

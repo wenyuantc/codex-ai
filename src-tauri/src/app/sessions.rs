@@ -24,6 +24,38 @@ pub(crate) async fn insert_activity_log(
     Ok(())
 }
 
+#[tauri::command]
+pub async fn log_activity<R: Runtime>(
+    app: AppHandle<R>,
+    payload: crate::db::models::LogActivityPayload,
+) -> Result<(), String> {
+    let action = payload.action.trim();
+    let details = payload.details.trim();
+    if action.is_empty() {
+        return Err("活动 action 不能为空".to_string());
+    }
+    if details.is_empty() {
+        return Err("活动 details 不能为空".to_string());
+    }
+    if action.len() > 128 {
+        return Err("活动 action 过长".to_string());
+    }
+    if details.len() > 4_000 {
+        return Err("活动 details 过长".to_string());
+    }
+
+    let pool = sqlite_pool(&app).await?;
+    insert_activity_log(
+        &pool,
+        action,
+        details,
+        payload.employee_id.as_deref().map(str::trim).filter(|v| !v.is_empty()),
+        payload.task_id.as_deref().map(str::trim).filter(|v| !v.is_empty()),
+        payload.project_id.as_deref().map(str::trim).filter(|v| !v.is_empty()),
+    )
+    .await
+}
+
 pub(crate) async fn insert_codex_session_event_with_id(
     pool: &SqlitePool,
     session_id: &str,

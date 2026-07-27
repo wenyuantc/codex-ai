@@ -377,6 +377,64 @@ pub async fn list_task_dependencies<R: Runtime>(
     .map_err(|error| format!("Failed to list task dependencies: {}", error))
 }
 
+/// Returns true if adding edge `task_id -> depends_on_task_id` would create a cycle.
+/// Edge meaning: task depends on depends_on (task waits for depends_on).
+pub(crate) fn dependency_would_cycle(
+    edges: &[(String, String)],
+    task_id: &str,
+    depends_on_task_id: &str,
+) -> bool {
+    if task_id == depends_on_task_id {
+        return true;
+    }
+
+    // From depends_on, follow "depends_on" edges. If we reach task_id, cycle.
+    let mut adjacency: HashMap<String, Vec<String>> = HashMap::new();
+    for (from, to) in edges {
+        adjacency.entry(from.clone()).or_default().push(to.clone());
+    }
+    adjacency
+        .entry(task_id.to_string())
+        .or_default()
+        .push(depends_on_task_id.to_string());
+
+    let mut stack = vec![depends_on_task_id.to_string()];
+    let mut visited = HashSet::new();
+    while let Some(current) = stack.pop() {
+        if current == task_id {
+            return true;
+        }
+        if !visited.insert(current.clone()) {
+            continue;
+        }
+        if let Some(nexts) = adjacency.get(&current) {
+            for next in nexts {
+                stack.push(next.clone());
+            }
+        }
+    }
+    false
+}
+
+async fn project_dependency_edges(
+    pool: &SqlitePool,
+    project_id: &str,
+) -> Result<Vec<(String, String)>, String> {
+    sqlx::query_as::<_, (String, String)>(
+        r#"
+        SELECT d.task_id, d.depends_on_task_id
+        FROM task_dependencies d
+        INNER JOIN tasks t ON t.id = d.task_id
+        WHERE t.project_id = $1
+          AND t.deleted_at IS NULL
+        "#,
+    )
+    .bind(project_id)
+    .fetch_all(pool)
+    .await
+    .map_err(|error| format!("Failed to load task dependencies: {}", error))
+}
+
 #[tauri::command]
 pub async fn add_task_dependency<R: Runtime>(
     app: AppHandle<R>,
@@ -391,6 +449,11 @@ pub async fn add_task_dependency<R: Runtime>(
     }
     if task.project_id != depends_on.project_id {
         return Err("依赖任务必须属于同一项目".to_string());
+    }
+
+    let edges = project_dependency_edges(&pool, &task.project_id).await?;
+    if dependency_would_cycle(&edges, &task.id, &depends_on.id) {
+        return Err("添加该依赖会形成循环依赖，请调整依赖关系".to_string());
     }
 
     let id = new_id();
@@ -455,4 +518,39 @@ pub async fn remove_task_dependency<R: Runtime>(
     .await?;
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::dependency_would_cycle;
+
+    #[test]
+    fn dependency_cycle_detects_direct_loop() {
+        let edges = vec![("b".to_string(), "a".to_string())];
+        assert!(dependency_would_cycle(&edges, "a", "b"));
+    }
+
+    #[test]
+    fn dependency_cycle_detects_transitive_loop() {
+        let edges = vec![
+            ("b".to_string(), "c".to_string()),
+            ("c".to_string(), "a".to_string()),
+        ];
+        assert!(dependency_would_cycle(&edges, "a", "b"));
+    }
+
+    #[test]
+    fn dependency_cycle_allows_dag() {
+        let edges = vec![
+            ("a".to_string(), "b".to_string()),
+            ("b".to_string(), "c".to_string()),
+        ];
+        assert!(!dependency_would_cycle(&edges, "d", "a"));
+        assert!(!dependency_would_cycle(&edges, "a", "x"));
+    }
+
+    #[test]
+    fn dependency_cycle_rejects_self() {
+        assert!(dependency_would_cycle(&[], "a", "a"));
+    }
 }

@@ -167,6 +167,11 @@ export function SessionsPage() {
   const [sessionIdQuery, setSessionIdQuery] = useState("");
   const [taskIdQuery, setTaskIdQuery] = useState("");
   const [contentQuery, setContentQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [kindFilter, setKindFilter] = useState<string>("all");
+  const [providerFilter, setProviderFilter] = useState<string>("all");
+  const [employeeFilter, setEmployeeFilter] = useState<string>("all");
+  const [failedOnly, setFailedOnly] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [infoMessage, setInfoMessage] = useState<string | null>(null);
   const highlightedSessionId = searchParams.get("sessionId");
@@ -200,6 +205,26 @@ export function SessionsPage() {
       }
 
       if (environmentMode === "ssh" && selectedSshConfigId && session.ssh_config_id !== selectedSshConfigId) {
+        return false;
+      }
+
+      if (statusFilter !== "all" && session.status !== statusFilter) {
+        return false;
+      }
+
+      if (kindFilter !== "all" && session.session_kind !== kindFilter) {
+        return false;
+      }
+
+      if (providerFilter !== "all" && normalizeAiProvider(session.ai_provider) !== providerFilter) {
+        return false;
+      }
+
+      if (employeeFilter !== "all" && session.employee_id !== employeeFilter) {
+        return false;
+      }
+
+      if (failedOnly && session.status !== "failed") {
         return false;
       }
 
@@ -237,7 +262,20 @@ export function SessionsPage() {
 
       return contentHaystack.includes(normalizedContentQuery);
     });
-  }, [contentQuery, currentProjectId, environmentMode, selectedSshConfigId, sessionIdQuery, sessions, taskIdQuery]);
+  }, [
+    contentQuery,
+    currentProjectId,
+    employeeFilter,
+    environmentMode,
+    failedOnly,
+    kindFilter,
+    providerFilter,
+    selectedSshConfigId,
+    sessionIdQuery,
+    sessions,
+    statusFilter,
+    taskIdQuery,
+  ]);
 
   const totalPages = filteredSessions.length > 0 ? Math.ceil(filteredSessions.length / PAGE_SIZE) : 0;
   const pageSessions = useMemo(
@@ -552,6 +590,76 @@ export function SessionsPage() {
                   onChange={(event) => setContentQuery(event.target.value)}
                   placeholder="搜索对话名称、摘要、最近事件内容、任务、项目、员工"
                 />
+              </div>
+            </div>
+
+            <div className="grid gap-3 md:grid-cols-5">
+              <div className="space-y-2">
+                <label className="text-sm font-medium">状态</label>
+                <select
+                  className="h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
+                  value={statusFilter}
+                  onChange={(e) => setStatusFilter(e.target.value)}
+                >
+                  <option value="all">全部状态</option>
+                  <option value="pending">待启动</option>
+                  <option value="running">运行中</option>
+                  <option value="stopping">停止中</option>
+                  <option value="exited">已结束</option>
+                  <option value="failed">失败</option>
+                </select>
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm font-medium">类型</label>
+                <select
+                  className="h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
+                  value={kindFilter}
+                  onChange={(e) => setKindFilter(e.target.value)}
+                >
+                  <option value="all">全部类型</option>
+                  <option value="execution">执行</option>
+                  <option value="review">审核</option>
+                </select>
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm font-medium">引擎</label>
+                <select
+                  className="h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
+                  value={providerFilter}
+                  onChange={(e) => setProviderFilter(e.target.value)}
+                >
+                  <option value="all">全部引擎</option>
+                  {AI_PROVIDER_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm font-medium">员工</label>
+                <select
+                  className="h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
+                  value={employeeFilter}
+                  onChange={(e) => setEmployeeFilter(e.target.value)}
+                >
+                  <option value="all">全部员工</option>
+                  {employees.map((employee) => (
+                    <option key={employee.id} value={employee.id}>
+                      {employee.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="flex items-end pb-1">
+                <label className="flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={failedOnly}
+                    onChange={(e) => setFailedOnly(e.target.checked)}
+                  />
+                  仅失败诊断
+                </label>
               </div>
             </div>
 

@@ -11,8 +11,7 @@ import {
   UserRound,
 } from "lucide-react";
 
-import { searchGlobal } from "@/lib/backend";
-import { execute } from "@/lib/database";
+import { logActivity, searchGlobal } from "@/lib/backend";
 import type { GlobalSearchItem, GlobalSearchItemType, GlobalSearchResponse } from "@/lib/types";
 import { useProjectStore } from "@/stores/projectStore";
 import { Button } from "@/components/ui/button";
@@ -44,16 +43,12 @@ function buildNavigationLogDetails(item: GlobalSearchItem) {
 
 async function recordGlobalSearchNavigation(item: GlobalSearchItem) {
   try {
-    await execute(
-      "INSERT INTO activity_logs (id, employee_id, action, details, task_id, project_id, created_at) VALUES (?1, NULL, ?2, ?3, ?4, ?5, datetime('now'))",
-      [
-        globalThis.crypto?.randomUUID?.() ?? `search-${Date.now()}`,
-        "global_search_navigated",
-        buildNavigationLogDetails(item),
-        item.task_id,
-        item.project_id,
-      ],
-    );
+    await logActivity({
+      action: "global_search_navigated",
+      details: buildNavigationLogDetails(item),
+      task_id: item.task_id,
+      project_id: item.project_id,
+    });
   } catch (error) {
     console.error("Failed to record global search navigation:", error);
   }

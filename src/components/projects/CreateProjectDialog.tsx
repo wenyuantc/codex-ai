@@ -18,6 +18,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { createMilestone, createTag } from "@/lib/backend";
 
 interface CreateProjectDialogProps {
   open: boolean;
@@ -32,6 +33,7 @@ export function CreateProjectDialog({ open, onOpenChange }: CreateProjectDialogP
   const [repoPath, setRepoPath] = useState("");
   const [sshConfigId, setSshConfigId] = useState("");
   const [remoteRepoPath, setRemoteRepoPath] = useState("");
+  const [applyScaffold, setApplyScaffold] = useState(true);
   const [saving, setSaving] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
@@ -42,6 +44,7 @@ export function CreateProjectDialog({ open, onOpenChange }: CreateProjectDialogP
     setRepoPath("");
     setSshConfigId("");
     setRemoteRepoPath("");
+    setApplyScaffold(true);
     setErrorMessage(null);
   };
 
@@ -66,7 +69,7 @@ export function CreateProjectDialog({ open, onOpenChange }: CreateProjectDialogP
     setSaving(true);
     setErrorMessage(null);
     try {
-      await createProject({
+      const project = await createProject({
         name: name.trim(),
         description: description.trim() || undefined,
         project_type: projectType,
@@ -74,6 +77,20 @@ export function CreateProjectDialog({ open, onOpenChange }: CreateProjectDialogP
         ssh_config_id: projectType === "ssh" ? sshConfigId : null,
         remote_repo_path: projectType === "ssh" ? remoteRepoPath.trim() || undefined : null,
       });
+
+      if (applyScaffold && project?.id) {
+        await Promise.allSettled([
+          createTag({ project_id: project.id, name: "bug", color: "#ef4444" }),
+          createTag({ project_id: project.id, name: "feature", color: "#3b82f6" }),
+          createTag({ project_id: project.id, name: "chore", color: "#64748b" }),
+          createMilestone({
+            project_id: project.id,
+            name: "MVP",
+            description: "项目脚手架自动创建的首个里程碑",
+          }),
+        ]);
+      }
+
       resetForm();
       onOpenChange(false);
     } catch (error) {
@@ -191,6 +208,21 @@ export function CreateProjectDialog({ open, onOpenChange }: CreateProjectDialogP
               </div>
             </>
           )}
+
+          <label className="flex items-start gap-2 rounded-md border border-border px-3 py-2 text-xs">
+            <input
+              type="checkbox"
+              className="mt-0.5"
+              checked={applyScaffold}
+              onChange={(e) => setApplyScaffold(e.target.checked)}
+            />
+            <span>
+              <span className="font-medium">应用项目脚手架</span>
+              <span className="mt-0.5 block text-muted-foreground">
+                自动创建标签（bug/feature/chore）与首个里程碑 MVP，便于交付管理开箱即用。
+              </span>
+            </span>
+          </label>
 
           {errorMessage && (
             <div className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">

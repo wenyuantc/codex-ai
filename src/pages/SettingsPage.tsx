@@ -4,9 +4,11 @@ import { useSearchParams } from "react-router-dom";
 
 import { DatabaseSettingsTab } from "@/components/settings/DatabaseSettingsTab";
 import { GitAutomationSettingsTab } from "@/components/settings/GitAutomationSettingsTab";
+import { McpSettingsTab } from "@/components/settings/McpSettingsTab";
 import { PromptSettingsTab } from "@/components/settings/PromptSettingsTab";
 import { RuntimeSettingsTab } from "@/components/settings/RuntimeSettingsTab";
 import { SshSettingsTab } from "@/components/settings/SshSettingsTab";
+import { EngineCapabilityBadges } from "@/components/ai/EngineCapabilityBadges";
 import {
   EMPTY_SSH_CONFIG_FORM,
   buildSshConfigFormState,
@@ -81,6 +83,7 @@ const SETTINGS_TABS: Array<{ value: SettingsTabValue; label: string }> = [
   { value: "runtime", label: "界面与运行" },
   { value: "git", label: "Git 与自动质控" },
   { value: "prompts", label: "提示词模板" },
+  { value: "mcp", label: "MCP 管理" },
   { value: "ssh", label: "SSH 配置" },
   { value: "database", label: "数据库维护" },
 ];
@@ -1061,6 +1064,19 @@ export function SettingsPage() {
 
         <TabsContent value="prompts">
           <PromptSettingsTab />
+        </TabsContent>
+
+        <TabsContent value="mcp">
+          <div className="space-y-4">
+            <McpSettingsTab />
+            <div className="rounded-lg border border-border bg-card p-4 space-y-2">
+              <h3 className="text-sm font-medium">三引擎能力对照</h3>
+              <p className="text-xs text-muted-foreground">
+                Codex / Claude / OpenCode 能力并不完全对称。重启与会话中发送输入目前仅 Codex 完整支持。
+              </p>
+              <EngineCapabilityBadges />
+            </div>
+          </div>
         </TabsContent>
 
         <TabsContent value="database">

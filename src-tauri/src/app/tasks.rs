@@ -1600,6 +1600,156 @@ pub async fn delete_task<R: Runtime>(app: AppHandle<R>, id: String) -> Result<()
 }
 
 #[tauri::command]
+pub async fn batch_update_tasks<R: Runtime>(
+    app: AppHandle<R>,
+    payload: crate::db::models::BatchUpdateTasksPayload,
+) -> Result<Vec<Task>, String> {
+    if payload.task_ids.is_empty() {
+        return Err("请至少选择一个任务".to_string());
+    }
+    if payload.task_ids.len() > 100 {
+        return Err("单次批量操作最多 100 个任务".to_string());
+    }
+
+    let mut updated = Vec::new();
+    for task_id in &payload.task_ids {
+        if let Some(status) = payload.status.as_ref() {
+            let task = update_task_status(app.clone(), task_id.clone(), status.clone()).await?;
+            updated.push(task);
+            continue;
+        }
+
+        let mut update = UpdateTask {
+            title: None,
+            description: None,
+            status: None,
+            priority: payload.priority.clone(),
+            assignee_id: None,
+            reviewer_id: None,
+            coordinator_id: None,
+            complexity: None,
+            ai_suggestion: None,
+            plan_content: None,
+            last_codex_session_id: None,
+            last_review_session_id: None,
+            due_date: None,
+            blocked_reason: None,
+            milestone_id: None,
+        };
+
+        if payload.clear_assignee == Some(true) {
+            update.assignee_id = Some(None);
+        } else if let Some(assignee) = payload.assignee_id.clone() {
+            update.assignee_id = Some(Some(assignee));
+        }
+
+        let task = update_task(app.clone(), task_id.clone(), update).await?;
+        updated.push(task);
+    }
+
+    let pool = sqlite_pool(&app).await?;
+    insert_activity_log(
+        &pool,
+        "tasks_batch_updated",
+        &format!("批量更新 {} 个任务", updated.len()),
+        None,
+        None,
+        updated.first().map(|task| task.project_id.as_str()),
+    )
+    .await?;
+
+    Ok(updated)
+}
+
+#[tauri::command]
+pub async fn export_tasks_csv<R: Runtime>(
+    app: AppHandle<R>,
+    payload: crate::db::models::ExportTasksCsvPayload,
+) -> Result<crate::db::models::ExportTasksCsvResult, String> {
+    let pool = sqlite_pool(&app).await?;
+    let mut builder = QueryBuilder::<Sqlite>::new(
+        r#"
+        SELECT t.id, t.title, t.status, t.priority, t.project_id, p.name AS project_name,
+               t.assignee_id, t.due_date, t.created_at, t.completed_at, t.blocked_reason
+        FROM tasks t
+        INNER JOIN projects p ON p.id = t.project_id
+        WHERE t.deleted_at IS NULL AND p.deleted_at IS NULL
+        "#,
+    );
+
+    if let Some(project_id) = payload.project_id.as_deref().map(str::trim).filter(|v| !v.is_empty()) {
+        builder.push(" AND t.project_id = ");
+        builder.push_bind(project_id);
+    }
+
+    if let Some(mode) = payload.environment_mode.as_deref() {
+        match mode {
+            "ssh" => {
+                builder.push(" AND p.project_type = 'ssh'");
+            }
+            "local" => {
+                builder.push(" AND p.project_type = 'local'");
+            }
+            _ => {}
+        }
+    }
+
+    builder.push(" ORDER BY t.updated_at DESC LIMIT 5000");
+
+    let rows = builder
+        .build_query_as::<(
+            String,
+            String,
+            String,
+            String,
+            String,
+            String,
+            Option<String>,
+            Option<String>,
+            String,
+            Option<String>,
+            Option<String>,
+        )>()
+        .fetch_all(&pool)
+        .await
+        .map_err(|error| format!("导出任务失败: {error}"))?;
+
+    let mut csv = String::from(
+        "id,title,status,priority,project_id,project_name,assignee_id,due_date,created_at,completed_at,blocked_reason\n",
+    );
+    for row in &rows {
+        let fields = [
+            escape_csv(&row.0),
+            escape_csv(&row.1),
+            escape_csv(&row.2),
+            escape_csv(&row.3),
+            escape_csv(&row.4),
+            escape_csv(&row.5),
+            escape_csv(row.6.as_deref().unwrap_or("")),
+            escape_csv(row.7.as_deref().unwrap_or("")),
+            escape_csv(&row.8),
+            escape_csv(row.9.as_deref().unwrap_or("")),
+            escape_csv(row.10.as_deref().unwrap_or("")),
+        ];
+        csv.push_str(&fields.join(","));
+        csv.push('\n');
+    }
+
+    Ok(crate::db::models::ExportTasksCsvResult {
+        csv,
+        row_count: rows.len() as i64,
+    })
+}
+
+fn escape_csv(value: &str) -> String {
+    if value.contains(',') || value.contains('"') || value.contains('\n') {
+        format!("\"{}\"", value.replace('"', "\"\""))
+    } else {
+        value.to_string()
+    }
+}
+
+#[tauri::command]
 pub async fn permanently_delete_task<R: Runtime>(app: AppHandle<R>, id: String) -> Result<(), String> {
     let pool = sqlite_pool(&app).await?;
     let task = fetch_any_task_by_id(&pool, &id).await?;

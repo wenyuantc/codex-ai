@@ -349,6 +349,168 @@ export async function openDatabaseFolder(): Promise<void> {
   return invoke("open_database_folder");
 }
 
+export interface LogActivityInput {
+  action: string;
+  details: string;
+  employee_id?: string | null;
+  task_id?: string | null;
+  project_id?: string | null;
+}
+
+export async function logActivity(input: LogActivityInput): Promise<void> {
+  return invoke("log_activity", { payload: input });
+}
+
+export interface DatabaseBackupScope {
+  includes: string[];
+  excludes: string[];
+  note: string;
+}
+
+export async function getDatabaseBackupScope(): Promise<DatabaseBackupScope> {
+  return invoke("get_database_backup_scope");
+}
+
+export interface AiProviderCapabilities {
+  provider: string;
+  label: string;
+  start: boolean;
+  stop: boolean;
+  restart: boolean;
+  send_input: boolean;
+  resume: boolean;
+  notes: string;
+}
+
+export async function getAiProviderCapabilities(): Promise<AiProviderCapabilities[]> {
+  return invoke("get_ai_provider_capabilities");
+}
+
+export interface DashboardTrendPoint {
+  label: string;
+  count: number;
+}
+
+export interface DashboardWorkloadItem {
+  employee_id: string;
+  employee_name: string;
+  active_tasks: number;
+  completed_tasks: number;
+}
+
+export interface DashboardReportSummary {
+  total_tasks: number;
+  completed_tasks: number;
+  overdue_tasks: number;
+  blocked_tasks: number;
+  in_progress_tasks: number;
+  completion_rate: number;
+  weekly_completed: DashboardTrendPoint[];
+  employee_workload: DashboardWorkloadItem[];
+}
+
+export async function getDashboardReportSummary(input?: {
+  projectId?: string | null;
+  environmentMode?: string | null;
+}): Promise<DashboardReportSummary> {
+  return invoke("get_dashboard_report_summary", {
+    projectId: input?.projectId ?? null,
+    environmentMode: input?.environmentMode ?? null,
+  });
+}
+
+export interface ProjectRepoHealthCheck {
+  key: string;
+  label: string;
+  passed: boolean;
+  detail: string;
+}
+
+export interface ProjectRepoHealth {
+  project_id: string;
+  project_type: string;
+  path: string | null;
+  path_exists: boolean;
+  is_directory: boolean;
+  is_git_repo: boolean;
+  current_branch: string | null;
+  is_dirty: boolean | null;
+  accessible: boolean;
+  message: string;
+  checks: ProjectRepoHealthCheck[];
+}
+
+export async function checkProjectRepoHealth(projectId: string): Promise<ProjectRepoHealth> {
+  return invoke("check_project_repo_health", { projectId });
+}
+
+export interface BatchUpdateTasksInput {
+  task_ids: string[];
+  status?: string | null;
+  assignee_id?: string | null;
+  clear_assignee?: boolean;
+  priority?: string | null;
+}
+
+export async function batchUpdateTasks(input: BatchUpdateTasksInput): Promise<Task[]> {
+  return invoke("batch_update_tasks", {
+    payload: {
+      task_ids: input.task_ids,
+      status: input.status ?? null,
+      assignee_id: input.assignee_id ?? null,
+      clear_assignee: input.clear_assignee ?? false,
+      priority: input.priority ?? null,
+    },
+  });
+}
+
+export async function exportTasksCsv(input?: {
+  projectId?: string | null;
+  environmentMode?: string | null;
+}): Promise<{ csv: string; row_count: number }> {
+  return invoke("export_tasks_csv", {
+    payload: {
+      project_id: input?.projectId ?? null,
+      environment_mode: input?.environmentMode ?? null,
+    },
+  });
+}
+
+export interface McpEnvVar {
+  key: string;
+  value: string;
+}
+
+export interface McpServerConfig {
+  id: string;
+  name: string;
+  command: string;
+  args: string[];
+  env: McpEnvVar[];
+  enabled: boolean;
+  notes?: string | null;
+}
+
+export interface McpServersDocument {
+  servers: McpServerConfig[];
+}
+
+export async function getMcpServers(): Promise<McpServersDocument> {
+  return invoke("get_mcp_servers");
+}
+
+export async function updateMcpServers(servers: McpServerConfig[]): Promise<McpServersDocument> {
+  return invoke("update_mcp_servers", { payload: { servers } });
+}
+
+export async function resetMcpServers(): Promise<McpServersDocument> {
+  return invoke("reset_mcp_servers");
+}
+
+export async function exportMcpServersSnippet(): Promise<string> {
+  return invoke("export_mcp_servers_snippet");
+}
+
 export async function showMainWindow(): Promise<void> {
   return invoke("show_main_window");
 }
