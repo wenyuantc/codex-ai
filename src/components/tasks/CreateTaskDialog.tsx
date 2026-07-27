@@ -283,7 +283,7 @@ export function CreateTaskDialog({
 
   return (
     <Dialog open={open} onOpenChange={handleOpen}>
-      <DialogContent className="sm:max-w-5xl">
+      <DialogContent className="max-h-[min(92vh,calc(100vh-2rem))] w-[min(96vw,64rem)] max-w-[min(96vw,64rem)] overflow-y-auto sm:max-w-[min(96vw,64rem)]">
         <DialogHeader>
           <DialogTitle>新建任务</DialogTitle>
         </DialogHeader>

@@ -948,7 +948,7 @@ export function TaskDetailDialog({
   return (
     <>
       <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent className="w-[min(96vw,80rem)] max-w-[min(96vw,80rem)] sm:max-w-[min(96vw,80rem)] max-h-[85vh] overflow-y-auto">
+        <DialogContent className="max-h-[min(92vh,calc(100vh-2rem))] w-[min(96vw,80rem)] max-w-[min(96vw,80rem)] overflow-y-auto sm:max-w-[min(96vw,80rem)]">
           <DialogHeader>
             <DialogTitle className="sr-only">任务详情</DialogTitle>
             <DialogDescription className="sr-only">
