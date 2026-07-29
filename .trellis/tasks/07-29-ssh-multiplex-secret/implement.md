@@ -127,4 +127,4 @@ npm run tauri:dev            # S7 实机
 
 ## 完成后
 
-在父任务 `prd.md` 的衍生发现处登记：`ssh-secrets.json` 明文存密码 + Windows 无权限收紧，建议新增子任务迁移至 OS keychain（见 `design.md` R5 衍生发现节）。
+衍生发现已闭环（2026-07-29 用户选 A）：已创建子任务 `07-29-ssh-secret-keychain`，排在 C1 之后；本任务范围内不再处理 keychain 迁移。

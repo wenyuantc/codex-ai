@@ -1,1 +1,5 @@
-{"_example": "Fill with {\"file\": \"<path>\", \"reason\": \"<why>\"}. Put spec/research files only — no code paths. Run `python3 .trellis/scripts/get_context.py --mode packages` to list available specs. Delete this line once real entries are added."}
+{"file": ".trellis/spec/backend/index.md", "reason": "后端总览与边界约束"}
+{"file": ".trellis/spec/backend/testing.md", "reason": "表驱动单测与 cargo test 规范"}
+{"file": ".trellis/spec/backend/error-handling.md", "reason": "退出清理容错与错误处理惯例"}
+{"file": ".trellis/spec/backend/command-guidelines.md", "reason": "Tauri command/进程调用相关约束"}
+{"file": ".trellis/spec/guides/code-reuse-thinking-guide.md", "reason": "复用现有 askpass/tmpdir 惯例，避免平行实现"}
