@@ -6,14 +6,16 @@ use std::process::Stdio;
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager, Runtime};
 
-use crate::db::models::{GrokHealthCheck, GrokSettings, UpdateGrokSettings};
+use crate::db::models::{GrokHealthCheck, GrokModelInfo, GrokSettings, UpdateGrokSettings};
 
 const SETTINGS_FILE_NAME: &str = "grok-settings.json";
 const DEFAULT_MODEL: &str = "grok-4.5";
 const DEFAULT_REASONING_EFFORT: &str = "high";
 const GROK_PATH_ENV_VARS: &[&str] = &["GROK_CLI_PATH", "GROK_PATH"];
+/// 静态兜底列表；动态列表优先由 `list_grok_models` / `grok models` 提供。
 pub const SUPPORTED_GROK_MODELS: &[&str] = &["grok-4.5"];
-pub const SUPPORTED_GROK_REASONING_EFFORTS: &[&str] = &["high", "medium", "low"];
+/// 应用侧 Grok 推理强度仅暴露 low / medium / high。
+pub const SUPPORTED_GROK_REASONING_EFFORTS: &[&str] = &["low", "medium", "high"];
 
 #[derive(Debug, Default, Deserialize, Serialize)]
 struct RawGrokSettings {
@@ -31,22 +33,127 @@ pub fn normalize_grok_model(value: Option<&str>) -> String {
         return DEFAULT_MODEL.to_string();
     }
 
-    if SUPPORTED_GROK_MODELS.contains(&value) {
-        return value.to_string();
-    }
-
-    if value.starts_with("grok-") {
-        return DEFAULT_MODEL.to_string();
-    }
-
-    DEFAULT_MODEL.to_string()
+    // 接受 CLI/自定义模型 ID；空值才回落默认。动态 `grok models` 结果不再被静态白名单截断。
+    value.to_string()
 }
 
 pub fn normalize_grok_reasoning_effort(value: Option<&str>) -> String {
     match value.map(str::trim) {
         Some(value) if SUPPORTED_GROK_REASONING_EFFORTS.contains(&value) => value.to_string(),
+        // 兼容旧 UI 的 auto：映射到默认 high
+        Some("auto") => DEFAULT_REASONING_EFFORT.to_string(),
         _ => DEFAULT_REASONING_EFFORT.to_string(),
     }
+}
+
+pub fn fallback_grok_model_list() -> Vec<GrokModelInfo> {
+    SUPPORTED_GROK_MODELS
+        .iter()
+        .map(|value| GrokModelInfo {
+            value: (*value).to_string(),
+            label: format_grok_model_label(value),
+            is_default: *value == DEFAULT_MODEL,
+        })
+        .collect()
+}
+
+fn format_grok_model_label(model_id: &str) -> String {
+    match model_id {
+        "grok-4.5" => "Grok 4.5".to_string(),
+        other => other.to_string(),
+    }
+}
+
+/// 解析 `grok models` 文本输出。
+pub fn parse_grok_models_output(output: &str) -> (Vec<GrokModelInfo>, Option<bool>, Option<String>) {
+    let mut models = Vec::new();
+    let mut auth_ok: Option<bool> = None;
+    let mut default_model: Option<String> = None;
+    let lower = output.to_ascii_lowercase();
+
+    if lower.contains("logged in") || lower.contains("you are logged in") {
+        auth_ok = Some(true);
+    } else if lower.contains("not logged")
+        || lower.contains("please login")
+        || lower.contains("please log in")
+        || lower.contains("grok login")
+        || lower.contains("unauthor")
+        || lower.contains("authentication required")
+    {
+        auth_ok = Some(false);
+    }
+
+    for line in output.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+
+        if let Some(rest) = trimmed
+            .strip_prefix("Default model:")
+            .or_else(|| trimmed.strip_prefix("default model:"))
+        {
+            let model = rest.trim();
+            if !model.is_empty() {
+                default_model = Some(model.to_string());
+            }
+            continue;
+        }
+
+        // 形如: "* grok-4.5 (default)" / "- grok-4.5"
+        let candidate = trimmed
+            .trim_start_matches(['*', '-', '•'])
+            .trim();
+        if candidate.is_empty() {
+            continue;
+        }
+
+        let (id_part, is_default_marker) = if let Some((id, rest)) = candidate.split_once('(') {
+            (id.trim(), rest.to_ascii_lowercase().contains("default"))
+        } else {
+            (candidate, false)
+        };
+
+        if id_part.is_empty() || id_part.contains(' ') {
+            continue;
+        }
+        // 模型 ID 通常是 grok-* 或含 / 的自定义 ID
+        if !(id_part.starts_with("grok")
+            || id_part.contains('/')
+            || id_part
+                .chars()
+                .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | '.' | ':')))
+        {
+            continue;
+        }
+
+        let is_default = is_default_marker
+            || default_model
+                .as_deref()
+                .is_some_and(|value| value == id_part);
+        if models.iter().any(|item: &GrokModelInfo| item.value == id_part) {
+            continue;
+        }
+        models.push(GrokModelInfo {
+            value: id_part.to_string(),
+            label: format_grok_model_label(id_part),
+            is_default,
+        });
+    }
+
+    if models.is_empty() {
+        models = fallback_grok_model_list();
+    } else if !models.iter().any(|item| item.is_default) {
+        if let Some(default_model) = default_model.as_deref() {
+            if let Some(item) = models.iter_mut().find(|item| item.value == default_model) {
+                item.is_default = true;
+            }
+        } else if let Some(first) = models.first_mut() {
+            first.is_default = true;
+        }
+    }
+
+    (models, auth_ok, default_model)
 }
 
 fn settings_path<R: Runtime>(app: &AppHandle<R>) -> Result<PathBuf, String> {
@@ -315,6 +422,54 @@ pub async fn read_grok_cli_version(cli_path: &Path) -> Result<String, String> {
     Ok(version)
 }
 
+async fn run_grok_models_command(cli_path: &Path) -> Result<String, String> {
+    let output = tokio::process::Command::new(cli_path)
+        .arg("models")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .await
+        .map_err(|error| format!("执行 grok models 失败: {error}"))?;
+
+    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+    if !output.status.success() {
+        let detail = [stderr.trim(), stdout.trim()]
+            .into_iter()
+            .find(|value| !value.is_empty())
+            .unwrap_or("grok models 失败");
+        return Err(detail.to_string());
+    }
+
+    Ok(if stdout.trim().is_empty() {
+        stderr
+    } else {
+        stdout
+    })
+}
+
+fn compose_local_health_message(
+    version: &str,
+    auth_ok: Option<bool>,
+    models_error: Option<&str>,
+) -> String {
+    match auth_ok {
+        Some(true) => format!("Grok CLI 可用（{version}），已登录"),
+        Some(false) => format!(
+            "Grok CLI 可用（{version}），但未登录或登录失效。请执行 `grok login`。{extra}",
+            extra = models_error
+                .map(|error| format!(" 详情：{error}"))
+                .unwrap_or_default()
+        ),
+        None => format!(
+            "Grok CLI 可用（{version}）{}",
+            models_error
+                .map(|error| format!("；登录态探测失败：{error}"))
+                .unwrap_or_else(|| "；登录态未知".to_string())
+        ),
+    }
+}
+
 pub async fn inspect_grok_runtime<R: Runtime>(
     app: &AppHandle<R>,
     settings: &GrokSettings,
@@ -323,17 +478,44 @@ pub async fn inspect_grok_runtime<R: Runtime>(
     let now = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
     match resolve_grok_executable_path(settings).await {
         Ok(cli_path) => match read_grok_cli_version(&cli_path).await {
-            Ok(version) => GrokHealthCheck {
-                cli_available: true,
-                cli_version: Some(version.clone()),
-                cli_path: Some(cli_path.to_string_lossy().to_string()),
-                status_message: format!("Grok CLI 可用（{version}）"),
-                checked_at: now,
-            },
+            Ok(version) => {
+                let (auth_ok, models_error) = match run_grok_models_command(&cli_path).await {
+                    Ok(output) => {
+                        let (_, auth_ok, _) = parse_grok_models_output(&output);
+                        (auth_ok.or(Some(true)), None)
+                    }
+                    Err(error) => {
+                        let lower = error.to_ascii_lowercase();
+                        let auth_ok = if lower.contains("login")
+                            || lower.contains("auth")
+                            || lower.contains("unauthor")
+                        {
+                            Some(false)
+                        } else {
+                            None
+                        };
+                        (auth_ok, Some(error))
+                    }
+                };
+
+                GrokHealthCheck {
+                    cli_available: true,
+                    cli_version: Some(version.clone()),
+                    cli_path: Some(cli_path.to_string_lossy().to_string()),
+                    auth_ok,
+                    status_message: compose_local_health_message(
+                        &version,
+                        auth_ok,
+                        models_error.as_deref(),
+                    ),
+                    checked_at: now,
+                }
+            }
             Err(error) => GrokHealthCheck {
                 cli_available: false,
                 cli_version: None,
                 cli_path: Some(cli_path.to_string_lossy().to_string()),
+                auth_ok: None,
                 status_message: format!("找到 Grok CLI，但版本检测失败：{error}"),
                 checked_at: now,
             },
@@ -342,6 +524,7 @@ pub async fn inspect_grok_runtime<R: Runtime>(
             cli_available: false,
             cli_version: None,
             cli_path: None,
+            auth_ok: None,
             status_message: error,
             checked_at: now,
         },
@@ -369,6 +552,25 @@ pub async fn check_grok_health<R: Runtime>(
     Ok(inspect_grok_runtime(&app, &settings).await)
 }
 
+#[tauri::command]
+pub async fn list_grok_models<R: Runtime>(
+    app: AppHandle<R>,
+) -> Result<Vec<GrokModelInfo>, String> {
+    let settings = load_grok_settings(&app)?;
+    let cli_path = match resolve_grok_executable_path(&settings).await {
+        Ok(path) => path,
+        Err(_) => return Ok(fallback_grok_model_list()),
+    };
+
+    match run_grok_models_command(&cli_path).await {
+        Ok(output) => {
+            let (models, _, _) = parse_grok_models_output(&output);
+            Ok(models)
+        }
+        Err(_) => Ok(fallback_grok_model_list()),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -376,8 +578,9 @@ mod tests {
     #[test]
     fn grok_model_normalization_defaults_to_grok_4_5() {
         assert_eq!(normalize_grok_model(Some("grok-4.5")), "grok-4.5");
-        assert_eq!(normalize_grok_model(Some("unknown")), "grok-4.5");
+        assert_eq!(normalize_grok_model(Some("custom/model")), "custom/model");
         assert_eq!(normalize_grok_model(None), "grok-4.5");
+        assert_eq!(normalize_grok_model(Some("  ")), "grok-4.5");
     }
 
     #[test]
@@ -385,7 +588,26 @@ mod tests {
         assert_eq!(normalize_grok_reasoning_effort(Some("low")), "low");
         assert_eq!(normalize_grok_reasoning_effort(Some("medium")), "medium");
         assert_eq!(normalize_grok_reasoning_effort(Some("high")), "high");
+        assert_eq!(normalize_grok_reasoning_effort(Some("xhigh")), "high");
         assert_eq!(normalize_grok_reasoning_effort(Some("auto")), "high");
         assert_eq!(normalize_grok_reasoning_effort(None), "high");
+    }
+
+    #[test]
+    fn parse_grok_models_output_extracts_login_and_models() {
+        let output = r#"
+You are logged in with grok.com.
+
+Default model: grok-4.5
+
+Available models:
+  * grok-4.5 (default)
+  * grok-code-fast
+"#;
+        let (models, auth_ok, default_model) = parse_grok_models_output(output);
+        assert_eq!(auth_ok, Some(true));
+        assert_eq!(default_model.as_deref(), Some("grok-4.5"));
+        assert!(models.iter().any(|item| item.value == "grok-4.5" && item.is_default));
+        assert!(models.iter().any(|item| item.value == "grok-code-fast"));
     }
 }

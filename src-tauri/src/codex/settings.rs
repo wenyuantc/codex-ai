@@ -54,11 +54,10 @@ const SUPPORTED_WORKTREE_LOCATION_MODES: &[&str] =
 const SUPPORTED_AI_COMMIT_MESSAGE_LENGTHS: &[&str] = &["title_only", "title_with_body"];
 const SUPPORTED_AI_COMMIT_MODEL_SOURCES: &[&str] = &["inherit_one_shot", "custom"];
 const SUPPORTED_ONE_SHOT_PROVIDERS: &[&str] = &["codex", "claude", "opencode", "grok"];
-const SUPPORTED_GROK_REASONING_EFFORTS: &[&str] = &["high", "medium", "low"];
+const SUPPORTED_GROK_REASONING_EFFORTS: &[&str] = &["low", "medium", "high"];
 const SUPPORTED_CLAUDE_REASONING_EFFORTS: &[&str] =
     &["low", "medium", "high", "xhigh", "max", "auto"];
-const SUPPORTED_OPENCODE_REASONING_EFFORTS: &[&str] =
-    &["default", "low", "medium", "high", "xhigh", "max"];
+const SUPPORTED_OPENCODE_REASONING_EFFORTS: &[&str] = &["low", "medium", "high"];
 
 #[derive(Debug, Clone)]
 pub struct SdkRuntimeHealth {
@@ -1475,12 +1474,20 @@ mod tests {
         assert_eq!(normalize_one_shot_provider(Some("grok"), false), "grok");
         assert_eq!(normalize_one_shot_provider(Some("grok"), true), "grok");
         assert_eq!(
-            normalize_one_shot_model("grok", Some("unknown-model")),
+            normalize_one_shot_model("grok", Some("custom/model")),
+            "custom/model"
+        );
+        assert_eq!(
+            normalize_one_shot_model("grok", Some("")),
             "grok-4.5"
         );
         assert_eq!(
             normalize_one_shot_reasoning_effort("grok", Some("medium")),
             "medium"
+        );
+        assert_eq!(
+            normalize_one_shot_reasoning_effort("grok", Some("xhigh")),
+            "high"
         );
         assert_eq!(
             normalize_one_shot_reasoning_effort("grok", Some("auto")),

@@ -86,6 +86,9 @@ fn cleanup_process_artifacts(paths: &[PathBuf]) {
 
 /// Grok headless CLI 参数。
 /// 使用 `--permission-mode bypassPermissions` 实现非交互自动批准工具调用。
+///
+/// `prompt_json` 为 Some 时用 `--prompt-json`（可含图片 content blocks），否则用 `-p`。
+/// 员工 system prompt 仅通过 `--system-prompt-override` 注入，不再嵌进 user prompt。
 pub fn build_grok_cli_args(
     prompt: &str,
     model: &str,
@@ -93,10 +96,19 @@ pub fn build_grok_cli_args(
     system_prompt: Option<&str>,
     resume_session_id: Option<&str>,
     cwd: Option<&str>,
+    prompt_json: Option<&str>,
 ) -> Vec<String> {
-    let mut args = vec![
-        "-p".to_string(),
-        prompt.to_string(),
+    let mut args = Vec::new();
+
+    if let Some(json) = prompt_json.map(str::trim).filter(|value| !value.is_empty()) {
+        args.push("--prompt-json".to_string());
+        args.push(json.to_string());
+    } else {
+        args.push("-p".to_string());
+        args.push(prompt.to_string());
+    }
+
+    args.extend([
         "-m".to_string(),
         model.to_string(),
         "--reasoning-effort".to_string(),
@@ -105,7 +117,7 @@ pub fn build_grok_cli_args(
         "streaming-json".to_string(),
         "--permission-mode".to_string(),
         "bypassPermissions".to_string(),
-    ];
+    ]);
 
     if let Some(cwd) = cwd.map(str::trim).filter(|value| !value.is_empty()) {
         args.push("--cwd".to_string());
@@ -125,7 +137,7 @@ pub fn build_grok_cli_args(
     args
 }
 
-/// One-shot 使用 plain 输出更易聚合，不带 streaming-json。
+/// One-shot 固定 `--output-format json`，便于结构化提取最终文本。
 pub fn build_grok_one_shot_cli_args(model: &str, effort: &str) -> Vec<String> {
     vec![
         "-p".to_string(),
@@ -133,9 +145,54 @@ pub fn build_grok_one_shot_cli_args(model: &str, effort: &str) -> Vec<String> {
         model.to_string(),
         "--reasoning-effort".to_string(),
         effort.to_string(),
+        "--output-format".to_string(),
+        "json".to_string(),
         "--permission-mode".to_string(),
         "bypassPermissions".to_string(),
     ]
+}
+
+fn image_mime_type(path: &Path) -> &'static str {
+    match path
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .map(|ext| ext.to_ascii_lowercase())
+        .as_deref()
+    {
+        Some("jpg") | Some("jpeg") => "image/jpeg",
+        Some("webp") => "image/webp",
+        Some("gif") => "image/gif",
+        _ => "image/png",
+    }
+}
+
+/// 构造 Grok ACP content blocks JSON（text + base64 images）。
+pub fn build_grok_prompt_json(prompt: &str, image_paths: &[String]) -> Result<String, String> {
+    use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
+    use serde_json::{json, Value};
+
+    let mut blocks: Vec<Value> = vec![json!({
+        "type": "text",
+        "text": prompt,
+    })];
+
+    for path in image_paths {
+        let path = Path::new(path);
+        let bytes = fs::read(path).map_err(|error| {
+            format!(
+                "读取 Grok 图片附件失败（{}）: {error}",
+                path.display()
+            )
+        })?;
+        let data = BASE64.encode(bytes);
+        blocks.push(json!({
+            "type": "image",
+            "mimeType": image_mime_type(path),
+            "data": data,
+        }));
+    }
+
+    serde_json::to_string(&blocks).map_err(|error| format!("序列化 Grok prompt-json 失败: {error}"))
 }
 
 pub fn build_remote_grok_session_command(run_cwd: &str, cli_args: &[String]) -> String {
@@ -154,19 +211,9 @@ pub fn build_remote_grok_session_command(run_cwd: &str, cli_args: &[String]) -> 
     )
 }
 
-fn compose_grok_prompt(task_description: &str, system_prompt: Option<&str>) -> String {
-    let task_description = task_description.trim();
-    let system_prompt = system_prompt
-        .map(str::trim)
-        .filter(|value| !value.is_empty());
-
-    match system_prompt {
-        Some(system_prompt) => format!(
-            "请先严格遵循以下员工提示词，再执行后续任务。\n\n<employee_system_prompt>\n{}\n</employee_system_prompt>\n\n<task>\n{}\n</task>",
-            system_prompt, task_description
-        ),
-        None => task_description.to_string(),
-    }
+/// User prompt 仅包含任务正文；员工 system prompt 走 `--system-prompt-override`。
+fn compose_grok_prompt(task_description: &str) -> String {
+    task_description.trim().to_string()
 }
 
 fn format_grok_session_prompt_log(
@@ -176,6 +223,7 @@ fn format_grok_session_prompt_log(
     target_host_label: Option<&str>,
     working_dir: &str,
     prompt: &str,
+    system_prompt: Option<&str>,
     image_paths: &[String],
 ) -> String {
     let image_block = if image_paths.is_empty() {
@@ -205,6 +253,12 @@ fn format_grok_session_prompt_log(
         "执行环境: 本地运行".to_string()
     };
 
+    let system_block = system_prompt
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| format!("System Prompt (--system-prompt-override):\n{value}\n\n"))
+        .unwrap_or_default();
+
     format!(
         "[PROMPT] 即将发送给 Grok 的完整提示词\n\
 运行通道: Grok CLI\n\
@@ -212,8 +266,8 @@ fn format_grok_session_prompt_log(
 推理强度: {}\n\
 {}\n\
 工作目录: {}\n\
-{}\n\n{}",
-        model, effort, runtime_block, working_dir, image_block, prompt
+{}\n\n{}User Prompt:\n{}",
+        model, effort, runtime_block, working_dir, image_block, system_block, prompt
     )
 }
 
@@ -664,7 +718,7 @@ pub async fn start_grok_with_manager(
             .as_deref()
             .or(Some(grok_settings.default_reasoning_effort.as_str())),
     );
-    let prompt = compose_grok_prompt(&task_description, system_prompt.as_deref());
+    let prompt = compose_grok_prompt(&task_description);
     let requested_image_paths = image_paths;
 
     let session_record = insert_codex_session_record(
@@ -797,22 +851,61 @@ pub async fn start_grok_with_manager(
         .await;
     }
 
-    // Grok headless CLI 不支持直接附带本地图片。
-    if !image_paths.is_empty() {
-        emit_session_terminal_line(
-            &app,
-            &pool,
-            &session_record.id,
-            &employee_id,
-            task_id.as_deref(),
-            session_kind,
-            format!(
-                "[WARN] Grok CLI 当前不支持直接附带本地图片，已跳过 {} 张图片附件。",
-                image_paths.len()
-            ),
-        )
-        .await;
-    }
+    // 本地：通过 --prompt-json 内嵌 base64 图片。SSH：命令行过长风险，仍跳过图片。
+    let (effective_image_paths, prompt_json) =
+        if execution_context.execution_target == EXECUTION_TARGET_SSH {
+            if !image_paths.is_empty() {
+                emit_session_terminal_line(
+                    &app,
+                    &pool,
+                    &session_record.id,
+                    &employee_id,
+                    task_id.as_deref(),
+                    session_kind,
+                    format!(
+                        "[WARN] SSH Grok 会话暂不通过命令行附带图片（避免参数过长），已跳过 {} 张图片附件。",
+                        image_paths.len()
+                    ),
+                )
+                .await;
+            }
+            (Vec::new(), None)
+        } else if image_paths.is_empty() {
+            (Vec::new(), None)
+        } else {
+            match build_grok_prompt_json(&prompt, &image_paths) {
+                Ok(json) => {
+                    emit_session_terminal_line(
+                        &app,
+                        &pool,
+                        &session_record.id,
+                        &employee_id,
+                        task_id.as_deref(),
+                        session_kind,
+                        format!(
+                            "[INFO] 已通过 prompt-json 附带 {} 张图片。",
+                            image_paths.len()
+                        ),
+                    )
+                    .await;
+                    (image_paths.clone(), Some(json))
+                }
+                Err(error) => {
+                    emit_session_terminal_line(
+                        &app,
+                        &pool,
+                        &session_record.id,
+                        &employee_id,
+                        task_id.as_deref(),
+                        session_kind,
+                        format!("[WARN] 构造 Grok 图片 prompt-json 失败，已跳过图片：{error}"),
+                    )
+                    .await;
+                    (Vec::new(), None)
+                }
+            }
+        };
+    let _ = effective_image_paths;
 
     let ssh_config_for_artifact_capture =
         if execution_context.execution_target == EXECUTION_TARGET_SSH {
@@ -876,6 +969,7 @@ pub async fn start_grok_with_manager(
             system_prompt.as_deref(),
             resume_session_id.as_deref(),
             None,
+            None,
         )
     } else {
         build_grok_cli_args(
@@ -885,6 +979,7 @@ pub async fn start_grok_with_manager(
             system_prompt.as_deref(),
             resume_session_id.as_deref(),
             Some(&run_cwd),
+            prompt_json.as_deref(),
         )
     };
 
@@ -1036,7 +1131,8 @@ pub async fn start_grok_with_manager(
         execution_context.target_host_label.as_deref(),
         &run_cwd,
         &prompt,
-        &[],
+        system_prompt.as_deref(),
+        &effective_image_paths,
     );
     let prompt_event_id = insert_codex_session_event_with_id(
         &pool,
@@ -1272,6 +1368,7 @@ mod tests {
             Some("你是工程师"),
             Some("sess-1"),
             Some("/tmp/project"),
+            None,
         );
 
         assert!(args.windows(2).any(|pair| pair[0] == "-p" && pair[1] == "修复 bug"));
@@ -1300,7 +1397,7 @@ mod tests {
 
     #[test]
     fn remote_grok_session_command_uses_shell_bootstrap() {
-        let args = build_grok_cli_args("task", "grok-4.5", "high", None, None, None);
+        let args = build_grok_cli_args("task", "grok-4.5", "high", None, None, None, None);
         let command = build_remote_grok_session_command("~/repo with space", &args);
 
         assert!(command.starts_with("sh -lc "));
@@ -1309,8 +1406,8 @@ mod tests {
     }
 
     #[test]
-    fn grok_prompt_log_includes_full_prompt_and_runtime() {
-        let prompt = compose_grok_prompt("修复自动质控", Some("你是审查员"));
+    fn grok_prompt_log_includes_system_and_user_prompt() {
+        let prompt = compose_grok_prompt("修复自动质控");
         let log = format_grok_session_prompt_log(
             "grok-4.5",
             "high",
@@ -1318,14 +1415,33 @@ mod tests {
             None,
             "/tmp/project",
             &prompt,
+            Some("你是审查员"),
             &[],
         );
 
         assert!(log.contains("[PROMPT] 即将发送给 Grok 的完整提示词"));
         assert!(log.contains("运行通道: Grok CLI"));
-        assert!(log.contains("<employee_system_prompt>"));
+        assert!(log.contains("--system-prompt-override"));
         assert!(log.contains("你是审查员"));
-        assert!(log.contains("<task>"));
+        assert!(log.contains("User Prompt:"));
         assert!(log.contains("修复自动质控"));
+        assert!(!log.contains("<employee_system_prompt>"));
+    }
+
+    #[test]
+    fn grok_cli_args_prefer_prompt_json_over_plain_prompt() {
+        let args = build_grok_cli_args(
+            "fallback",
+            "grok-4.5",
+            "high",
+            None,
+            None,
+            None,
+            Some(r#"[{"type":"text","text":"hi"}]"#),
+        );
+        assert!(args.windows(2).any(|pair| {
+            pair[0] == "--prompt-json" && pair[1].contains(r#""type":"text""#)
+        }));
+        assert!(!args.windows(2).any(|pair| pair[0] == "-p" && pair[1] == "fallback"));
     }
 }

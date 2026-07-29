@@ -217,6 +217,7 @@ pub fn run() {
             grok::get_grok_settings,
             grok::update_grok_settings,
             grok::check_grok_health,
+            grok::list_grok_models,
             grok::start_grok,
             grok::stop_grok_session,
             grok::stop_grok,

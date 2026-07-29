@@ -23,6 +23,7 @@ import {
   type CodexHealthCheck,
   type CodexSettings,
   type GrokHealthCheck,
+  type GrokModelInfo,
   type RemoteCodexHealthCheck,
   type RemoteGrokHealthCheck,
 } from "@/lib/types";
@@ -104,6 +105,8 @@ interface RuntimeSettingsTabProps {
   grokActionLoading: "save" | null;
   grokActionMessage: string | null;
   grokActionError: string | null;
+  grokModelList: GrokModelInfo[];
+  grokModelListLoading: boolean;
   onGrokDefaultModelChange: (model: string) => void;
   onGrokDefaultEffortChange: (effort: string) => void;
   onGrokCliPathOverrideChange: (path: string) => void;
@@ -195,6 +198,8 @@ export function RuntimeSettingsTab({
   grokActionLoading,
   grokActionMessage,
   grokActionError,
+  grokModelList,
+  grokModelListLoading,
   onGrokDefaultModelChange,
   onGrokDefaultEffortChange,
   onGrokCliPathOverrideChange,
@@ -229,6 +234,20 @@ export function RuntimeSettingsTab({
   const isOneShotClaudeProvider = oneShotPreferredProvider === "claude";
   const isOneShotOpenCodeProvider = oneShotPreferredProvider === "opencode";
   const isOneShotGrokProvider = oneShotPreferredProvider === "grok";
+  const oneShotGrokModelOptions = grokModelList.length > 0
+    ? grokModelList
+    : [{
+      value: oneShotModel,
+      label: grokModelListLoading ? "正在加载模型..." : (oneShotModel || "当前模型"),
+      is_default: false,
+    }];
+  const defaultGrokModelOptions = grokModelList.length > 0
+    ? grokModelList
+    : GROK_MODEL_OPTIONS.map((option) => ({
+      value: option.value,
+      label: option.label,
+      is_default: option.value === "grok-4.5",
+    }));
   const oneShotOpenCodeModelOptions = opencodeModelList.length > 0
     ? opencodeModelList
     : [{
@@ -578,7 +597,7 @@ export function RuntimeSettingsTab({
                   {(isOneShotClaudeProvider
                     ? CLAUDE_MODEL_OPTIONS
                     : isOneShotGrokProvider
-                      ? GROK_MODEL_OPTIONS
+                      ? oneShotGrokModelOptions
                       : CODEX_MODEL_OPTIONS).map((option) => (
                     <SelectItem key={option.value} value={option.value}>
                       {option.label}
@@ -592,6 +611,15 @@ export function RuntimeSettingsTab({
                 {opencodeModelList.length > 0
                   ? `已加载 ${opencodeModelList.length} 个可用模型`
                   : "格式: provider/modelID（例如 openai/gpt-4o）"}
+              </p>
+            )}
+            {isOneShotGrokProvider && (
+              <p className="text-xs text-muted-foreground">
+                {grokModelList.length > 0
+                  ? `已从 CLI 加载 ${grokModelList.length} 个模型`
+                  : grokModelListLoading
+                    ? "正在加载 Grok 模型列表..."
+                    : "使用静态模型列表（CLI 不可用时）"}
               </p>
             )}
           </div>
@@ -1032,10 +1060,16 @@ export function RuntimeSettingsTab({
           <p>本地状态：{grokHealth?.status_message ?? "尚未检测"}</p>
           {grokHealth?.cli_path ? <p>本地路径：{grokHealth.cli_path}</p> : null}
           {grokHealth?.cli_version ? <p>本地版本：{grokHealth.cli_version}</p> : null}
+          {grokHealth?.auth_ok === true ? <p>本地登录：已登录</p> : null}
+          {grokHealth?.auth_ok === false ? <p className="text-destructive">本地登录：未登录（请执行 `grok login`）</p> : null}
           {isRemoteMode ? (
             <>
               <p>远程状态：{remoteGrokHealth?.message ?? "尚未检测当前 SSH 目标"}</p>
               {remoteGrokHealth?.version ? <p>远程版本：{remoteGrokHealth.version}</p> : null}
+              {remoteGrokHealth?.auth_ok === true ? <p>远程登录：已登录</p> : null}
+              {remoteGrokHealth?.auth_ok === false ? (
+                <p className="text-destructive">远程登录：未登录（请在远端执行 `grok login`）</p>
+              ) : null}
             </>
           ) : null}
         </div>
@@ -1048,19 +1082,33 @@ export function RuntimeSettingsTab({
               onValueChange={(value) => {
                 if (value) onGrokDefaultModelChange(value);
               }}
-              disabled={healthLoading || grokActionLoading !== null}
+              disabled={healthLoading || grokActionLoading !== null || grokModelListLoading}
             >
               <SelectTrigger className="bg-background">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                {GROK_MODEL_OPTIONS.map((option) => (
+                {(defaultGrokModelOptions.some((option) => option.value === grokDefaultModel)
+                  ? defaultGrokModelOptions
+                  : [
+                      ...defaultGrokModelOptions,
+                      { value: grokDefaultModel, label: grokDefaultModel, is_default: false },
+                    ]
+                ).map((option) => (
                   <SelectItem key={option.value} value={option.value}>
                     {option.label}
+                    {option.is_default ? "（默认）" : ""}
                   </SelectItem>
                 ))}
               </SelectContent>
             </Select>
+            <p className="text-xs text-muted-foreground">
+              {grokModelList.length > 0
+                ? `已从 CLI 加载 ${grokModelList.length} 个模型`
+                : grokModelListLoading
+                  ? "正在加载模型..."
+                  : "CLI 不可用时使用静态列表"}
+            </p>
           </div>
           <div className="space-y-2">
             <label className="text-sm font-medium">默认推理强度</label>

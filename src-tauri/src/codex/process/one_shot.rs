@@ -6,9 +6,8 @@ const DEFAULT_OPENCODE_ONE_SHOT_MODEL: &str = "openai/gpt-4o";
 const DEFAULT_OPENCODE_ONE_SHOT_REASONING_EFFORT: &str = "high";
 const SUPPORTED_CLAUDE_ONE_SHOT_REASONING_EFFORTS: &[&str] =
     &["low", "medium", "high", "xhigh", "max", "auto"];
-const SUPPORTED_GROK_ONE_SHOT_REASONING_EFFORTS: &[&str] = &["high", "medium", "low"];
-const SUPPORTED_OPENCODE_ONE_SHOT_REASONING_EFFORTS: &[&str] =
-    &["default", "low", "medium", "high", "xhigh", "max"];
+const SUPPORTED_GROK_ONE_SHOT_REASONING_EFFORTS: &[&str] = &["low", "medium", "high"];
+const SUPPORTED_OPENCODE_ONE_SHOT_REASONING_EFFORTS: &[&str] = &["low", "medium", "high"];
 
 pub(super) fn build_sdk_input_items(
     prompt: &str,

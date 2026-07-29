@@ -1232,6 +1232,9 @@ pub struct GrokHealthCheck {
     pub cli_available: bool,
     pub cli_version: Option<String>,
     pub cli_path: Option<String>,
+    /// None = 未能判定登录态；Some(true/false) = 已探测。
+    #[serde(default)]
+    pub auth_ok: Option<bool>,
     pub status_message: String,
     pub checked_at: String,
 }
@@ -1240,8 +1243,18 @@ pub struct GrokHealthCheck {
 pub struct RemoteGrokHealthCheck {
     pub available: bool,
     pub version: Option<String>,
+    #[serde(default)]
+    pub auth_ok: Option<bool>,
     pub message: String,
     pub checked_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GrokModelInfo {
+    pub value: String,
+    pub label: String,
+    #[serde(default)]
+    pub is_default: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

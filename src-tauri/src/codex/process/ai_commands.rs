@@ -616,7 +616,7 @@ pub async fn ai_generate_coordinator_task_plan(
     let project = fetch_project_by_id(&pool, &task.project_id).await?;
     if project.project_type == PROJECT_TYPE_SSH && coordinator.ai_provider == "opencode" {
         return Err(format!(
-            "协调员 {} 配置为 OpenCode，但 SSH 项目暂不支持 OpenCode 一次性 AI，请改用 Codex 或 Claude",
+            "协调员 {} 配置为 OpenCode，但 SSH 项目暂不支持 OpenCode 一次性 AI，请改用 Codex、Claude 或 Grok",
             coordinator.name
         ));
     }
@@ -720,7 +720,7 @@ pub async fn ai_generate_tester_acceptance(
     let project = fetch_project_by_id(&pool, &task.project_id).await?;
     if project.project_type == PROJECT_TYPE_SSH && tester.ai_provider == "opencode" {
         return Err(format!(
-            "测试员 {} 配置为 OpenCode，但 SSH 项目暂不支持 OpenCode 一次性 AI，请改用 Codex 或 Claude",
+            "测试员 {} 配置为 OpenCode，但 SSH 项目暂不支持 OpenCode 一次性 AI，请改用 Codex、Claude 或 Grok",
             tester.name
         ));
     }

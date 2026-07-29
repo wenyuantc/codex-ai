@@ -1643,8 +1643,12 @@ pub async fn validate_remote_grok_health<R: Runtime>(
     let pool = sqlite_pool(&app).await?;
     let ssh_config = fetch_ssh_config_record_by_id(&pool, &ssh_config_id).await?;
     let checked_at = now_sqlite();
+    // 一次探测：version + models（用于登录态）。失败时 models 段落可能为空。
     let remote_command = build_remote_shell_command(
-        "if command -v grok >/dev/null 2>&1; then grok --version; else echo '__GROK_MISSING__'; exit 127; fi",
+        "if command -v grok >/dev/null 2>&1; then \
+            echo '__GROK_VERSION__'; grok --version; \
+            echo '__GROK_MODELS__'; grok models 2>&1 || true; \
+         else echo '__GROK_MISSING__'; exit 127; fi",
         None,
     );
 
@@ -1655,16 +1659,62 @@ pub async fn validate_remote_grok_health<R: Runtime>(
             if output.status.success() && !stdout.contains("__GROK_MISSING__") {
                 let version = stdout
                     .lines()
+                    .skip_while(|line| line.trim() != "__GROK_VERSION__")
+                    .skip(1)
+                    .take_while(|line| line.trim() != "__GROK_MODELS__")
                     .map(str::trim)
                     .find(|line| !line.is_empty())
-                    .map(ToOwned::to_owned);
+                    .map(ToOwned::to_owned)
+                    .or_else(|| {
+                        stdout
+                            .lines()
+                            .map(str::trim)
+                            .find(|line| {
+                                !line.is_empty()
+                                    && *line != "__GROK_VERSION__"
+                                    && *line != "__GROK_MODELS__"
+                            })
+                            .map(ToOwned::to_owned)
+                    });
+
+                let models_section = stdout
+                    .lines()
+                    .skip_while(|line| line.trim() != "__GROK_MODELS__")
+                    .skip(1)
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                let (_, auth_ok, _) = crate::grok::parse_grok_models_output(&models_section);
+                // models 成功输出且未明确失败时，至少视为可能已登录；无 models 段落则未知。
+                let auth_ok = if models_section.trim().is_empty() {
+                    None
+                } else {
+                    auth_ok.or(Some(true))
+                };
+
+                let message = match (&version, auth_ok) {
+                    (Some(version), Some(true)) => {
+                        format!("远程 Grok CLI 可用（{version}），已登录")
+                    }
+                    (Some(version), Some(false)) => {
+                        format!(
+                            "远程 Grok CLI 可用（{version}），但未登录或登录失效。请在远程执行 `grok login`。"
+                        )
+                    }
+                    (Some(version), None) => {
+                        format!("远程 Grok CLI 可用（{version}）；登录态未知")
+                    }
+                    (None, Some(true)) => "远程 Grok CLI 可用，已登录".to_string(),
+                    (None, Some(false)) => {
+                        "远程 Grok CLI 可用，但未登录。请在远程执行 `grok login`。".to_string()
+                    }
+                    (None, None) => "远程 Grok CLI 可用；登录态未知".to_string(),
+                };
+
                 Ok(crate::db::models::RemoteGrokHealthCheck {
                     available: true,
-                    version: version.clone(),
-                    message: match version {
-                        Some(version) => format!("远程 Grok CLI 可用（{version}）"),
-                        None => "远程 Grok CLI 可用".to_string(),
-                    },
+                    version,
+                    auth_ok,
+                    message,
                     checked_at,
                 })
             } else {
@@ -1678,6 +1728,7 @@ pub async fn validate_remote_grok_health<R: Runtime>(
                 Ok(crate::db::models::RemoteGrokHealthCheck {
                     available: false,
                     version: None,
+                    auth_ok: None,
                     message: format!(
                         "远程 Grok CLI 不可用：{detail}。请在远程安装 Grok Build CLI 并执行 `grok login`。"
                     ),

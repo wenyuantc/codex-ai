@@ -1,6 +1,60 @@
 use super::*;
 use crate::opencode;
 
+fn normalize_employee_ai_provider(value: Option<&str>) -> String {
+    match value.map(str::trim) {
+        Some("claude") => "claude".to_string(),
+        Some("opencode") => "opencode".to_string(),
+        Some("grok") => "grok".to_string(),
+        _ => "codex".to_string(),
+    }
+}
+
+/// 按 provider 归一化员工推理强度。Grok / OpenCode 仅 low|medium|high。
+fn normalize_employee_reasoning_effort(provider: &str, value: Option<&str>) -> String {
+    match provider {
+        "grok" => crate::grok::normalize_grok_reasoning_effort(value),
+        "opencode" => match value.map(str::trim) {
+            Some(value) if matches!(value, "low" | "medium" | "high") => value.to_string(),
+            _ => "high".to_string(),
+        },
+        "claude" => match value.map(str::trim) {
+            Some(value)
+                if matches!(
+                    value,
+                    "low" | "medium" | "high" | "xhigh" | "max" | "auto"
+                ) =>
+            {
+                value.to_string()
+            }
+            _ => "high".to_string(),
+        },
+        _ => match value.map(str::trim) {
+            Some(value) if matches!(value, "low" | "medium" | "high" | "xhigh" | "max") => {
+                value.to_string()
+            }
+            _ => "high".to_string(),
+        },
+    }
+}
+
+fn normalize_employee_model(provider: &str, value: Option<&str>) -> String {
+    match provider {
+        "grok" => crate::grok::normalize_grok_model(value),
+        "claude" => crate::claude::normalize_claude_model(value),
+        "opencode" => value
+            .map(str::trim)
+            .filter(|item| !item.is_empty())
+            .map(ToOwned::to_owned)
+            .unwrap_or_else(|| "openai/gpt-4o".to_string()),
+        _ => value
+            .map(str::trim)
+            .filter(|item| !item.is_empty())
+            .map(ToOwned::to_owned)
+            .unwrap_or_else(|| "gpt-5.4".to_string()),
+    }
+}
+
 async fn list_live_opencode_employee_processes(
     state: &Arc<tokio::sync::Mutex<opencode::OpenCodeManager>>,
     employee_id: &str,
@@ -180,19 +234,21 @@ pub async fn create_employee<R: Runtime>(
         ensure_project_exists(&pool, project_id).await?;
     }
 
+    let ai_provider = normalize_employee_ai_provider(payload.ai_provider.as_deref());
     let employee = Employee {
         id: new_id(),
         name: payload.name.trim().to_string(),
         role: payload.role,
-        model: payload.model.unwrap_or_else(|| "gpt-5.4".to_string()),
-        reasoning_effort: payload
-            .reasoning_effort
-            .unwrap_or_else(|| "high".to_string()),
+        model: normalize_employee_model(ai_provider.as_str(), payload.model.as_deref()),
+        reasoning_effort: normalize_employee_reasoning_effort(
+            ai_provider.as_str(),
+            payload.reasoning_effort.as_deref(),
+        ),
         status: "offline".to_string(),
         specialization: normalize_optional_text(payload.specialization.as_deref()),
         system_prompt: normalize_optional_text(payload.system_prompt.as_deref()),
         project_id,
-        ai_provider: payload.ai_provider.unwrap_or_else(|| "codex".to_string()),
+        ai_provider,
         created_at: now_sqlite(),
         updated_at: now_sqlite(),
     };
@@ -247,14 +303,31 @@ pub async fn update_employee<R: Runtime>(
         separated.push("role = ").push_bind_unseparated(role);
         touched = true;
     }
+    let next_provider = updates
+        .ai_provider
+        .as_deref()
+        .map(|value| normalize_employee_ai_provider(Some(value)))
+        .unwrap_or_else(|| current.ai_provider.clone());
+    let model_updated = updates.model.is_some();
+    let reasoning_effort_updated = updates.reasoning_effort.is_some();
+    let provider_updated = updates.ai_provider.is_some();
+
     if let Some(model) = updates.model {
-        separated.push("model = ").push_bind_unseparated(model);
+        separated
+            .push("model = ")
+            .push_bind_unseparated(normalize_employee_model(
+                next_provider.as_str(),
+                Some(model.as_str()),
+            ));
         touched = true;
     }
     if let Some(reasoning_effort) = updates.reasoning_effort {
-        separated
-            .push("reasoning_effort = ")
-            .push_bind_unseparated(reasoning_effort);
+        separated.push("reasoning_effort = ").push_bind_unseparated(
+            normalize_employee_reasoning_effort(
+                next_provider.as_str(),
+                Some(reasoning_effort.as_str()),
+            ),
+        );
         touched = true;
     }
     if let Some(status) = updates.status {
@@ -289,11 +362,26 @@ pub async fn update_employee<R: Runtime>(
             .push_bind_unseparated(project_id);
         touched = true;
     }
-    if let Some(ai_provider) = updates.ai_provider {
+    if provider_updated {
         separated
             .push("ai_provider = ")
-            .push_bind_unseparated(ai_provider);
+            .push_bind_unseparated(next_provider.clone());
         touched = true;
+        // 切换 provider 时，即使未显式改 effort，也按新 provider 收敛当前 effort
+        if !reasoning_effort_updated {
+            separated.push("reasoning_effort = ").push_bind_unseparated(
+                normalize_employee_reasoning_effort(
+                    next_provider.as_str(),
+                    Some(current.reasoning_effort.as_str()),
+                ),
+            );
+        }
+        if !model_updated {
+            separated.push("model = ").push_bind_unseparated(normalize_employee_model(
+                next_provider.as_str(),
+                Some(current.model.as_str()),
+            ));
+        }
     }
 
     if !touched {

@@ -760,7 +760,7 @@ export type ReasoningEffort = "low" | "medium" | "high" | "xhigh" | "max";
 
 export type AiProvider = "codex" | "claude" | "opencode" | "grok";
 export type ClaudeModelId = "opus" | "opus[1m]" | "sonnet" | "sonnet[1m]" | "haiku";
-export type GrokModelId = "grok-4.5";
+export type GrokModelId = "grok-4.5" | string;
 export type ModelId = CodexModelId | ClaudeModelId | GrokModelId | string;
 export type TaskStatus = "todo" | "in_progress" | "review" | "completed" | "blocked" | "archived";
 export type TaskAutomationMode = "review_fix_loop_v1";
@@ -938,13 +938,11 @@ export function normalizeCodexModel(value: string | null | undefined): CodexMode
   return value && isSupportedCodexModel(value) ? value : "gpt-5.4";
 }
 
+/** OpenCode 推理强度仅 low / medium / high */
 export const OPENCODE_EFFORT_OPTIONS: { value: string; label: string }[] = [
-  { value: "default", label: "Default" },
-  { value: "low", label: "Low" },
-  { value: "medium", label: "Medium" },
-  { value: "high", label: "High" },
-  { value: "xhigh", label: "Xhigh" },
-  { value: "max", label: "Max" },
+  { value: "low", label: "低" },
+  { value: "medium", label: "中" },
+  { value: "high", label: "高" },
 ];
 
 export function normalizeReasoningEffort(value: string | null | undefined): ReasoningEffort {
@@ -966,14 +964,15 @@ export const CLAUDE_MODEL_OPTIONS: { value: ClaudeModelId; label: string }[] = [
   { value: "haiku", label: "Claude Haiku" },
 ];
 
-export const GROK_MODEL_OPTIONS: { value: GrokModelId; label: string }[] = [
+export const GROK_MODEL_OPTIONS: { value: string; label: string }[] = [
   { value: "grok-4.5", label: "Grok 4.5" },
 ];
 
+/** Grok 推理强度仅 low / medium / high */
 export const GROK_EFFORT_OPTIONS: { value: string; label: string }[] = [
-  { value: "high", label: "高" },
-  { value: "medium", label: "中" },
   { value: "low", label: "低" },
+  { value: "medium", label: "中" },
+  { value: "high", label: "高" },
 ];
 
 export const CLAUDE_THINKING_BUDGET_OPTIONS: {
@@ -1048,8 +1047,8 @@ export function isSupportedClaudeModel(value: string): value is ClaudeModelId {
   return CLAUDE_MODEL_OPTIONS.some((option) => option.value === value);
 }
 
-export function isSupportedGrokModel(value: string): value is GrokModelId {
-  return GROK_MODEL_OPTIONS.some((option) => option.value === value);
+export function isSupportedGrokModel(value: string): boolean {
+  return value.trim().length > 0;
 }
 
 export function normalizeClaudeModel(
@@ -1067,10 +1066,16 @@ export function normalizeClaudeModel(
 
 export function normalizeGrokModel(
   value: string | null | undefined,
-): GrokModelId {
+): string {
   const normalized = value?.trim();
-  if (normalized && isSupportedGrokModel(normalized)) return normalized;
+  if (normalized) return normalized;
   return "grok-4.5";
+}
+
+export interface GrokModelInfo {
+  value: string;
+  label: string;
+  is_default?: boolean;
 }
 
 export function getModelOptionsForProvider(provider: AiProvider) {
@@ -1136,6 +1141,7 @@ export interface GrokHealthCheck {
   cli_available: boolean;
   cli_version: string | null;
   cli_path: string | null;
+  auth_ok?: boolean | null;
   status_message: string;
   checked_at: string;
 }
@@ -1143,6 +1149,7 @@ export interface GrokHealthCheck {
 export interface RemoteGrokHealthCheck {
   available: boolean;
   version: string | null;
+  auth_ok?: boolean | null;
   message: string;
   checked_at: string;
 }

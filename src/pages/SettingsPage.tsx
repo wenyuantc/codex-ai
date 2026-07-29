@@ -23,6 +23,7 @@ import {
   checkClaudeSdkHealth,
   checkGrokHealth,
   getGrokSettings,
+  listGrokModels,
   updateGrokSettings,
   validateRemoteGrokHealth,
   createSshConfig as createSshConfigCommand,
@@ -69,6 +70,7 @@ import {
   type AiCommitModelSource,
   type ClaudeHealthCheck,
   type GrokHealthCheck,
+  type GrokModelInfo,
   type RemoteGrokHealthCheck,
   type CodexHealthCheck,
   type CodexSettings,
@@ -240,6 +242,8 @@ export function SettingsPage() {
   const [grokActionLoading, setGrokActionLoading] = useState<"save" | null>(null);
   const [grokActionMessage, setGrokActionMessage] = useState<string | null>(null);
   const [grokActionError, setGrokActionError] = useState<string | null>(null);
+  const [grokModelList, setGrokModelList] = useState<GrokModelInfo[]>([]);
+  const [grokModelListLoading, setGrokModelListLoading] = useState(false);
 
   const selectedSshConfig = useMemo(
     () => sshConfigs.find((config) => config.id === selectedSshConfigId) ?? null,
@@ -419,14 +423,17 @@ export function SettingsPage() {
 
   async function loadGrokState() {
     try {
-      const [health, settings] = await Promise.all([
+      setGrokModelListLoading(true);
+      const [health, settings, models] = await Promise.all([
         checkGrokHealth(),
         getGrokSettings(),
+        listGrokModels().catch(() => [] as GrokModelInfo[]),
       ]);
       setGrokHealth(health);
       setGrokDefaultModel(settings.default_model || "grok-4.5");
       setGrokDefaultEffort(settings.default_reasoning_effort || "high");
       setGrokCliPathOverride(settings.cli_path_override ?? "");
+      setGrokModelList(models);
       setGrokActionError(null);
 
       if (isRemoteMode && selectedSshConfigId) {
@@ -436,6 +443,7 @@ export function SettingsPage() {
           setRemoteGrokHealth({
             available: false,
             version: null,
+            auth_ok: null,
             message: error instanceof Error ? error.message : "远程 Grok 健康检查失败",
             checked_at: new Date().toISOString().slice(0, 19).replace("T", " "),
           });
@@ -447,6 +455,8 @@ export function SettingsPage() {
       console.error("Failed to load Grok settings:", error);
       setGrokHealth(null);
       setGrokActionError(error instanceof Error ? error.message : "加载 Grok 设置失败");
+    } finally {
+      setGrokModelListLoading(false);
     }
   }
 
@@ -1069,6 +1079,8 @@ export function SettingsPage() {
             grokActionLoading={grokActionLoading}
             grokActionMessage={grokActionMessage}
             grokActionError={grokActionError}
+            grokModelList={grokModelList}
+            grokModelListLoading={grokModelListLoading}
             onGrokDefaultModelChange={setGrokDefaultModel}
             onGrokDefaultEffortChange={setGrokDefaultEffort}
             onGrokCliPathOverrideChange={setGrokCliPathOverride}

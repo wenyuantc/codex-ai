@@ -386,8 +386,36 @@ pub(super) fn parse_grok_json_event_line(
     Some(parsed)
 }
 
-/// 聚合 one-shot 输出：优先提取 assistant 文本，否则返回原始 stdout。
+/// 聚合 one-shot 输出：
+/// 1) 优先解析完整 `--output-format json` 对象的 `text`
+/// 2) 再尝试 streaming-json 行事件
+/// 3) 最后回落原始 stdout
 pub fn aggregate_grok_one_shot_output(stdout: &str) -> String {
+    let trimmed_all = stdout.trim();
+    if trimmed_all.is_empty() {
+        return String::new();
+    }
+
+    if let Ok(value) = serde_json::from_str::<Value>(trimmed_all) {
+        if let Some(text) = value
+            .get("text")
+            .and_then(|item| item.as_str())
+            .map(str::trim)
+            .filter(|item| !item.is_empty())
+        {
+            return text.to_string();
+        }
+        if let Some(message) = value
+            .get("message")
+            .and_then(|item| item.as_str())
+            .map(str::trim)
+            .filter(|item| !item.is_empty())
+        {
+            // error object: {"type":"error","message":"..."}
+            return message.to_string();
+        }
+    }
+
     let mut state = GrokJsonStreamState::default();
     let mut lines = Vec::new();
     let mut saw_json = false;
@@ -412,7 +440,7 @@ pub fn aggregate_grok_one_shot_output(stdout: &str) -> String {
     if saw_json && !lines.is_empty() {
         lines.join("\n")
     } else {
-        stdout.trim().to_string()
+        trimmed_all.to_string()
     }
 }
 
@@ -474,6 +502,16 @@ mod tests {
 {"type":"assistant","message":{"id":"1","content":[{"type":"text","text":"done"}]}}
 "#;
         assert_eq!(aggregate_grok_one_shot_output(stdout), "done");
+    }
+
+    #[test]
+    fn aggregates_one_shot_final_json_object() {
+        let stdout = r#"{
+  "text": "最终结果",
+  "stopReason": "EndTurn",
+  "sessionId": "sess-1"
+}"#;
+        assert_eq!(aggregate_grok_one_shot_output(stdout), "最终结果");
     }
 
     #[test]

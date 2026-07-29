@@ -66,12 +66,15 @@ New engine features must not assume local filesystem diffs always exist.
 | Item | Contract |
 |------|----------|
 | Provider id | `"grok"` (label `Grok`) |
-| Default model / effort | `grok-4.5` / `high` (`high\|medium\|low`) |
-| Session mode | Headless CLI only: `grok -p ... --output-format streaming-json --permission-mode bypassPermissions` |
+| Default model / effort | `grok-4.5` / `high` (effort: `low\|medium\|high`) |
+| Session mode | Headless CLI only: `grok -p ... --output-format streaming-json --permission-mode bypassPermissions`；本地图片用 `--prompt-json`（base64 content blocks）；SSH 图片跳过 |
+| System prompt | 仅 `--system-prompt-override`，不嵌进 user prompt |
 | Local resolve | `GROK_CLI_PATH` / settings `cli_path_override` / known dirs including `~/.grok/bin` |
 | SSH auth | Remote host must already have `grok` installed and authenticated (`grok login` or host-side env). **Do not inject `XAI_API_KEY` from the app.** |
-| Remote health | `validate_remote_grok_health` — version/availability only; no remote install |
-| One-shot | Local + SSH supported via `codex/process/one_shot.rs` grok branches (unlike OpenCode SSH one-shot which stays disabled) |
+| Local health | `check_grok_health` — version + `grok models` 登录态轻探测（`auth_ok`） |
+| Remote health | `validate_remote_grok_health` — version + models 登录态；no remote install |
+| Models | `list_grok_models` 解析 `grok models`，失败回落静态 `grok-4.5` |
+| One-shot | Local + SSH supported via `codex/process/one_shot.rs`；固定 `--output-format json`（unlike OpenCode SSH one-shot which stays disabled） |
 | Settings file | `app_config_dir/grok-settings.json` |
 | Frontend wrapper | `src/lib/grok.ts` (not only `backend.ts`) |
 | Events | `grok-stdout`, `grok-stderr`, `grok-exit`, `grok-session` |
