@@ -15,7 +15,7 @@
   "branch": "feat/ssh-secret-keychain",
   "base_branch": "main",
   "worktree_path": null,
-  "commit": null,
+  "commit": "3084c30d5e6152446d0ddb91430018ebcf1e5ae7",
   "pr_url": null,
   "subtasks": [],
   "children": [],
