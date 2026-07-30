@@ -106,3 +106,25 @@
 ### Status
 
 [OK] **Completed**
+
+
+## Session 5: 巨型文件模块化拆分
+
+**Date**: 2026-07-30
+**Task**: 巨型文件模块化拆分
+**Branch**: `feat/split-large-modules`
+
+### Summary
+
+完成 C6：git_workflow 与 task_automation 巨型文件按领域拆分（include! 保持路径稳定），两笔中文 refactor 提交；cargo test 284 全绿，npm run build 通过，并更新目录文档与 CLAUDE.md。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `efa1ea0` | (see git log) |
+| `b7b0923` | (see git log) |
+
+### Status
+
+[OK] **Completed**
