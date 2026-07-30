@@ -7,9 +7,18 @@
 ## How To Run
 
 ```bash
+# Unit + integration tests
 cargo test --manifest-path src-tauri/Cargo.toml
 cargo test --manifest-path src-tauri/Cargo.toml <test_name>
+
+# Lint (CI treats warnings as errors)
+cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
+# or: npm run lint:rust
 ```
+
+Clippy notes:
+- Crate allows `clippy::too_many_arguments` (engine/Tauri command surfaces; structural cleanup is C5).
+- Prefer mechanical fixes for other lints; do not silence new warnings without a short comment.
 
 ## Test Layout
 

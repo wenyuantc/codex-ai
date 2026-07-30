@@ -28,7 +28,7 @@ export function PromptSettingsTab() {
       const nextScene =
         preferredScene && document.templates.some((template) => template.scene === preferredScene)
           ? preferredScene
-          : document.templates[0]?.scene ?? null;
+          : (document.templates[0]?.scene ?? null);
       setSelectedScene(nextScene);
       setDraft(document.templates.find((template) => template.scene === nextScene) ?? null);
     } catch (loadError) {
@@ -90,7 +90,8 @@ export function PromptSettingsTab() {
     try {
       const document = await resetAiPromptTemplates(selectedScene);
       setTemplates(document.templates);
-      const restored = document.templates.find((template) => template.scene === selectedScene) ?? null;
+      const restored =
+        document.templates.find((template) => template.scene === selectedScene) ?? null;
       setDraft(restored ? { ...restored } : null);
       setMessage(restored ? `已重置「${restored.label}」为默认` : "已重置当前模板");
     } catch (resetError) {
@@ -136,7 +137,8 @@ export function PromptSettingsTab() {
           <div>
             <h3 className="text-sm font-medium">AI 提示词模板</h3>
             <p className="mt-1 text-xs text-muted-foreground">
-              配置各场景的输出目标与补充要求。保存后会写入本地 `ai-prompt-templates.json`，并在生成提示词时优先使用。
+              配置各场景的输出目标与补充要求。保存后会写入本地
+              `ai-prompt-templates.json`，并在生成提示词时优先使用。
             </p>
           </div>
           <Button
@@ -209,7 +211,9 @@ export function PromptSettingsTab() {
               </div>
 
               <div className="space-y-1">
-                <label className="text-xs text-muted-foreground">场景补充要求 (scene_requirement)</label>
+                <label className="text-xs text-muted-foreground">
+                  场景补充要求 (scene_requirement)
+                </label>
                 <textarea
                   value={draft.scene_requirement}
                   onChange={(event) => updateDraft({ scene_requirement: event.target.value })}

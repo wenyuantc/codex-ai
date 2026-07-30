@@ -156,7 +156,7 @@ fn validate_templates(templates: &[AiPromptTemplate]) -> Result<(), String> {
         if scene.is_empty() {
             return Err("提示词模板 scene 不能为空".to_string());
         }
-        if !allowed.iter().any(|key| *key == scene) {
+        if !allowed.contains(&scene) {
             return Err(format!("不支持的提示词模板场景: {scene}"));
         }
         if template.label.trim().is_empty() {

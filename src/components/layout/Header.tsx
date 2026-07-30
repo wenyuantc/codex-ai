@@ -88,10 +88,10 @@ export function Header() {
 
   useEffect(() => {
     if (
-      environmentMode === "ssh"
-      && sshConfigsInitialized
-      && sshConfigs.length === 0
-      && location.pathname !== "/settings"
+      environmentMode === "ssh" &&
+      sshConfigsInitialized &&
+      sshConfigs.length === 0 &&
+      location.pathname !== "/settings"
     ) {
       navigate("/settings");
     }
@@ -125,7 +125,9 @@ export function Header() {
         <GlobalSearchDialog />
         <NotificationCenter />
         <div className="flex items-center gap-2">
-          <span className="text-[11px] text-muted-foreground">{getEnvironmentModeLabel(environmentMode)}</span>
+          <span className="text-[11px] text-muted-foreground">
+            {getEnvironmentModeLabel(environmentMode)}
+          </span>
           <div className="inline-flex rounded-md border border-border bg-muted/30 p-0.5">
             <Button
               type="button"
@@ -221,7 +223,12 @@ export function Header() {
         <button
           onClick={toggleTheme}
           className="p-2 rounded-md hover:bg-accent transition-colors"
-          title={(dark ? "切换亮色模式" : "切换暗色模式") + " (" + shortcutDisplay(GLOBAL_SHORTCUTS[1]) + ")"}
+          title={
+            (dark ? "切换亮色模式" : "切换暗色模式") +
+            " (" +
+            shortcutDisplay(GLOBAL_SHORTCUTS[1]) +
+            ")"
+          }
         >
           {dark ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
         </button>

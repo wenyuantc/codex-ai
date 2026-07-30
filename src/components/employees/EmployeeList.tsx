@@ -31,9 +31,10 @@ export function EmployeeList({
   const projectEmployees = projectId
     ? employees.filter((employee) => employee.project_id === projectId)
     : employees;
-  const filtered = filter === "all"
-    ? projectEmployees
-    : projectEmployees.filter((employee) => employee.status === filter);
+  const filtered =
+    filter === "all"
+      ? projectEmployees
+      : projectEmployees.filter((employee) => employee.status === filter);
 
   const taskCountByEmployeeId = useMemo(() => {
     const counts = new Map<string, number>();
@@ -54,7 +55,9 @@ export function EmployeeList({
       return;
     }
 
-    const highlightedEmployee = projectEmployees.find((employee) => employee.id === highlightedEmployeeId);
+    const highlightedEmployee = projectEmployees.find(
+      (employee) => employee.id === highlightedEmployeeId,
+    );
     if (!highlightedEmployee) {
       return;
     }
@@ -92,12 +95,18 @@ export function EmployeeList({
                 : "text-muted-foreground hover:bg-accent"
             }`}
           >
-            {f === "all" ? "全部" : f === "online" ? "在线" : f === "busy" ? "忙碌" : f === "offline" ? "离线" : "错误"}
+            {f === "all"
+              ? "全部"
+              : f === "online"
+                ? "在线"
+                : f === "busy"
+                  ? "忙碌"
+                  : f === "offline"
+                    ? "离线"
+                    : "错误"}
           </button>
         ))}
-        <span className="text-xs text-muted-foreground ml-auto">
-          {filtered.length} 名员工
-        </span>
+        <span className="text-xs text-muted-foreground ml-auto">{filtered.length} 名员工</span>
       </div>
 
       {/* Grid */}
@@ -114,7 +123,9 @@ export function EmployeeList({
 
       {filtered.length === 0 && (
         <div className="text-center py-12 text-muted-foreground text-sm">
-          {filter === "all" ? "暂无员工" : `没有${filter === "online" ? "在线" : filter === "busy" ? "忙碌" : filter === "offline" ? "离线" : "错误"}员工`}
+          {filter === "all"
+            ? "暂无员工"
+            : `没有${filter === "online" ? "在线" : filter === "busy" ? "忙碌" : filter === "offline" ? "离线" : "错误"}员工`}
         </div>
       )}
     </div>

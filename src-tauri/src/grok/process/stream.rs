@@ -1,9 +1,11 @@
 use serde_json::Value;
 
 /// Grok Build CLI `streaming-json` 实际事件形态（实测）:
+///
 /// - `{"type":"thought","data":"<token>"}` 思考流（token 级）
 /// - `{"type":"text","data":"<token>"}` 回复流（token 级，可含 `\n`）
 /// - `{"type":"end","sessionId":"...","stopReason":"..."}` 回合结束
+///
 /// 另兼容旧的 assistant/message/tool 结构。
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub(super) struct GrokJsonStreamState {
@@ -59,10 +61,9 @@ fn json_text_lines(text: &str) -> Vec<String> {
 }
 
 fn json_text_delta(previous: &str, next: &str) -> String {
-    if next.starts_with(previous) {
-        next[previous.len()..].to_string()
-    } else {
-        next.to_string()
+    match next.strip_prefix(previous) {
+        Some(rest) => rest.to_string(),
+        None => next.to_string(),
     }
 }
 
@@ -164,11 +165,7 @@ fn extract_text_from_content(content: &Value) -> Option<String> {
     let text = array
         .iter()
         .filter_map(|item| {
-            if json_string_field(item, "type") == Some("text") {
-                json_first_string_field_raw(item, &["text", "data"]).map(ToOwned::to_owned)
-            } else {
-                json_first_string_field_raw(item, &["text", "data"]).map(ToOwned::to_owned)
-            }
+            json_first_string_field_raw(item, &["text", "data"]).map(ToOwned::to_owned)
         })
         .collect::<Vec<_>>()
         .join("\n");
@@ -254,8 +251,10 @@ pub(super) fn parse_grok_json_event_line(
         }
     };
 
-    let mut parsed = GrokJsonParsedEvent::default();
-    parsed.session_id = extract_session_id(&value);
+    let mut parsed = GrokJsonParsedEvent {
+        session_id: extract_session_id(&value),
+        ..Default::default()
+    };
 
     match json_string_field(&value, "type") {
         Some("system") | Some("status") | Some("heartbeat") => {}

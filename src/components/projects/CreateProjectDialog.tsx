@@ -1,12 +1,7 @@
 import { useEffect, useState } from "react";
 import { useProjectStore } from "@/stores/projectStore";
 import type { ProjectType } from "@/lib/types";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { RepoPathField } from "@/components/projects/RepoPathField";
@@ -111,9 +106,10 @@ export function CreateProjectDialog({ open, onOpenChange }: CreateProjectDialogP
     }
   };
 
-  const canSubmit = projectType === "local"
-    ? Boolean(name.trim() && repoPath.trim())
-    : Boolean(name.trim() && sshConfigId && remoteRepoPath.trim());
+  const canSubmit =
+    projectType === "local"
+      ? Boolean(name.trim() && repoPath.trim())
+      : Boolean(name.trim() && sshConfigId && remoteRepoPath.trim());
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -155,7 +151,11 @@ export function CreateProjectDialog({ open, onOpenChange }: CreateProjectDialogP
             >
               <SelectTrigger className="mt-1 bg-background">
                 <SelectValue>
-                  {(value) => getProjectTypeLabel(typeof value === "string" ? value as ProjectType : projectType)}
+                  {(value) =>
+                    getProjectTypeLabel(
+                      typeof value === "string" ? (value as ProjectType) : projectType,
+                    )
+                  }
                 </SelectValue>
               </SelectTrigger>
               <SelectContent>
@@ -184,7 +184,9 @@ export function CreateProjectDialog({ open, onOpenChange }: CreateProjectDialogP
                 >
                   <SelectTrigger className="mt-1 bg-background">
                     <SelectValue placeholder="选择 SSH 配置">
-                      {(value) => sshConfigs.find((config) => config.id === value)?.name ?? "选择 SSH 配置"}
+                      {(value) =>
+                        sshConfigs.find((config) => config.id === value)?.name ?? "选择 SSH 配置"
+                      }
                     </SelectValue>
                   </SelectTrigger>
                   <SelectContent>

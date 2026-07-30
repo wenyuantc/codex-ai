@@ -30,7 +30,7 @@ export function DeleteTaskDialog({
         <DialogHeader>
           <DialogTitle>确认删除任务</DialogTitle>
           <DialogDescription>
-            确认删除任务“{task?.title ?? ''}”吗？任务将移至回收站，可在回收站中恢复。
+            确认删除任务“{task?.title ?? ""}”吗？任务将移至回收站，可在回收站中恢复。
           </DialogDescription>
         </DialogHeader>
 

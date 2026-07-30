@@ -13,13 +13,7 @@ export type TaskGitContextState =
   | "failed"
   | "drifted";
 export type GitActionType =
-  | "merge"
-  | "push"
-  | "rebase"
-  | "cherry_pick"
-  | "stash"
-  | "unstash"
-  | "cleanup_worktree";
+  "merge" | "push" | "rebase" | "cherry_pick" | "stash" | "unstash" | "cleanup_worktree";
 export type ProjectGitRepoActionType = "commit" | "push" | "pull";
 export type ProjectGitBranchActionType = "switch" | "create" | "delete" | "merge";
 export type GitMergeFastForwardMode = "ff" | "no_ff" | "ff_only";
@@ -371,11 +365,7 @@ export type NotificationType =
 export type NotificationSeverity = "info" | "success" | "warning" | "error" | "critical";
 export type NotificationDeliveryMode = "one_time" | "sticky";
 export type NotificationState = "active" | "resolved";
-export type DesktopNotificationDeliveryReason =
-  | "created"
-  | "reactivated"
-  | "updated"
-  | "transient";
+export type DesktopNotificationDeliveryReason = "created" | "reactivated" | "updated" | "transient";
 
 export interface AppNotification {
   id: string;
@@ -737,12 +727,7 @@ export interface DatabaseRestoreResult {
 
 export type CodexSessionKind = "execution" | "review";
 export type CodexSessionResumeStatus =
-  | "ready"
-  | "running"
-  | "missing_employee"
-  | "missing_cli_session"
-  | "stopping"
-  | "invalid";
+  "ready" | "running" | "missing_employee" | "missing_cli_session" | "stopping" | "invalid";
 export type CodexModelId =
   | "gpt-5.6-sol"
   | "gpt-5.6-terra"
@@ -861,46 +846,34 @@ export function normalizeTaskAutomationFailureStrategy(
   return value && isSupportedTaskAutomationFailureStrategy(value) ? value : "blocked";
 }
 
-export function isSupportedWorktreeLocationMode(
-  value: string,
-): value is WorktreeLocationMode {
+export function isSupportedWorktreeLocationMode(value: string): value is WorktreeLocationMode {
   return WORKTREE_LOCATION_MODE_OPTIONS.some((option) => option.value === value);
 }
 
 export function normalizeWorktreeLocationMode(
   value: string | null | undefined,
 ): WorktreeLocationMode {
-  return value && isSupportedWorktreeLocationMode(value)
-    ? value
-    : "repo_sibling_hidden";
+  return value && isSupportedWorktreeLocationMode(value) ? value : "repo_sibling_hidden";
 }
 
-export function isSupportedAiCommitMessageLength(
-  value: string,
-): value is AiCommitMessageLength {
+export function isSupportedAiCommitMessageLength(value: string): value is AiCommitMessageLength {
   return AI_COMMIT_MESSAGE_LENGTH_OPTIONS.some((option) => option.value === value);
 }
 
 export function normalizeAiCommitMessageLength(
   value: string | null | undefined,
 ): AiCommitMessageLength {
-  return value && isSupportedAiCommitMessageLength(value)
-    ? value
-    : "title_with_body";
+  return value && isSupportedAiCommitMessageLength(value) ? value : "title_with_body";
 }
 
-export function isSupportedAiCommitModelSource(
-  value: string,
-): value is AiCommitModelSource {
+export function isSupportedAiCommitModelSource(value: string): value is AiCommitModelSource {
   return AI_COMMIT_MODEL_SOURCE_OPTIONS.some((option) => option.value === value);
 }
 
 export function normalizeAiCommitModelSource(
   value: string | null | undefined,
 ): AiCommitModelSource {
-  return value && isSupportedAiCommitModelSource(value)
-    ? value
-    : "inherit_one_shot";
+  return value && isSupportedAiCommitModelSource(value) ? value : "inherit_one_shot";
 }
 
 export const CODEX_MODEL_OPTIONS: { value: CodexModelId; label: string }[] = [
@@ -1051,22 +1024,19 @@ export function isSupportedGrokModel(value: string): boolean {
   return value.trim().length > 0;
 }
 
-export function normalizeClaudeModel(
-  value: string | null | undefined,
-): ClaudeModelId {
+export function normalizeClaudeModel(value: string | null | undefined): ClaudeModelId {
   const normalized = value?.trim();
   if (!normalized) return "sonnet";
   if (isSupportedClaudeModel(normalized)) return normalized;
   const hasOneMillionContext = normalized.includes("[1m]");
   if (normalized.startsWith("claude-opus-")) return hasOneMillionContext ? "opus[1m]" : "opus";
-  if (normalized.startsWith("claude-sonnet-")) return hasOneMillionContext ? "sonnet[1m]" : "sonnet";
+  if (normalized.startsWith("claude-sonnet-"))
+    return hasOneMillionContext ? "sonnet[1m]" : "sonnet";
   if (normalized.startsWith("claude-haiku-")) return "haiku";
   return "sonnet";
 }
 
-export function normalizeGrokModel(
-  value: string | null | undefined,
-): string {
+export function normalizeGrokModel(value: string | null | undefined): string {
   const normalized = value?.trim();
   if (normalized) return normalized;
   return "grok-4.5";
@@ -1092,9 +1062,7 @@ export function getDefaultModelForProvider(provider: AiProvider): ModelId {
   return "gpt-5.4";
 }
 
-export function normalizeAiProvider(
-  value: string | null | undefined,
-): AiProvider {
+export function normalizeAiProvider(value: string | null | undefined): AiProvider {
   if (value === "claude") return "claude";
   if (value === "opencode") return "opencode";
   if (value === "grok") return "grok";

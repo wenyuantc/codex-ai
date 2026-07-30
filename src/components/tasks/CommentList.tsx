@@ -25,9 +25,7 @@ export function CommentList({ taskId }: CommentListProps) {
 
   return (
     <div>
-      <h3 className="text-xs font-medium text-muted-foreground mb-2">
-        评论 ({items.length})
-      </h3>
+      <h3 className="text-xs font-medium text-muted-foreground mb-2">评论 ({items.length})</h3>
 
       {items.length > 0 && (
         <div className="space-y-2 mb-3">

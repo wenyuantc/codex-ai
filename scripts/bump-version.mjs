@@ -27,7 +27,12 @@ function replaceInFile(relativePath, replacer) {
 }
 
 replaceInFile("src-tauri/Cargo.toml", (content) =>
-  replaceAfterMarker(content, "[package]", /^version\s*=\s*"[^"]+"$/m, `version = "${nextVersion}"`),
+  replaceAfterMarker(
+    content,
+    "[package]",
+    /^version\s*=\s*"[^"]+"$/m,
+    `version = "${nextVersion}"`,
+  ),
 );
 
 replaceInFile("src-tauri/Cargo.lock", (content) =>

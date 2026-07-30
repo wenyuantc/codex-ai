@@ -2,22 +2,13 @@ import { useEffect, useState } from "react";
 import { Flag, Plus, Trash2 } from "lucide-react";
 
 import type { Milestone } from "@/lib/types";
-import {
-  createMilestone,
-  deleteMilestone,
-  listMilestones,
-} from "@/lib/backend";
+import { createMilestone, deleteMilestone, listMilestones } from "@/lib/backend";
 import { formatDate } from "@/lib/utils";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 
 interface ProjectMilestonesSectionProps {
   projectId: string;

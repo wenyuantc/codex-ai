@@ -32,12 +32,12 @@ export function buildTaskExecutionInput({
   followUpPrompt,
 }: BuildTaskExecutionPromptOptions): TaskExecutionInput {
   const trimmedPlan = planContent?.trim();
-  const sections = trimmedPlan
-    ? [`执行计划:\n${trimmedPlan}`]
-    : [`任务标题:\n${title.trim()}`];
+  const sections = trimmedPlan ? [`执行计划:\n${trimmedPlan}`] : [`任务标题:\n${title.trim()}`];
   const trimmedDescription = description?.trim();
   const trimmedFollowUpPrompt = followUpPrompt?.trim();
-  const validAttachments = attachments.filter((attachment) => attachment.stored_path.trim().length > 0);
+  const validAttachments = attachments.filter(
+    (attachment) => attachment.stored_path.trim().length > 0,
+  );
 
   if (!trimmedPlan && trimmedDescription) {
     sections.push(`任务描述:\n${trimmedDescription}`);
@@ -52,9 +52,9 @@ export function buildTaskExecutionInput({
   }
 
   if (validAttachments.length > 0) {
-    const attachmentLines = validAttachments.map((attachment, index) => (
-      `${index + 1}. ${attachment.original_name}`
-    ));
+    const attachmentLines = validAttachments.map(
+      (attachment, index) => `${index + 1}. ${attachment.original_name}`,
+    );
     sections.push(
       `任务附件:\n${attachmentLines.join("\n")}\n\n说明：以上附件已绑定到当前任务；其中图片会随本次任务一并附带给 Codex。`,
     );

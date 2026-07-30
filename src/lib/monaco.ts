@@ -193,7 +193,8 @@ export function detectMonacoLanguage(filePath: string): string {
   if (normalized.endsWith(".java")) return "java";
   if (normalized.endsWith(".yaml") || normalized.endsWith(".yml")) return "yaml";
   if (normalized.endsWith(".xml")) return "xml";
-  if (normalized.endsWith(".sh") || normalized.endsWith(".bash") || normalized.endsWith(".zsh")) return "shell";
+  if (normalized.endsWith(".sh") || normalized.endsWith(".bash") || normalized.endsWith(".zsh"))
+    return "shell";
   if (normalized.endsWith(".sql")) return "sql";
   if (normalized.endsWith(".toml")) return "ini";
   return "plaintext";

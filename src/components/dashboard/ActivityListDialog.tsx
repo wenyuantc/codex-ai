@@ -76,7 +76,9 @@ export function ActivityListDialog({
   const fetchActivitiesPage = useDashboardStore((state) => state.fetchActivitiesPage);
   const visibleProjects = useProjectStore((state) => state.projects);
   const [activities, setActivities] = useState<ActivityLog[]>([]);
-  const [filters, setFilters] = useState<ActivityFilterFormState>(() => buildDefaultFilters(projectId));
+  const [filters, setFilters] = useState<ActivityFilterFormState>(() =>
+    buildDefaultFilters(projectId),
+  );
   const [availableActions, setAvailableActions] = useState<string[]>([]);
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
@@ -92,17 +94,14 @@ export function ActivityListDialog({
   }, [projectId, projectName, visibleProjects]);
   const currentFilters = useMemo(() => toActivityFilters(filters), [filters]);
   const hasInvalidDateRange = Boolean(
-    filters.startDate
-    && filters.endDate
-    && filters.startDate > filters.endDate,
+    filters.startDate && filters.endDate && filters.startDate > filters.endDate,
   );
-  const resetDisabled = (
-    filters.projectId === defaultFilters.projectId
-    && filters.action === defaultFilters.action
-    && filters.keyword === defaultFilters.keyword
-    && filters.startDate === defaultFilters.startDate
-    && filters.endDate === defaultFilters.endDate
-  );
+  const resetDisabled =
+    filters.projectId === defaultFilters.projectId &&
+    filters.action === defaultFilters.action &&
+    filters.keyword === defaultFilters.keyword &&
+    filters.startDate === defaultFilters.startDate &&
+    filters.endDate === defaultFilters.endDate;
   const totalPages = total > 0 ? Math.ceil(total / PAGE_SIZE) : 0;
   const rangeStart = total === 0 ? 0 : (page - 1) * PAGE_SIZE + 1;
   const rangeEnd = total === 0 ? 0 : Math.min(page * PAGE_SIZE, total);
@@ -127,7 +126,14 @@ export function ActivityListDialog({
     }
 
     setPage(1);
-  }, [filters.action, filters.endDate, filters.keyword, filters.projectId, filters.startDate, open]);
+  }, [
+    filters.action,
+    filters.endDate,
+    filters.keyword,
+    filters.projectId,
+    filters.startDate,
+    open,
+  ]);
 
   useEffect(() => {
     if (!open || filters.projectId === ALL_PROJECTS_VALUE) {
@@ -206,9 +212,7 @@ export function ActivityListDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent
-        className="w-[min(96vw,56rem)] max-w-[min(96vw,56rem)] sm:max-w-[min(96vw,56rem)]"
-      >
+      <DialogContent className="w-[min(96vw,56rem)] max-w-[min(96vw,56rem)] sm:max-w-[min(96vw,56rem)]">
         <DialogHeader>
           <DialogTitle>全部活动</DialogTitle>
           <DialogDescription>
@@ -224,10 +228,12 @@ export function ActivityListDialog({
               <label className="text-sm font-medium text-foreground">项目</label>
               <Select<string>
                 value={filters.projectId}
-                onValueChange={(value) => setFilters((current) => ({
-                  ...current,
-                  projectId: value ?? ALL_PROJECTS_VALUE,
-                }))}
+                onValueChange={(value) =>
+                  setFilters((current) => ({
+                    ...current,
+                    projectId: value ?? ALL_PROJECTS_VALUE,
+                  }))
+                }
               >
                 <SelectTrigger className="bg-background">
                   <SelectValue>
@@ -237,7 +243,9 @@ export function ActivityListDialog({
                       }
 
                       if (typeof value === "string") {
-                        return projectOptions.find((project) => project.id === value)?.name ?? value;
+                        return (
+                          projectOptions.find((project) => project.id === value)?.name ?? value
+                        );
                       }
 
                       return "全部项目";
@@ -259,10 +267,12 @@ export function ActivityListDialog({
               <label className="text-sm font-medium text-foreground">活动类型</label>
               <Select<string>
                 value={filters.action}
-                onValueChange={(value) => setFilters((current) => ({
-                  ...current,
-                  action: value ?? ALL_ACTIONS_VALUE,
-                }))}
+                onValueChange={(value) =>
+                  setFilters((current) => ({
+                    ...current,
+                    action: value ?? ALL_ACTIONS_VALUE,
+                  }))
+                }
               >
                 <SelectTrigger className="bg-background">
                   <SelectValue>
@@ -297,7 +307,9 @@ export function ActivityListDialog({
               <Input
                 id="activity-keyword"
                 value={filters.keyword}
-                onChange={(event) => setFilters((current) => ({ ...current, keyword: event.target.value }))}
+                onChange={(event) =>
+                  setFilters((current) => ({ ...current, keyword: event.target.value }))
+                }
                 placeholder="搜索活动类型、详情、项目或员工"
               />
             </div>
@@ -310,7 +322,9 @@ export function ActivityListDialog({
                 id="activity-start-date"
                 type="date"
                 value={filters.startDate}
-                onChange={(event) => setFilters((current) => ({ ...current, startDate: event.target.value }))}
+                onChange={(event) =>
+                  setFilters((current) => ({ ...current, startDate: event.target.value }))
+                }
               />
             </div>
 
@@ -322,7 +336,9 @@ export function ActivityListDialog({
                 id="activity-end-date"
                 type="date"
                 value={filters.endDate}
-                onChange={(event) => setFilters((current) => ({ ...current, endDate: event.target.value }))}
+                onChange={(event) =>
+                  setFilters((current) => ({ ...current, endDate: event.target.value }))
+                }
               />
             </div>
           </div>

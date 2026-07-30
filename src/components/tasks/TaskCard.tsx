@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { memo, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
@@ -20,8 +20,6 @@ import {
 } from "@/lib/backend";
 import {
   formatDate,
-  formatDuration,
-  getTaskElapsedSeconds,
   getPriorityColor,
   getPriorityLabel,
   getTaskActionRuntimeState,
@@ -37,7 +35,6 @@ import {
   CircleCheckBig,
   Bot,
   ClipboardCheck,
-  Clock,
   FolderKanban,
   GitBranch,
   GripVertical,
@@ -57,6 +54,7 @@ import { DeleteTaskDialog } from "./DeleteTaskDialog";
 import { DeleteTaskWorktreeDialog } from "./DeleteTaskWorktreeDialog";
 import { TaskGitCommitDialog } from "./TaskGitCommitDialog";
 import { CoordinatorPlanDialog } from "./CoordinatorPlanDialog";
+import { TaskElapsedSummary } from "./TaskElapsedSummary";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { ProjectGitActionDialog } from "@/components/projects/ProjectGitActionDialog";
 import { useProjectStore } from "@/stores/projectStore";
@@ -123,7 +121,7 @@ function getGitContextBadge(context: TaskGitContext | null): {
   return null;
 }
 
-export function TaskCard({
+function TaskCardComponent({
   task,
   isOverlay,
   hideRunAction = false,
@@ -142,7 +140,9 @@ export function TaskCard({
   const [showGitActionDialog, setShowGitActionDialog] = useState(false);
   const [showCommitDialog, setShowCommitDialog] = useState(false);
   const [openingCommitDialog, setOpeningCommitDialog] = useState(false);
-  const [initialCommitOverview, setInitialCommitOverview] = useState<TaskGitCommitOverview | null>(null);
+  const [initialCommitOverview, setInitialCommitOverview] = useState<TaskGitCommitOverview | null>(
+    null,
+  );
   const [initialCommitError, setInitialCommitError] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [automationSubmitting, setAutomationSubmitting] = useState(false);
@@ -157,7 +157,6 @@ export function TaskCard({
   const [coordinatorPlanTerminalVisible, setCoordinatorPlanTerminalVisible] = useState(false);
   const [testerAcceptanceLoading, setTesterAcceptanceLoading] = useState(false);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
-  const [timerNow, setTimerNow] = useState(() => Date.now());
   const [taskTags, setTaskTags] = useState<Tag[]>([]);
   const [dependencyCount, setDependencyCount] = useState(0);
   const executionStartErrorRef = useRef<string | null>(null);
@@ -176,9 +175,15 @@ export function TaskCard({
   const updateTask = useTaskStore((s) => s.updateTask);
   const updateTaskStatus = useTaskStore((s) => s.updateTaskStatus);
   const fetchComments = useTaskStore((s) => s.fetchComments);
-  const assignee = task.assignee_id ? employees.find((employee) => employee.id === task.assignee_id) : undefined;
-  const reviewer = task.reviewer_id ? employees.find((employee) => employee.id === task.reviewer_id) : undefined;
-  const coordinator = task.coordinator_id ? employees.find((employee) => employee.id === task.coordinator_id) : undefined;
+  const assignee = task.assignee_id
+    ? employees.find((employee) => employee.id === task.assignee_id)
+    : undefined;
+  const reviewer = task.reviewer_id
+    ? employees.find((employee) => employee.id === task.reviewer_id)
+    : undefined;
+  const coordinator = task.coordinator_id
+    ? employees.find((employee) => employee.id === task.coordinator_id)
+    : undefined;
   const projectTesters = employees.filter(
     (employee) => employee.role === "tester" && employee.project_id === task.project_id,
   );
@@ -186,10 +191,7 @@ export function TaskCard({
   const canGenerateTesterAcceptance = reviewerIsTester || projectTesters.length > 0;
   const automationState = getTaskAutomationDisplayState(task, persistedAutomationState ?? null);
   const appendCoordinatorPlanLog = (line: string) => {
-    setCoordinatorPlanLogs((current) => [
-      ...current.slice(-199),
-      line,
-    ]);
+    setCoordinatorPlanLogs((current) => [...current.slice(-199), line]);
   };
 
   const getCoordinatorPlanRuntimeLabel = () => {
@@ -219,7 +221,7 @@ export function TaskCard({
       return {
         prompt: executionInput.prompt,
         imagePaths: executionInput.imagePaths,
-        resumeSessionId: followUpPrompt ? task.last_codex_session_id ?? undefined : undefined,
+        resumeSessionId: followUpPrompt ? (task.last_codex_session_id ?? undefined) : undefined,
       };
     },
     clearTaskOutputOnRun: true,
@@ -249,76 +251,63 @@ export function TaskCard({
   const isReviewTask = task.status === "review" || isReviewRunning;
   const hasActiveSession = isRunning || isReviewRunning;
   const isActionLoading =
-    executionActions.loading !== null
-    || reviewActions.loading
-    || automationSubmitting
-    || automationRestarting
-    || openingCommitDialog;
+    executionActions.loading !== null ||
+    reviewActions.loading ||
+    automationSubmitting ||
+    automationRestarting ||
+    openingCommitDialog;
   const shouldShowActionBar = !isOverlay && (isRunning || isReviewTask || !hideRunAction);
   const shouldShowPrimaryMenuAction = isRunning || isReviewTask || !hideRunAction;
   const isWorktreeModeEnabled = task.use_worktree;
   const isWorktreeReady = Boolean(gitContext?.worktree_path) && !gitContext?.worktree_missing;
-  const complexityScore = typeof task.complexity === "number" && task.complexity > 0
-    ? Math.min(10, task.complexity)
-    : null;
-  const canDeleteWorktree = Boolean(
-    isWorktreeModeEnabled
-    && isWorktreeReady
-    && !hasActiveSession,
-  );
+  const complexityScore =
+    typeof task.complexity === "number" && task.complexity > 0
+      ? Math.min(10, task.complexity)
+      : null;
+  const canDeleteWorktree = Boolean(isWorktreeModeEnabled && isWorktreeReady && !hasActiveSession);
   const canArchiveTask = !hasActiveSession && task.status !== "archived";
   const canMarkCompleted = task.status !== "completed" && task.status !== "archived";
   const shouldShowTaskActionBar = shouldShowActionBar;
   const gitContextBadge = getGitContextBadge(gitContext);
   const canTriggerMergeAction = Boolean(
-    gitContext
-    && !gitContext.worktree_missing
-    && gitContext.state !== "failed"
-    && gitContext.state !== "completed"
-    && gitContext.state !== "drifted",
+    gitContext &&
+    !gitContext.worktree_missing &&
+    gitContext.state !== "failed" &&
+    gitContext.state !== "completed" &&
+    gitContext.state !== "drifted",
   );
   const canCommitTaskCode = Boolean(
-    gitContext
-    && !gitContext.worktree_missing
-    && !hasActiveSession
-    && gitContext.state !== "failed"
-    && gitContext.state !== "completed"
-    && gitContext.state !== "merge_ready"
-    && gitContext.state !== "drifted"
-    && gitContext.state !== "action_pending"
-    && (
-      automationState.status === "commit_failed"
-      || automationState.status === "blocked"
-      || automationState.status === "manual_control"
-      || !automationState.enabled
-    ),
+    gitContext &&
+    !gitContext.worktree_missing &&
+    !hasActiveSession &&
+    gitContext.state !== "failed" &&
+    gitContext.state !== "completed" &&
+    gitContext.state !== "merge_ready" &&
+    gitContext.state !== "drifted" &&
+    gitContext.state !== "action_pending" &&
+    (automationState.status === "commit_failed" ||
+      automationState.status === "blocked" ||
+      automationState.status === "manual_control" ||
+      !automationState.enabled),
   );
-  const hasPreLogActions = shouldShowPrimaryMenuAction
-    || Boolean(task.last_codex_session_id)
-    || canCommitTaskCode
-    || canTriggerMergeAction
-    || canDeleteWorktree;
-  const canRestartAutomation = automationState.enabled && [
-    "launching_review",
-    "waiting_review",
-    "launching_fix",
-    "waiting_execution",
-    "review_launch_failed",
-    "fix_launch_failed",
-    "blocked",
-    "manual_control",
-  ].includes(automationState.status);
-  const elapsedSeconds = getTaskElapsedSeconds(task, timerNow);
-  const completedAtLabel = task.completed_at
-    ? formatDate(task.completed_at)
-    : formatDate(task.updated_at);
-  const taskTimeSummary = task.status === "completed"
-    ? `完成：${completedAtLabel} · 耗时：${formatDuration(elapsedSeconds)}`
-    : task.time_started_at
-      ? `计时中：${formatDuration(elapsedSeconds)}`
-      : task.time_spent_seconds > 0
-        ? `累计：${formatDuration(elapsedSeconds)}`
-        : `创建：${formatDate(task.created_at)}`;
+  const hasPreLogActions =
+    shouldShowPrimaryMenuAction ||
+    Boolean(task.last_codex_session_id) ||
+    canCommitTaskCode ||
+    canTriggerMergeAction ||
+    canDeleteWorktree;
+  const canRestartAutomation =
+    automationState.enabled &&
+    [
+      "launching_review",
+      "waiting_review",
+      "launching_fix",
+      "waiting_execution",
+      "review_launch_failed",
+      "fix_launch_failed",
+      "blocked",
+      "manual_control",
+    ].includes(automationState.status);
   const overdue = isTaskOverdue(task);
 
   useEffect(() => {
@@ -326,10 +315,7 @@ export function TaskCard({
       return;
     }
     let cancelled = false;
-    void Promise.all([
-      listTaskTags(task.id),
-      listTaskDependencies(task.id),
-    ])
+    void Promise.all([listTaskTags(task.id), listTaskDependencies(task.id)])
       .then(([tags, deps]: [Tag[], TaskDependency[]]) => {
         if (cancelled) {
           return;
@@ -348,14 +334,7 @@ export function TaskCard({
     };
   }, [isOverlay, task.id, task.updated_at]);
 
-  const {
-    attributes,
-    listeners,
-    setNodeRef,
-    transform,
-    transition,
-    isDragging,
-  } = useSortable({
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: task.id,
     data: { type: "task", status: task.status },
   });
@@ -388,25 +367,12 @@ export function TaskCard({
 
   useEffect(() => {
     if (
-      task.automation_mode === "review_fix_loop_v1"
-      && typeof persistedAutomationState === "undefined"
+      task.automation_mode === "review_fix_loop_v1" &&
+      typeof persistedAutomationState === "undefined"
     ) {
       void fetchTaskAutomationState(task.id);
     }
   }, [fetchTaskAutomationState, persistedAutomationState, task.automation_mode, task.id]);
-
-  useEffect(() => {
-    if (!task.time_started_at) {
-      return;
-    }
-
-    setTimerNow(Date.now());
-    const intervalId = window.setInterval(() => {
-      setTimerNow(Date.now());
-    }, 1000);
-
-    return () => window.clearInterval(intervalId);
-  }, [task.time_started_at]);
 
   const handleRun = async (e?: React.MouseEvent) => {
     e?.stopPropagation();
@@ -510,10 +476,7 @@ export function TaskCard({
     setAutomationSubmitting(true);
 
     try {
-      await setTaskAutomationMode(
-        task.id,
-        automationState.enabled ? null : "review_fix_loop_v1",
-      );
+      await setTaskAutomationMode(task.id, automationState.enabled ? null : "review_fix_loop_v1");
     } catch (error) {
       console.error("Failed to toggle task automation:", error);
     } finally {
@@ -572,9 +535,7 @@ export function TaskCard({
     setCoordinatorPlanError(null);
     setCoordinatorPlanDraft(existingPlan);
     setCoordinatorPlanLogs(
-      existingPlan
-        ? [`[计划] 已加载任务中保存的协调员计划，共 ${existingPlan.length} 字。`]
-        : [],
+      existingPlan ? [`[计划] 已加载任务中保存的协调员计划，共 ${existingPlan.length} 字。`] : [],
     );
     setCoordinatorPlanTerminalVisible(!existingPlan);
     setCoordinatorPlanDialogOpen(true);
@@ -585,9 +546,7 @@ export function TaskCard({
 
   const handleGenerateTesterAcceptance = async () => {
     setContextMenu(null);
-    const testerId = reviewerIsTester
-      ? task.reviewer_id
-      : projectTesters[0]?.id ?? null;
+    const testerId = reviewerIsTester ? task.reviewer_id : (projectTesters[0]?.id ?? null);
     if (!testerId) {
       return;
     }
@@ -647,7 +606,9 @@ export function TaskCard({
     setCoordinatorPlanError(null);
     executionStartErrorRef.current = null;
     setCoordinatorPlanTerminalVisible(true);
-    appendCoordinatorPlanLog(`[执行] 正在把计划交给执行员工：${assignee?.name ?? task.assignee_id}`);
+    appendCoordinatorPlanLog(
+      `[执行] 正在把计划交给执行员工：${assignee?.name ?? task.assignee_id}`,
+    );
     try {
       onOpenLog?.(task.id, "execution");
       await executionActions.runTask(plan);
@@ -710,15 +671,15 @@ export function TaskCard({
     try {
       await restartTaskAutomation(task.id);
       if (
-        automationState.status === "waiting_review"
-        || automationState.status === "launching_review"
-        || automationState.status === "review_launch_failed"
+        automationState.status === "waiting_review" ||
+        automationState.status === "launching_review" ||
+        automationState.status === "review_launch_failed"
       ) {
         onOpenLog?.(task.id, "review");
       } else if (
-        automationState.status === "waiting_execution"
-        || automationState.status === "launching_fix"
-        || automationState.status === "fix_launch_failed"
+        automationState.status === "waiting_execution" ||
+        automationState.status === "launching_fix" ||
+        automationState.status === "fix_launch_failed"
       ) {
         onOpenLog?.(task.id, "execution");
       }
@@ -738,9 +699,7 @@ export function TaskCard({
         className={`group rounded-md border bg-card p-3 ${
           highlighted ? "border-primary ring-2 ring-primary/20" : "border-border"
         } ${
-          isDragging
-            ? "opacity-50 shadow-lg"
-            : "hover:shadow-sm cursor-pointer"
+          isDragging ? "opacity-50 shadow-lg" : "hover:shadow-sm cursor-pointer"
         } transition-shadow`}
         onClick={() => !isDragging && setShowDetail(true)}
         onContextMenu={handleContextMenu}
@@ -775,22 +734,14 @@ export function TaskCard({
               )}
             </div>
             {task.description && (
-              <p className="text-xs text-muted-foreground mt-1 line-clamp-2">
-                {task.description}
-              </p>
+              <p className="text-xs text-muted-foreground mt-1 line-clamp-2">{task.description}</p>
             )}
             <div className="flex items-center gap-2 mt-2 flex-wrap">
-              <span
-                className={`text-xs font-medium ${getPriorityColor(
-                  task.priority
-                )}`}
-              >
+              <span className={`text-xs font-medium ${getPriorityColor(task.priority)}`}>
                 {getPriorityLabel(task.priority)}
               </span>
               {complexityScore !== null && (
-                <span className="text-xs text-muted-foreground">
-                  复杂度: {complexityScore}/10
-                </span>
+                <span className="text-xs text-muted-foreground">复杂度: {complexityScore}/10</span>
               )}
               <span
                 className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] ${
@@ -798,7 +749,10 @@ export function TaskCard({
                     ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-200"
                     : "bg-muted text-muted-foreground"
                 }`}
-                title={automationState.note ?? (automationState.enabled ? "自动质控已开启" : "自动质控未开启")}
+                title={
+                  automationState.note ??
+                  (automationState.enabled ? "自动质控已开启" : "自动质控未开启")
+                }
               >
                 <Bot className="h-3 w-3" />
                 自动质控·{getTaskAutomationStatusLabel(automationState.status)}
@@ -833,7 +787,9 @@ export function TaskCard({
                     void openCoordinatorPlanFlow();
                   }}
                   className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 text-[11px] text-primary hover:bg-primary/20"
-                  title={coordinator ? `协调员：${coordinator.name} · 打开协调员计划` : "打开协调员计划"}
+                  title={
+                    coordinator ? `协调员：${coordinator.name} · 打开协调员计划` : "打开协调员计划"
+                  }
                 >
                   <Network className="h-3 w-3" />
                   协调员计划
@@ -846,7 +802,11 @@ export function TaskCard({
                       ? "bg-destructive/10 text-destructive"
                       : "bg-muted text-muted-foreground"
                   }`}
-                  title={overdue ? `已逾期：${formatDate(task.due_date)}` : `截止：${formatDate(task.due_date)}`}
+                  title={
+                    overdue
+                      ? `已逾期：${formatDate(task.due_date)}`
+                      : `截止：${formatDate(task.due_date)}`
+                  }
                 >
                   <Calendar className="h-3 w-3" />
                   {overdue ? "逾期" : "截止"}·{formatDate(task.due_date)}
@@ -880,7 +840,9 @@ export function TaskCard({
               {task.status === "blocked" && (
                 <span
                   className="inline-flex items-center gap-1 rounded-full bg-amber-500/10 px-2 py-0.5 text-[11px] text-amber-800 dark:text-amber-100"
-                  title={task.blocked_reason?.trim() || "任务已阻塞，建议指定协调员并生成协调员计划"}
+                  title={
+                    task.blocked_reason?.trim() || "任务已阻塞，建议指定协调员并生成协调员计划"
+                  }
                 >
                   阻塞·建议协调
                 </span>
@@ -894,10 +856,7 @@ export function TaskCard({
                     {projectName}
                   </span>
                 )}
-                <span className="flex items-center gap-0.5">
-                  <Clock className="h-3 w-3" />
-                  {taskTimeSummary}
-                </span>
+                <TaskElapsedSummary task={task} />
               </div>
               {task.assignee_id && (
                 <span className="inline-block w-3.5 h-3.5 rounded-full bg-primary/10 text-primary text-[8px] leading-[14px] text-center self-start">
@@ -910,8 +869,8 @@ export function TaskCard({
         {/* Run/Stop Codex */}
         {shouldShowTaskActionBar && (
           <div className="flex items-center gap-1 mt-2 pt-2 border-t border-border/50">
-            {shouldShowActionBar && (
-              isRunning ? (
+            {shouldShowActionBar &&
+              (isRunning ? (
                 executionActions.isRunning ? (
                   <button
                     onClick={handleStop}
@@ -970,8 +929,7 @@ export function TaskCard({
                   <Play className="h-3 w-3 inline mr-0.5" />
                   未指派
                 </span>
-              )
-            )}
+              ))}
           </div>
         )}
       </div>
@@ -988,241 +946,255 @@ export function TaskCard({
           />
         </ErrorBoundary>
       )}
-      {!isOverlay && contextMenu && createPortal(
-        <>
-          <div
-            className="fixed inset-0 z-40"
-            onMouseDown={() => setContextMenu(null)}
-          />
-          <div
-            className="fixed z-50 w-48 rounded-lg border border-border bg-popover p-1 shadow-lg"
-            style={{ left: contextMenu.x, top: contextMenu.y }}
-            role="menu"
-            aria-label={`${task.title} 操作菜单`}
-            onMouseDown={(e) => e.stopPropagation()}
-            onClick={(e) => e.stopPropagation()}
-          >
-            {shouldShowPrimaryMenuAction && (isRunning ? (
-              executionActions.isRunning ? (
+      {!isOverlay &&
+        contextMenu &&
+        createPortal(
+          <>
+            <div className="fixed inset-0 z-40" onMouseDown={() => setContextMenu(null)} />
+            <div
+              className="fixed z-50 w-48 rounded-lg border border-border bg-popover p-1 shadow-lg"
+              style={{ left: contextMenu.x, top: contextMenu.y }}
+              role="menu"
+              aria-label={`${task.title} 操作菜单`}
+              onMouseDown={(e) => e.stopPropagation()}
+              onClick={(e) => e.stopPropagation()}
+            >
+              {shouldShowPrimaryMenuAction &&
+                (isRunning ? (
+                  executionActions.isRunning ? (
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => void handleStop()}
+                      disabled={isActionLoading}
+                      className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-left hover:bg-accent hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-50"
+                    >
+                      <Square className="h-4 w-4" />
+                      停止
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      role="menuitem"
+                      disabled
+                      className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-left disabled:pointer-events-none disabled:opacity-50"
+                      title="自动修复正在启动或运行中"
+                    >
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      运行中
+                    </button>
+                  )
+                ) : isReviewTask ? (
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={() => void handleReviewCode()}
+                    disabled={!task.reviewer_id || isActionLoading || isReviewRunning}
+                    title={
+                      task.reviewer_id
+                        ? `由 ${reviewer?.name ?? "审查员"} 发起代码审核`
+                        : "请先指定审查员"
+                    }
+                    className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-left hover:bg-accent hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-50"
+                  >
+                    <ScrollText className="h-4 w-4" />
+                    {isReviewRunning ? "审核中" : "审核代码"}
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={() => void handleRun()}
+                    disabled={!task.assignee_id || isActionLoading}
+                    className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-left hover:bg-accent hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-50"
+                  >
+                    <Play className="h-4 w-4" />
+                    运行
+                  </button>
+                ))}
+              {canMarkCompleted && (
+                <>
+                  {shouldShowPrimaryMenuAction && <div className="my-1 h-px bg-border" />}
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={() => void handleMarkCompleted()}
+                    disabled={!canMarkCompleted || isActionLoading}
+                    title={
+                      task.status === "completed"
+                        ? "任务已完成"
+                        : task.status === "archived"
+                          ? "已归档任务不能标记为已完成"
+                          : "将任务标记为已完成，自动移动到已完成列"
+                    }
+                    className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-left text-emerald-600 hover:bg-emerald-500/10 disabled:pointer-events-none disabled:opacity-50"
+                  >
+                    <CircleCheckBig className="h-4 w-4" />
+                    标记已完成
+                  </button>
+                </>
+              )}
+              {task.last_codex_session_id && (
+                <>
+                  {shouldShowPrimaryMenuAction && <div className="my-1 h-px bg-border" />}
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={openContinueDialog}
+                    disabled={isRunning || isActionLoading}
+                    className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-left hover:bg-accent hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-50"
+                  >
+                    <MessageSquarePlus className="h-4 w-4" />
+                    继续对话
+                  </button>
+                </>
+              )}
+              {task.coordinator_id && (
                 <button
                   type="button"
                   role="menuitem"
-                  onClick={() => void handleStop()}
+                  onClick={() => {
+                    setContextMenu(null);
+                    void openCoordinatorPlanFlow();
+                  }}
+                  className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-left hover:bg-accent hover:text-accent-foreground"
+                >
+                  <Network className="h-4 w-4" />
+                  协调员计划
+                </button>
+              )}
+              {canGenerateTesterAcceptance && (
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => void handleGenerateTesterAcceptance()}
+                  disabled={testerAcceptanceLoading}
+                  className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-left hover:bg-accent hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-50"
+                >
+                  {testerAcceptanceLoading ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <ClipboardCheck className="h-4 w-4" />
+                  )}
+                  {testerAcceptanceLoading ? "生成中…" : "生成验收清单"}
+                </button>
+              )}
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => void handleArchiveTask()}
+                disabled={!canArchiveTask || isActionLoading}
+                title={
+                  hasActiveSession
+                    ? "运行中的任务不能归档，请先停止相关会话"
+                    : "将任务移出主看板并保留记录"
+                }
+                className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-left hover:bg-accent hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-50"
+              >
+                <Archive className="h-4 w-4" />
+                归档
+              </button>
+              {canTriggerMergeAction && (
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={openMergeDialog}
                   disabled={isActionLoading}
                   className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-left hover:bg-accent hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-50"
                 >
-                  <Square className="h-4 w-4" />
-                  停止
+                  <GitBranch className="h-4 w-4" />
+                  合并到目标分支
                 </button>
-              ) : (
+              )}
+              {canCommitTaskCode && (
                 <button
                   type="button"
                   role="menuitem"
-                  disabled
-                  className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-left disabled:pointer-events-none disabled:opacity-50"
-                  title="自动修复正在启动或运行中"
+                  onClick={() => void openCommitDialog()}
+                  disabled={isActionLoading}
+                  className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-left hover:bg-accent hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-50"
                 >
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  运行中
+                  {openingCommitDialog ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <GitBranch className="h-4 w-4" />
+                  )}
+                  {openingCommitDialog ? "准备提交中" : "提交代码"}
                 </button>
-              )
-            ) : isReviewTask ? (
+              )}
+              {canDeleteWorktree && (
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={openDeleteWorktreeDialog}
+                  disabled={isActionLoading}
+                  className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-left text-destructive hover:bg-destructive/10 disabled:pointer-events-none disabled:opacity-50"
+                >
+                  <Trash2 className="h-4 w-4" />
+                  删除 Worktree
+                </button>
+              )}
+              {hasPreLogActions && <div className="my-1 h-px bg-border" />}
               <button
                 type="button"
                 role="menuitem"
-                onClick={() => void handleReviewCode()}
-                disabled={!task.reviewer_id || isActionLoading || isReviewRunning}
-                title={task.reviewer_id ? `由 ${reviewer?.name ?? "审查员"} 发起代码审核` : "请先指定审查员"}
+                onClick={() => void handleToggleAutomation()}
+                disabled={automationSubmitting}
+                className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-left hover:bg-accent hover:text-accent-foreground"
+              >
+                {automationSubmitting ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Bot className="h-4 w-4" />
+                )}
+                {automationState.enabled ? "关闭自动质控" : "开启自动质控"}
+              </button>
+              {canRestartAutomation && (
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => void handleRestartAutomation()}
+                  disabled={automationRestarting}
+                  className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-left hover:bg-accent hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-50"
+                >
+                  {automationRestarting ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <RotateCcw className="h-4 w-4" />
+                  )}
+                  重启自动化
+                </button>
+              )}
+              <div className="px-2 pb-1 text-[11px] text-muted-foreground">
+                当前：{getTaskAutomationStatusLabel(automationState.status)}
+              </div>
+              <div className="my-1 h-px bg-border" />
+              <button
+                type="button"
+                role="menuitem"
+                onClick={openLogDialog}
+                disabled={!task.assignee_id}
                 className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-left hover:bg-accent hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-50"
               >
                 <ScrollText className="h-4 w-4" />
-                {isReviewRunning ? "审核中" : "审核代码"}
+                查看终端日志
               </button>
-            ) : (
+              <div className="my-1 h-px bg-border" />
               <button
                 type="button"
                 role="menuitem"
-                onClick={() => void handleRun()}
-                disabled={!task.assignee_id || isActionLoading}
-                className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-left hover:bg-accent hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-50"
-              >
-                <Play className="h-4 w-4" />
-                运行
-              </button>
-            ))}
-            {canMarkCompleted && (
-              <>
-                {shouldShowPrimaryMenuAction && <div className="my-1 h-px bg-border" />}
-                <button
-                  type="button"
-                  role="menuitem"
-                  onClick={() => void handleMarkCompleted()}
-                  disabled={!canMarkCompleted || isActionLoading}
-                  title={task.status === "completed" ? "任务已完成" : task.status === "archived" ? "已归档任务不能标记为已完成" : "将任务标记为已完成，自动移动到已完成列"}
-                  className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-left text-emerald-600 hover:bg-emerald-500/10 disabled:pointer-events-none disabled:opacity-50"
-                >
-                  <CircleCheckBig className="h-4 w-4" />
-                  标记已完成
-                </button>
-              </>
-            )}
-            {task.last_codex_session_id && (
-              <>
-                {shouldShowPrimaryMenuAction && <div className="my-1 h-px bg-border" />}
-                <button
-                  type="button"
-                  role="menuitem"
-                  onClick={openContinueDialog}
-                  disabled={isRunning || isActionLoading}
-                  className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-left hover:bg-accent hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-50"
-                >
-                  <MessageSquarePlus className="h-4 w-4" />
-                  继续对话
-                </button>
-              </>
-            )}
-            {task.coordinator_id && (
-              <button
-                type="button"
-                role="menuitem"
-                onClick={() => {
-                  setContextMenu(null);
-                  void openCoordinatorPlanFlow();
-                }}
-                className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-left hover:bg-accent hover:text-accent-foreground"
-              >
-                <Network className="h-4 w-4" />
-                协调员计划
-              </button>
-            )}
-            {canGenerateTesterAcceptance && (
-              <button
-                type="button"
-                role="menuitem"
-                onClick={() => void handleGenerateTesterAcceptance()}
-                disabled={testerAcceptanceLoading}
-                className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-left hover:bg-accent hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-50"
-              >
-                {testerAcceptanceLoading ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <ClipboardCheck className="h-4 w-4" />
-                )}
-                {testerAcceptanceLoading ? "生成中…" : "生成验收清单"}
-              </button>
-            )}
-            <button
-              type="button"
-              role="menuitem"
-              onClick={() => void handleArchiveTask()}
-              disabled={!canArchiveTask || isActionLoading}
-              title={hasActiveSession ? "运行中的任务不能归档，请先停止相关会话" : "将任务移出主看板并保留记录"}
-              className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-left hover:bg-accent hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-50"
-            >
-              <Archive className="h-4 w-4" />
-              归档
-            </button>
-            {canTriggerMergeAction && (
-              <button
-                type="button"
-                role="menuitem"
-                onClick={openMergeDialog}
-                disabled={isActionLoading}
-                className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-left hover:bg-accent hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-50"
-              >
-                <GitBranch className="h-4 w-4" />
-                合并到目标分支
-              </button>
-            )}
-            {canCommitTaskCode && (
-              <button
-                type="button"
-                role="menuitem"
-                onClick={() => void openCommitDialog()}
-                disabled={isActionLoading}
-                className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-left hover:bg-accent hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-50"
-              >
-                {openingCommitDialog ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <GitBranch className="h-4 w-4" />
-                )}
-                {openingCommitDialog ? "准备提交中" : "提交代码"}
-              </button>
-            )}
-            {canDeleteWorktree && (
-              <button
-                type="button"
-                role="menuitem"
-                onClick={openDeleteWorktreeDialog}
-                disabled={isActionLoading}
+                onClick={openDeleteDialog}
+                disabled={hasActiveSession || deleting}
+                title={hasActiveSession ? "任务有进行中的执行或审核，请先停止" : "删除任务"}
                 className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-left text-destructive hover:bg-destructive/10 disabled:pointer-events-none disabled:opacity-50"
               >
                 <Trash2 className="h-4 w-4" />
-                删除 Worktree
+                删除
               </button>
-            )}
-            {hasPreLogActions && <div className="my-1 h-px bg-border" />}
-            <button
-              type="button"
-              role="menuitem"
-              onClick={() => void handleToggleAutomation()}
-              disabled={automationSubmitting}
-              className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-left hover:bg-accent hover:text-accent-foreground"
-            >
-              {automationSubmitting ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                <Bot className="h-4 w-4" />
-              )}
-              {automationState.enabled ? "关闭自动质控" : "开启自动质控"}
-            </button>
-            {canRestartAutomation && (
-              <button
-                type="button"
-                role="menuitem"
-                onClick={() => void handleRestartAutomation()}
-                disabled={automationRestarting}
-                className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-left hover:bg-accent hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-50"
-              >
-                {automationRestarting ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <RotateCcw className="h-4 w-4" />
-                )}
-                重启自动化
-              </button>
-            )}
-            <div className="px-2 pb-1 text-[11px] text-muted-foreground">
-              当前：{getTaskAutomationStatusLabel(automationState.status)}
             </div>
-            <div className="my-1 h-px bg-border" />
-            <button
-              type="button"
-              role="menuitem"
-              onClick={openLogDialog}
-              disabled={!task.assignee_id}
-              className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-left hover:bg-accent hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-50"
-            >
-              <ScrollText className="h-4 w-4" />
-              查看终端日志
-            </button>
-            <div className="my-1 h-px bg-border" />
-            <button
-              type="button"
-              role="menuitem"
-              onClick={openDeleteDialog}
-              disabled={hasActiveSession || deleting}
-              title={hasActiveSession ? "任务有进行中的执行或审核，请先停止" : "删除任务"}
-              className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-left text-destructive hover:bg-destructive/10 disabled:pointer-events-none disabled:opacity-50"
-            >
-              <Trash2 className="h-4 w-4" />
-              删除
-            </button>
-          </div>
-        </>,
-        document.body
-      )}
+          </>,
+          document.body,
+        )}
       {!isOverlay && showContinueDialog && (
         <ContinueConversationDialog
           open={showContinueDialog}
@@ -1240,7 +1212,9 @@ export function TaskCard({
           loading={coordinatorPlanLoading}
           saving={coordinatorPlanSaving}
           executing={coordinatorPlanExecuting}
-          error={coordinatorPlanError ?? (!task.assignee_id ? "请先指定执行员工，再执行计划。" : null)}
+          error={
+            coordinatorPlanError ?? (!task.assignee_id ? "请先指定执行员工，再执行计划。" : null)
+          }
           canExecute={Boolean(task.assignee_id)}
           terminalLogs={coordinatorPlanLogs}
           terminalVisible={coordinatorPlanTerminalVisible}
@@ -1310,3 +1284,5 @@ export function TaskCard({
     </>
   );
 }
+
+export const TaskCard = memo(TaskCardComponent);

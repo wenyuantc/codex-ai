@@ -623,7 +623,7 @@ fn compact_search_text(value: Option<&str>, max_chars: usize) -> Option<String> 
     let normalized = value
         .map(str::trim)
         .filter(|value| !value.is_empty())
-        .map(|value| value.replace('\r', " ").replace('\n', " "))?;
+        .map(|value| value.replace(['\r', '\n'], " "))?;
 
     if normalized.chars().count() <= max_chars {
         return Some(normalized);

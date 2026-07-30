@@ -6,9 +6,13 @@
 
 ## Verification Commands
 
-There is **no ESLint/Prettier CI config** in this project today. Minimum checks:
+Minimum checks before considering a frontend change done:
 
 ```bash
+# Lint + format (CI enforces these on PR/push to main)
+npm run lint
+npm run format:check
+
 # Typecheck + production bundle
 npm run build
 
@@ -22,8 +26,15 @@ npm run tauri:dev
 For backend-impacting UI flows, also run:
 
 ```bash
+npm run lint:rust
 cargo test --manifest-path src-tauri/Cargo.toml
 ```
+
+Tooling notes:
+- ESLint flat config: `eslint.config.js` (scope: `src/**`, `vite.config.ts`)
+- Prettier: `.prettierrc` / `.prettierignore`
+- React Hooks: enforce `rules-of-hooks`; `exhaustive-deps` is warn-only to avoid cascading false positives on existing effects
+- CI: `.github/workflows/lint.yml`
 
 ## Required Product Behaviors
 
@@ -60,6 +71,9 @@ These come from project docs (`AGENTS.md`) and current code.
 - Avoid refetching entire collections on every keystroke; debounce search UIs (global search pattern).
 - Keep heavy Monaco editors mounted only while needed.
 - Listener init belongs in layout/store once, not per card.
+- **Never put `setInterval` on list-item components** for clocks/elapsed time. Use the shared second clock (`src/hooks/useSharedNow.ts`) so the app keeps at most one interval; isolate live labels in a small memoized leaf (e.g. `TaskElapsedSummary`).
+- Memoize hot list rows and columns (`React.memo` on `TaskCard` / `KanbanColumn`); keep callbacks from board parents stable with `useCallback`.
+- Virtualize long scroll lists when item count can grow large. Kanban columns use `@tanstack/react-virtual` at ≥ 25 tasks; keep full id lists for `@dnd-kit` SortableContext.
 
 ## Testing Expectations
 

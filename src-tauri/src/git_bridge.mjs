@@ -121,7 +121,8 @@ async function gitCli(repoPath, args) {
         resolve(stdoutBuffer);
         return;
       }
-      const message = stderrBuffer.trim() || stdoutBuffer.trim() || `git ${args.join(" ")} 执行失败`;
+      const message =
+        stderrBuffer.trim() || stdoutBuffer.trim() || `git ${args.join(" ")} 执行失败`;
       reject(new Error(message));
     });
   });
@@ -152,7 +153,9 @@ async function gitRefExists(repoPath, fullRef) {
 
 async function determineDefaultBranch(repoPath) {
   try {
-    const value = (await gitRaw(repoPath, ["symbolic-ref", "refs/remotes/origin/HEAD", "--short"])).trim();
+    const value = (
+      await gitRaw(repoPath, ["symbolic-ref", "refs/remotes/origin/HEAD", "--short"])
+    ).trim();
     const branch = value.split("/").pop()?.trim();
     if (branch) {
       return branch;
@@ -254,7 +257,12 @@ async function branchSyncCounts(repoPath, branchName) {
 
 async function compareRevisions(repoPath, baseRevision, targetRevision) {
   const output = (
-    await gitRaw(repoPath, ["rev-list", "--left-right", "--count", `${baseRevision}...${targetRevision}`])
+    await gitRaw(repoPath, [
+      "rev-list",
+      "--left-right",
+      "--count",
+      `${baseRevision}...${targetRevision}`,
+    ])
   ).trim();
   const [behindRaw = "", aheadRaw = ""] = output.split(/\s+/);
   const behindCommits = Number.parseInt(behindRaw, 10);
@@ -386,7 +394,8 @@ async function listCommitHistory(repoPath, offset = 0, limit = 20) {
   const lines = output.split(/\r?\n/);
   const hasMore = lines.length > normalizedLimit;
   const commits = lines.slice(0, normalizedLimit).map((line) => {
-    const [sha = "", shortSha = "", subject = "", authorName = "", authoredAt = ""] = line.split("\u001f");
+    const [sha = "", shortSha = "", subject = "", authorName = "", authoredAt = ""] =
+      line.split("\u001f");
     return {
       sha: sha.trim(),
       short_sha: shortSha.trim(),
@@ -420,10 +429,23 @@ async function getCommitDetail(repoPath, commitRef) {
     throw new Error(`未找到提交 ${normalizedCommitRef}`);
   }
 
-  const [sha = "", shortSha = "", subject = "", authorName = "", authorEmail = "", authoredAt = "", ...bodyParts] =
-    metadataOutput.split("\u001f");
+  const [
+    sha = "",
+    shortSha = "",
+    subject = "",
+    authorName = "",
+    authorEmail = "",
+    authoredAt = "",
+    ...bodyParts
+  ] = metadataOutput.split("\u001f");
   const changedFilesOutput = (
-    await gitRaw(repoPath, ["show", "--format=", "--name-status", "--find-renames", normalizedCommitRef])
+    await gitRaw(repoPath, [
+      "show",
+      "--format=",
+      "--name-status",
+      "--find-renames",
+      normalizedCommitRef,
+    ])
   ).trim();
   const rawDiffText = (
     await gitRaw(repoPath, ["show", "--format=", "--no-ext-diff", normalizedCommitRef])
@@ -443,9 +465,9 @@ async function getCommitDetail(repoPath, commitRef) {
     diff_truncated: diffTruncated,
     changed_files: changedFilesOutput
       ? changedFilesOutput
-        .split(/\r?\n/)
-        .map(parseCommitFileChange)
-        .filter((item) => item !== null)
+          .split(/\r?\n/)
+          .map(parseCommitFileChange)
+          .filter((item) => item !== null)
       : [],
   };
 }
@@ -656,40 +678,61 @@ async function restorePath(repoPath, targetPath) {
   if (await hasHeadCommit(repoPath)) {
     try {
       await gitRaw(repoPath, ["restore", "--staged", "--", normalizedPath]);
-    } catch { /* file may not be staged or not tracked by HEAD */ }
+    } catch {
+      /* file may not be staged or not tracked by HEAD */
+    }
     try {
       await gitRaw(repoPath, ["restore", "--", normalizedPath]);
-    } catch { /* file may be untracked */ }
+    } catch {
+      /* file may be untracked */
+    }
   } else {
     try {
       await gitRaw(repoPath, ["rm", "--cached", "-r", "--ignore-unmatch", "--", normalizedPath]);
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
   }
   try {
     await gitRaw(repoPath, ["clean", "-fd", "--", normalizedPath]);
-  } catch { /* ignore */ }
+  } catch {
+    /* ignore */
+  }
 }
 
 async function restoreAll(repoPath) {
   if (await hasHeadCommit(repoPath)) {
     try {
       await gitRaw(repoPath, ["restore", "--staged", "--", "."]);
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
     try {
       await gitRaw(repoPath, ["restore", "--", "."]);
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
   } else {
     try {
       await gitRaw(repoPath, ["rm", "--cached", "-r", "--ignore-unmatch", "--", "."]);
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
   }
   try {
     await gitRaw(repoPath, ["clean", "-fd"]);
-  } catch { /* ignore */ }
+  } catch {
+    /* ignore */
+  }
 }
 
 async function hasStagedChanges(repoPath) {
-  const statusOutput = await gitRaw(repoPath, ["status", "--porcelain=v1", "-z", "--untracked-files=all"]);
+  const statusOutput = await gitRaw(repoPath, [
+    "status",
+    "--porcelain=v1",
+    "-z",
+    "--untracked-files=all",
+  ]);
   return parseStatusEntries(statusOutput).some((entry) => {
     const stageStatus = deriveStageStatus(entry);
     return stageStatus === "staged" || stageStatus === "partially_staged";
@@ -736,7 +779,10 @@ async function removeWorktree(repoPath, worktreePath, force, prune = true) {
 
 async function pushBranch(repoPath, remoteName, branchName, forceMode) {
   const remote = typeof remoteName === "string" && remoteName.trim() ? remoteName.trim() : "origin";
-  const branch = typeof branchName === "string" && branchName.trim() ? branchName.trim() : await currentBranch(repoPath);
+  const branch =
+    typeof branchName === "string" && branchName.trim()
+      ? branchName.trim()
+      : await currentBranch(repoPath);
   if (!branch) {
     throw new Error("无法解析当前分支，不能推送");
   }
@@ -754,7 +800,10 @@ async function pushBranch(repoPath, remoteName, branchName, forceMode) {
 
 async function pullBranch(repoPath, remoteName, branchName, mode, autoStash) {
   const remote = typeof remoteName === "string" && remoteName.trim() ? remoteName.trim() : "origin";
-  const branch = typeof branchName === "string" && branchName.trim() ? branchName.trim() : await currentBranch(repoPath);
+  const branch =
+    typeof branchName === "string" && branchName.trim()
+      ? branchName.trim()
+      : await currentBranch(repoPath);
   if (!branch) {
     throw new Error("无法解析当前分支，不能拉取");
   }
@@ -785,7 +834,12 @@ function validateBranchName(value, label = "分支名") {
   if (BRANCH_NAME_INVALID_PATTERN.test(normalized)) {
     throw new Error(`${label}包含非法字符`);
   }
-  if (normalized.startsWith("-") || normalized.startsWith("/") || normalized.endsWith("/") || normalized.includes("..")) {
+  if (
+    normalized.startsWith("-") ||
+    normalized.startsWith("/") ||
+    normalized.endsWith("/") ||
+    normalized.includes("..")
+  ) {
     throw new Error(`${label}格式非法`);
   }
   return normalized;
@@ -897,7 +951,12 @@ async function hashWorktreePath(repoPath, relativePath) {
 }
 
 async function collectSnapshot(repoPath, captureTextSnapshots) {
-  const statusOutput = await gitRaw(repoPath, ["status", "--porcelain=v1", "-z", "--untracked-files=all"]);
+  const statusOutput = await gitRaw(repoPath, [
+    "status",
+    "--porcelain=v1",
+    "-z",
+    "--untracked-files=all",
+  ]);
   const parsedEntries = parseStatusEntries(statusOutput);
   const entries = [];
 
@@ -954,7 +1013,9 @@ async function buildReviewUntrackedSnippets(repoPath, untrackedFiles) {
     }
 
     consumedChars += snippet.length;
-    snippets.push(`### ${relativePath}\n\`\`\`text\n${snippet}\n\`\`\`\n${snippet.length < content.length ? "（内容已截断）" : ""}`);
+    snippets.push(
+      `### ${relativePath}\n\`\`\`text\n${snippet}\n\`\`\`\n${snippet.length < content.length ? "（内容已截断）" : ""}`,
+    );
   }
 
   if (snippets.length === 0) {
@@ -1093,7 +1154,8 @@ async function executeAction(repoPath, worktreePath, taskBranch, actionType, pay
 
   switch (actionType) {
     case "merge": {
-      const targetBranch = optionalText(payload.target_branch) ?? optionalText(payload.targetBranch);
+      const targetBranch =
+        optionalText(payload.target_branch) ?? optionalText(payload.targetBranch);
       if (!targetBranch) {
         throw new Error("merge 缺少 target_branch");
       }
@@ -1161,7 +1223,7 @@ async function executeAction(repoPath, worktreePath, taskBranch, actionType, pay
         }
         // drifted worktree 允许继续做兜底清理
       }
-      if (payload.delete_branch && await gitRefExists(repoPath, `refs/heads/${taskBranch}`)) {
+      if (payload.delete_branch && (await gitRefExists(repoPath, `refs/heads/${taskBranch}`))) {
         await gitRaw(repoPath, ["branch", "-D", taskBranch]);
       }
       if (payload.prune_worktree !== false) {
@@ -1186,7 +1248,11 @@ async function executeCommand(input) {
       const statusOutput = await gitRaw(repoPath, ["status", "--short"]);
       const branchName = await currentBranch(repoPath);
       const syncCounts = await branchSyncCounts(repoPath, branchName);
-      const recentCommitHistory = await listCommitHistory(repoPath, 0, Number(input.recentCommitLimit ?? 5));
+      const recentCommitHistory = await listCommitHistory(
+        repoPath,
+        0,
+        Number(input.recentCommitLimit ?? 5),
+      );
       return {
         default_branch: await determineDefaultBranch(repoPath),
         current_branch: branchName,
@@ -1202,7 +1268,11 @@ async function executeCommand(input) {
     case "worktree_list":
       return { text: await listWorktreesPorcelain(repoPath) };
     case "commit_history":
-      return await listCommitHistory(repoPath, Number(input.offset ?? 0), Number(input.limit ?? 20));
+      return await listCommitHistory(
+        repoPath,
+        Number(input.offset ?? 0),
+        Number(input.limit ?? 20),
+      );
     case "commit_detail":
       return await getCommitDetail(repoPath, input.commitSha);
     case "path_exists":
@@ -1317,7 +1387,12 @@ async function executeCommand(input) {
     case "collect_review_context":
       return { context: await collectReviewContext(repoPath) };
     case "status_changes": {
-      const statusOutput = await gitRaw(repoPath, ["status", "--porcelain=v1", "-z", "--untracked-files=all"]);
+      const statusOutput = await gitRaw(repoPath, [
+        "status",
+        "--porcelain=v1",
+        "-z",
+        "--untracked-files=all",
+      ]);
       return {
         changes: parseStatusEntries(statusOutput).map((entry) => ({
           path: entry.path,

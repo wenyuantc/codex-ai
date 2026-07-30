@@ -3,9 +3,7 @@ import { Eraser, Loader2, Play, Square } from "lucide-react";
 
 import type { CodexSessionFileChange, TaskExecutionChangeHistoryItem } from "@/lib/types";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import {
-  getLineColor,
-} from "./taskDetailViewHelpers";
+import { getLineColor } from "./taskDetailViewHelpers";
 import { TaskFileChangeHistoryPanel } from "./TaskFileChangeHistoryPanel";
 
 interface TaskExecutionPanelProps {
@@ -57,7 +55,11 @@ export function TaskExecutionPanel({
               disabled={codexLoading}
               className="flex items-center gap-1 px-2 py-1 text-xs bg-red-600 text-white rounded hover:bg-red-700 transition-colors disabled:opacity-50"
             >
-              {codexLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : <Square className="h-3 w-3" />}
+              {codexLoading ? (
+                <Loader2 className="h-3 w-3 animate-spin" />
+              ) : (
+                <Square className="h-3 w-3" />
+              )}
               停止运行
             </button>
           ) : isExecutionActive ? (
@@ -75,7 +77,11 @@ export function TaskExecutionPanel({
               disabled={codexLoading}
               className="flex items-center gap-1 px-2 py-1 text-xs bg-green-600 text-white rounded hover:bg-green-700 transition-colors disabled:opacity-50"
             >
-              {codexLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : <Play className="h-3 w-3" />}
+              {codexLoading ? (
+                <Loader2 className="h-3 w-3 animate-spin" />
+              ) : (
+                <Play className="h-3 w-3" />
+              )}
               运行
             </button>
           )

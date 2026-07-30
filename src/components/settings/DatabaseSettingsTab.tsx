@@ -167,7 +167,9 @@ export function DatabaseSettingsTab({
           <p className="break-all">数据库路径：{codexHealth?.database_path ?? "检测中"}</p>
           <p>当前版本：{codexHealth?.database_current_version ?? "未知"}</p>
           <p>最新版本：{codexHealth?.database_latest_version ?? "未知"}</p>
-          {codexHealth?.database_current_description && <p>{codexHealth.database_current_description}</p>}
+          {codexHealth?.database_current_description && (
+            <p>{codexHealth.database_current_description}</p>
+          )}
         </div>
 
         {backupScope && (
@@ -197,11 +199,19 @@ export function DatabaseSettingsTab({
 
         <div className="flex flex-wrap gap-2">
           <Button variant="outline" onClick={onBackup} disabled={actionLoading !== null}>
-            {actionLoading === "backup" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+            {actionLoading === "backup" ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Download className="h-4 w-4" />
+            )}
             导出 SQL
           </Button>
           <Button variant="outline" onClick={onRestore} disabled={actionLoading !== null}>
-            {actionLoading === "restore" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
+            {actionLoading === "restore" ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Upload className="h-4 w-4" />
+            )}
             导入 SQL
           </Button>
           <Button
@@ -210,9 +220,11 @@ export function DatabaseSettingsTab({
             disabled={actionLoading !== null || !isTauriRuntime || !codexHealth?.database_path}
             title={openDatabaseFolderTitle}
           >
-            {actionLoading === "open-folder"
-              ? <Loader2 className="h-4 w-4 animate-spin" />
-              : <FolderOpen className="h-4 w-4" />}
+            {actionLoading === "open-folder" ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <FolderOpen className="h-4 w-4" />
+            )}
             打开数据库目录
           </Button>
         </div>
@@ -245,7 +257,9 @@ export function DatabaseSettingsTab({
 
             <div className="flex flex-wrap items-end gap-2">
               <label className="space-y-1 text-xs">
-                <span className="text-muted-foreground">保留天数（{MIN_RETENTION_DAYS}–{MAX_RETENTION_DAYS}）</span>
+                <span className="text-muted-foreground">
+                  保留天数（{MIN_RETENTION_DAYS}–{MAX_RETENTION_DAYS}）
+                </span>
                 <input
                   type="number"
                   min={MIN_RETENTION_DAYS}

@@ -20,18 +20,22 @@ export function useTaskReviewActions({
   onError,
 }: UseTaskReviewActionsOptions) {
   const [loading, setLoading] = useState(false);
-  const employeeRuntime = useEmployeeStore((state) => (
-    reviewerId ? state.employeeRuntime[reviewerId] : undefined
-  ));
+  const employeeRuntime = useEmployeeStore((state) =>
+    reviewerId ? state.employeeRuntime[reviewerId] : undefined,
+  );
   const taskLogs = useEmployeeStore((state) => state.taskLogs);
   const updateEmployeeStatus = useEmployeeStore((state) => state.updateEmployeeStatus);
   const addCodexOutput = useEmployeeStore((state) => state.addCodexOutput);
   const clearTaskCodexOutput = useEmployeeStore((state) => state.clearTaskCodexOutput);
-  const refreshEmployeeRuntimeStatus = useEmployeeStore((state) => state.refreshEmployeeRuntimeStatus);
+  const refreshEmployeeRuntimeStatus = useEmployeeStore(
+    (state) => state.refreshEmployeeRuntimeStatus,
+  );
 
-  const isRunning = Boolean(employeeRuntime?.sessions.find((session) => (
-    session.task_id === task.id && session.session_kind === "review"
-  )));
+  const isRunning = Boolean(
+    employeeRuntime?.sessions.find(
+      (session) => session.task_id === task.id && session.session_kind === "review",
+    ),
+  );
   const output = taskLogs[buildTaskLogKey(task.id, "review")] ?? [];
 
   const startReview = async () => {

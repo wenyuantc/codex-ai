@@ -49,7 +49,12 @@ interface UseTaskAiActionsOptions {
       >
     >,
   ) => Promise<void>;
-  addComment: (taskId: string, content: string, employeeId?: string, isAiGenerated?: boolean) => Promise<void>;
+  addComment: (
+    taskId: string,
+    content: string,
+    employeeId?: string,
+    isAiGenerated?: boolean,
+  ) => Promise<void>;
   addSubtasks: (taskId: string, titles: string[]) => Promise<{ inserted: number; skipped: number }>;
   onDescriptionChange: (value: string) => void;
 }
@@ -121,8 +126,9 @@ export function useTaskAiActions({
 
   const loadCurrentAttachments = async () => {
     await fetchAttachments(task.id);
-    return (useTaskStore.getState().attachments[task.id] ?? [])
-      .filter((attachment) => attachment.stored_path.trim().length > 0);
+    return (useTaskStore.getState().attachments[task.id] ?? []).filter(
+      (attachment) => attachment.stored_path.trim().length > 0,
+    );
   };
 
   const buildImagePaths = (attachments: TaskAttachment[]) => {
@@ -139,7 +145,9 @@ export function useTaskAiActions({
 
   const logOneShotAiContext = async (operation: string, attachments: TaskAttachment[]) => {
     const imagePaths = buildImagePaths(attachments);
-    appendAiLog(`[${operation}] 已载入任务附件 ${attachments.length} 个（其中图片 ${imagePaths.length} 张）`);
+    appendAiLog(
+      `[${operation}] 已载入任务附件 ${attachments.length} 个（其中图片 ${imagePaths.length} 张）`,
+    );
     if (attachments.length > imagePaths.length) {
       appendAiLog(`[${operation}] 非图片附件会保留在任务协作区中，不会作为图片输入传给 AI`);
     }
@@ -240,7 +248,10 @@ export function useTaskAiActions({
       const imagePaths = buildImagePaths(attachments);
       await logOneShotAiContext("AI建议指派", attachments);
       const employeeList = employees
-        .map((employee) => `${employee.id}: ${employee.name} (${employee.role}, ${employee.specialization ?? "general"})`)
+        .map(
+          (employee) =>
+            `${employee.id}: ${employee.name} (${employee.role}, ${employee.specialization ?? "general"})`,
+        )
         .join("; ");
       const desc = task.description ?? task.title;
       appendAiLog("[AI建议指派] 已提交给 AI，等待响应...");
@@ -341,11 +352,17 @@ export function useTaskAiActions({
 
       if (inserted === 0) {
         appendAiLog("[AI拆分子任务] 响应完成，但没有可新增的子任务");
-        setAiResult(skipped > 0 ? "AI 已完成拆分，但结果与现有子任务重复，未新增内容。" : "AI 未生成可写入的子任务。");
+        setAiResult(
+          skipped > 0
+            ? "AI 已完成拆分，但结果与现有子任务重复，未新增内容。"
+            : "AI 未生成可写入的子任务。",
+        );
         return;
       }
 
-      setAiResult(`AI 已写入 ${inserted} 个子任务${skipped > 0 ? `，跳过 ${skipped} 个重复项` : ""}。`);
+      setAiResult(
+        `AI 已写入 ${inserted} 个子任务${skipped > 0 ? `，跳过 ${skipped} 个重复项` : ""}。`,
+      );
       appendAiLog(`[AI拆分子任务] 执行完成，新增 ${inserted} 个子任务`);
     } catch (error) {
       appendAiLog(`[ERROR] [AI拆分子任务] ${String(error)}`);
@@ -373,10 +390,15 @@ export function useTaskAiActions({
 
     try {
       appendAiLog("[AI生成计划] 正在准备任务附件、子任务与执行配置...");
-      const [_, attachments] = await Promise.all([fetchSubtasks(task.id), loadCurrentAttachments()]);
+      const [_, attachments] = await Promise.all([
+        fetchSubtasks(task.id),
+        loadCurrentAttachments(),
+      ]);
       const imagePaths = buildImagePaths(attachments);
       await logOneShotAiContext("AI生成计划", attachments);
-      const latestSubtasks = (useTaskStore.getState().subtasks[task.id] ?? []).map((subtask) => subtask.title);
+      const latestSubtasks = (useTaskStore.getState().subtasks[task.id] ?? []).map(
+        (subtask) => subtask.title,
+      );
       appendAiLog(`[AI生成计划] 已载入子任务 ${latestSubtasks.length} 个`);
       appendAiLog("[AI生成计划] 已提交给 AI，等待响应...");
       const plan = await aiGeneratePlan(

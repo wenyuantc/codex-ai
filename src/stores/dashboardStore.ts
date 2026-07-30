@@ -38,7 +38,11 @@ interface DashboardStore {
   stats: DashboardStats | null;
   recentActivities: ActivityLog[];
   loading: boolean;
-  fetchStats: (environmentMode: EnvironmentMode, selectedSshConfigId?: string | null, projectId?: string) => Promise<void>;
+  fetchStats: (
+    environmentMode: EnvironmentMode,
+    selectedSshConfigId?: string | null,
+    projectId?: string,
+  ) => Promise<void>;
   fetchRecentActivities: (
     environmentMode: EnvironmentMode,
     selectedSshConfigId?: string | null,
@@ -73,29 +77,25 @@ function isInvalidDateRange(filters: ActivityFilters) {
   const startTimestamp = normalizeDateToTimestamp(filters.startDate, false);
   const endTimestamp = normalizeDateToTimestamp(filters.endDate, true);
 
-  return (
-    startTimestamp !== null
-    && endTimestamp !== null
-    && startTimestamp > endTimestamp
-  );
+  return startTimestamp !== null && endTimestamp !== null && startTimestamp > endTimestamp;
 }
 
 function getKeywordMatchedActions(keyword: string, availableActions: string[]) {
-  return availableActions.filter((action) => (
-    normalizeSearchText(getActivityActionLabel(action)).includes(keyword)
-  ));
+  return availableActions.filter((action) =>
+    normalizeSearchText(getActivityActionLabel(action)).includes(keyword),
+  );
 }
 
 function getKeywordMatchedStatuses(keyword: string) {
-  return TASK_STATUSES
-    .filter((status) => normalizeSearchText(getStatusLabel(status.value)).includes(keyword))
-    .map((status) => status.value);
+  return TASK_STATUSES.filter((status) =>
+    normalizeSearchText(getStatusLabel(status.value)).includes(keyword),
+  ).map((status) => status.value);
 }
 
 function getAvailableActivityActions(actions: string[]) {
-  return Array.from(new Set(actions)).sort((left, right) => (
-    getActivityActionLabel(left).localeCompare(getActivityActionLabel(right), "zh-CN")
-  ));
+  return Array.from(new Set(actions)).sort((left, right) =>
+    getActivityActionLabel(left).localeCompare(getActivityActionLabel(right), "zh-CN"),
+  );
 }
 
 function buildActivityScopeInput(
@@ -164,7 +164,13 @@ export const useDashboardStore = create<DashboardStore>((set) => ({
     }
   },
 
-  fetchActivitiesPage: async (environmentMode, selectedSshConfigId, page = 1, pageSize = 20, filters = {}) => {
+  fetchActivitiesPage: async (
+    environmentMode,
+    selectedSshConfigId,
+    page = 1,
+    pageSize = 20,
+    filters = {},
+  ) => {
     const safePage = Math.max(1, page);
     const safePageSize = Math.max(1, pageSize);
     const offset = (safePage - 1) * safePageSize;
@@ -209,9 +215,9 @@ export const useDashboardStore = create<DashboardStore>((set) => ({
     return {
       items: result.items,
       total: result.total,
-      availableActions: getAvailableActivityActions(result.available_actions.length > 0
-        ? result.available_actions
-        : availableActions),
+      availableActions: getAvailableActivityActions(
+        result.available_actions.length > 0 ? result.available_actions : availableActions,
+      ),
     };
   },
 }));

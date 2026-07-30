@@ -120,7 +120,9 @@ interface ProjectStore {
   fetchProjects: () => Promise<void>;
   fetchSshConfigs: () => Promise<void>;
   setCurrentProject: (project: Project | null) => void;
-  setEnvironmentMode: (environmentMode: EnvironmentMode) => Promise<{ redirectToSettings: boolean }>;
+  setEnvironmentMode: (
+    environmentMode: EnvironmentMode,
+  ) => Promise<{ redirectToSettings: boolean }>;
   setSelectedSshConfigId: (sshConfigId: string | null) => void;
   createProject: (data: CreateProjectInput) => Promise<Project>;
   updateProject: (id: string, updates: UpdateProjectInput) => Promise<void>;
@@ -164,7 +166,7 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
         );
         const currentProjectId = state.currentProject?.id;
         const currentProject = currentProjectId
-          ? filteredProjects.find((project) => project.id === currentProjectId) ?? null
+          ? (filteredProjects.find((project) => project.id === currentProjectId) ?? null)
           : null;
 
         persistSshConfigId(selectedSshConfigId);
@@ -200,7 +202,7 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
           selectedSshConfigId,
         );
         const currentProject = state.currentProject
-          ? filteredProjects.find((project) => project.id === state.currentProject?.id) ?? null
+          ? (filteredProjects.find((project) => project.id === state.currentProject?.id) ?? null)
           : null;
         persistSshConfigId(selectedSshConfigId);
 
@@ -226,14 +228,14 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
   },
 
   setCurrentProject: (project) => {
-    const nextProject = project && projectMatchesScope(
-      project,
-      get().environmentMode,
-      get().selectedSshConfigId,
-    ) ? project : null;
-    const nextSshConfigId = nextProject?.project_type === "ssh"
-      ? nextProject.ssh_config_id ?? get().selectedSshConfigId
-      : get().selectedSshConfigId;
+    const nextProject =
+      project && projectMatchesScope(project, get().environmentMode, get().selectedSshConfigId)
+        ? project
+        : null;
+    const nextSshConfigId =
+      nextProject?.project_type === "ssh"
+        ? (nextProject.ssh_config_id ?? get().selectedSshConfigId)
+        : get().selectedSshConfigId;
 
     set({
       currentProject: nextProject,
@@ -259,13 +261,11 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
         environmentMode,
         selectedSshConfigId,
       );
-      const currentProject = state.currentProject && projectMatchesScope(
-        state.currentProject,
-        environmentMode,
-        selectedSshConfigId,
-      )
-        ? filteredProjects.find((project) => project.id === state.currentProject?.id) ?? null
-        : null;
+      const currentProject =
+        state.currentProject &&
+        projectMatchesScope(state.currentProject, environmentMode, selectedSshConfigId)
+          ? (filteredProjects.find((project) => project.id === state.currentProject?.id) ?? null)
+          : null;
 
       persistSshConfigId(selectedSshConfigId);
 
@@ -292,9 +292,10 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
     }
 
     const currentProject = get().currentProject;
-    const shouldClearCurrentProject = currentProject?.project_type === "ssh"
-      && currentProject.ssh_config_id
-      && currentProject.ssh_config_id !== sshConfigId;
+    const shouldClearCurrentProject =
+      currentProject?.project_type === "ssh" &&
+      currentProject.ssh_config_id &&
+      currentProject.ssh_config_id !== sshConfigId;
     const filteredProjects = filterProjectsByScope(
       get().allProjects,
       get().environmentMode,
@@ -303,7 +304,7 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
     const nextCurrentProject = shouldClearCurrentProject
       ? null
       : currentProject
-        ? filteredProjects.find((project) => project.id === currentProject.id) ?? null
+        ? (filteredProjects.find((project) => project.id === currentProject.id) ?? null)
         : null;
 
     persistSshConfigId(sshConfigId);
@@ -326,9 +327,9 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
       ...data,
       description: data.description ?? null,
       project_type: data.project_type ?? "local",
-      repo_path: data.project_type === "ssh" ? null : data.repo_path ?? null,
-      ssh_config_id: data.project_type === "ssh" ? data.ssh_config_id ?? null : null,
-      remote_repo_path: data.project_type === "ssh" ? data.remote_repo_path ?? null : null,
+      repo_path: data.project_type === "ssh" ? null : (data.repo_path ?? null),
+      ssh_config_id: data.project_type === "ssh" ? (data.ssh_config_id ?? null) : null,
+      remote_repo_path: data.project_type === "ssh" ? (data.remote_repo_path ?? null) : null,
     });
     await get().fetchProjects();
     return project;

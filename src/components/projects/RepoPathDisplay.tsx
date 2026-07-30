@@ -67,12 +67,16 @@ export function RepoPathDisplay({
             variant={fullPath ? "outline" : "secondary"}
             className={cn(
               "max-w-full rounded-full px-2 py-0 text-[11px]",
-              fullPath ? "border-primary/20 bg-primary/5 text-primary" : ""
+              fullPath ? "border-primary/20 bg-primary/5 text-primary" : "",
             )}
           >
             {fullPath ? (
               <>
-                {normalizedProjectType === "ssh" ? <ServerCog className="h-3 w-3" /> : <GitBranch className="h-3 w-3" />}
+                {normalizedProjectType === "ssh" ? (
+                  <ServerCog className="h-3 w-3" />
+                ) : (
+                  <GitBranch className="h-3 w-3" />
+                )}
                 {configuredLabel}
               </>
             ) : (
@@ -88,7 +92,7 @@ export function RepoPathDisplay({
               type="button"
               className={cn(
                 "mt-1 block min-w-0 max-w-full truncate text-left text-[11px] text-muted-foreground transition-colors hover:text-foreground",
-                copied ? "text-primary" : ""
+                copied ? "text-primary" : "",
               )}
               onClick={() => void handleCopy()}
               title={fullPath}
@@ -122,12 +126,16 @@ export function RepoPathDisplay({
           variant={fullPath ? "outline" : "secondary"}
           className={cn(
             "shrink-0 rounded-full px-2 py-0 text-[11px]",
-            fullPath ? "border-primary/20 bg-primary/5 text-primary" : ""
+            fullPath ? "border-primary/20 bg-primary/5 text-primary" : "",
           )}
         >
           {fullPath ? (
             <>
-              {normalizedProjectType === "ssh" ? <ServerCog className="h-3 w-3" /> : <GitBranch className="h-3 w-3" />}
+              {normalizedProjectType === "ssh" ? (
+                <ServerCog className="h-3 w-3" />
+              ) : (
+                <GitBranch className="h-3 w-3" />
+              )}
               {configuredLabel}
             </>
           ) : (
@@ -143,7 +151,7 @@ export function RepoPathDisplay({
             type="button"
             className={cn(
               "min-w-0 flex-1 truncate text-left text-xs text-muted-foreground transition-colors hover:text-foreground",
-              copied ? "text-primary" : ""
+              copied ? "text-primary" : "",
             )}
             onClick={() => void handleCopy()}
             title={fullPath}
@@ -153,10 +161,7 @@ export function RepoPathDisplay({
           </button>
         ) : (
           <code
-            className={cn(
-              "min-w-0 flex-1 truncate text-muted-foreground",
-              "text-xs"
-            )}
+            className={cn("min-w-0 flex-1 truncate text-muted-foreground", "text-xs")}
             title={fullPath || emptyLabel}
           >
             {fullPath || emptyLabel}

@@ -64,8 +64,10 @@ export function WorktreeMergeDialog({
   const sourceBranch = worktree?.branch?.trim() ?? "";
   const hasWorkingTreeChanges = (worktree?.working_tree_changes.length ?? 0) > 0;
   const targetBranches = useMemo(
-    () => dedupeBranches([defaultBranch, currentBranch, ...projectBranches, sourceBranch])
-      .filter((branch) => branch !== sourceBranch),
+    () =>
+      dedupeBranches([defaultBranch, currentBranch, ...projectBranches, sourceBranch]).filter(
+        (branch) => branch !== sourceBranch,
+      ),
     [currentBranch, defaultBranch, projectBranches, sourceBranch],
   );
 
@@ -124,12 +126,12 @@ export function WorktreeMergeDialog({
   };
 
   const submitDisabled =
-    submitting
-    || !worktree
-    || !sourceBranch
-    || !targetBranch
-    || targetBranch === sourceBranch
-    || (deleteWorktree && hasWorkingTreeChanges && !autoStash);
+    submitting ||
+    !worktree ||
+    !sourceBranch ||
+    !targetBranch ||
+    targetBranch === sourceBranch ||
+    (deleteWorktree && hasWorkingTreeChanges && !autoStash);
 
   return (
     <Dialog
@@ -154,7 +156,8 @@ export function WorktreeMergeDialog({
             Worktree：<span className="break-all font-mono">{worktree?.path ?? "未知"}</span>
           </div>
           <div className="mt-1">
-            未提交变更：{hasWorkingTreeChanges ? `${worktree?.working_tree_changes.length ?? 0} 项` : "无"}
+            未提交变更：
+            {hasWorkingTreeChanges ? `${worktree?.working_tree_changes.length ?? 0} 项` : "无"}
           </div>
         </div>
 
@@ -190,9 +193,10 @@ export function WorktreeMergeDialog({
             <span>自动暂存未提交的更改</span>
           </label>
 
-          <label className={`flex items-start gap-3 rounded-md border border-border/60 px-3 py-2 text-sm ${
-            worktree?.is_locked ? "text-muted-foreground" : ""
-          }`}
+          <label
+            className={`flex items-start gap-3 rounded-md border border-border/60 px-3 py-2 text-sm ${
+              worktree?.is_locked ? "text-muted-foreground" : ""
+            }`}
           >
             <input
               type="checkbox"
@@ -210,9 +214,10 @@ export function WorktreeMergeDialog({
             <span>合并后删除 worktree</span>
           </label>
 
-          <label className={`flex items-start gap-3 rounded-md border border-border/60 px-3 py-2 text-sm ${
-            !deleteWorktree ? "text-muted-foreground" : ""
-          }`}
+          <label
+            className={`flex items-start gap-3 rounded-md border border-border/60 px-3 py-2 text-sm ${
+              !deleteWorktree ? "text-muted-foreground" : ""
+            }`}
           >
             <input
               type="checkbox"
@@ -233,7 +238,8 @@ export function WorktreeMergeDialog({
 
         {hasWorkingTreeChanges && autoStash && (
           <div className="rounded-md border border-amber-500/20 bg-amber-500/10 px-3 py-2 text-xs text-amber-900">
-            检测到当前 worktree 有未提交改动，合并前会先暂存这些改动（含未跟踪文件），合并完成后不会自动恢复。
+            检测到当前 worktree
+            有未提交改动，合并前会先暂存这些改动（含未跟踪文件），合并完成后不会自动恢复。
           </div>
         )}
 
@@ -245,7 +251,8 @@ export function WorktreeMergeDialog({
 
         {deleteWorktree && hasWorkingTreeChanges && !autoStash && (
           <div className="rounded-md border border-destructive/20 bg-destructive/10 px-3 py-2 text-xs text-destructive">
-            当前 worktree 仍有未提交改动；如果要在合并后删除 worktree，请勾选“自动暂存未提交的更改”。
+            当前 worktree 仍有未提交改动；如果要在合并后删除
+            worktree，请勾选“自动暂存未提交的更改”。
           </div>
         )}
 
@@ -262,7 +269,12 @@ export function WorktreeMergeDialog({
         )}
 
         <DialogFooter>
-          <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={submitting}>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => onOpenChange(false)}
+            disabled={submitting}
+          >
             取消
           </Button>
           <Button type="button" onClick={() => void handleSubmit()} disabled={submitDisabled}>

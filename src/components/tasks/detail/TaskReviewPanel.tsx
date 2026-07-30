@@ -1,6 +1,10 @@
 import { Copy, Loader2, Play, Wrench } from "lucide-react";
 
-import type { CodexSessionFileChange, TaskExecutionChangeHistoryItem, TaskLatestReview } from "@/lib/types";
+import type {
+  CodexSessionFileChange,
+  TaskExecutionChangeHistoryItem,
+  TaskLatestReview,
+} from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { CodexTerminal } from "@/components/codex/CodexTerminal";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -76,13 +80,17 @@ export function TaskReviewPanel({
               isReviewActive
                 ? "审核进行中"
                 : status !== "review"
-                ? "仅“审核中”任务支持代码审核"
-                : !reviewerId
-                  ? "请先指定审查员"
-                  : "启动代码审核"
+                  ? "仅“审核中”任务支持代码审核"
+                  : !reviewerId
+                    ? "请先指定审查员"
+                    : "启动代码审核"
             }
           >
-            {reviewLoading || isReviewActive ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />}
+            {reviewLoading || isReviewActive ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <Play className="h-3.5 w-3.5" />
+            )}
             {isReviewActive ? "审核中" : "审核代码"}
           </button>
         </div>
@@ -158,9 +166,15 @@ export function TaskReviewPanel({
               size="xs"
               onClick={onOpenReviewFix}
               disabled={
-                !latestReview?.report?.trim() || !assigneeId || reviewFixSubmitting || reviewLoading || isReviewActive
+                !latestReview?.report?.trim() ||
+                !assigneeId ||
+                reviewFixSubmitting ||
+                reviewLoading ||
+                isReviewActive
               }
-              title={!assigneeId ? "原任务未指派开发负责人" : "手动修复会新建一个修复任务并立即运行"}
+              title={
+                !assigneeId ? "原任务未指派开发负责人" : "手动修复会新建一个修复任务并立即运行"
+              }
             >
               <Wrench className="h-3 w-3" />
               新建修复任务
@@ -187,7 +201,8 @@ export function TaskReviewPanel({
 
         {latestReview && (
           <div className="text-[11px] text-muted-foreground">
-            {latestReview.reviewer_name ?? "未知审查员"} · {formatDate(latestReview.session.started_at)}
+            {latestReview.reviewer_name ?? "未知审查员"} ·{" "}
+            {formatDate(latestReview.session.started_at)}
           </div>
         )}
       </div>

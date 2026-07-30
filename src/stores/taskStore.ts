@@ -1,5 +1,12 @@
 import { create } from "zustand";
-import type { CodexSessionKind, Task, TaskAttachment, Subtask, Comment, TaskStatus } from "@/lib/types";
+import type {
+  CodexSessionKind,
+  Task,
+  TaskAttachment,
+  Subtask,
+  Comment,
+  TaskStatus,
+} from "@/lib/types";
 import {
   onCodexExit,
   onCodexSession,
@@ -65,9 +72,34 @@ interface TaskStore {
     options?: { refreshProjectId?: string },
   ) => Promise<Task>;
   updateTaskStatus: (id: string, status: TaskStatus) => Promise<void>;
-  updateTask: (id: string, updates: Partial<Pick<Task, "title" | "description" | "priority" | "status" | "assignee_id" | "reviewer_id" | "coordinator_id" | "plan_content" | "complexity" | "ai_suggestion" | "last_codex_session_id" | "last_review_session_id" | "due_date" | "blocked_reason" | "milestone_id">>) => Promise<void>;
+  updateTask: (
+    id: string,
+    updates: Partial<
+      Pick<
+        Task,
+        | "title"
+        | "description"
+        | "priority"
+        | "status"
+        | "assignee_id"
+        | "reviewer_id"
+        | "coordinator_id"
+        | "plan_content"
+        | "complexity"
+        | "ai_suggestion"
+        | "last_codex_session_id"
+        | "last_review_session_id"
+        | "due_date"
+        | "blocked_reason"
+        | "milestone_id"
+      >
+    >,
+  ) => Promise<void>;
   startTaskTimer: (taskId: string) => Promise<void>;
-  setTaskAutomationMode: (taskId: string, automationMode: TaskAutomationMode | null) => Promise<void>;
+  setTaskAutomationMode: (
+    taskId: string,
+    automationMode: TaskAutomationMode | null,
+  ) => Promise<void>;
   fetchTaskAutomationState: (taskId: string) => Promise<void>;
   restartTaskAutomation: (taskId: string) => Promise<void>;
   deleteTask: (id: string) => Promise<void>;
@@ -81,9 +113,18 @@ interface TaskStore {
   addSubtasks: (taskId: string, titles: string[]) => Promise<{ inserted: number; skipped: number }>;
   toggleSubtask: (subtaskId: string, status: string) => Promise<void>;
   deleteSubtask: (subtaskId: string) => Promise<void>;
-  addComment: (taskId: string, content: string, employeeId?: string, isAiGenerated?: boolean) => Promise<void>;
+  addComment: (
+    taskId: string,
+    content: string,
+    employeeId?: string,
+    isAiGenerated?: boolean,
+  ) => Promise<void>;
   moveTask: (taskId: string, newStatus: TaskStatus) => void;
-  setTaskLastSessionId: (taskId: string, sessionId: string, sessionKind: CodexSessionKind) => Promise<void>;
+  setTaskLastSessionId: (
+    taskId: string,
+    sessionId: string,
+    sessionKind: CodexSessionKind,
+  ) => Promise<void>;
   initCodexSessionListeners: () => () => void;
 }
 
@@ -115,7 +156,9 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
           ? { projectId }
           : { limit: 500 },
       );
-      const visibleProjectIds = new Set(useProjectStore.getState().projects.map((project) => project.id));
+      const visibleProjectIds = new Set(
+        useProjectStore.getState().projects.map((project) => project.id),
+      );
       const tasks = rawTasks.filter((task) => visibleProjectIds.has(task.project_id));
       const automationEntries = await Promise.all(
         tasks
@@ -229,13 +272,13 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
     const nextStatus = sessionKind === "review" ? "review" : "in_progress";
 
     set((state) => ({
-      tasks: state.tasks.map((task) => (
+      tasks: state.tasks.map((task) =>
         task.id === taskId
           ? sessionKind === "review"
             ? { ...task, status: nextStatus, last_review_session_id: sessionId }
             : { ...task, status: nextStatus, last_codex_session_id: sessionId }
-          : task
-      )),
+          : task,
+      ),
     }));
     try {
       const [task] = await Promise.all([
@@ -293,9 +336,7 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
   fetchTrashedTasks: async () => {
     try {
       const tasks = await listTrashedTasksCommand();
-      const visibleProjectIds = new Set(
-        useProjectStore.getState().projects.map((p) => p.id),
-      );
+      const visibleProjectIds = new Set(useProjectStore.getState().projects.map((p) => p.id));
       set({
         trashedTasks: tasks.filter((task) => visibleProjectIds.has(task.project_id)),
       });
@@ -329,7 +370,9 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
     await get().fetchSubtasks(taskId);
 
     const currentSubtasks = get().subtasks[taskId] ?? [];
-    const existingTitles = new Set(currentSubtasks.map((subtask) => normalizeSubtaskTitle(subtask.title)));
+    const existingTitles = new Set(
+      currentSubtasks.map((subtask) => normalizeSubtaskTitle(subtask.title)),
+    );
     let inserted = 0;
     let skipped = 0;
 

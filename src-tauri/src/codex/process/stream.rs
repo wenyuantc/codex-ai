@@ -44,10 +44,9 @@ fn json_first_string_field<'a>(
 }
 
 fn cli_json_delta(previous: &str, next: &str) -> String {
-    if next.starts_with(previous) {
-        next[previous.len()..].to_string()
-    } else {
-        next.to_string()
+    match next.strip_prefix(previous) {
+        Some(rest) => rest.to_string(),
+        None => next.to_string(),
     }
 }
 

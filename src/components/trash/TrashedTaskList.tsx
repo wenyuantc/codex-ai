@@ -51,9 +51,7 @@ export function TrashedTaskList() {
             className="flex items-center justify-between rounded-lg border border-border bg-card px-4 py-3"
           >
             <div className="min-w-0 flex-1">
-              <p className="truncate text-sm font-medium text-foreground">
-                {task.title}
-              </p>
+              <p className="truncate text-sm font-medium text-foreground">{task.title}</p>
               <p className="text-xs text-muted-foreground">
                 删除于 {timeAgo(task.deleted_at)}
                 {task.status && (

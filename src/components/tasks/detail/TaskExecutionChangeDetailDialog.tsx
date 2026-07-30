@@ -1,5 +1,11 @@
 import type { CodexSessionFileChangeDetail } from "@/lib/types";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
@@ -19,13 +25,7 @@ interface TaskExecutionChangeDetailDialogProps {
   onOpenChange: (open: boolean) => void;
 }
 
-function CodePreview({
-  text,
-  diffMode = false,
-}: {
-  text: string;
-  diffMode?: boolean;
-}) {
+function CodePreview({ text, diffMode = false }: { text: string; diffMode?: boolean }) {
   const lines = text.split(/\r?\n/);
 
   return (
@@ -88,7 +88,9 @@ export function TaskExecutionChangeDetailDialog({
       <DialogContent className="w-[min(96vw,72rem)] max-w-[min(96vw,72rem)] sm:max-w-[min(96vw,72rem)]">
         <DialogHeader>
           <DialogTitle>
-            {detail ? `${getExecutionChangeTypeLabel(detail.change.change_type)} ${detail.change.path}` : "文件变更详情"}
+            {detail
+              ? `${getExecutionChangeTypeLabel(detail.change.change_type)} ${detail.change.path}`
+              : "文件变更详情"}
           </DialogTitle>
           <DialogDescription>
             查看该次执行会话记录下来的文件快照与 diff 预览。旧记录可能只有文件路径，没有文本快照。
@@ -175,7 +177,7 @@ export function TaskExecutionChangeDetailDialog({
                   </div>
                 )}
 
-                {(hasDiffText || hasBeforeText || hasAfterText) ? (
+                {hasDiffText || hasBeforeText || hasAfterText ? (
                   <Tabs defaultValue={defaultTab}>
                     <TabsList className="grid w-full grid-cols-3">
                       <TabsTrigger value="diff" disabled={!hasDiffText}>

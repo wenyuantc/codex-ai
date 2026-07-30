@@ -6,7 +6,9 @@ export function normalizeProjectType(value: string | null | undefined): ProjectT
   return value === "ssh" ? "ssh" : "local";
 }
 
-export function normalizeProject(project: Partial<Project> & Pick<Project, "id" | "name" | "status" | "created_at" | "updated_at">): Project {
+export function normalizeProject(
+  project: Partial<Project> & Pick<Project, "id" | "name" | "status" | "created_at" | "updated_at">,
+): Project {
   const projectType = normalizeProjectType(project.project_type);
 
   return {
@@ -28,14 +30,16 @@ export function getProjectTypeLabel(projectType: ProjectType | null | undefined)
   return normalizeProjectType(projectType) === "ssh" ? "SSH 项目" : "本地项目";
 }
 
-export function getProjectWorkingDir(project: Pick<Project, "project_type" | "repo_path" | "remote_repo_path"> | null | undefined): string | null {
+export function getProjectWorkingDir(
+  project: Pick<Project, "project_type" | "repo_path" | "remote_repo_path"> | null | undefined,
+): string | null {
   if (!project) {
     return null;
   }
 
   return normalizeProjectType(project.project_type) === "ssh"
-    ? project.remote_repo_path ?? null
-    : project.repo_path ?? null;
+    ? (project.remote_repo_path ?? null)
+    : (project.repo_path ?? null);
 }
 
 export function projectMatchesEnvironment(
@@ -74,7 +78,9 @@ export function filterProjectsByScope(
   environmentMode: EnvironmentMode,
   selectedSshConfigId?: string | null,
 ): Project[] {
-  return projects.filter((project) => projectMatchesScope(project, environmentMode, selectedSshConfigId));
+  return projects.filter((project) =>
+    projectMatchesScope(project, environmentMode, selectedSshConfigId),
+  );
 }
 
 export function getEnvironmentModeLabel(environmentMode: EnvironmentMode): string {

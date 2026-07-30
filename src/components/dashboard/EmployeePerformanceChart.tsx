@@ -57,7 +57,11 @@ function getPeriodLabel(value: PerformancePeriod) {
   return PERIOD_OPTIONS.find((option) => option.value === value)?.label ?? value;
 }
 
-function compareNullableNumbers(left: number | null, right: number | null, direction: SortDirection) {
+function compareNullableNumbers(
+  left: number | null,
+  right: number | null,
+  direction: SortDirection,
+) {
   if (left === null && right === null) {
     return 0;
   }
@@ -72,14 +76,17 @@ function compareNullableNumbers(left: number | null, right: number | null, direc
 }
 
 function compareRows(left: PerformanceRow, right: PerformanceRow, sort: SortState) {
-  let result = 0;
-
+  let result: number;
   if (sort.key === "employee_name") {
     result = left.employee_name.localeCompare(right.employee_name, "zh-CN");
   } else if (sort.key === "tasks_completed") {
     result = left.tasks_completed - right.tasks_completed;
   } else if (sort.key === "average_completion_time") {
-    result = compareNullableNumbers(left.average_completion_time, right.average_completion_time, sort.direction);
+    result = compareNullableNumbers(
+      left.average_completion_time,
+      right.average_completion_time,
+      sort.direction,
+    );
   } else {
     result = compareNullableNumbers(left.success_rate, right.success_rate, sort.direction);
   }
@@ -97,11 +104,7 @@ function compareRows(left: PerformanceRow, right: PerformanceRow, sort: SortStat
 
 function SortHeader({ label, sortKey, sort, align = "left", onSort }: SortHeaderProps) {
   const active = sort.key === sortKey;
-  const Icon = active
-    ? sort.direction === "asc"
-      ? ArrowUp
-      : ArrowDown
-    : ArrowUpDown;
+  const Icon = active ? (sort.direction === "asc" ? ArrowUp : ArrowDown) : ArrowUpDown;
 
   return (
     <Button
@@ -159,14 +162,16 @@ async function loadPerformanceRows(
     if (existing) {
       existing.tasks_completed += metric.tasks_completed;
       if (metric.success_rate !== null) {
-        existing.success_rate = existing.success_rate === null
-          ? metric.success_rate
-          : (existing.success_rate + metric.success_rate) / 2;
+        existing.success_rate =
+          existing.success_rate === null
+            ? metric.success_rate
+            : (existing.success_rate + metric.success_rate) / 2;
       }
       if (metric.average_completion_time !== null) {
-        existing.average_completion_time = existing.average_completion_time === null
-          ? metric.average_completion_time
-          : (existing.average_completion_time + metric.average_completion_time) / 2;
+        existing.average_completion_time =
+          existing.average_completion_time === null
+            ? metric.average_completion_time
+            : (existing.average_completion_time + metric.average_completion_time) / 2;
       }
     } else {
       aggregated.set(metric.employee_id, {
@@ -211,9 +216,10 @@ export function EmployeePerformanceChart() {
     };
   }, [currentProjectId, environmentMode, period, selectedSshConfigId]);
 
-  const sortedData = useMemo(() => (
-    [...data].sort((left, right) => compareRows(left, right, sort))
-  ), [data, sort]);
+  const sortedData = useMemo(
+    () => [...data].sort((left, right) => compareRows(left, right, sort)),
+    [data, sort],
+  );
 
   const updateSort = (key: SortKey) => {
     setSort((current) => {
@@ -248,7 +254,11 @@ export function EmployeePerformanceChart() {
         >
           <SelectTrigger className="h-7 w-24 bg-background text-xs">
             <SelectValue>
-              {(value) => (typeof value === "string" ? getPeriodLabel(value as PerformancePeriod) : getPeriodLabel(period))}
+              {(value) =>
+                typeof value === "string"
+                  ? getPeriodLabel(value as PerformancePeriod)
+                  : getPeriodLabel(period)
+              }
             </SelectValue>
           </SelectTrigger>
           <SelectContent>
@@ -262,25 +272,46 @@ export function EmployeePerformanceChart() {
       </div>
 
       {sortedData.length === 0 ? (
-        <div className="text-sm text-muted-foreground text-center py-8">
-          暂无绩效数据
-        </div>
+        <div className="text-sm text-muted-foreground text-center py-8">暂无绩效数据</div>
       ) : (
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-border">
                 <th className="py-2 px-2 text-left">
-                  <SortHeader label="员工" sortKey="employee_name" sort={sort} onSort={updateSort} />
+                  <SortHeader
+                    label="员工"
+                    sortKey="employee_name"
+                    sort={sort}
+                    onSort={updateSort}
+                  />
                 </th>
                 <th className="py-2 px-2 text-right">
-                  <SortHeader label="完成任务" sortKey="tasks_completed" sort={sort} align="right" onSort={updateSort} />
+                  <SortHeader
+                    label="完成任务"
+                    sortKey="tasks_completed"
+                    sort={sort}
+                    align="right"
+                    onSort={updateSort}
+                  />
                 </th>
                 <th className="py-2 px-2 text-right">
-                  <SortHeader label="平均耗时" sortKey="average_completion_time" sort={sort} align="right" onSort={updateSort} />
+                  <SortHeader
+                    label="平均耗时"
+                    sortKey="average_completion_time"
+                    sort={sort}
+                    align="right"
+                    onSort={updateSort}
+                  />
                 </th>
                 <th className="py-2 px-2 text-right">
-                  <SortHeader label="成功率" sortKey="success_rate" sort={sort} align="right" onSort={updateSort} />
+                  <SortHeader
+                    label="成功率"
+                    sortKey="success_rate"
+                    sort={sort}
+                    align="right"
+                    onSort={updateSort}
+                  />
                 </th>
               </tr>
             </thead>

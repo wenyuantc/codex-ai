@@ -32,9 +32,7 @@ export function EmployeeSystemPromptField({
   const projects = useProjectStore((state) => state.projects);
   const fetchProjects = useProjectStore((state) => state.fetchProjects);
   const optimizePrompt = useAiOptimizePrompt(open);
-  const project = projectId
-    ? projects.find((item) => item.id === projectId)
-    : undefined;
+  const project = projectId ? projects.find((item) => item.id === projectId) : undefined;
 
   useEffect(() => {
     if (open) {
@@ -60,7 +58,8 @@ export function EmployeeSystemPromptField({
       scene: "employee_system_prompt",
       projectId: currentProject?.id ?? null,
       projectName: currentProject?.name ?? EMPLOYEE_PROMPT_FALLBACK_PROJECT_NAME,
-      projectDescription: currentProject?.description ?? EMPLOYEE_PROMPT_FALLBACK_PROJECT_DESCRIPTION,
+      projectDescription:
+        currentProject?.description ?? EMPLOYEE_PROMPT_FALLBACK_PROJECT_DESCRIPTION,
       projectRepoPath: getProjectWorkingDir(currentProject),
       title: null,
       description: null,
@@ -127,7 +126,9 @@ export function EmployeeSystemPromptField({
           <div className="flex items-center justify-between gap-2">
             <div>
               <p className="text-xs font-medium text-primary">生成后的系统提示词</p>
-              <p className="text-[11px] text-muted-foreground">确认后会替换当前系统提示词输入框内容</p>
+              <p className="text-[11px] text-muted-foreground">
+                确认后会替换当前系统提示词输入框内容
+              </p>
             </div>
             <Button type="button" size="sm" onClick={handleApplyOptimizedPrompt}>
               替换提示词

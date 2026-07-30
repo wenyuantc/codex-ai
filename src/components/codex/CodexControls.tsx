@@ -10,7 +10,14 @@ import { getProjectWorkingDir } from "@/lib/projects";
 import { buildTaskExecutionInput } from "@/lib/taskPrompt";
 import type { AiProvider, Task } from "@/lib/types";
 import { cn, getPriorityLabel, getStatusLabel } from "@/lib/utils";
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useEmployeeStore } from "@/stores/employeeStore";
@@ -43,7 +50,9 @@ export function CodexControls({
   const updateEmployeeStatus = useEmployeeStore((state) => state.updateEmployeeStatus);
   const clearTaskCodexOutput = useEmployeeStore((state) => state.clearTaskCodexOutput);
   const addCodexOutput = useEmployeeStore((state) => state.addCodexOutput);
-  const refreshEmployeeRuntimeStatus = useEmployeeStore((state) => state.refreshEmployeeRuntimeStatus);
+  const refreshEmployeeRuntimeStatus = useEmployeeStore(
+    (state) => state.refreshEmployeeRuntimeStatus,
+  );
   const tasks = useTaskStore((state) => state.tasks);
   const fetchTasks = useTaskStore((state) => state.fetchTasks);
   const fetchAttachments = useTaskStore((state) => state.fetchAttachments);
@@ -87,7 +96,9 @@ export function CodexControls({
     }
 
     const projectName = projects.find((project) => project.id === task.project_id)?.name ?? "";
-    const searchableText = [task.title, task.description ?? "", projectName].join(" ").toLowerCase();
+    const searchableText = [task.title, task.description ?? "", projectName]
+      .join(" ")
+      .toLowerCase();
     return searchableText.includes(normalizedKeyword);
   });
   const selectedTask = eligibleTasks.find((task) => task.id === selectedTaskId) ?? null;
@@ -98,9 +109,12 @@ export function CodexControls({
     }
 
     const expectedSessionKind = shouldStartReview ? "review" : "execution";
-    return allRunningSessions.find((session) => (
-      session.task_id === selectedTask.id && session.session_kind === expectedSessionKind
-    )) ?? null;
+    return (
+      allRunningSessions.find(
+        (session) =>
+          session.task_id === selectedTask.id && session.session_kind === expectedSessionKind,
+      ) ?? null
+    );
   }, [allRunningSessions, selectedTask, shouldStartReview]);
 
   useEffect(() => {
@@ -137,13 +151,11 @@ export function CodexControls({
     }
   }, [eligibleTasks, selectedTaskId, showTaskDialog]);
 
-  const getProjectName = (task: Task) => (
-    projects.find((project) => project.id === task.project_id)?.name ?? "未命名项目"
-  );
+  const getProjectName = (task: Task) =>
+    projects.find((project) => project.id === task.project_id)?.name ?? "未命名项目";
 
-  const getProjectRepoPath = (task: Task) => (
-    getProjectWorkingDir(projects.find((project) => project.id === task.project_id)) ?? undefined
-  );
+  const getProjectRepoPath = (task: Task) =>
+    getProjectWorkingDir(projects.find((project) => project.id === task.project_id)) ?? undefined;
 
   const handleStart = async () => {
     if (!selectedTask) {
@@ -310,7 +322,11 @@ export function CodexControls({
           disabled={actionLoading !== null}
           className="flex items-center gap-1 px-2 py-1 text-xs bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-50 transition-colors"
         >
-          {actionLoading === "start" ? <Loader2 className="h-3 w-3 animate-spin" /> : <Play className="h-3 w-3" />}
+          {actionLoading === "start" ? (
+            <Loader2 className="h-3 w-3 animate-spin" />
+          ) : (
+            <Play className="h-3 w-3" />
+          )}
           启动
         </button>
         {hasRunningSessions && (
@@ -320,7 +336,11 @@ export function CodexControls({
             title={`停止当前员工的 ${runningSessions.length} 个运行会话`}
             className="flex items-center gap-1 px-2 py-1 text-xs bg-red-600 text-white rounded hover:bg-red-700 disabled:opacity-50 transition-colors"
           >
-            {actionLoading === "stop" ? <Loader2 className="h-3 w-3 animate-spin" /> : <Square className="h-3 w-3" />}
+            {actionLoading === "stop" ? (
+              <Loader2 className="h-3 w-3 animate-spin" />
+            ) : (
+              <Square className="h-3 w-3" />
+            )}
             停止全部
           </button>
         )}
@@ -435,10 +455,19 @@ export function CodexControls({
             <button
               type="button"
               onClick={handleStart}
-              disabled={!selectedTask || Boolean(selectedTaskRunningSession) || taskDialogLoading || actionLoading === "start"}
+              disabled={
+                !selectedTask ||
+                Boolean(selectedTaskRunningSession) ||
+                taskDialogLoading ||
+                actionLoading === "start"
+              }
               className="flex h-8 items-center justify-center gap-1 rounded-lg bg-primary px-3 text-sm text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
             >
-              {actionLoading === "start" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />}
+              {actionLoading === "start" ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Play className="h-3.5 w-3.5" />
+              )}
               {shouldStartReview ? "启动审核" : "启动任务"}
             </button>
           </DialogFooter>

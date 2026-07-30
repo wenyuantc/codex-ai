@@ -54,9 +54,7 @@ export function ActivityFeed() {
       </div>
 
       {recentActivities.length === 0 ? (
-        <div className="text-sm text-muted-foreground text-center py-8">
-          暂无活动记录
-        </div>
+        <div className="text-sm text-muted-foreground text-center py-8">暂无活动记录</div>
       ) : (
         <ScrollArea className="flex-1 max-h-[400px]">
           <div className="space-y-2 pr-3">

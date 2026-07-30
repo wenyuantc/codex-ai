@@ -72,8 +72,17 @@ export function DashboardPage() {
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-end gap-2">
-        <Button variant="outline" size="sm" onClick={() => void handleExportCsv()} disabled={exporting}>
-          {exporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => void handleExportCsv()}
+          disabled={exporting}
+        >
+          {exporting ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : (
+            <Download className="h-4 w-4" />
+          )}
           导出任务 CSV
         </Button>
         {exportMessage && <p className="text-[11px] text-muted-foreground">{exportMessage}</p>}
@@ -85,7 +94,8 @@ export function DashboardPage() {
           <div className="flex flex-wrap items-center justify-between gap-2">
             <h3 className="text-sm font-semibold">增强报表</h3>
             <p className="text-xs text-muted-foreground">
-              完成率 {report.completion_rate.toFixed(1)}% · 逾期 {report.overdue_tasks} · 阻塞 {report.blocked_tasks}
+              完成率 {report.completion_rate.toFixed(1)}% · 逾期 {report.overdue_tasks} · 阻塞{" "}
+              {report.blocked_tasks}
             </p>
           </div>
           <div className="grid gap-4 lg:grid-cols-2">
@@ -110,13 +120,18 @@ export function DashboardPage() {
               </div>
             </div>
             <div>
-              <p className="mb-2 text-xs font-medium text-muted-foreground">成员负载（进行中 vs 已完成）</p>
+              <p className="mb-2 text-xs font-medium text-muted-foreground">
+                成员负载（进行中 vs 已完成）
+              </p>
               <div className="max-h-28 space-y-1.5 overflow-auto">
                 {report.employee_workload.length === 0 && (
                   <p className="text-xs text-muted-foreground">暂无员工数据</p>
                 )}
                 {report.employee_workload.map((item) => (
-                  <div key={item.employee_id} className="flex items-center justify-between gap-2 text-xs">
+                  <div
+                    key={item.employee_id}
+                    className="flex items-center justify-between gap-2 text-xs"
+                  >
                     <span className="truncate font-medium">{item.employee_name}</span>
                     <span className="shrink-0 text-muted-foreground">
                       活跃 {item.active_tasks} · 完成 {item.completed_tasks}

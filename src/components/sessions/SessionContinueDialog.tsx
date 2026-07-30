@@ -60,7 +60,9 @@ export function SessionContinueDialog({
     let currentProject = project;
     if (!currentProject) {
       await fetchProjects();
-      currentProject = useProjectStore.getState().projects.find((item) => item.id === session.project_id);
+      currentProject = useProjectStore
+        .getState()
+        .projects.find((item) => item.id === session.project_id);
     }
 
     if (!currentProject) {
@@ -109,7 +111,10 @@ export function SessionContinueDialog({
             <div className="mt-1">关联任务：{session?.task_title ?? "无关联任务"}</div>
           </div>
           <div className="flex items-center justify-between gap-3">
-            <label className="text-sm font-medium text-foreground" htmlFor="session-continue-prompt">
+            <label
+              className="text-sm font-medium text-foreground"
+              htmlFor="session-continue-prompt"
+            >
               对话内容
             </label>
             <Button

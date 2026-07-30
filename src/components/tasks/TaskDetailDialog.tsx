@@ -32,11 +32,7 @@ import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { buildTaskExecutionInput } from "@/lib/taskPrompt";
-import {
-  dedupePaths,
-  isTauriRuntime,
-  normalizeDialogSelection,
-} from "@/lib/taskAttachments";
+import { dedupePaths, isTauriRuntime, normalizeDialogSelection } from "@/lib/taskAttachments";
 import { startCodex } from "@/lib/codex";
 import { startClaude } from "@/lib/claude";
 import { startGrok } from "@/lib/grok";
@@ -139,14 +135,20 @@ export function TaskDetailDialog({
   const [latestReview, setLatestReview] = useState<TaskLatestReview | null>(null);
   const [latestReviewLoading, setLatestReviewLoading] = useState(false);
   const [taskIdCopied, setTaskIdCopied] = useState(false);
-  const [executionChangeHistory, setExecutionChangeHistory] = useState<TaskExecutionChangeHistoryItem[]>([]);
+  const [executionChangeHistory, setExecutionChangeHistory] = useState<
+    TaskExecutionChangeHistoryItem[]
+  >([]);
   const [executionChangeHistoryLoading, setExecutionChangeHistoryLoading] = useState(false);
-  const [executionChangeHistoryError, setExecutionChangeHistoryError] = useState<string | null>(null);
+  const [executionChangeHistoryError, setExecutionChangeHistoryError] = useState<string | null>(
+    null,
+  );
   const [executionChangeDetailOpen, setExecutionChangeDetailOpen] = useState(false);
   const [executionChangeDetailLoading, setExecutionChangeDetailLoading] = useState(false);
   const [executionChangeDetailError, setExecutionChangeDetailError] = useState<string | null>(null);
-  const [selectedExecutionChange, setSelectedExecutionChange] = useState<CodexSessionFileChange | null>(null);
-  const [executionChangeDetail, setExecutionChangeDetail] = useState<CodexSessionFileChangeDetail | null>(null);
+  const [selectedExecutionChange, setSelectedExecutionChange] =
+    useState<CodexSessionFileChange | null>(null);
+  const [executionChangeDetail, setExecutionChangeDetail] =
+    useState<CodexSessionFileChangeDetail | null>(null);
   const [coordinatorPlanDialogOpen, setCoordinatorPlanDialogOpen] = useState(false);
   const [coordinatorPlanDraft, setCoordinatorPlanDraft] = useState("");
   const [coordinatorPlanLoading, setCoordinatorPlanLoading] = useState(false);
@@ -165,9 +167,15 @@ export function TaskDetailDialog({
   const executionStartErrorRef = useRef<string | null>(null);
   const terminalRef = useRef<HTMLDivElement>(null);
   const aiLogRef = useRef<HTMLDivElement>(null);
-  const assignee = assigneeId ? employees.find((employee) => employee.id === assigneeId) : undefined;
-  const reviewer = reviewerId ? employees.find((employee) => employee.id === reviewerId) : undefined;
-  const coordinator = coordinatorId ? employees.find((employee) => employee.id === coordinatorId) : undefined;
+  const assignee = assigneeId
+    ? employees.find((employee) => employee.id === assigneeId)
+    : undefined;
+  const reviewer = reviewerId
+    ? employees.find((employee) => employee.id === reviewerId)
+    : undefined;
+  const coordinator = coordinatorId
+    ? employees.find((employee) => employee.id === coordinatorId)
+    : undefined;
   const coordinatorCandidates = employees.filter((employee) => employee.role === "coordinator");
   const reviewerCandidates = employees.filter((employee) => employee.role === "reviewer");
   const projectTesters = employees.filter(
@@ -183,10 +191,7 @@ export function TaskDetailDialog({
   };
   const planContentHasChanges = planContentDraft !== planContent;
   const appendCoordinatorPlanLog = (line: string) => {
-    setCoordinatorPlanLogs((current) => [
-      ...current.slice(-199),
-      line,
-    ]);
+    setCoordinatorPlanLogs((current) => [...current.slice(-199), line]);
   };
 
   const getCoordinatorPlanRuntimeLabel = () => {
@@ -216,7 +221,7 @@ export function TaskDetailDialog({
       return {
         prompt: executionInput.prompt,
         imagePaths: executionInput.imagePaths,
-        resumeSessionId: followUpPrompt ? task.last_codex_session_id ?? undefined : undefined,
+        resumeSessionId: followUpPrompt ? (task.last_codex_session_id ?? undefined) : undefined,
       };
     },
     clearTaskOutputOnRun: true,
@@ -243,7 +248,8 @@ export function TaskDetailDialog({
       setReviewError(message);
     },
   });
-  const resolvedAutomationState = automationState ?? getTaskAutomationDisplayState(task, persistedAutomationState ?? null);
+  const resolvedAutomationState =
+    automationState ?? getTaskAutomationDisplayState(task, persistedAutomationState ?? null);
   const runtimeState = getTaskActionRuntimeState({
     automationState: resolvedAutomationState,
     isExecutionRunning: executionActions.isRunning,
@@ -635,9 +641,7 @@ export function TaskDetailDialog({
     setCoordinatorPlanError(null);
     setCoordinatorPlanDraft(existingPlan);
     setCoordinatorPlanLogs(
-      existingPlan
-        ? [`[计划] 已加载任务中保存的协调员计划，共 ${existingPlan.length} 字。`]
-        : [],
+      existingPlan ? [`[计划] 已加载任务中保存的协调员计划，共 ${existingPlan.length} 字。`] : [],
     );
     setCoordinatorPlanTerminalVisible(!existingPlan);
     setCoordinatorPlanDialogOpen(true);
@@ -951,9 +955,7 @@ export function TaskDetailDialog({
         <DialogContent className="max-h-[min(92vh,calc(100vh-2rem))] w-[min(96vw,80rem)] max-w-[min(96vw,80rem)] overflow-y-auto sm:max-w-[min(96vw,80rem)]">
           <DialogHeader>
             <DialogTitle className="sr-only">任务详情</DialogTitle>
-            <DialogDescription className="sr-only">
-              查看和编辑任务详情
-            </DialogDescription>
+            <DialogDescription className="sr-only">查看和编辑任务详情</DialogDescription>
           </DialogHeader>
 
           <div className="mb-4 flex flex-wrap items-center gap-2 rounded-lg border border-border/70 bg-background/80 px-4 py-3">
@@ -970,7 +972,11 @@ export function TaskDetailDialog({
                 className="h-6 cursor-pointer rounded-md px-2.5 font-mono text-[11px] transition-colors hover:border-primary/40 hover:bg-primary/5"
               >
                 {task.id}
-                {taskIdCopied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+                {taskIdCopied ? (
+                  <Check className="h-3.5 w-3.5" />
+                ) : (
+                  <Copy className="h-3.5 w-3.5" />
+                )}
               </Badge>
             </button>
           </div>
@@ -981,7 +987,7 @@ export function TaskDetailDialog({
                 <div className="space-y-1">
                   <div className="flex items-center gap-2">
                     <Bot className="h-4 w-4 text-primary" />
-                  <p className="text-sm font-medium">自动质控</p>
+                    <p className="text-sm font-medium">自动质控</p>
                   </div>
                   <p className="text-[11px] text-muted-foreground">
                     这里展示原任务内的自动审核与自动修复闭环状态；开关入口在任务卡片右键菜单。
@@ -1009,16 +1015,21 @@ export function TaskDetailDialog({
                 </div>
                 <div className="rounded-md border border-border bg-background/70 px-3 py-2">
                   <span className="font-medium text-foreground">最近更新时间：</span>
-                  {resolvedAutomationState.updatedAt ? formatDate(resolvedAutomationState.updatedAt) : "暂无"}
+                  {resolvedAutomationState.updatedAt
+                    ? formatDate(resolvedAutomationState.updatedAt)
+                    : "暂无"}
                 </div>
                 <div className="rounded-md border border-border bg-background/70 px-3 py-2">
                   <span className="font-medium text-foreground">状态来源：</span>
-                  {resolvedAutomationState.source === "automation_state" ? "自动化状态" : "任务配置"}
+                  {resolvedAutomationState.source === "automation_state"
+                    ? "自动化状态"
+                    : "任务配置"}
                 </div>
               </div>
 
               <div className="rounded-md border border-dashed border-border bg-background/70 px-3 py-2 text-xs text-muted-foreground">
-                自动质控不会替代现有“审核结果 → 修复”手动路径。手动修复仍然通过创建新任务推进；自动质控接线后则在原任务内完成审核与修复闭环。
+                自动质控不会替代现有“审核结果 →
+                修复”手动路径。手动修复仍然通过创建新任务推进；自动质控接线后则在原任务内完成审核与修复闭环。
               </div>
 
               {resolvedAutomationState.note && (
@@ -1229,22 +1240,27 @@ export function TaskDetailDialog({
         open={executionChangeDetailOpen}
         loading={executionChangeDetailLoading}
         error={executionChangeDetailError}
-        detail={executionChangeDetail ?? (selectedExecutionChange ? {
-          change: selectedExecutionChange,
-          working_dir: null,
-          absolute_path: null,
-          previous_absolute_path: null,
-          before_status: "missing",
-          before_text: null,
-          before_truncated: false,
-          after_status: "missing",
-          after_text: null,
-          after_truncated: false,
-          diff_text: null,
-          diff_truncated: false,
-          snapshot_status: "unavailable",
-          snapshot_message: null,
-        } : null)}
+        detail={
+          executionChangeDetail ??
+          (selectedExecutionChange
+            ? {
+                change: selectedExecutionChange,
+                working_dir: null,
+                absolute_path: null,
+                previous_absolute_path: null,
+                before_status: "missing",
+                before_text: null,
+                before_truncated: false,
+                after_status: "missing",
+                after_text: null,
+                after_truncated: false,
+                diff_text: null,
+                diff_truncated: false,
+                snapshot_status: "unavailable",
+                snapshot_message: null,
+              }
+            : null)
+        }
         onOpenChange={handleExecutionChangeDetailOpenChange}
       />
       {aiActions.insertDialogOpen && (
@@ -1302,9 +1318,7 @@ export function TaskDetailDialog({
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>填写阻塞原因</DialogTitle>
-            <DialogDescription>
-              转为阻塞状态前必须说明原因，便于协调员跟进。
-            </DialogDescription>
+            <DialogDescription>转为阻塞状态前必须说明原因，便于协调员跟进。</DialogDescription>
           </DialogHeader>
           <Textarea
             value={pendingBlockedReason}

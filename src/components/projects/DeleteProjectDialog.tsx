@@ -30,7 +30,7 @@ export function DeleteProjectDialog({
         <DialogHeader>
           <DialogTitle>确认删除项目</DialogTitle>
           <DialogDescription>
-            确认删除项目“{project?.name ?? ''}”吗？项目及其任务将移至回收站，可在回收站中恢复。
+            确认删除项目“{project?.name ?? ""}”吗？项目及其任务将移至回收站，可在回收站中恢复。
           </DialogDescription>
         </DialogHeader>
 

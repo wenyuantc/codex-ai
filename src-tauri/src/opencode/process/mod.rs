@@ -98,7 +98,7 @@ async fn stop_existing_opencode_sdk_server(
     if let Some(server) = existing {
         let mut child = server.child.lock().await;
         if child.try_wait()?.is_none() {
-            if let Err(error) = child.kill_process_group().await {
+            if let Err(error) = child.kill_process_group() {
                 eprintln!("[opencode-sdk-server] killpg failed, fallback to child.kill(): {error}");
             }
             let _ = child.kill().await;
@@ -1246,7 +1246,7 @@ async fn stop_opencode_process_with_manager<R: Runtime>(
     .await;
 
     let mut child = process.child.lock().await;
-    if let Err(error) = child.kill_process_group().await {
+    if let Err(error) = child.kill_process_group() {
         eprintln!("[opencode-stop] killpg failed, fallback to child.kill(): {error}");
     }
     child.kill().await?;
@@ -1352,7 +1352,7 @@ pub async fn start_opencode_with_manager(
             .ok_or_else(|| "SSH 项目缺少远程仓库目录，无法启动 OpenCode。".to_string())?
     };
 
-    if let (Some(ref task_id), Some(ref task_git_context_id)) =
+    if let (Some(task_id), Some(task_git_context_id)) =
         (task_id.as_ref(), task_git_context_id.as_ref())
     {
         let validated_worktree =
@@ -1645,7 +1645,7 @@ pub async fn start_opencode_with_manager(
             .await
     {
         let mut child = child;
-        let _ = child.kill_process_group().await;
+        let _ = child.kill_process_group();
         let _ = child.kill().await;
         let _ = runtime_config_backup.restore();
         finalize_launch_failure(

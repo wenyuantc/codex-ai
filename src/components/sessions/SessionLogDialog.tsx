@@ -29,11 +29,7 @@ interface SessionLogDialogProps {
   onOpenChange: (open: boolean) => void;
 }
 
-export function SessionLogDialog({
-  open,
-  session,
-  onOpenChange,
-}: SessionLogDialogProps) {
+export function SessionLogDialog({ open, session, onOpenChange }: SessionLogDialogProps) {
   const hydrateSessionLog = useEmployeeStore((state) => state.hydrateSessionLog);
   const [loadingHistory, setLoadingHistory] = useState(false);
   const [historyError, setHistoryError] = useState<string | null>(null);
@@ -95,9 +91,7 @@ export function SessionLogDialog({
         <DialogHeader>
           <DialogTitle>终端日志</DialogTitle>
           <DialogDescription>
-            {session
-              ? `查看对话“${session.displayName}”的实时终端输出。`
-              : "查看对话终端输出"}
+            {session ? `查看对话“${session.displayName}”的实时终端输出。` : "查看对话终端输出"}
           </DialogDescription>
         </DialogHeader>
 
@@ -105,7 +99,9 @@ export function SessionLogDialog({
           <div className="rounded-lg border border-border bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
             <div className="font-mono">对话记录 ID: {session.sessionRecordId ?? "暂无"}</div>
             <div className="font-mono">对话 ID: {session.sessionId}</div>
-            <div className="mt-1">员工：{session.employeeName ?? session.employeeId ?? "未绑定"}</div>
+            <div className="mt-1">
+              员工：{session.employeeName ?? session.employeeId ?? "未绑定"}
+            </div>
             <div className="mt-1">任务：{session.taskTitle ?? "无关联任务"}</div>
           </div>
         )}
@@ -127,7 +123,10 @@ export function SessionLogDialog({
             {session?.sessionRecordId ? (
               <CodexTerminal sessionRecordId={session.sessionRecordId} />
             ) : session?.taskId ? (
-              <CodexTerminal taskId={session.taskId} sessionKind={session.sessionKind ?? "execution"} />
+              <CodexTerminal
+                taskId={session.taskId}
+                sessionKind={session.sessionKind ?? "execution"}
+              />
             ) : null}
           </div>
         ) : (

@@ -42,9 +42,7 @@ export function CommentItem({ comment }: CommentItemProps) {
             {formatDate(comment.created_at)}
           </span>
         </div>
-        <p className="text-xs text-foreground mt-0.5 whitespace-pre-wrap">
-          {comment.content}
-        </p>
+        <p className="text-xs text-foreground mt-0.5 whitespace-pre-wrap">{comment.content}</p>
       </div>
     </div>
   );

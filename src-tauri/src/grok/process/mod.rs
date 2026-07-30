@@ -991,7 +991,7 @@ pub async fn start_grok_with_manager(
         let remote_command = build_remote_grok_session_command(&run_cwd, &cli_args);
 
         let (mut command, askpass_path) =
-            match build_ssh_command(&app, &ssh_config, Some(&remote_command), true, false).await {
+            match build_ssh_command(&app, ssh_config, Some(&remote_command), true, false).await {
                 Ok(result) => result,
                 Err(error) => {
                     finalize_grok_launch_failure(
@@ -1166,6 +1166,7 @@ pub async fn start_grok_with_manager(
             child_arc.clone(),
             session_record.id.clone(),
             cleanup_paths,
+            (),
         );
     }
 

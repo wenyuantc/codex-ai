@@ -1,19 +1,14 @@
 import type { OpenCodeModelInfo } from "@/lib/opencode";
 import { normalizeReasoningEffortForProvider } from "@/lib/types";
 
-export function selectOpenCodeModel(
-  models: OpenCodeModelInfo[],
-  currentModel: string,
-): string {
+export function selectOpenCodeModel(models: OpenCodeModelInfo[], currentModel: string): string {
   const trimmedModel = currentModel.trim();
 
   if (models.length === 0) {
     return trimmedModel;
   }
 
-  return models.some((model) => model.value === trimmedModel)
-    ? trimmedModel
-    : models[0].value;
+  return models.some((model) => model.value === trimmedModel) ? trimmedModel : models[0].value;
 }
 
 export function selectOpenCodeReasoningEffort(

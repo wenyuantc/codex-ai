@@ -550,7 +550,7 @@ mod tests {
             .build()
             .expect("build tokio runtime");
         let resolved = runtime
-            .block_on(resolve_executable("npm", &[], None, &[bin_dir.clone()]))
+            .block_on(resolve_executable("npm", &[], None, std::slice::from_ref(&bin_dir)))
             .expect("resolve npm from extra search dir");
 
         assert_eq!(resolved, npm);

@@ -41,7 +41,7 @@ export function Sidebar() {
     <aside
       className={cn(
         "flex flex-col h-screen bg-sidebar-background border-r border-sidebar-border transition-all duration-200",
-        collapsed ? "w-16" : "w-56"
+        collapsed ? "w-16" : "w-56",
       )}
     >
       <div className="flex h-14 items-center gap-2 border-b border-sidebar-border px-4 text-sidebar-foreground">
@@ -57,39 +57,39 @@ export function Sidebar() {
         {navItems.map((item) => {
           const shortcut = getShortcut(item.to);
           return (
-          <NavLink
-            key={item.to}
-            to={item.to}
-            end={item.to === "/"}
-            className={({ isActive }) =>
-              cn(
-                "flex items-center gap-3 px-3 py-2 rounded-md text-sm transition-colors",
-                isActive
-                  ? "bg-sidebar-primary text-sidebar-primary-foreground font-medium"
-                  : "text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-              )
-            }
-          >
-            {({ isActive }) => (
-              <>
-            <item.icon className="h-4 w-4 shrink-0" />
-            {!collapsed && (
-              <>
-                <span className="flex-1 truncate">{item.label}</span>
-                {shortcut && (
-                  <Kbd
-                    variant="subtle"
-                    size="xs"
-                    className={isActive ? "text-sidebar-primary-foreground" : ""}
-                  >
-                    {shortcutDisplay(shortcut)}
-                  </Kbd>
-                )}
-              </>
-            )}
-              </>
-            )}
-          </NavLink>
+            <NavLink
+              key={item.to}
+              to={item.to}
+              end={item.to === "/"}
+              className={({ isActive }) =>
+                cn(
+                  "flex items-center gap-3 px-3 py-2 rounded-md text-sm transition-colors",
+                  isActive
+                    ? "bg-sidebar-primary text-sidebar-primary-foreground font-medium"
+                    : "text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
+                )
+              }
+            >
+              {({ isActive }) => (
+                <>
+                  <item.icon className="h-4 w-4 shrink-0" />
+                  {!collapsed && (
+                    <>
+                      <span className="flex-1 truncate">{item.label}</span>
+                      {shortcut && (
+                        <Kbd
+                          variant="subtle"
+                          size="xs"
+                          className={isActive ? "text-sidebar-primary-foreground" : ""}
+                        >
+                          {shortcutDisplay(shortcut)}
+                        </Kbd>
+                      )}
+                    </>
+                  )}
+                </>
+              )}
+            </NavLink>
           );
         })}
       </nav>
@@ -99,11 +99,7 @@ export function Sidebar() {
           onClick={() => setCollapsed(!collapsed)}
           className="flex w-full items-center justify-center rounded-md px-3 py-2 text-sidebar-foreground/70 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
         >
-          {collapsed ? (
-            <ChevronRight className="h-4 w-4" />
-          ) : (
-            <ChevronLeft className="h-4 w-4" />
-          )}
+          {collapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronLeft className="h-4 w-4" />}
         </button>
       </div>
     </aside>

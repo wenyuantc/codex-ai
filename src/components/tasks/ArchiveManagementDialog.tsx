@@ -66,7 +66,9 @@ export function ArchiveManagementDialog({
 }: ArchiveManagementDialogProps) {
   const projects = useProjectStore((state) => state.projects);
   const [archivedTasks, setArchivedTasks] = useState<Task[]>([]);
-  const [filters, setFilters] = useState<ArchiveFilterState>(() => buildDefaultFilters(defaultProjectId));
+  const [filters, setFilters] = useState<ArchiveFilterState>(() =>
+    buildDefaultFilters(defaultProjectId),
+  );
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -74,18 +76,17 @@ export function ArchiveManagementDialog({
     () => new Map(projects.map((project) => [project.id, project.name])),
     [projects],
   );
-  const defaultFilters = useMemo(
-    () => buildDefaultFilters(defaultProjectId),
-    [defaultProjectId],
-  );
+  const defaultFilters = useMemo(() => buildDefaultFilters(defaultProjectId), [defaultProjectId]);
   const visibleProjectIdsKey = useMemo(
-    () => projects.map((project) => project.id).sort().join(","),
+    () =>
+      projects
+        .map((project) => project.id)
+        .sort()
+        .join(","),
     [projects],
   );
   const hasInvalidDateRange = Boolean(
-    filters.startDate
-    && filters.endDate
-    && filters.startDate > filters.endDate,
+    filters.startDate && filters.endDate && filters.startDate > filters.endDate,
   );
 
   useEffect(() => {
@@ -154,19 +155,14 @@ export function ArchiveManagementDialog({
     const endTimestamp = createDayBoundary(filters.endDate, true);
 
     return archivedTasks.filter((task) => {
-      if (
-        filters.projectId !== ALL_PROJECTS_VALUE
-        && task.project_id !== filters.projectId
-      ) {
+      if (filters.projectId !== ALL_PROJECTS_VALUE && task.project_id !== filters.projectId) {
         return false;
       }
 
       if (normalizedKeyword) {
-        const haystack = normalizeSearchText([
-          task.title,
-          task.description,
-          projectMap.get(task.project_id),
-        ].join("\n"));
+        const haystack = normalizeSearchText(
+          [task.title, task.description, projectMap.get(task.project_id)].join("\n"),
+        );
 
         if (!haystack.includes(normalizedKeyword)) {
           return false;
@@ -194,12 +190,11 @@ export function ArchiveManagementDialog({
     });
   }, [archivedTasks, filters, hasInvalidDateRange, projectMap]);
 
-  const isResetDisabled = (
-    filters.projectId === defaultFilters.projectId
-    && filters.keyword === defaultFilters.keyword
-    && filters.startDate === defaultFilters.startDate
-    && filters.endDate === defaultFilters.endDate
-  );
+  const isResetDisabled =
+    filters.projectId === defaultFilters.projectId &&
+    filters.keyword === defaultFilters.keyword &&
+    filters.startDate === defaultFilters.startDate &&
+    filters.endDate === defaultFilters.endDate;
 
   const emptyStateMessage = hasInvalidDateRange
     ? "开始时间不能晚于结束时间"
@@ -224,10 +219,12 @@ export function ArchiveManagementDialog({
                 <label className="text-sm font-medium text-foreground">项目</label>
                 <Select<string>
                   value={filters.projectId}
-                  onValueChange={(value) => setFilters((current) => ({
-                    ...current,
-                    projectId: value ?? ALL_PROJECTS_VALUE,
-                  }))}
+                  onValueChange={(value) =>
+                    setFilters((current) => ({
+                      ...current,
+                      projectId: value ?? ALL_PROJECTS_VALUE,
+                    }))
+                  }
                 >
                   <SelectTrigger className="bg-background">
                     <SelectValue>
@@ -259,10 +256,12 @@ export function ArchiveManagementDialog({
                 <label className="text-sm font-medium text-foreground">内容</label>
                 <Input
                   value={filters.keyword}
-                  onChange={(event) => setFilters((current) => ({
-                    ...current,
-                    keyword: event.target.value,
-                  }))}
+                  onChange={(event) =>
+                    setFilters((current) => ({
+                      ...current,
+                      keyword: event.target.value,
+                    }))
+                  }
                   placeholder="搜索标题或描述"
                 />
               </div>
@@ -272,10 +271,12 @@ export function ArchiveManagementDialog({
                 <Input
                   type="date"
                   value={filters.startDate}
-                  onChange={(event) => setFilters((current) => ({
-                    ...current,
-                    startDate: event.target.value,
-                  }))}
+                  onChange={(event) =>
+                    setFilters((current) => ({
+                      ...current,
+                      startDate: event.target.value,
+                    }))
+                  }
                 />
               </div>
 
@@ -284,18 +285,18 @@ export function ArchiveManagementDialog({
                 <Input
                   type="date"
                   value={filters.endDate}
-                  onChange={(event) => setFilters((current) => ({
-                    ...current,
-                    endDate: event.target.value,
-                  }))}
+                  onChange={(event) =>
+                    setFilters((current) => ({
+                      ...current,
+                      endDate: event.target.value,
+                    }))
+                  }
                 />
               </div>
             </div>
 
             <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
-              <span>
-                共 {filteredTasks.length} 条归档任务
-              </span>
+              <span>共 {filteredTasks.length} 条归档任务</span>
               <Button
                 type="button"
                 variant="ghost"
@@ -316,13 +317,18 @@ export function ArchiveManagementDialog({
                     <th className="px-3 py-2 text-xs font-medium text-muted-foreground">项目</th>
                     <th className="px-3 py-2 text-xs font-medium text-muted-foreground">内容</th>
                     <th className="px-3 py-2 text-xs font-medium text-muted-foreground">优先级</th>
-                    <th className="px-3 py-2 text-xs font-medium text-muted-foreground">更新时间</th>
+                    <th className="px-3 py-2 text-xs font-medium text-muted-foreground">
+                      更新时间
+                    </th>
                   </tr>
                 </thead>
                 <tbody>
                   {loading ? (
                     <tr>
-                      <td colSpan={4} className="px-3 py-8 text-center text-sm text-muted-foreground">
+                      <td
+                        colSpan={4}
+                        className="px-3 py-8 text-center text-sm text-muted-foreground"
+                      >
                         归档任务加载中...
                       </td>
                     </tr>
@@ -334,13 +340,19 @@ export function ArchiveManagementDialog({
                     </tr>
                   ) : filteredTasks.length === 0 ? (
                     <tr>
-                      <td colSpan={4} className="px-3 py-8 text-center text-sm text-muted-foreground">
+                      <td
+                        colSpan={4}
+                        className="px-3 py-8 text-center text-sm text-muted-foreground"
+                      >
                         {emptyStateMessage}
                       </td>
                     </tr>
                   ) : (
                     filteredTasks.map((task) => (
-                      <tr key={task.id} className="border-b border-border/50 align-top last:border-0">
+                      <tr
+                        key={task.id}
+                        className="border-b border-border/50 align-top last:border-0"
+                      >
                         <td className="px-3 py-3 text-muted-foreground">
                           {projectMap.get(task.project_id) ?? task.project_id}
                         </td>

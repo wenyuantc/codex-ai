@@ -1,0 +1,7 @@
+{"file": ".trellis/spec/backend/index.md", "reason": "Backend hard rules and guideline index before engine refactor"}
+{"file": ".trellis/spec/backend/ai-engines.md", "reason": "Engine lifecycle, SSH contracts, anti-patterns for multi-engine work"}
+{"file": ".trellis/spec/backend/directory-structure.md", "reason": "Module ownership; will add engine/ shared kernel"}
+{"file": ".trellis/spec/backend/testing.md", "reason": "Rust test layout and expectations for engine unit tests"}
+{"file": ".trellis/spec/guides/code-reuse-thinking-guide.md", "reason": "Avoid inventing parallel helpers while extracting shared engine code"}
+{"file": ".trellis/tasks/07-29-engine-trait-abstraction/design.md", "reason": "Technical design for ProcessManager, EngineChild, ExecutionContext"}
+{"file": ".trellis/tasks/07-29-engine-trait-abstraction/implement.md", "reason": "Ordered migration phases and validation commands"}

@@ -120,7 +120,10 @@ function parseTime(value: string | null | undefined) {
  * Review sessions → 审核. Execution sessions → 执行, unless they follow a failed
  * review or sit near task_automation_fix_started activity → 修复.
  */
-export function buildTaskSessionChain(sessions: CodexSessionListItem[], fixLogs: ActivityLog[]): ChainItem[] {
+export function buildTaskSessionChain(
+  sessions: CodexSessionListItem[],
+  fixLogs: ActivityLog[],
+): ChainItem[] {
   const sorted = [...sessions].sort((left, right) =>
     sessionSortKey(left).localeCompare(sessionSortKey(right)),
   );
@@ -138,19 +141,17 @@ export function buildTaskSessionChain(sessions: CodexSessionListItem[], fixLogs:
     const sessionTime = parseTime(session.last_updated_at);
     const previousTime = previous ? parseTime(previous.last_updated_at) : Number.NaN;
 
-    const followsFailedReview =
-      previous?.session_kind === "review"
-      && previous.status === "failed";
+    const followsFailedReview = previous?.session_kind === "review" && previous.status === "failed";
 
     const hasFixActivityNearSession = fixTimes.some((fixTime) => {
       if (!Number.isFinite(sessionTime)) {
         return false;
       }
       const betweenPreviousAndCurrent =
-        previous?.session_kind === "review"
-        && Number.isFinite(previousTime)
-        && fixTime >= previousTime - 60_000
-        && fixTime <= sessionTime + 120_000;
+        previous?.session_kind === "review" &&
+        Number.isFinite(previousTime) &&
+        fixTime >= previousTime - 60_000 &&
+        fixTime <= sessionTime + 120_000;
       const nearCurrent = Math.abs(fixTime - sessionTime) <= 15 * 60_000;
       return betweenPreviousAndCurrent || nearCurrent;
     });
@@ -180,7 +181,9 @@ export function TaskSessionChainPanel({ taskId, active = true }: TaskSessionChai
   const employees = useEmployeeStore((state) => state.employees);
   const fetchEmployees = useEmployeeStore((state) => state.fetchEmployees);
   const updateEmployeeStatus = useEmployeeStore((state) => state.updateEmployeeStatus);
-  const refreshEmployeeRuntimeStatus = useEmployeeStore((state) => state.refreshEmployeeRuntimeStatus);
+  const refreshEmployeeRuntimeStatus = useEmployeeStore(
+    (state) => state.refreshEmployeeRuntimeStatus,
+  );
 
   const [sessions, setSessions] = useState<CodexSessionListItem[]>([]);
   const [fixLogs, setFixLogs] = useState<ActivityLog[]>([]);
@@ -353,7 +356,11 @@ export function TaskSessionChainPanel({ taskId, active = true }: TaskSessionChai
             onClick={() => void loadChain()}
             disabled={loading}
           >
-            {loading ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="mr-1 h-3.5 w-3.5" />}
+            {loading ? (
+              <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <RefreshCw className="mr-1 h-3.5 w-3.5" />
+            )}
             刷新
           </Button>
         </div>
@@ -394,7 +401,9 @@ export function TaskSessionChainPanel({ taskId, active = true }: TaskSessionChai
                 />
                 <div className="rounded-md border border-border/70 bg-background/70 p-3">
                   <div className="flex flex-wrap items-center gap-2">
-                    <span className={`rounded-md border px-1.5 py-0.5 text-[11px] font-medium ${roleBadgeClassName(role)}`}>
+                    <span
+                      className={`rounded-md border px-1.5 py-0.5 text-[11px] font-medium ${roleBadgeClassName(role)}`}
+                    >
                       {role}
                     </span>
                     <Badge variant={aiProviderBadgeVariant(session.ai_provider)}>
@@ -412,9 +421,7 @@ export function TaskSessionChainPanel({ taskId, active = true }: TaskSessionChai
                     <span className="text-[11px] text-muted-foreground">
                       {formatDate(session.last_updated_at)}
                     </span>
-                    {index === 0 && (
-                      <span className="text-[11px] text-muted-foreground">起点</span>
-                    )}
+                    {index === 0 && <span className="text-[11px] text-muted-foreground">起点</span>}
                   </div>
 
                   <div className="mt-2 space-y-1 text-xs">
@@ -427,7 +434,9 @@ export function TaskSessionChainPanel({ taskId, active = true }: TaskSessionChai
                       {session.target_host_label ? ` · 主机：${session.target_host_label}` : ""}
                     </div>
                     {session.summary && (
-                      <p className="text-[11px] text-muted-foreground line-clamp-2">{session.summary}</p>
+                      <p className="text-[11px] text-muted-foreground line-clamp-2">
+                        {session.summary}
+                      </p>
                     )}
                   </div>
 
@@ -474,8 +483,8 @@ export function TaskSessionChainPanel({ taskId, active = true }: TaskSessionChai
                         variant="destructive"
                         onClick={() => void handleStopSession(session)}
                         disabled={
-                          session.status === "stopping"
-                          || stoppingSessionId === session.session_record_id
+                          session.status === "stopping" ||
+                          stoppingSessionId === session.session_record_id
                         }
                       >
                         {stoppingSessionId === session.session_record_id ? (
@@ -511,11 +520,7 @@ export function TaskSessionChainPanel({ taskId, active = true }: TaskSessionChai
         onConfirm={handleContinueConversation}
       />
 
-      <SessionLogDialog
-        open={logDialogOpen}
-        session={logTarget}
-        onOpenChange={setLogDialogOpen}
-      />
+      <SessionLogDialog open={logDialogOpen} session={logTarget} onOpenChange={setLogDialogOpen} />
     </>
   );
 }
