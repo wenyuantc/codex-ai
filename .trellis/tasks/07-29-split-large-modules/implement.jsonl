@@ -1,1 +1,5 @@
-{"_example": "Fill with {\"file\": \"<path>\", \"reason\": \"<why>\"}. Put spec/research files only — no code paths. Run `python3 .trellis/scripts/get_context.py --mode packages` to list available specs. Delete this line once real entries are added."}
+{"file": ".trellis/spec/backend/index.md", "reason": "Backend hard rules and module ownership entry points for Rust refactor"}
+{"file": ".trellis/spec/backend/directory-structure.md", "reason": "Target layout ownership; must stay consistent after git_workflow/task_automation split"}
+{"file": ".trellis/spec/backend/command-guidelines.md", "reason": "Tauri command shape and registration expectations when moving command fns between files"}
+{"file": ".trellis/spec/backend/testing.md", "reason": "Colocated test patterns and cargo test expectations while relocating mod tests"}
+{"file": ".trellis/spec/guides/code-reuse-thinking-guide.md", "reason": "Avoid inventing new helpers during pure structural move"}

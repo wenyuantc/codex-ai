@@ -14,8 +14,8 @@
 - `src-tauri/src/grok` 负责 Grok CLI 集成与会话管理
 - `src-tauri/src/opencode` 负责 OpenCode SDK 集成与会话管理
 - `src-tauri/src/db` 负责迁移与数据模型
-- `src-tauri/src/git_workflow.rs` / `git_runtime.rs` 负责完整 Git 工作流与底层 git 进程执行
-- `src-tauri/src/task_automation.rs` 负责任务审核-修复自动化循环
+- `src-tauri/src/git_workflow/` / `git_runtime.rs` 负责完整 Git 工作流与底层 git 进程执行
+- `src-tauri/src/task_automation`（根文件 + `task_automation/*` 切片）负责任务审核-修复自动化循环
 - `src-tauri/src/process_spawn.rs` 统一进程拉起；AI 引擎一律由 Rust 侧启动，不经前端 shell 插件
 
 当前核心边界：
