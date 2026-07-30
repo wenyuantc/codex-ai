@@ -28,6 +28,7 @@ src-tauri/
     ├── db/
     │   ├── models.rs           # FromRow entities + command DTOs
     │   └── migrations.rs       # ordered Migration list
+    ├── engine/                 # Shared AI process kernel (context/child/manager/status)
     ├── codex/                  # Codex engine manager/process/settings/mcp/secrets
     ├── claude/                 # Claude engine
     ├── opencode/               # OpenCode engine
@@ -73,7 +74,8 @@ src-tauri/
 | DB maintenance / provider capabilities | `app/database.rs` |
 | Shared pure helpers / constants | `app/shared.rs` |
 | Git UX commands | `git_workflow/` (`crate::git_workflow`) |
-| Engine process lifecycle | `codex|claude|opencode|grok` |
+| Shared engine process kernel | `engine/` (`ExecutionContext`, `EngineChild`, `ProcessManager`) |
+| Engine process lifecycle / protocol | `codex|claude|opencode|grok` (stream + launch; manager/context re-export kernel) |
 | Auto review/fix state machine | `task_automation` (+ `task_automation/*` slices) |
 | Sticky/transient notifications | `notifications.rs` |
 

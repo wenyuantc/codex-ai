@@ -80,7 +80,7 @@ Four engines, each with the same internal shape — `manager.rs` + `settings.rs`
 | `claude/` | 3.3k | start / stop / resume |
 | `opencode/` | 3.2k | start / stop / resume (SDK server spawned at startup from `lib.rs`) |
 
-**There is no shared engine trait** — the codebase has zero `pub trait` declarations. `claude/` and `grok/` are near-copies (`manager.rs` and `process/lifecycle.rs` are 100% identical modulo the engine name; `session_runtime.rs` ~92%); only `process/stream.rs` genuinely differs, since each CLI has its own output protocol. When fixing a session-lifecycle bug, check whether the same bug exists in the other three engines. Codex-only extras: `cli.rs`, `mcp.rs`, `prompt_templates.rs`, `secret_store.rs`, `process/{ai_commands,changes,one_shot}.rs`.
+**Shared process kernel** lives in `src-tauri/src/engine/` (`ExecutionContext`, `EngineChild` + `EngineProcessHandle`, `ProcessManager` + `EngineProcessRegistry`, `resolve_final_session_status`). Each engine re-exports/wraps that kernel; **keep `process/stream.rs` and launch/CLI args per engine**. When fixing a session-lifecycle / working-dir bug, prefer fixing the shared kernel first, then check engine-specific stream/launch paths. Codex-only extras: `cli.rs`, `mcp.rs`, `prompt_templates.rs`, `secret_store.rs`, `process/{ai_commands,changes,one_shot}.rs`, and `CodexProcessExtra` on managed processes.
 
 ### Database
 

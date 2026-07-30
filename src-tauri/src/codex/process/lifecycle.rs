@@ -328,7 +328,7 @@ async fn validate_managed_process<R: Runtime>(
 ) -> Result<Option<crate::codex::manager::ManagedCodexProcess>, String> {
     let status = {
         let mut child = process.child.lock().await;
-        child.try_wait()
+        child.try_wait_code()
     };
 
     match status {
@@ -339,9 +339,9 @@ async fn validate_managed_process<R: Runtime>(
                 &process.session_record_id,
                 Some(exit_code),
                 None,
-                process.provider,
-                process.execution_change_baseline.as_ref(),
-                process.sdk_file_change_store.as_ref(),
+                process.extra.provider,
+                process.extra.execution_change_baseline.as_ref(),
+                process.extra.sdk_file_change_store.as_ref(),
             )
             .await;
             cleanup_process_artifacts(&process.cleanup_paths);
@@ -355,9 +355,9 @@ async fn validate_managed_process<R: Runtime>(
                 &process.session_record_id,
                 None,
                 Some(error.as_str()),
-                process.provider,
-                process.execution_change_baseline.as_ref(),
-                process.sdk_file_change_store.as_ref(),
+                process.extra.provider,
+                process.extra.execution_change_baseline.as_ref(),
+                process.extra.sdk_file_change_store.as_ref(),
             )
             .await;
             cleanup_process_artifacts(&process.cleanup_paths);
@@ -465,9 +465,9 @@ async fn wait_until_process_stops_with_manager<R: Runtime>(
             &process.session_record_id,
             None,
             Some("停止等待超时，已强制回收运行槽位"),
-            process.provider,
-            process.execution_change_baseline.as_ref(),
-            process.sdk_file_change_store.as_ref(),
+            process.extra.provider,
+            process.extra.execution_change_baseline.as_ref(),
+            process.extra.sdk_file_change_store.as_ref(),
         )
         .await;
         cleanup_process_artifacts(&process.cleanup_paths);
@@ -551,55 +551,7 @@ pub(crate) async fn stop_codex_for_automation_restart<R: Runtime>(
     .await
 }
 
-pub struct CodexChild {
-    child: Child,
-}
-
-impl CodexChild {
-    pub(crate) fn new(child: Child) -> Self {
-        Self { child }
-    }
-
-    #[cfg(unix)]
-    pub fn kill_process_group(&mut self) -> Result<(), String> {
-        let Some(pid) = self.child.id() else {
-            return Ok(());
-        };
-
-        let result = unsafe { libc::killpg(pid as i32, libc::SIGKILL) };
-        if result == 0 {
-            Ok(())
-        } else {
-            let error = std::io::Error::last_os_error();
-            match error.raw_os_error() {
-                Some(libc::ESRCH) => Ok(()),
-                _ => Err(error.to_string()),
-            }
-        }
-    }
-
-    #[cfg(not(unix))]
-    pub fn kill_process_group(&mut self) -> Result<(), String> {
-        Ok(())
-    }
-
-    pub async fn kill(&mut self) -> Result<(), String> {
-        match self.child.kill().await {
-            Ok(()) => Ok(()),
-            Err(error) => match error.raw_os_error() {
-                Some(libc::ESRCH) => Ok(()),
-                _ => Err(error.to_string()),
-            },
-        }
-    }
-
-    pub fn try_wait(&mut self) -> Result<Option<i32>, String> {
-        self.child
-            .try_wait()
-            .map(|status| status.and_then(|status| status.code()))
-            .map_err(|e: std::io::Error| e.to_string())
-    }
-}
+pub use crate::engine::EngineChild as CodexChild;
 
 pub(super) async fn wait_for_exec_session_id(
     run_cwd: &str,

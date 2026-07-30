@@ -1,8 +1,25 @@
 # AI Engines
 
-> Codex, Claude, OpenCode, and Grok share session storage and diverge in process adapters.
+> Codex, Claude, OpenCode, and Grok share session storage and a process kernel; they diverge in stream protocols and CLI/SDK launch.
 
 ---
+
+## Shared Kernel (`src-tauri/src/engine/`)
+
+| Module | Responsibility |
+|--------|----------------|
+| `engine/context.rs` | `ExecutionContext` + `resolve_*_execution_context` / one-shot working dir (engine label injected into Chinese errors) |
+| `engine/child.rs` | `EngineChild` + `EngineProcessHandle` trait (killpg / kill / try_wait / stdio) |
+| `engine/manager.rs` | `ProcessManager<SessionKind, Extra>` + `ManagedProcess` + `EngineProcessRegistry` trait |
+| `engine/status.rs` | `resolve_final_session_status` (stopping / exit 0 / failed) |
+
+Rules:
+- **Do not copy** manager / lifecycle / context implementations into a new engine — re-export or type-alias the shared kernel.
+- Keep **`process/stream.rs` per engine** (CLI JSON protocols differ).
+- Keep **`process/mod.rs` launch/CLI args** per engine unless a pure helper is already proven identical.
+- Codex extras (`provider`, execution-change baseline, sdk file-change store) live in `CodexProcessExtra` on `ManagedProcess::extra`.
+- OpenCode keeps `sdk_server` on `OpenCodeManager` (not in the generic process table).
+- `start_*` / `stop_*` remain engine-specific Tauri commands; do not introduce a single `dyn AiEngine::start` dispatcher unless product scope expands.
 
 ## Engine Modules
 
@@ -14,9 +31,9 @@
 | Grok | `src-tauri/src/grok/` | xAI Grok Build CLI (`grok`) headless sessions + settings/health (local + SSH) |
 
 Common internal layout per engine:
-- `manager.rs` — in-memory runtime state held in Tauri `State`
+- `manager.rs` — thin wrapper / type alias over `engine::ProcessManager` (Codex/OpenCode may wrap extras)
 - `settings.rs` — load/save engine settings
-- `process/` — launch, stream, lifecycle, context
+- `process/` — launch (`mod.rs`), stream, session_runtime; lifecycle/context re-export shared kernel
 - `*_sdk_bridge.mjs` — Node bridge assets where needed (Codex/Claude/OpenCode; Grok is CLI-only)
 
 `ai_provider` stored values: `"codex" | "claude" | "opencode" | "grok"`.

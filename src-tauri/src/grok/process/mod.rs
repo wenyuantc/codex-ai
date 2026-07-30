@@ -1166,6 +1166,7 @@ pub async fn start_grok_with_manager(
             child_arc.clone(),
             session_record.id.clone(),
             cleanup_paths,
+            (),
         );
     }
 

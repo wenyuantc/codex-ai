@@ -108,7 +108,48 @@
 [OK] **Completed**
 
 
-## Session 5: 巨型文件模块化拆分
+## Session 5: 前端列表渲染性能优化
+
+**Date**: 2026-07-30
+**Task**: 前端列表渲染性能优化
+**Branch**: `feat/frontend-render-perf`
+
+### Summary
+
+完成 C4 frontend-render-perf：共享秒级时钟 useSharedNow + TaskElapsedSummary 消除每卡 setInterval；TaskCard/KanbanColumn memo；看板列≥25 启用 @tanstack/react-virtual；npm run build 通过；推送 feat/frontend-render-perf (fd7be41)。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `fd7be41` | (see git log) |
+
+### Status
+
+[OK] **Completed**
+
+## Session 6: 引擎 trait 抽象与测试补齐
+
+**Date**: 2026-07-30
+**Task**: 引擎 trait 抽象与测试补齐
+**Branch**: `feat/engine-trait-abstraction`
+
+### Summary
+
+抽取 engine/ 共享进程内核（context/child/manager/status），收敛四引擎 manager/lifecycle/context 重复代码，保留 stream 与启动差异；补齐共享内核与 Claude/Grok manager 测试；cargo test 284→295；更新 ai-engines/directory-structure/CLAUDE 规格。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `decb525` | (see git log) |
+
+### Status
+
+[OK] **Completed**
+
+
+## Session 7: 巨型文件模块化拆分
 
 **Date**: 2026-07-30
 **Task**: 巨型文件模块化拆分
