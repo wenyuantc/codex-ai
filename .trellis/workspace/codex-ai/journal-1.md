@@ -59,3 +59,26 @@
 ### Status
 
 [OK] **Completed**
+
+
+## Session 3: C1b SSH 密码迁移至 OS keychain 落地
+
+**Date**: 2026-07-30
+**Task**: C1b SSH 密码迁移至 OS keychain 落地
+**Branch**: `main`
+
+### Summary
+
+完成优化专项 C1b：secret_store 改为 keyring（service codex-ai-ssh）+ 无明文索引；旧 ssh-secrets.json 一次性迁移；禁止 Linux 明文回退；单测 262→275。规划/实现/检查/提交后合回 main 并 push。归档 07-29-ssh-secret-keychain。父任务与 C2–C7 仍为 planning；C1+C1b 已归档。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `3084c30` | (see git log) |
+| `9be113b` | (see git log) |
+| `59cbed0` | (see git log) |
+
+### Status
+
+[OK] **Completed**
