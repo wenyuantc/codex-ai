@@ -179,3 +179,25 @@
 ### Status
 
 [OK] **Completed**
+
+
+## Session 9: 优化专项父任务集成验收与归档
+
+**Date**: 2026-07-30
+**Task**: 优化专项父任务集成验收与归档
+**Branch**: `main`
+
+### Summary
+
+父任务 07-29-codex-ai-optimization 8/8 子任务已完成：集成验收 cargo test 300 全绿、npm build 通过、Prettier 漂移修复；更新 CLAUDE 测试基线与 prd 验收勾选；归档父任务。手工 tauri:dev 冒烟仍建议在发版前补做。main 相对 origin ahead（含 0.5.0 版本与本次 docs/style）。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `43dbcf6` | (see git log) |
+| `1925cc6` | (see git log) |
+
+### Status
+
+[OK] **Completed**
