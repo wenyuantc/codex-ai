@@ -106,3 +106,24 @@
 ### Status
 
 [OK] **Completed**
+
+
+## Session 5: 引擎 trait 抽象与测试补齐
+
+**Date**: 2026-07-30
+**Task**: 引擎 trait 抽象与测试补齐
+**Branch**: `feat/engine-trait-abstraction`
+
+### Summary
+
+抽取 engine/ 共享进程内核（context/child/manager/status），收敛四引擎 manager/lifecycle/context 重复代码，保留 stream 与启动差异；补齐共享内核与 Claude/Grok manager 测试；cargo test 284→295；更新 ai-engines/directory-structure/CLAUDE 规格。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `decb525` | (see git log) |
+
+### Status
+
+[OK] **Completed**
