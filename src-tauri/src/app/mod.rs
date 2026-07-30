@@ -56,6 +56,8 @@ pub(crate) mod employees;
 pub(crate) mod projects;
 pub(crate) mod remote;
 pub(crate) mod review;
+pub(crate) mod session_events_policy;
+pub(crate) mod session_events_retention;
 pub(crate) mod sessions;
 pub(crate) mod shared;
 pub(crate) mod tasks;

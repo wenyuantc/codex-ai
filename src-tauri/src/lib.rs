@@ -54,6 +54,14 @@ pub fn run() {
                 });
             }
 
+            {
+                let purge_handle = app_handle.clone();
+                tauri::async_runtime::spawn(async move {
+                    app::session_events_retention::run_startup_session_events_purge(&purge_handle)
+                        .await;
+                });
+            }
+
             task_automation::spawn_resume_pending_automation(app_handle.clone());
             opencode::spawn_opencode_sdk_server_on_startup(app_handle.clone(), opencode_manager);
 
@@ -68,6 +76,10 @@ pub fn run() {
             app::database::get_database_backup_scope,
             app::database::get_ai_provider_capabilities,
             app::database::get_dashboard_report_summary,
+            app::session_events_retention::get_session_events_policy,
+            app::session_events_retention::update_session_events_policy,
+            app::session_events_retention::get_session_events_stats,
+            app::session_events_retention::purge_session_events,
             app::sessions::log_activity,
             tray::show_main_window,
             app::employees::get_employee_runtime_status,

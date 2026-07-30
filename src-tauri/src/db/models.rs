@@ -873,6 +873,27 @@ pub struct DatabaseBackupScope {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SessionEventsPolicy {
+    pub retention_days: i32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SessionEventsStats {
+    pub total_events: i64,
+    pub expired_events: i64,
+    pub oldest_created_at: Option<String>,
+    pub newest_created_at: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PurgeSessionEventsResult {
+    pub deleted: u64,
+    pub retention_days: i32,
+    pub vacuum_ok: bool,
+    pub vacuum_error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AiProviderCapabilities {
     pub provider: String,
     pub label: String,

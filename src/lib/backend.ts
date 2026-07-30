@@ -375,6 +375,42 @@ export async function getDatabaseBackupScope(): Promise<DatabaseBackupScope> {
   return invoke("get_database_backup_scope");
 }
 
+export interface SessionEventsPolicy {
+  retention_days: number;
+}
+
+export interface SessionEventsStats {
+  total_events: number;
+  expired_events: number;
+  oldest_created_at: string | null;
+  newest_created_at: string | null;
+}
+
+export interface PurgeSessionEventsResult {
+  deleted: number;
+  retention_days: number;
+  vacuum_ok: boolean;
+  vacuum_error: string | null;
+}
+
+export async function getSessionEventsPolicy(): Promise<SessionEventsPolicy> {
+  return invoke("get_session_events_policy");
+}
+
+export async function updateSessionEventsPolicy(
+  retentionDays: number,
+): Promise<SessionEventsPolicy> {
+  return invoke("update_session_events_policy", { retentionDays });
+}
+
+export async function getSessionEventsStats(): Promise<SessionEventsStats> {
+  return invoke("get_session_events_stats");
+}
+
+export async function purgeSessionEvents(): Promise<PurgeSessionEventsResult> {
+  return invoke("purge_session_events");
+}
+
 export interface AiProviderCapabilities {
   provider: string;
   label: string;

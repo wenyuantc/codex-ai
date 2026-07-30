@@ -240,6 +240,7 @@ export function getActivityActionLabel(action: string): string {
     mcp_servers_reset: "重置 MCP 配置",
     notification_created: "创建通知提醒",
     notification_resolved: "通知已恢复",
+    session_events_purged: "清理会话事件",
   };
   return labels[action] || action;
 }

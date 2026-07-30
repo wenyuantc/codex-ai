@@ -1040,6 +1040,15 @@ pub fn get_all_migrations() -> Vec<Migration> {
             "#,
             kind: tauri_plugin_sql::MigrationKind::Up,
         },
+        Migration {
+            version: 41,
+            description: "index codex_session_events by created_at for retention purge",
+            sql: r#"
+                CREATE INDEX IF NOT EXISTS idx_codex_session_events_created_at
+                ON codex_session_events(created_at);
+            "#,
+            kind: tauri_plugin_sql::MigrationKind::Up,
+        },
     ]
 }
 
@@ -1080,8 +1089,8 @@ mod tests {
     }
 
     #[test]
-    fn latest_migration_version_includes_delivery_management() {
-        assert_eq!(latest_migration_version(), 40);
+    fn latest_migration_version_includes_session_events_retention_index() {
+        assert_eq!(latest_migration_version(), 41);
     }
 
     #[test]
@@ -1094,7 +1103,7 @@ mod tests {
     #[test]
     fn migration_40_adds_delivery_management_schema() {
         tauri::async_runtime::block_on(async {
-            let pool = setup_test_pool().await;
+            let pool = setup_test_pool_through(40).await;
 
             let task_columns: Vec<String> = sqlx::query(
                 "SELECT name FROM pragma_table_info('tasks') WHERE name IN ('due_date', 'blocked_reason', 'milestone_id') ORDER BY name",
@@ -1124,6 +1133,21 @@ mod tests {
                 .unwrap_or_else(|error| panic!("check table {}: {}", table, error));
                 assert_eq!(exists, 1, "expected table {}", table);
             }
+        });
+    }
+
+    #[test]
+    fn migration_41_adds_session_events_created_at_index() {
+        tauri::async_runtime::block_on(async {
+            let pool = setup_test_pool().await;
+
+            let exists: i64 = sqlx::query_scalar(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type = 'index' AND name = 'idx_codex_session_events_created_at'",
+            )
+            .fetch_one(&pool)
+            .await
+            .expect("check session events created_at index");
+            assert_eq!(exists, 1);
         });
     }
 

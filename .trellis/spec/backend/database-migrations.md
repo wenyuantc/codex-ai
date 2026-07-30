@@ -29,7 +29,7 @@ When adding columns:
 File: `src-tauri/src/db/migrations.rs`
 
 - `get_all_migrations() -> Vec<Migration>`
-- Strictly increasing `version` integers (currently through **40**)
+- Strictly increasing `version` integers (currently through **41**)
 - Each entry has `description` + SQL string
 - Applied at app startup by `tauri-plugin-sql` in `lib.rs`
 
@@ -57,6 +57,16 @@ Rules:
 ### Recent Domain Example
 
 Version 40 adds delivery management: `tasks.due_date`, `blocked_reason`, `milestone_id`, plus `milestones`, `tags`, `task_tags`, dependency tables. Follow this style for related delivery features.
+
+Version 41 adds `idx_codex_session_events_created_at` for session-events retention purge by `created_at`.
+
+### Session events retention (C2)
+
+- Policy file: `$APPCONFIG/session-events-policy.json` — `{ "retention_days": 30 }` (default 30, valid **1..=3650**, else default).
+- Purge only `codex_session_events` where `created_at < datetime('now', '-N days')`; never delete `codex_sessions` for retention.
+- Commands: `get_session_events_policy`, `update_session_events_policy`, `get_session_events_stats`, `purge_session_events`.
+- Manual purge: DELETE + VACUUM; startup purge: DELETE only (best-effort).
+- Activity action: `session_events_purged` + frontend Chinese label「清理会话事件」.
 
 ## Soft Delete
 
