@@ -27,7 +27,10 @@ interface UseTaskExecutionActionsOptions {
   assignee?: Employee;
   projectRepoPath?: string | null;
   projectType?: ProjectType;
-  prepareExecutionInput: (followUpPrompt?: string, options?: PrepareExecutionInputOptions) => Promise<PreparedExecutionInput>;
+  prepareExecutionInput: (
+    followUpPrompt?: string,
+    options?: PrepareExecutionInputOptions,
+  ) => Promise<PreparedExecutionInput>;
   clearTaskOutputOnRun?: boolean;
   clearTaskOutputOnContinue?: boolean;
   onStarted?: (action: Exclude<TaskExecutionAction, "stop">) => void;
@@ -49,20 +52,23 @@ export function useTaskExecutionActions({
   onError,
 }: UseTaskExecutionActionsOptions) {
   const [loading, setLoading] = useState<TaskExecutionAction | null>(null);
-  const employeeRuntime = useEmployeeStore((state) => (
-    assigneeId ? state.employeeRuntime[assigneeId] : undefined
-  ));
+  const employeeRuntime = useEmployeeStore((state) =>
+    assigneeId ? state.employeeRuntime[assigneeId] : undefined,
+  );
   const taskLogs = useEmployeeStore((state) => state.taskLogs);
   const updateEmployeeStatus = useEmployeeStore((state) => state.updateEmployeeStatus);
   const addCodexOutput = useEmployeeStore((state) => state.addCodexOutput);
   const clearTaskCodexOutput = useEmployeeStore((state) => state.clearTaskCodexOutput);
-  const refreshEmployeeRuntimeStatus = useEmployeeStore((state) => state.refreshEmployeeRuntimeStatus);
+  const refreshEmployeeRuntimeStatus = useEmployeeStore(
+    (state) => state.refreshEmployeeRuntimeStatus,
+  );
   const updateTaskStatus = useTaskStore((state) => state.updateTaskStatus);
   const startTaskTimer = useTaskStore((state) => state.startTaskTimer);
 
-  const runningSession = employeeRuntime?.sessions.find((session) => (
-    session.task_id === task.id && session.session_kind === "execution"
-  )) ?? null;
+  const runningSession =
+    employeeRuntime?.sessions.find(
+      (session) => session.task_id === task.id && session.session_kind === "execution",
+    ) ?? null;
   const isRunning = Boolean(runningSession);
   const output = taskLogs[buildTaskLogKey(task.id, "execution")] ?? [];
 

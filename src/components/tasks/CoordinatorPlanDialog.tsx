@@ -1,5 +1,14 @@
 import { lazy, Suspense, useEffect, useRef } from "react";
-import { ChevronDown, ChevronUp, Eraser, Loader2, Play, RefreshCw, Save, Terminal } from "lucide-react";
+import {
+  ChevronDown,
+  ChevronUp,
+  Eraser,
+  Loader2,
+  Play,
+  RefreshCw,
+  Save,
+  Terminal,
+} from "lucide-react";
 
 import {
   Dialog,
@@ -11,9 +20,11 @@ import {
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { getAiLogColor } from "./detail/taskDetailViewHelpers";
 
-const MonacoMarkdownEditor = lazy(() => import("./detail/MonacoMarkdownEditor").then((module) => ({
-  default: module.MonacoMarkdownEditor,
-})));
+const MonacoMarkdownEditor = lazy(() =>
+  import("./detail/MonacoMarkdownEditor").then((module) => ({
+    default: module.MonacoMarkdownEditor,
+  })),
+);
 
 interface CoordinatorPlanDialogProps {
   open: boolean;
@@ -88,7 +99,9 @@ export function CoordinatorPlanDialog({
         <DialogHeader>
           <DialogTitle>协调员执行计划</DialogTitle>
           <DialogDescription>
-            {coordinatorName ? `由 ${coordinatorName} 生成计划，确认后交给指派员工执行。` : "确认后交给指派员工执行。"}
+            {coordinatorName
+              ? `由 ${coordinatorName} 生成计划，确认后交给指派员工执行。`
+              : "确认后交给指派员工执行。"}
           </DialogDescription>
         </DialogHeader>
 
@@ -107,7 +120,11 @@ export function CoordinatorPlanDialog({
               onClick={onToggleTerminal}
               className="flex shrink-0 items-center gap-1 rounded-md border border-input px-2 py-1 text-xs hover:bg-accent"
             >
-              {terminalVisible ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+              {terminalVisible ? (
+                <ChevronUp className="h-3.5 w-3.5" />
+              ) : (
+                <ChevronDown className="h-3.5 w-3.5" />
+              )}
               {terminalVisible ? "隐藏日志" : "显示日志"}
             </button>
           </div>
@@ -131,7 +148,10 @@ export function CoordinatorPlanDialog({
                     <div className="text-zinc-600">等待运行日志...</div>
                   ) : (
                     terminalLogs.map((line, index) => (
-                      <div key={`${line}-${index}`} className={`whitespace-pre-wrap ${getAiLogColor(line)}`}>
+                      <div
+                        key={`${line}-${index}`}
+                        className={`whitespace-pre-wrap ${getAiLogColor(line)}`}
+                      >
                         {line}
                       </div>
                     ))
@@ -180,7 +200,11 @@ export function CoordinatorPlanDialog({
               disabled={busy || !hasPlan}
               className="flex items-center gap-1 rounded-md border border-input px-3 py-1.5 text-sm hover:bg-accent disabled:opacity-50"
             >
-              {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
+              {saving ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Save className="h-3.5 w-3.5" />
+              )}
               保存计划
             </button>
             <button
@@ -189,7 +213,11 @@ export function CoordinatorPlanDialog({
               disabled={busy}
               className="flex items-center gap-1 rounded-md border border-input px-3 py-1.5 text-sm hover:bg-accent disabled:opacity-50"
             >
-              {loading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+              {loading ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <RefreshCw className="h-3.5 w-3.5" />
+              )}
               重新生成计划
             </button>
             <button
@@ -198,7 +226,11 @@ export function CoordinatorPlanDialog({
               disabled={busy || !hasPlan || !canExecute}
               className="flex items-center gap-1 rounded-md bg-primary px-3 py-1.5 text-sm text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
             >
-              {executing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />}
+              {executing ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Play className="h-3.5 w-3.5" />
+              )}
               执行
             </button>
           </div>

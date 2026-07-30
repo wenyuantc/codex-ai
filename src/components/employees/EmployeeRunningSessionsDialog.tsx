@@ -4,7 +4,13 @@ import { getCodexSessionLogLines } from "@/lib/backend";
 import type { Employee, EmployeeRunningSession } from "@/lib/types";
 import { formatDate } from "@/lib/utils";
 import { CodexTerminal } from "@/components/codex/CodexTerminal";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { useEmployeeStore } from "@/stores/employeeStore";
 
 interface EmployeeRunningSessionsDialogProps {
@@ -18,9 +24,15 @@ function formatSessionKind(sessionKind: EmployeeRunningSession["session_kind"]) 
   return sessionKind === "review" ? "审核" : "执行";
 }
 
-  function formatAiProvider(provider: EmployeeRunningSession["ai_provider"]) {
-    return provider === "claude" ? "Claude" : provider === "opencode" ? "OpenCode" : provider === "grok" ? "Grok" : "Codex";
-  }
+function formatAiProvider(provider: EmployeeRunningSession["ai_provider"]) {
+  return provider === "claude"
+    ? "Claude"
+    : provider === "opencode"
+      ? "OpenCode"
+      : provider === "grok"
+        ? "Grok"
+        : "Codex";
+}
 
 export function EmployeeRunningSessionsDialog({
   open,
@@ -33,19 +45,24 @@ export function EmployeeRunningSessionsDialog({
   const [historyError, setHistoryError] = useState<string | null>(null);
   const [loadedSessionHistories, setLoadedSessionHistories] = useState<Record<string, boolean>>({});
 
-  const sortedSessions = useMemo(() => (
-    [...sessions].sort((left, right) => (
-      right.started_at.localeCompare(left.started_at)
-      || right.session_record_id.localeCompare(left.session_record_id)
-    ))
-  ), [sessions]);
+  const sortedSessions = useMemo(
+    () =>
+      [...sessions].sort(
+        (left, right) =>
+          right.started_at.localeCompare(left.started_at) ||
+          right.session_record_id.localeCompare(left.session_record_id),
+      ),
+    [sessions],
+  );
 
   useEffect(() => {
     if (!open || sortedSessions.length === 0) {
       return;
     }
 
-    const missingSessions = sortedSessions.filter((session) => !loadedSessionHistories[session.session_record_id]);
+    const missingSessions = sortedSessions.filter(
+      (session) => !loadedSessionHistories[session.session_record_id],
+    );
     if (missingSessions.length === 0) {
       return;
     }
@@ -120,7 +137,10 @@ export function EmployeeRunningSessionsDialog({
         ) : (
           <div className="space-y-4 max-h-[70vh] overflow-y-auto pr-1">
             {sortedSessions.map((session) => (
-              <section key={session.session_record_id} className="rounded-lg border border-border bg-muted/15 p-3">
+              <section
+                key={session.session_record_id}
+                className="rounded-lg border border-border bg-muted/15 p-3"
+              >
                 <div className="mb-3 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                   <span className="rounded-full bg-secondary px-2 py-0.5 text-foreground">
                     {formatSessionKind(session.session_kind)}

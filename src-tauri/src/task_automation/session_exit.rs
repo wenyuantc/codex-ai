@@ -266,12 +266,12 @@ async fn handle_execution_exit(
     let mut next_round_count = state_record.map(|item| item.round_count).unwrap_or(0);
     let mut next_last_error = None;
     let mut next_last_verdict_json = None;
-    if matches!(
-        state_record.map(|item| item.phase.as_str()),
-        Some(PHASE_MANUAL_CONTROL | PHASE_BLOCKED | PHASE_IDLE)
-    ) {
-        next_round_count = 0;
-    } else if state_record.is_none() {
+    if state_record.is_none()
+        || matches!(
+            state_record.map(|item| item.phase.as_str()),
+            Some(PHASE_MANUAL_CONTROL | PHASE_BLOCKED | PHASE_IDLE)
+        )
+    {
         next_round_count = 0;
     } else {
         next_last_error = state_record.and_then(|item| item.last_error.clone());

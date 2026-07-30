@@ -76,7 +76,10 @@ export function TaskFileChangeHistoryPanel({
       {history.length > 0 ? (
         <div className="space-y-3">
           {history.map((item) => (
-            <div key={item.session.id} className="rounded-md border border-border bg-background/70 p-3">
+            <div
+              key={item.session.id}
+              className="rounded-md border border-border bg-background/70 p-3"
+            >
               <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-muted-foreground">
                 <span>
                   {formatDate(item.session.started_at)}
@@ -112,10 +115,13 @@ export function TaskFileChangeHistoryPanel({
                       </div>
                       {change.previous_path && (
                         <div className="text-[11px] text-muted-foreground">
-                          原路径：<span className="break-all font-mono">{change.previous_path}</span>
+                          原路径：
+                          <span className="break-all font-mono">{change.previous_path}</span>
                         </div>
                       )}
-                      <div className="text-[11px] text-primary">点击查看该次会话保存的 diff / 内容快照</div>
+                      <div className="text-[11px] text-primary">
+                        点击查看该次会话保存的 diff / 内容快照
+                      </div>
                     </button>
                   ))}
                 </div>
@@ -136,10 +142,7 @@ export function TaskFileChangeHistoryPanel({
           {loadingText}
         </div>
       ) : shouldShowSshNotice ? (
-        <SshArtifactLimitedNotice
-          artifactCaptureMode={limitedMode}
-          force={!limitedMode}
-        />
+        <SshArtifactLimitedNotice artifactCaptureMode={limitedMode} force={!limitedMode} />
       ) : (
         <div className="rounded-md border border-dashed border-border px-3 py-6 text-center text-xs text-muted-foreground">
           {emptyText}

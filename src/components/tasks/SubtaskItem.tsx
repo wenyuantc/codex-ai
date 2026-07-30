@@ -13,9 +13,7 @@ export function SubtaskItem({ subtask }: SubtaskItemProps) {
   return (
     <div className="flex items-center gap-2 group py-0.5">
       <button
-        onClick={() =>
-          toggleSubtask(subtask.id, isCompleted ? "todo" : "completed")
-        }
+        onClick={() => toggleSubtask(subtask.id, isCompleted ? "todo" : "completed")}
         className={`shrink-0 w-4 h-4 rounded border flex items-center justify-center transition-colors ${
           isCompleted
             ? "bg-primary border-primary text-primary-foreground"
@@ -24,11 +22,7 @@ export function SubtaskItem({ subtask }: SubtaskItemProps) {
       >
         {isCompleted && <Check className="h-3 w-3" />}
       </button>
-      <span
-        className={`text-xs flex-1 ${
-          isCompleted ? "line-through text-muted-foreground" : ""
-        }`}
-      >
+      <span className={`text-xs flex-1 ${isCompleted ? "line-through text-muted-foreground" : ""}`}>
         {subtask.title}
       </span>
       <button

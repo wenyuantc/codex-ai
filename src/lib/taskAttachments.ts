@@ -18,10 +18,7 @@ export const DOCUMENT_FILE_EXTENSIONS = [
   "zip",
 ];
 
-export const ATTACHMENT_FILE_EXTENSIONS = [
-  ...IMAGE_FILE_EXTENSIONS,
-  ...DOCUMENT_FILE_EXTENSIONS,
-];
+export const ATTACHMENT_FILE_EXTENSIONS = [...IMAGE_FILE_EXTENSIONS, ...DOCUMENT_FILE_EXTENSIONS];
 
 export const IMAGE_FILE_FILTERS = [
   {
@@ -59,13 +56,7 @@ export function normalizeDialogSelection(selected: string | string[] | null): st
 }
 
 export function dedupePaths(paths: string[]): string[] {
-  return Array.from(
-    new Set(
-      paths
-        .map((path) => path.trim())
-        .filter((path) => path.length > 0),
-    ),
-  );
+  return Array.from(new Set(paths.map((path) => path.trim()).filter((path) => path.length > 0)));
 }
 
 export function guessImageMimeType(path: string): string {

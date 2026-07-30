@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 7
+- **Total Sessions**: 8
 - **Last Active**: 2026-07-30
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~171 | Active |
+| `journal-1.md` | ~181 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 8 | 2026-07-30 | 引入 lint 工具链 | `babbf3b` | `feat/lint-toolchain` |
 | 7 | 2026-07-30 | 巨型文件模块化拆分 | `efa1ea0`, `b7b0923` | `feat/split-large-modules` |
 | 6 | 2026-07-30 | 引擎 trait 抽象与测试补齐 | `decb525` | `feat/engine-trait-abstraction` |
 | 5 | 2026-07-30 | 前端列表渲染性能优化 | `fd7be41` | `feat/frontend-render-perf` |

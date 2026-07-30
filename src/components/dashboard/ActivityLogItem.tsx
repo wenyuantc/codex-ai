@@ -23,11 +23,7 @@ export function ActivityLogItem({ activity, variant = "feed" }: ActivityLogItemP
           </span>
         )}
       </div>
-      {details && (
-        <p className="mt-1 break-all text-xs text-muted-foreground">
-          {details}
-        </p>
-      )}
+      {details && <p className="mt-1 break-all text-xs text-muted-foreground">{details}</p>}
       <span className="mt-1 block text-[10px] text-muted-foreground/70">
         {formatDate(activity.created_at)}
       </span>
@@ -35,11 +31,7 @@ export function ActivityLogItem({ activity, variant = "feed" }: ActivityLogItemP
   );
 
   if (variant === "dialog") {
-    return (
-      <div className="rounded-lg border border-border/60 px-3 py-2.5 text-sm">
-        {content}
-      </div>
-    );
+    return <div className="rounded-lg border border-border/60 px-3 py-2.5 text-sm">{content}</div>;
   }
 
   return (

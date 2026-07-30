@@ -53,10 +53,7 @@ interface AiExecutionContext {
 }
 
 export type AiOptimizePromptScene =
-  | "task_create"
-  | "task_continue"
-  | "session_continue"
-  | "employee_system_prompt";
+  "task_create" | "task_continue" | "session_continue" | "employee_system_prompt";
 
 export interface AiOptimizePromptInput {
   scene: AiOptimizePromptScene;
@@ -76,7 +73,11 @@ export interface AiOptimizePromptInput {
   employeeDraftSystemPrompt?: string | null;
 }
 
-export async function startCodex(employeeId: string, taskDescription: string, options: StartCodexOptions = {}): Promise<void> {
+export async function startCodex(
+  employeeId: string,
+  taskDescription: string,
+  options: StartCodexOptions = {},
+): Promise<void> {
   await invoke("start_codex", {
     employeeId,
     taskDescription,
@@ -100,7 +101,11 @@ export async function stopCodexSession(sessionRecordId: string): Promise<void> {
   await invoke("stop_codex_session", { sessionRecordId });
 }
 
-export async function restartCodex(employeeId: string, taskDescription: string, options: StartCodexOptions = {}): Promise<void> {
+export async function restartCodex(
+  employeeId: string,
+  taskDescription: string,
+  options: StartCodexOptions = {},
+): Promise<void> {
   await invoke("restart_codex", {
     employeeId,
     taskDescription,
@@ -134,9 +139,8 @@ export function onCodexSession(callback: (session: CodexSession) => void) {
 export function onTaskAutomationStateChanged(
   callback: (payload: TaskAutomationStateChanged) => void,
 ) {
-  return listen<TaskAutomationStateChanged>(
-    "task-automation-state-changed",
-    (event) => callback(event.payload),
+  return listen<TaskAutomationStateChanged>("task-automation-state-changed", (event) =>
+    callback(event.payload),
   );
 }
 

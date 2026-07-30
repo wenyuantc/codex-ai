@@ -39,9 +39,16 @@ async function readInput() {
 }
 
 function normalizeFileChangeKind(kind) {
-  const value = String(kind ?? "").trim().toLowerCase();
+  const value = String(kind ?? "")
+    .trim()
+    .toLowerCase();
   if (["add", "added", "create", "created"].includes(value)) return "added";
-  if (["modify", "modified", "update", "updated", "change", "changed", "edit", "edited"].includes(value)) return "modified";
+  if (
+    ["modify", "modified", "update", "updated", "change", "changed", "edit", "edited"].includes(
+      value,
+    )
+  )
+    return "modified";
   if (["delete", "deleted", "remove", "removed"].includes(value)) return "deleted";
   if (["rename", "renamed", "move", "moved"].includes(value)) return "renamed";
   return null;
@@ -168,9 +175,7 @@ async function runSession(payload) {
             if (block.type === "text" && block.text) {
               const previous = agentMessages.get(message.message.id) ?? "";
               const next = block.text;
-              const delta = next.startsWith(previous)
-                ? next.slice(previous.length)
-                : next;
+              const delta = next.startsWith(previous) ? next.slice(previous.length) : next;
               agentMessages.set(message.message.id, next);
               if (delta.trim()) {
                 emitMultiline(delta);

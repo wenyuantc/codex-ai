@@ -128,7 +128,10 @@ export function TaskAiPanel({
                 <div className="text-zinc-600">等待执行...</div>
               ) : (
                 aiLogs.map((line, index) => (
-                  <div key={`${line}-${index}`} className={`whitespace-pre-wrap ${getAiLogColor(line)}`}>
+                  <div
+                    key={`${line}-${index}`}
+                    className={`whitespace-pre-wrap ${getAiLogColor(line)}`}
+                  >
                     {line}
                   </div>
                 ))
@@ -182,9 +185,7 @@ export function TaskAiPanel({
             </button>
           </div>
           <ScrollArea className="h-80 overflow-hidden rounded-md border bg-background/80">
-            <div className="p-3 text-xs text-foreground whitespace-pre-wrap">
-              {generatedPlan}
-            </div>
+            <div className="p-3 text-xs text-foreground whitespace-pre-wrap">{generatedPlan}</div>
           </ScrollArea>
         </div>
       )}

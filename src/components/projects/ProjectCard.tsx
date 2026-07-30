@@ -43,7 +43,9 @@ export function ProjectCard({
               <ArrowRight className="h-3.5 w-3.5 shrink-0" />
             </Link>
             {project.description && (
-              <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">{project.description}</p>
+              <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">
+                {project.description}
+              </p>
             )}
             <div className="mt-2 flex flex-wrap items-center gap-2">
               <Badge variant={project.project_type === "ssh" ? "secondary" : "outline"}>
@@ -105,9 +107,7 @@ export function ProjectCard({
           {getStatusLabel(project.status)}
         </span>
         {taskCount !== undefined && (
-          <span className="text-xs text-muted-foreground">
-            {taskCount} 个任务
-          </span>
+          <span className="text-xs text-muted-foreground">{taskCount} 个任务</span>
         )}
         <span className="text-xs text-muted-foreground ml-auto">
           {formatDate(project.created_at)}

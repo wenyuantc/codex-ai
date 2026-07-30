@@ -1,10 +1,6 @@
 import { useEffect, useState } from "react";
 
-import {
-  cancelGitAction,
-  confirmGitAction,
-  requestGitAction,
-} from "@/lib/backend";
+import { cancelGitAction, confirmGitAction, requestGitAction } from "@/lib/backend";
 import type { GitActionType, TaskGitContext } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import {
@@ -153,20 +149,15 @@ function buildInitialFormState(context: TaskGitContext | null): GitActionFormSta
       typeof payload?.target_branch === "string"
         ? payload.target_branch
         : (context?.target_branch ?? ""),
-    strategy:
-      typeof payload?.strategy === "string" ? payload.strategy : "ort",
-    allowFastForward:
-      typeof payload?.allow_ff === "boolean" ? payload.allow_ff : true,
-    remoteName:
-      typeof payload?.remote_name === "string" ? payload.remote_name : "origin",
+    strategy: typeof payload?.strategy === "string" ? payload.strategy : "ort",
+    allowFastForward: typeof payload?.allow_ff === "boolean" ? payload.allow_ff : true,
+    remoteName: typeof payload?.remote_name === "string" ? payload.remote_name : "origin",
     sourceBranch:
       typeof payload?.source_branch === "string"
         ? payload.source_branch
         : (context?.task_branch ?? ""),
     targetRef:
-      typeof payload?.target_ref === "string"
-        ? payload.target_ref
-        : (context?.task_branch ?? ""),
+      typeof payload?.target_ref === "string" ? payload.target_ref : (context?.task_branch ?? ""),
     forceMode:
       payload?.force_mode === "force" || payload?.force_mode === "force_with_lease"
         ? payload.force_mode
@@ -175,21 +166,16 @@ function buildInitialFormState(context: TaskGitContext | null): GitActionFormSta
       typeof payload?.onto_branch === "string"
         ? payload.onto_branch
         : (context?.target_branch ?? ""),
-    autoStash:
-      typeof payload?.auto_stash === "boolean" ? payload.auto_stash : false,
+    autoStash: typeof payload?.auto_stash === "boolean" ? payload.auto_stash : false,
     cherryPickCommitIds: Array.isArray(payload?.commit_ids)
       ? payload.commit_ids.filter((item): item is string => typeof item === "string").join("\n")
       : "",
     includeUntracked:
       typeof payload?.include_untracked === "boolean" ? payload.include_untracked : false,
-    stashMessage:
-      typeof payload?.message === "string" ? payload.message : "",
-    stashRef:
-      typeof payload?.stash_ref === "string" ? payload.stash_ref : "stash@{0}",
-    deleteBranch:
-      typeof payload?.delete_branch === "boolean" ? payload.delete_branch : false,
-    pruneWorktree:
-      typeof payload?.prune_worktree === "boolean" ? payload.prune_worktree : true,
+    stashMessage: typeof payload?.message === "string" ? payload.message : "",
+    stashRef: typeof payload?.stash_ref === "string" ? payload.stash_ref : "stash@{0}",
+    deleteBranch: typeof payload?.delete_branch === "boolean" ? payload.delete_branch : false,
+    pruneWorktree: typeof payload?.prune_worktree === "boolean" ? payload.prune_worktree : true,
   };
 }
 
@@ -219,9 +205,9 @@ export function ProjectGitActionDialog({
     }
 
     const initialAction =
-      preferredAction
-      ?? context?.pending_action_type
-      ?? (context?.state === "drifted" ? "cleanup_worktree" : "merge");
+      preferredAction ??
+      context?.pending_action_type ??
+      (context?.state === "drifted" ? "cleanup_worktree" : "merge");
     setSelectedAction(initialAction);
     setForm(buildInitialFormState(context));
     setPendingToken(null);
@@ -457,7 +443,8 @@ export function ProjectGitActionDialog({
               >
                 <SelectTrigger className="bg-background">
                   <SelectValue>
-                    {FORCE_MODE_OPTIONS.find((option) => option.value === form.forceMode)?.label ?? form.forceMode}
+                    {FORCE_MODE_OPTIONS.find((option) => option.value === form.forceMode)?.label ??
+                      form.forceMode}
                   </SelectValue>
                 </SelectTrigger>
                 <SelectContent>
@@ -588,7 +575,8 @@ export function ProjectGitActionDialog({
         <DialogHeader>
           <DialogTitle>Git 高风险动作确认门</DialogTitle>
           <DialogDescription>
-            先 request 生成一次性 token，再决定 confirm 或 cancel。重新 request 会自动使旧 token 失效。
+            先 request 生成一次性 token，再决定 confirm 或 cancel。重新 request 会自动使旧 token
+            失效。
           </DialogDescription>
         </DialogHeader>
 
@@ -600,8 +588,9 @@ export function ProjectGitActionDialog({
 
             {hasExistingPendingAction && pendingToken === null && (
               <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-900">
-                当前上下文已有“{getGitActionLabel(context.pending_action_type ?? "merge")}”待确认动作。
-                由于明文 token 不会回传到前端，你可以直接取消旧确认门，或重新 request 一次新动作。
+                当前上下文已有“{getGitActionLabel(context.pending_action_type ?? "merge")}
+                ”待确认动作。 由于明文 token 不会回传到前端，你可以直接取消旧确认门，或重新 request
+                一次新动作。
               </div>
             )}
 
@@ -631,7 +620,8 @@ export function ProjectGitActionDialog({
               </label>
               {lockActionSelection && preferredAction ? (
                 <div className="rounded-lg border border-border/60 bg-secondary/20 px-3 py-2 text-xs text-muted-foreground">
-                  当前入口已锁定为“{getGitActionLabel(preferredAction)}”，如需其他 Git 动作，请从项目详情页进入通用 Git 动作面板。
+                  当前入口已锁定为“{getGitActionLabel(preferredAction)}”，如需其他 Git
+                  动作，请从项目详情页进入通用 Git 动作面板。
                 </div>
               ) : null}
 
@@ -675,11 +665,7 @@ export function ProjectGitActionDialog({
               >
                 重新选择
               </Button>
-              <Button
-                variant="outline"
-                onClick={handleCancel}
-                disabled={confirming || cancelling}
-              >
+              <Button variant="outline" onClick={handleCancel} disabled={confirming || cancelling}>
                 {cancelling ? "取消中..." : "取消确认门"}
               </Button>
               <Button onClick={handleConfirm} disabled={confirming || cancelling}>

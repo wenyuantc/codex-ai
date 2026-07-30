@@ -9,11 +9,10 @@ async fn context_is_healthy<R: Runtime>(
     runtime: &GitProjectRuntimeContext,
     context: &TaskGitContextRecord,
 ) -> bool {
-    let branch_exists =
-        match git_ref_exists(app, runtime, &format!("refs/heads/{}", context.task_branch)).await {
-            Ok(value) => value,
-            Err(_) => false,
-        };
+    let branch_exists: bool =
+        git_ref_exists(app, runtime, &format!("refs/heads/{}", context.task_branch))
+            .await
+            .unwrap_or_default();
     if !branch_exists {
         return false;
     }

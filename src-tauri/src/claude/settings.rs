@@ -71,7 +71,7 @@ pub fn normalize_claude_model(value: Option<&str>) -> String {
 
 fn normalize_thinking_budget(value: Option<i32>) -> i32 {
     match value {
-        Some(v) if v >= 1024 && v <= 128000 => v,
+        Some(v) if (1024..=128000).contains(&v) => v,
         _ => DEFAULT_THINKING_BUDGET,
     }
 }

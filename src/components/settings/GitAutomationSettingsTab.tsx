@@ -112,7 +112,9 @@ export function GitAutomationSettingsTab({
   const selectedCommitModelSourceOption = AI_COMMIT_MODEL_SOURCE_OPTIONS.find(
     (option) => option.value === aiCommitModelSource,
   );
-  const worktreeRootPlaceholder = isRemoteMode ? "~/codex-worktrees" : "/Users/wenyuan/codex-worktrees";
+  const worktreeRootPlaceholder = isRemoteMode
+    ? "~/codex-worktrees"
+    : "/Users/wenyuan/codex-worktrees";
 
   const isGitAiCustom = aiCommitModelSource === "custom";
   const isGitClaudeProvider = gitAiProvider === "claude";
@@ -121,16 +123,21 @@ export function GitAutomationSettingsTab({
   const availableGitProviders = AI_PROVIDER_OPTIONS.filter(
     (option) => !(isRemoteMode && option.value === "opencode"),
   );
-  const gitOpenCodeModelOptions = opencodeModelList.length > 0
-    ? opencodeModelList
-    : [{
-      value: aiCommitModel,
-      label: opencodeModelListLoading ? "正在加载模型..." : "当前模型",
-      providerId: "opencode",
-      providerName: "OpenCode",
-      modelId: aiCommitModel.includes("/") ? aiCommitModel.split("/").slice(1).join("/") : aiCommitModel,
-      capabilities: null,
-    }];
+  const gitOpenCodeModelOptions =
+    opencodeModelList.length > 0
+      ? opencodeModelList
+      : [
+          {
+            value: aiCommitModel,
+            label: opencodeModelListLoading ? "正在加载模型..." : "当前模型",
+            providerId: "opencode",
+            providerName: "OpenCode",
+            modelId: aiCommitModel.includes("/")
+              ? aiCommitModel.split("/").slice(1).join("/")
+              : aiCommitModel,
+            capabilities: null,
+          },
+        ];
 
   const gitCommitEffortOptions = isGitClaudeProvider
     ? CLAUDE_THINKING_BUDGET_OPTIONS.filter((option) => option.value !== "auto")
@@ -189,7 +196,9 @@ export function GitAutomationSettingsTab({
             >
               <SelectTrigger className="bg-background">
                 <SelectValue>
-                  {(value) => (typeof value === "string" && value.trim() ? `${value} 轮` : "选择轮次")}
+                  {(value) =>
+                    typeof value === "string" && value.trim() ? `${value} 轮` : "选择轮次"
+                  }
                 </SelectValue>
               </SelectTrigger>
               <SelectContent>
@@ -208,7 +217,9 @@ export function GitAutomationSettingsTab({
               value={taskAutomationFailureStrategy}
               onValueChange={(value) => {
                 if (value) {
-                  onTaskAutomationFailureStrategyChange(normalizeTaskAutomationFailureStrategy(value));
+                  onTaskAutomationFailureStrategyChange(
+                    normalizeTaskAutomationFailureStrategy(value),
+                  );
                 }
               }}
               disabled={healthLoading || actionLoading !== null}
@@ -217,7 +228,9 @@ export function GitAutomationSettingsTab({
                 <SelectValue>
                   {(value) =>
                     typeof value === "string"
-                      ? TASK_AUTOMATION_FAILURE_STRATEGY_OPTIONS.find((option) => option.value === value)?.label ?? value
+                      ? (TASK_AUTOMATION_FAILURE_STRATEGY_OPTIONS.find(
+                          (option) => option.value === value,
+                        )?.label ?? value)
                       : "选择失败策略"
                   }
                 </SelectValue>
@@ -236,8 +249,8 @@ export function GitAutomationSettingsTab({
         <p className="text-xs leading-5 text-muted-foreground">
           当前策略：
           {taskAutomationDefaultEnabled ? " 新任务默认开启自动质控；" : " 新任务默认关闭自动质控；"}
-          最多自动修复 {taskAutomationMaxFixRounds} 轮；
-          失败后{taskAutomationFailureStrategy === "manual_control" ? "转人工处理" : "转阻塞"}。
+          最多自动修复 {taskAutomationMaxFixRounds} 轮； 失败后
+          {taskAutomationFailureStrategy === "manual_control" ? "转人工处理" : "转阻塞"}。
         </p>
       </div>
 
@@ -281,7 +294,8 @@ export function GitAutomationSettingsTab({
                 <SelectValue>
                   {(value) =>
                     typeof value === "string"
-                      ? WORKTREE_LOCATION_MODE_OPTIONS.find((option) => option.value === value)?.label ?? value
+                      ? (WORKTREE_LOCATION_MODE_OPTIONS.find((option) => option.value === value)
+                          ?.label ?? value)
                       : "选择 Worktree 目录规则"
                   }
                 </SelectValue>
@@ -294,7 +308,9 @@ export function GitAutomationSettingsTab({
                 ))}
               </SelectContent>
             </Select>
-            <p className="text-xs text-muted-foreground">{selectedWorktreeLocationOption?.description}</p>
+            <p className="text-xs text-muted-foreground">
+              {selectedWorktreeLocationOption?.description}
+            </p>
           </div>
 
           <div className="space-y-2">
@@ -312,7 +328,8 @@ export function GitAutomationSettingsTab({
                 <SelectValue>
                   {(value) =>
                     typeof value === "string"
-                      ? AI_COMMIT_MESSAGE_LENGTH_OPTIONS.find((option) => option.value === value)?.label ?? value
+                      ? (AI_COMMIT_MESSAGE_LENGTH_OPTIONS.find((option) => option.value === value)
+                          ?.label ?? value)
                       : "选择提交信息长度"
                   }
                 </SelectValue>
@@ -325,7 +342,9 @@ export function GitAutomationSettingsTab({
                 ))}
               </SelectContent>
             </Select>
-            <p className="text-xs text-muted-foreground">{selectedCommitLengthOption?.description}</p>
+            <p className="text-xs text-muted-foreground">
+              {selectedCommitLengthOption?.description}
+            </p>
           </div>
         </div>
 
@@ -386,7 +405,9 @@ export function GitAutomationSettingsTab({
                 ))}
               </SelectContent>
             </Select>
-            <p className="text-xs text-muted-foreground">{selectedCommitModelSourceOption?.description}</p>
+            <p className="text-xs text-muted-foreground">
+              {selectedCommitModelSourceOption?.description}
+            </p>
           </div>
 
           <div className="space-y-2">
@@ -428,7 +449,12 @@ export function GitAutomationSettingsTab({
                           onAiCommitModelChange(value);
                         }
                       }}
-                      disabled={healthLoading || actionLoading !== null || opencodeModelListLoading || !isGitAiCustom}
+                      disabled={
+                        healthLoading ||
+                        actionLoading !== null ||
+                        opencodeModelListLoading ||
+                        !isGitAiCustom
+                      }
                     >
                       <SelectTrigger className="bg-background">
                         <SelectValue />
@@ -454,13 +480,19 @@ export function GitAutomationSettingsTab({
                   variant="outline"
                   size="sm"
                   onClick={onOpenCodeFetchModels}
-                  disabled={opencodeModelListLoading || healthLoading || actionLoading !== null || !isGitAiCustom}
+                  disabled={
+                    opencodeModelListLoading ||
+                    healthLoading ||
+                    actionLoading !== null ||
+                    !isGitAiCustom
+                  }
                   title="从 OpenCode SDK 获取模型列表"
                 >
-                  {opencodeModelListLoading
-                    ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                    : <RefreshCw className="h-3.5 w-3.5" />
-                  }
+                  {opencodeModelListLoading ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <RefreshCw className="h-3.5 w-3.5" />
+                  )}
                 </Button>
               </div>
             ) : (
@@ -481,7 +513,8 @@ export function GitAutomationSettingsTab({
                     ? CLAUDE_MODEL_OPTIONS
                     : isGitGrokProvider
                       ? GROK_MODEL_OPTIONS
-                      : CODEX_MODEL_OPTIONS).map((option) => (
+                      : CODEX_MODEL_OPTIONS
+                  ).map((option) => (
                     <SelectItem key={option.value} value={option.value}>
                       {option.label}
                     </SelectItem>
@@ -536,7 +569,9 @@ export function GitAutomationSettingsTab({
         <div className="flex flex-wrap gap-2">
           <Button
             onClick={onSave}
-            disabled={healthLoading || actionLoading !== null || (isRemoteMode && !selectedSshConfigId)}
+            disabled={
+              healthLoading || actionLoading !== null || (isRemoteMode && !selectedSshConfigId)
+            }
           >
             {actionLoading === "save" ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
             保存配置

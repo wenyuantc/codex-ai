@@ -3,7 +3,13 @@ import { useEffect, useState } from "react";
 import type { ProjectGitCommit, ProjectGitCommitDetail } from "@/lib/types";
 import { formatDate } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
@@ -70,9 +76,7 @@ export function ProjectGitCommitDetailDialog({
       <DialogContent className="w-[min(96vw,78rem)] max-w-[min(96vw,78rem)] sm:max-w-[min(96vw,78rem)]">
         <DialogHeader>
           <DialogTitle>{displayTitle}</DialogTitle>
-          <DialogDescription>
-            查看本次提交的元信息、改动文件列表与 diff 预览。
-          </DialogDescription>
+          <DialogDescription>查看本次提交的元信息、改动文件列表与 diff 预览。</DialogDescription>
         </DialogHeader>
 
         {loading ? (
@@ -119,7 +123,10 @@ export function ProjectGitCommitDetailDialog({
               </div>
             )}
 
-            <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as CommitDetailTabValue)}>
+            <Tabs
+              value={activeTab}
+              onValueChange={(value) => setActiveTab(value as CommitDetailTabValue)}
+            >
               <TabsList className="grid w-full grid-cols-2">
                 <TabsTrigger value="diff" disabled={!hasDiffText}>
                   Diff 预览

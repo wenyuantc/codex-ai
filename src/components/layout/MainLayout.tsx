@@ -17,7 +17,9 @@ export function MainLayout() {
   const initCodexSessionListeners = useTaskStore((s) => s.initCodexSessionListeners);
   const environmentMode = useProjectStore((state) => state.environmentMode);
   const selectedSshConfigId = useProjectStore((state) => state.selectedSshConfigId);
-  const initNotificationListeners = useNotificationStore((state) => state.initNotificationListeners);
+  const initNotificationListeners = useNotificationStore(
+    (state) => state.initNotificationListeners,
+  );
   const fetchNotifications = useNotificationStore((state) => state.fetchNotifications);
   const syncSystemNotifications = useNotificationStore((state) => state.syncSystemNotifications);
 
@@ -36,11 +38,13 @@ export function MainLayout() {
     return cleanup;
   }, [initNotificationListeners]);
 
-  const handleDesktopNotificationOpen = useEffectEvent(async (payload: DesktopNotificationExtra) => {
-    await useNotificationStore.getState().markRead(payload.notification_id);
-    await showMainWindow();
-    await openNotificationTarget(navigate, payload);
-  });
+  const handleDesktopNotificationOpen = useEffectEvent(
+    async (payload: DesktopNotificationExtra) => {
+      await useNotificationStore.getState().markRead(payload.notification_id);
+      await showMainWindow();
+      await openNotificationTarget(navigate, payload);
+    },
+  );
 
   useEffect(() => {
     const cleanup = initDesktopNotificationBridge(handleDesktopNotificationOpen);
@@ -77,7 +81,8 @@ export function MainLayout() {
             role="status"
           >
             <span className="font-medium">SSH 模式：</span>
-            远程执行产物（diff/快照）可能不完整，审查与变更明细请结合远程主机 git 状态判断。可在会话变更对话框查看受限说明。
+            远程执行产物（diff/快照）可能不完整，审查与变更明细请结合远程主机 git
+            状态判断。可在会话变更对话框查看受限说明。
           </div>
         )}
         <main className="flex-1 overflow-auto bg-background p-6">

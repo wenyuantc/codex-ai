@@ -1,10 +1,7 @@
 import { useEffect, useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
-import {
-  getAiProviderCapabilities,
-  type AiProviderCapabilities,
-} from "@/lib/backend";
+import { getAiProviderCapabilities, type AiProviderCapabilities } from "@/lib/backend";
 import type { AiProvider } from "@/lib/types";
 
 interface EngineCapabilityBadgesProps {
@@ -26,9 +23,7 @@ export function EngineCapabilityBadges({
       .catch(() => setCapabilities([]));
   }, []);
 
-  const items = provider
-    ? capabilities.filter((item) => item.provider === provider)
-    : capabilities;
+  const items = provider ? capabilities.filter((item) => item.provider === provider) : capabilities;
 
   if (items.length === 0) {
     return null;
@@ -44,9 +39,7 @@ export function EngineCapabilityBadges({
         >
           <div className="mb-1.5 flex items-center gap-2">
             <span className="font-medium">{item.label}</span>
-            {!compact && (
-              <span className="text-muted-foreground">{item.notes}</span>
-            )}
+            {!compact && <span className="text-muted-foreground">{item.notes}</span>}
           </div>
           <div className="flex flex-wrap gap-1">
             <Badge variant={item.start ? "default" : "outline"}>启动</Badge>

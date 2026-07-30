@@ -38,11 +38,7 @@ export function AICommentButton({
       className="flex items-center gap-1 px-2 py-1 text-xs text-primary hover:bg-primary/10 rounded-md transition-colors disabled:opacity-50"
       title="AI 生成评论"
     >
-      {loading ? (
-        <Loader2 className="h-3 w-3 animate-spin" />
-      ) : (
-        <Bot className="h-3 w-3" />
-      )}
+      {loading ? <Loader2 className="h-3 w-3 animate-spin" /> : <Bot className="h-3 w-3" />}
       AI 评论
     </button>
   );

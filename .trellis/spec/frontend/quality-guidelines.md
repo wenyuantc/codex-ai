@@ -6,9 +6,13 @@
 
 ## Verification Commands
 
-There is **no ESLint/Prettier CI config** in this project today. Minimum checks:
+Minimum checks before considering a frontend change done:
 
 ```bash
+# Lint + format (CI enforces these on PR/push to main)
+npm run lint
+npm run format:check
+
 # Typecheck + production bundle
 npm run build
 
@@ -22,8 +26,15 @@ npm run tauri:dev
 For backend-impacting UI flows, also run:
 
 ```bash
+npm run lint:rust
 cargo test --manifest-path src-tauri/Cargo.toml
 ```
+
+Tooling notes:
+- ESLint flat config: `eslint.config.js` (scope: `src/**`, `vite.config.ts`)
+- Prettier: `.prettierrc` / `.prettierignore`
+- React Hooks: enforce `rules-of-hooks`; `exhaustive-deps` is warn-only to avoid cascading false positives on existing effects
+- CI: `.github/workflows/lint.yml`
 
 ## Required Product Behaviors
 

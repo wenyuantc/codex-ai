@@ -44,12 +44,7 @@ export function ConfirmPermanentDeleteDialog({
           >
             取消
           </Button>
-          <Button
-            type="button"
-            variant="destructive"
-            onClick={onConfirm}
-            disabled={deleting}
-          >
+          <Button type="button" variant="destructive" onClick={onConfirm} disabled={deleting}>
             {deleting ? "删除中..." : confirmLabel}
           </Button>
         </DialogFooter>

@@ -15,26 +15,21 @@ export function isTransientNotificationId(id: string) {
 export function onNotificationCenterChanged(
   callback: (payload: NotificationCenterChanged) => void,
 ) {
-  return listen<NotificationCenterChanged>(
-    "notification-center-changed",
-    (event) => callback(event.payload),
+  return listen<NotificationCenterChanged>("notification-center-changed", (event) =>
+    callback(event.payload),
   );
 }
 
-export function onTransientNotification(
-  callback: (payload: TransientNotification) => void,
-) {
-  return listen<TransientNotification>(
-    "notification-center-transient",
-    (event) => callback(event.payload),
+export function onTransientNotification(callback: (payload: TransientNotification) => void) {
+  return listen<TransientNotification>("notification-center-transient", (event) =>
+    callback(event.payload),
   );
 }
 
 export function onDesktopNotificationDeliver(
   callback: (payload: DesktopNotificationEvent) => void,
 ) {
-  return listen<DesktopNotificationEvent>(
-    "notification-center-deliver",
-    (event) => callback(event.payload),
+  return listen<DesktopNotificationEvent>("notification-center-deliver", (event) =>
+    callback(event.payload),
   );
 }

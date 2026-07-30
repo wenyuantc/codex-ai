@@ -18,12 +18,7 @@ import {
   normalizeReasoningEffortForProvider,
 } from "@/lib/types";
 import { getOpenCodeModels, type OpenCodeModelInfo } from "@/lib/opencode";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -33,10 +28,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { EmployeeSystemPromptField } from "./EmployeeSystemPromptField";
-import {
-  selectOpenCodeModel,
-  selectOpenCodeReasoningEffort,
-} from "./openCodeModelSelection";
+import { selectOpenCodeModel, selectOpenCodeReasoningEffort } from "./openCodeModelSelection";
 
 const EMPLOYEE_ROLE_OPTIONS = [
   { value: "developer", label: "开发者", hint: "负责实现任务、编写代码并推进执行。" },
@@ -81,26 +73,30 @@ export function CreateEmployeeDialog({
   const [opencodeModelsLoading, setOpenCodeModelsLoading] = useState(false);
   const [opencodeModelError, setOpenCodeModelError] = useState<string | null>(null);
 
-  const modelOptions = aiProvider === "claude"
-    ? CLAUDE_MODEL_OPTIONS
-    : aiProvider === "opencode"
-      ? opencodeModels
-      : aiProvider === "grok"
-        ? GROK_MODEL_OPTIONS
-        : CODEX_MODEL_OPTIONS;
-  const effortOptions = aiProvider === "claude"
-    ? CLAUDE_THINKING_BUDGET_OPTIONS
-    : aiProvider === "opencode"
-      ? OPENCODE_EFFORT_OPTIONS
-      : aiProvider === "grok"
-        ? GROK_EFFORT_OPTIONS
-        : REASONING_EFFORT_OPTIONS;
+  const modelOptions =
+    aiProvider === "claude"
+      ? CLAUDE_MODEL_OPTIONS
+      : aiProvider === "opencode"
+        ? opencodeModels
+        : aiProvider === "grok"
+          ? GROK_MODEL_OPTIONS
+          : CODEX_MODEL_OPTIONS;
+  const effortOptions =
+    aiProvider === "claude"
+      ? CLAUDE_THINKING_BUDGET_OPTIONS
+      : aiProvider === "opencode"
+        ? OPENCODE_EFFORT_OPTIONS
+        : aiProvider === "grok"
+          ? GROK_EFFORT_OPTIONS
+          : REASONING_EFFORT_OPTIONS;
 
-  const selectedModelCapabilities = aiProvider === "opencode"
-    ? opencodeModels.find((m) => m.value === model)?.capabilities ?? null
-    : null;
+  const selectedModelCapabilities =
+    aiProvider === "opencode"
+      ? (opencodeModels.find((m) => m.value === model)?.capabilities ?? null)
+      : null;
 
-  const modelSupportsReasoning = selectedModelCapabilities === null || selectedModelCapabilities.reasoning;
+  const modelSupportsReasoning =
+    selectedModelCapabilities === null || selectedModelCapabilities.reasoning;
 
   const resetForm = () => {
     setName("");
@@ -218,7 +214,8 @@ export function CreateEmployeeDialog({
                   <SelectValue>
                     {(value) =>
                       typeof value === "string"
-                        ? EMPLOYEE_ROLE_OPTIONS.find((option) => option.value === value)?.label ?? value
+                        ? (EMPLOYEE_ROLE_OPTIONS.find((option) => option.value === value)?.label ??
+                          value)
                         : "选择角色"
                     }
                   </SelectValue>
@@ -238,15 +235,13 @@ export function CreateEmployeeDialog({
 
             <div>
               <label className="text-xs font-medium text-muted-foreground">AI 提供商</label>
-              <Select
-                value={aiProvider}
-                onValueChange={handleProviderChange}
-              >
+              <Select value={aiProvider} onValueChange={handleProviderChange}>
                 <SelectTrigger className="mt-1 bg-background">
                   <SelectValue>
                     {(value) =>
                       typeof value === "string"
-                        ? AI_PROVIDER_OPTIONS.find((option) => option.value === value)?.label ?? value
+                        ? (AI_PROVIDER_OPTIONS.find((option) => option.value === value)?.label ??
+                          value)
                         : "选择提供商"
                     }
                   </SelectValue>
@@ -276,7 +271,7 @@ export function CreateEmployeeDialog({
                     <SelectValue>
                       {(value) =>
                         typeof value === "string"
-                          ? modelOptions.find((option) => option.value === value)?.label ?? value
+                          ? (modelOptions.find((option) => option.value === value)?.label ?? value)
                           : "选择模型"
                       }
                     </SelectValue>
@@ -326,10 +321,11 @@ export function CreateEmployeeDialog({
                       className="px-2 py-1 border border-input rounded-md hover:bg-accent disabled:opacity-50"
                       title="刷新模型列表"
                     >
-                      {opencodeModelsLoading
-                        ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                        : <RefreshCw className="h-3.5 w-3.5" />
-                      }
+                      {opencodeModelsLoading ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <RefreshCw className="h-3.5 w-3.5" />
+                      )}
                     </button>
                   </div>
                   {opencodeModels.length > 0 && (
@@ -366,7 +362,7 @@ export function CreateEmployeeDialog({
                   <SelectValue>
                     {(value) =>
                       typeof value === "string"
-                        ? effortOptions.find((option) => option.value === value)?.label ?? value
+                        ? (effortOptions.find((option) => option.value === value)?.label ?? value)
                         : "选择推理强度"
                     }
                   </SelectValue>

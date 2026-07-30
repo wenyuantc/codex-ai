@@ -27,7 +27,9 @@ export function ProjectsPage() {
         >
           <Plus className="h-4 w-4" />
           新建项目
-          <Kbd variant="primary" size="xs" className="ml-1.5">N</Kbd>
+          <Kbd variant="primary" size="xs" className="ml-1.5">
+            N
+          </Kbd>
         </button>
       </div>
 

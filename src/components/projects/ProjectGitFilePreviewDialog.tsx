@@ -3,7 +3,13 @@ import type * as Monaco from "monaco-editor";
 
 import type { ProjectGitFileChangeRef, ProjectGitFilePreview } from "@/lib/types";
 import { detectMonacoLanguage, getMonacoThemeName, loadMonaco } from "@/lib/monaco";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 
 interface ProjectGitFilePreviewDialogProps {
   open: boolean;
@@ -155,7 +161,8 @@ export function ProjectGitFilePreviewDialog({
         <DialogHeader>
           <DialogTitle>{titlePath}</DialogTitle>
           <DialogDescription>
-            使用 Monaco Diff Editor 对比 {preview?.before_label ?? "对比前版本"} 与 {preview?.after_label ?? "对比后版本"}。
+            使用 Monaco Diff Editor 对比 {preview?.before_label ?? "对比前版本"} 与{" "}
+            {preview?.after_label ?? "对比后版本"}。
           </DialogDescription>
         </DialogHeader>
 
@@ -175,7 +182,9 @@ export function ProjectGitFilePreviewDialog({
 
         <div className="grid gap-2 md:grid-cols-2">
           <div className="rounded-md border border-border/70 bg-muted/20 px-3 py-2 text-xs">
-            <div className="font-medium text-foreground">{preview?.before_label ?? "对比前版本"}</div>
+            <div className="font-medium text-foreground">
+              {preview?.before_label ?? "对比前版本"}
+            </div>
             <div className="mt-1 text-muted-foreground">
               {getSnapshotStatusLabel(preview?.before_status ?? "unavailable")}
               {preview?.before_truncated ? " · 已截断" : ""}
@@ -187,7 +196,9 @@ export function ProjectGitFilePreviewDialog({
             )}
           </div>
           <div className="rounded-md border border-border/70 bg-muted/20 px-3 py-2 text-xs">
-            <div className="font-medium text-foreground">{preview?.after_label ?? "对比后版本"}</div>
+            <div className="font-medium text-foreground">
+              {preview?.after_label ?? "对比后版本"}
+            </div>
             <div className="mt-1 text-muted-foreground">
               {getSnapshotStatusLabel(preview?.after_status ?? "unavailable")}
               {preview?.after_truncated ? " · 已截断" : ""}

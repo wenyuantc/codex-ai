@@ -1,11 +1,6 @@
 import { useState } from "react";
 import { useHotkeys } from "react-hotkeys-hook";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Kbd } from "@/components/keyboard/Kbd";
 import { getAllShortcuts, shortcutDisplay, type ShortcutDef } from "@/lib/shortcuts";
 
@@ -19,7 +14,9 @@ function ShortcutRow({ shortcut }: { shortcut: ShortcutDef }) {
   return (
     <div className="flex items-center justify-between py-1.5">
       <span className="text-sm text-foreground">{shortcut.description}</span>
-      <Kbd variant="outline" size="sm">{shortcutDisplay(shortcut)}</Kbd>
+      <Kbd variant="outline" size="sm">
+        {shortcutDisplay(shortcut)}
+      </Kbd>
     </div>
   );
 }

@@ -16,7 +16,9 @@ export function ProjectList() {
   const [deletingProject, setDeletingProject] = useState<Project | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [projectGitSyncMap, setProjectGitSyncMap] = useState<ProjectGitSyncMap>({});
-  const [selectedRepoAction, setSelectedRepoAction] = useState<ProjectGitRepoActionType | null>(null);
+  const [selectedRepoAction, setSelectedRepoAction] = useState<ProjectGitRepoActionType | null>(
+    null,
+  );
   const [selectedRepoProject, setSelectedRepoProject] = useState<Project | null>(null);
   const [repoActionNotice, setRepoActionNotice] = useState<{
     tone: "success" | "error";
@@ -32,10 +34,7 @@ export function ProjectList() {
     () => (filter === "all" ? projects : projects.filter((p) => p.status === filter)),
     [filter, projects],
   );
-  const filteredIdsKey = useMemo(
-    () => filtered.map((project) => project.id).join("|"),
-    [filtered],
-  );
+  const filteredIdsKey = useMemo(() => filtered.map((project) => project.id).join("|"), [filtered]);
 
   useEffect(() => {
     if (filtered.length === 0) {
@@ -49,10 +48,7 @@ export function ProjectList() {
     void Promise.allSettled(
       filtered.map(async (project) => {
         const overview = await getProjectGitOverview(project.id);
-        return [
-          project.id,
-          overview,
-        ] as const;
+        return [project.id, overview] as const;
       }),
     ).then((results) => {
       if (!active) {
@@ -102,13 +98,12 @@ export function ProjectList() {
   };
 
   const selectedRepoOverview = selectedRepoProject
-    ? projectGitSyncMap[selectedRepoProject.id] ?? null
+    ? (projectGitSyncMap[selectedRepoProject.id] ?? null)
     : null;
-  const selectedStagedChanges = selectedRepoOverview?.working_tree_changes.filter(
-    (change) =>
-      change.stage_status === "staged"
-      || change.stage_status === "partially_staged",
-  ) ?? [];
+  const selectedStagedChanges =
+    selectedRepoOverview?.working_tree_changes.filter(
+      (change) => change.stage_status === "staged" || change.stage_status === "partially_staged",
+    ) ?? [];
 
   return (
     <div className="space-y-3">
@@ -127,9 +122,7 @@ export function ProjectList() {
             {f === "all" ? "全部" : f === "active" ? "活跃" : "归档"}
           </button>
         ))}
-        <span className="text-xs text-muted-foreground ml-auto">
-          {filtered.length} 个项目
-        </span>
+        <span className="text-xs text-muted-foreground ml-auto">{filtered.length} 个项目</span>
       </div>
 
       {repoActionNotice && (
@@ -172,7 +165,9 @@ export function ProjectList() {
 
       <EditProjectDialog
         open={!!editingProject}
-        onOpenChange={(open) => { if (!open) setEditingProject(null); }}
+        onOpenChange={(open) => {
+          if (!open) setEditingProject(null);
+        }}
         project={editingProject}
       />
 

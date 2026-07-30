@@ -20,9 +20,7 @@ import {
   unstageProjectGitFile,
   type ProjectRepoHealth,
 } from "@/lib/backend";
-import {
-  countStagedGitFiles,
-} from "@/lib/gitWorkingTree";
+import { countStagedGitFiles } from "@/lib/gitWorkingTree";
 import type {
   Employee,
   GitActionType,
@@ -60,8 +58,24 @@ import { GitChangesPanel } from "@/components/git/GitChangesPanel";
 import { getGitActionButtonClassName } from "@/components/git/gitHelpers";
 import { ProjectWorktreeSection } from "@/components/git/ProjectWorktreeSection";
 import { RepoPathDisplay } from "@/components/projects/RepoPathDisplay";
-import { ArrowDown, ArrowLeft, ArrowUp, Edit2, GitBranch, Loader2, RefreshCw, ShieldAlert, Trash2 } from "lucide-react";
-import { getStatusLabel, getStatusColor, getPriorityLabel, formatDate, isTaskOverdue } from "@/lib/utils";
+import {
+  ArrowDown,
+  ArrowLeft,
+  ArrowUp,
+  Edit2,
+  GitBranch,
+  Loader2,
+  RefreshCw,
+  ShieldAlert,
+  Trash2,
+} from "lucide-react";
+import {
+  getStatusLabel,
+  getStatusColor,
+  getPriorityLabel,
+  formatDate,
+  isTaskOverdue,
+} from "@/lib/utils";
 import { getProjectWorkingDir, getProjectTypeLabel } from "@/lib/projects";
 
 const ProjectGitFilePreviewDialog = lazy(async () => {
@@ -153,8 +167,10 @@ export function ProjectDetailPage() {
   const [recentCommitsError, setRecentCommitsError] = useState<string | null>(null);
   const [selectedGitContext, setSelectedGitContext] = useState<TaskGitContext | null>(null);
   const [selectedGitAction, setSelectedGitAction] = useState<GitActionType | null>(null);
-  const [selectedFilePreviewSource, setSelectedFilePreviewSource] = useState<ProjectGitPreviewSource | null>(null);
-  const [selectedFilePreviewChange, setSelectedFilePreviewChange] = useState<ProjectGitFileChangeRef | null>(null);
+  const [selectedFilePreviewSource, setSelectedFilePreviewSource] =
+    useState<ProjectGitPreviewSource | null>(null);
+  const [selectedFilePreviewChange, setSelectedFilePreviewChange] =
+    useState<ProjectGitFileChangeRef | null>(null);
   const [gitFilePreview, setGitFilePreview] = useState<ProjectGitFilePreview | null>(null);
   const [gitFilePreviewLoading, setGitFilePreviewLoading] = useState(false);
   const [gitFilePreviewError, setGitFilePreviewError] = useState<string | null>(null);
@@ -168,13 +184,18 @@ export function ProjectDetailPage() {
     tone: "success" | "error";
     message: string;
   } | null>(null);
-  const [selectedRepoAction, setSelectedRepoAction] = useState<ProjectGitRepoActionType | null>(null);
-  const [selectedBranchAction, setSelectedBranchAction] = useState<ProjectGitBranchActionType | null>(null);
+  const [selectedRepoAction, setSelectedRepoAction] = useState<ProjectGitRepoActionType | null>(
+    null,
+  );
+  const [selectedBranchAction, setSelectedBranchAction] =
+    useState<ProjectGitBranchActionType | null>(null);
   const [reconcilingContextId, setReconcilingContextId] = useState<string | null>(null);
   const [deletingContextId, setDeletingContextId] = useState<string | null>(null);
   const [pendingDeleteContext, setPendingDeleteContext] = useState<TaskGitContext | null>(null);
   const [gitOverviewReloadNonce, setGitOverviewReloadNonce] = useState(0);
-  const [selectedFilesStageAction, setSelectedFilesStageAction] = useState<"stage" | "unstage" | null>(null);
+  const [selectedFilesStageAction, setSelectedFilesStageAction] = useState<
+    "stage" | "unstage" | null
+  >(null);
   const [rollbackConfirm, setRollbackConfirm] = useState<{
     target: "selected" | "all";
     paths: string[];
@@ -420,7 +441,10 @@ export function ProjectDetailPage() {
     }
   };
 
-  const handleOpenCommitFileDiff = async (commit: ProjectGitCommit, change: ProjectGitCommitFileChange) => {
+  const handleOpenCommitFileDiff = async (
+    commit: ProjectGitCommit,
+    change: ProjectGitCommitFileChange,
+  ) => {
     if (!project) {
       return;
     }
@@ -558,7 +582,9 @@ export function ProjectDetailPage() {
     try {
       const nextStageStatus: ProjectGitWorkingTreeChange["stage_status"] =
         change.stage_status === "staged" || change.stage_status === "partially_staged"
-          ? (change.change_type === "added" && !change.previous_path ? "untracked" : "unstaged")
+          ? change.change_type === "added" && !change.previous_path
+            ? "untracked"
+            : "unstaged"
           : "staged";
       const message =
         change.stage_status === "staged" || change.stage_status === "partially_staged"
@@ -600,7 +626,9 @@ export function ProjectDetailPage() {
         stage_status:
           action === "stage_all"
             ? "staged"
-            : (change.change_type === "added" && !change.previous_path ? "untracked" : "unstaged"),
+            : change.change_type === "added" && !change.previous_path
+              ? "untracked"
+              : "unstaged",
       }));
       setGitActionNotice({ tone: "success", message });
     } catch (error) {
@@ -634,7 +662,9 @@ export function ProjectDetailPage() {
           stage_status:
             action === "stage"
               ? "staged"
-              : (change.change_type === "added" && !change.previous_path ? "untracked" : "unstaged"),
+              : change.change_type === "added" && !change.previous_path
+                ? "untracked"
+                : "unstaged",
         };
       });
       setGitActionNotice({
@@ -777,7 +807,11 @@ export function ProjectDetailPage() {
                 .finally(() => setRepoHealthLoading(false));
             }}
           >
-            {repoHealthLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+            {repoHealthLoading ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <RefreshCw className="h-3.5 w-3.5" />
+            )}
             重新预检
           </Button>
         </div>
@@ -799,7 +833,13 @@ export function ProjectDetailPage() {
             <ul className="mt-2 space-y-1">
               {repoHealth.checks.map((check) => (
                 <li key={check.key} className="flex items-start gap-2">
-                  <span className={check.passed ? "text-green-700 dark:text-green-300" : "text-amber-800 dark:text-amber-200"}>
+                  <span
+                    className={
+                      check.passed
+                        ? "text-green-700 dark:text-green-300"
+                        : "text-amber-800 dark:text-amber-200"
+                    }
+                  >
                     {check.passed ? "✓" : "!"}
                   </span>
                   <span>
@@ -868,24 +908,34 @@ export function ProjectDetailPage() {
             <div className="grid gap-3 md:grid-cols-4">
               <div className="rounded-lg border border-border/60 px-3 py-2">
                 <div className="text-[11px] text-muted-foreground">Git 运行时</div>
-                <div className="mt-1 text-sm font-medium">{getGitRuntimeStatusLabel(gitOverview.git_runtime_status)}</div>
+                <div className="mt-1 text-sm font-medium">
+                  {getGitRuntimeStatusLabel(gitOverview.git_runtime_status)}
+                </div>
                 <div className="mt-1 text-[11px] text-muted-foreground">提供方：simple-git</div>
               </div>
               <div className="rounded-lg border border-border/60 px-3 py-2">
                 <div className="text-[11px] text-muted-foreground">默认分支</div>
-                <div className="mt-1 text-sm font-medium">{gitOverview.default_branch ?? "未知"}</div>
+                <div className="mt-1 text-sm font-medium">
+                  {gitOverview.default_branch ?? "未知"}
+                </div>
               </div>
               <div className="rounded-lg border border-border/60 px-3 py-2">
                 <div className="text-[11px] text-muted-foreground">当前分支</div>
-                <div className="mt-1 text-sm font-medium">{gitOverview.current_branch ?? "未知"}</div>
+                <div className="mt-1 text-sm font-medium">
+                  {gitOverview.current_branch ?? "未知"}
+                </div>
               </div>
               <div className="rounded-lg border border-border/60 px-3 py-2">
                 <div className="text-[11px] text-muted-foreground">HEAD</div>
-                <div className="mt-1 text-sm font-medium break-all">{gitOverview.head_commit_sha ?? "未知"}</div>
+                <div className="mt-1 text-sm font-medium break-all">
+                  {gitOverview.head_commit_sha ?? "未知"}
+                </div>
               </div>
               <div className="rounded-lg border border-border/60 px-3 py-2">
                 <div className="text-[11px] text-muted-foreground">工作区摘要</div>
-                <div className="mt-1 text-sm font-medium">{gitOverview.working_tree_summary ?? "工作区干净"}</div>
+                <div className="mt-1 text-sm font-medium">
+                  {gitOverview.working_tree_summary ?? "工作区干净"}
+                </div>
               </div>
             </div>
 
@@ -928,7 +978,9 @@ export function ProjectDetailPage() {
                     type="button"
                     variant="outline"
                     size="sm"
-                    disabled={!gitRuntimeReady || !gitOverview.current_branch || behindCommits === 0}
+                    disabled={
+                      !gitRuntimeReady || !gitOverview.current_branch || behindCommits === 0
+                    }
                     onClick={() => setSelectedRepoAction("pull")}
                     className={getGitActionButtonClassName("warning")}
                   >
@@ -1043,17 +1095,24 @@ export function ProjectDetailPage() {
               <div className="rounded-lg border border-border/60 p-3">
                 <div className="mb-2 flex items-center justify-between">
                   <h4 className="text-sm font-medium">活动任务上下文</h4>
-                  <span className="text-xs text-muted-foreground">{gitOverview.active_contexts.length} 条</span>
+                  <span className="text-xs text-muted-foreground">
+                    {gitOverview.active_contexts.length} 条
+                  </span>
                 </div>
                 {gitOverview.active_contexts.length === 0 ? (
                   <p className="text-xs text-muted-foreground">当前暂无活动中的 Git 执行上下文。</p>
                 ) : (
                   <div className="space-y-2">
                     {gitOverview.active_contexts.slice(0, 3).map((context) => (
-                      <div key={context.id} className="rounded-md bg-secondary/40 px-2.5 py-2 text-xs">
+                      <div
+                        key={context.id}
+                        className="rounded-md bg-secondary/40 px-2.5 py-2 text-xs"
+                      >
                         <div className="flex items-center justify-between gap-2">
                           <span className="font-medium">{context.task_branch ?? "未命名分支"}</span>
-                          <Badge variant="outline">{getTaskGitContextStateLabel(context.state)}</Badge>
+                          <Badge variant="outline">
+                            {getTaskGitContextStateLabel(context.state)}
+                          </Badge>
                         </div>
                         <div className="mt-1 text-muted-foreground">
                           目标分支：{context.target_branch ?? "未设置"}
@@ -1134,23 +1193,38 @@ export function ProjectDetailPage() {
               <div className="rounded-lg border border-border/60 p-3">
                 <div className="mb-2 flex items-center justify-between">
                   <h4 className="text-sm font-medium">待确认操作</h4>
-                  <span className="text-xs text-muted-foreground">{gitOverview.pending_action_contexts.length} 条</span>
+                  <span className="text-xs text-muted-foreground">
+                    {gitOverview.pending_action_contexts.length} 条
+                  </span>
                 </div>
                 {gitOverview.pending_action_contexts.length === 0 ? (
                   <p className="text-xs text-muted-foreground">当前没有待确认的高风险 Git 操作。</p>
                 ) : (
                   <div className="space-y-2">
                     {gitOverview.pending_action_contexts.slice(0, 3).map((context) => (
-                      <div key={context.id} className="rounded-md bg-secondary/40 px-2.5 py-2 text-xs">
+                      <div
+                        key={context.id}
+                        className="rounded-md bg-secondary/40 px-2.5 py-2 text-xs"
+                      >
                         <div className="flex items-center justify-between gap-2">
-                          <span className="font-medium">{getGitActionTypeLabel(context.pending_action_type)}</span>
-                          <Badge variant="outline">{getTaskGitContextStateLabel(context.state)}</Badge>
+                          <span className="font-medium">
+                            {getGitActionTypeLabel(context.pending_action_type)}
+                          </span>
+                          <Badge variant="outline">
+                            {getTaskGitContextStateLabel(context.state)}
+                          </Badge>
                         </div>
                         <div className="mt-1 text-muted-foreground">
-                          请求时间：{context.pending_action_requested_at ? formatDate(context.pending_action_requested_at) : "未知"}
+                          请求时间：
+                          {context.pending_action_requested_at
+                            ? formatDate(context.pending_action_requested_at)
+                            : "未知"}
                         </div>
                         <div className="mt-1 text-muted-foreground">
-                          过期时间：{context.pending_action_expires_at ? formatDate(context.pending_action_expires_at) : "未知"}
+                          过期时间：
+                          {context.pending_action_expires_at
+                            ? formatDate(context.pending_action_expires_at)
+                            : "未知"}
                         </div>
                         <div className="mt-2">
                           <Button
@@ -1179,7 +1253,9 @@ export function ProjectDetailPage() {
                   </p>
                 </div>
                 <span className="text-xs text-muted-foreground">
-                  {recentCommitsExpanded ? `${recentCommits.length} 条` : `${visibleRecentCommits.length} 条`}
+                  {recentCommitsExpanded
+                    ? `${recentCommits.length} 条`
+                    : `${visibleRecentCommits.length} 条`}
                 </span>
               </div>
               {recentCommits.length === 0 ? (
@@ -1251,7 +1327,9 @@ export function ProjectDetailPage() {
                             收起摘要
                           </Button>
                           {!recentCommitsHasMore && (
-                            <span className="text-[11px] text-muted-foreground">已显示全部可用提交记录</span>
+                            <span className="text-[11px] text-muted-foreground">
+                              已显示全部可用提交记录
+                            </span>
                           )}
                         </>
                       )}
@@ -1295,9 +1373,7 @@ export function ProjectDetailPage() {
               >
                 <div className={`w-1.5 h-1.5 rounded-full ${getStatusColor(task.status)}`} />
                 <span className="flex-1 font-medium truncate">{task.title}</span>
-                {isTaskOverdue(task) && (
-                  <span className="text-[11px] text-destructive">逾期</span>
-                )}
+                {isTaskOverdue(task) && <span className="text-[11px] text-destructive">逾期</span>}
                 {task.due_date && !isTaskOverdue(task) && (
                   <span className="text-[11px] text-muted-foreground">
                     截止 {formatDate(task.due_date)}
@@ -1430,8 +1506,7 @@ export function ProjectDetailPage() {
         stagedChanges={
           gitOverview?.working_tree_changes.filter(
             (change) =>
-              change.stage_status === "staged"
-              || change.stage_status === "partially_staged",
+              change.stage_status === "staged" || change.stage_status === "partially_staged",
           ) ?? []
         }
         onOpenChange={(open) => {
@@ -1481,7 +1556,9 @@ export function ProjectDetailPage() {
           {rollbackConfirm?.target === "selected" && (rollbackConfirm.paths.length ?? 0) > 0 && (
             <div className="max-h-40 overflow-y-auto rounded-md border border-border/60 bg-secondary/30 px-3 py-2 text-xs text-muted-foreground">
               {rollbackConfirm?.paths.map((path) => (
-                <div key={path} className="break-all font-mono py-0.5">{path}</div>
+                <div key={path} className="break-all font-mono py-0.5">
+                  {path}
+                </div>
               ))}
             </div>
           )}

@@ -120,7 +120,12 @@ export function MonacoMarkdownEditor({
 
   if (editorError) {
     return (
-      <div className={cn("rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive", className)}>
+      <div
+        className={cn(
+          "rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive",
+          className,
+        )}
+      >
         Monaco 加载失败：{editorError}
       </div>
     );
@@ -128,7 +133,10 @@ export function MonacoMarkdownEditor({
 
   return (
     <div
-      className={cn("relative overflow-hidden rounded-md border border-border bg-background", className)}
+      className={cn(
+        "relative overflow-hidden rounded-md border border-border bg-background",
+        className,
+      )}
       data-placeholder={placeholder}
     >
       <div ref={containerRef} className="h-full min-h-[inherit]" />

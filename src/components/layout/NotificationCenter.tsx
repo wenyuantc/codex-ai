@@ -1,14 +1,6 @@
 import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import {
-  Bell,
-  Check,
-  CheckCheck,
-  CircleAlert,
-  Info,
-  ShieldAlert,
-  Siren,
-} from "lucide-react";
+import { Bell, Check, CheckCheck, CircleAlert, Info, ShieldAlert, Siren } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -20,21 +12,20 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
-import type {
-  NotificationItem,
-  NotificationSeverity,
-  NotificationType,
-} from "@/lib/types";
+import type { NotificationItem, NotificationSeverity, NotificationType } from "@/lib/types";
 import { openNotificationTarget } from "@/lib/notificationNavigation";
 import { formatDate } from "@/lib/utils";
 import { useNotificationStore } from "@/stores/notificationStore";
 
-const severityMeta: Record<NotificationSeverity, {
-  label: string;
-  icon: typeof Info;
-  badgeClassName: string;
-  accentClassName: string;
-}> = {
+const severityMeta: Record<
+  NotificationSeverity,
+  {
+    label: string;
+    icon: typeof Info;
+    badgeClassName: string;
+    accentClassName: string;
+  }
+> = {
   info: {
     label: "信息",
     icon: Info,
@@ -96,11 +87,7 @@ interface NotificationRowProps {
   onMarkRead: (id: string) => Promise<void>;
 }
 
-function NotificationRow({
-  notification,
-  onOpen,
-  onMarkRead,
-}: NotificationRowProps) {
+function NotificationRow({ notification, onOpen, onMarkRead }: NotificationRowProps) {
   const meta = severityMeta[notification.severity];
   const Icon = meta.icon;
 
@@ -128,12 +115,8 @@ function NotificationRow({
                 {notification.occurrence_count > 1 && (
                   <Badge variant="outline">x{notification.occurrence_count}</Badge>
                 )}
-                {notification.is_transient && (
-                  <Badge variant="outline">临时</Badge>
-                )}
-                {!notification.is_read && (
-                  <Badge variant="outline">未读</Badge>
-                )}
+                {notification.is_transient && <Badge variant="outline">临时</Badge>}
+                {!notification.is_read && <Badge variant="outline">未读</Badge>}
               </div>
               <div>
                 <p className="text-sm font-medium leading-5">{notification.title}</p>

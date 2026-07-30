@@ -1,12 +1,5 @@
 import { Suspense, lazy, useEffect, useMemo, useRef, useState } from "react";
-import {
-  Check,
-  ChevronDown,
-  Copy,
-  Loader2,
-  RefreshCw,
-  Trash2,
-} from "lucide-react";
+import { Check, ChevronDown, Copy, Loader2, RefreshCw, Trash2 } from "lucide-react";
 
 import {
   getProjectWorktreeFilePreview,
@@ -31,11 +24,7 @@ import { WorktreeMergeDialog } from "@/components/git/WorktreeMergeDialog";
 import { getGitActionButtonClassName } from "@/components/git/gitHelpers";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from "@/components/ui/collapsible";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import {
   Dialog,
   DialogContent,
@@ -58,11 +47,16 @@ const ProjectGitFilePreviewDialog = lazy(async () => {
   return { default: module.ProjectGitFilePreviewDialog };
 });
 
-function normalizeNextStageStatus(change: ProjectGitWorkingTreeChange, action: "stage" | "unstage") {
+function normalizeNextStageStatus(
+  change: ProjectGitWorkingTreeChange,
+  action: "stage" | "unstage",
+) {
   if (action === "stage") {
     return "staged" as const;
   }
-  return change.change_type === "added" && !change.previous_path ? "untracked" as const : "unstaged" as const;
+  return change.change_type === "added" && !change.previous_path
+    ? ("untracked" as const)
+    : ("unstaged" as const);
 }
 
 export function ProjectWorktreeSection({
@@ -78,9 +72,18 @@ export function ProjectWorktreeSection({
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<{ tone: "success" | "error"; message: string } | null>(null);
   const [expandedPath, setExpandedPath] = useState<string | null>(null);
-  const [stagingFileState, setStagingFileState] = useState<{ worktreePath: string; filePath: string } | null>(null);
-  const [bulkStageState, setBulkStageState] = useState<{ worktreePath: string; action: "stage_all" | "unstage_all" } | null>(null);
-  const [selectedFilesStageState, setSelectedFilesStageState] = useState<{ worktreePath: string; action: "stage" | "unstage" } | null>(null);
+  const [stagingFileState, setStagingFileState] = useState<{
+    worktreePath: string;
+    filePath: string;
+  } | null>(null);
+  const [bulkStageState, setBulkStageState] = useState<{
+    worktreePath: string;
+    action: "stage_all" | "unstage_all";
+  } | null>(null);
+  const [selectedFilesStageState, setSelectedFilesStageState] = useState<{
+    worktreePath: string;
+    action: "stage" | "unstage";
+  } | null>(null);
   const [rollbackConfirm, setRollbackConfirm] = useState<{
     worktreePath: string;
     target: "selected" | "all";
@@ -117,10 +120,16 @@ export function ProjectWorktreeSection({
     try {
       const items = await listProjectGitWorktrees(projectId);
       setWorktrees(items);
-      setExpandedPath((current) => items.some((item) => item.path === current) ? current : null);
-      setSelectedCommitPath((current) => items.some((item) => item.path === current) ? current : null);
-      setSelectedMergePath((current) => items.some((item) => item.path === current) ? current : null);
-      setPendingRemove((current) => current && items.some((item) => item.path === current.path) ? current : null);
+      setExpandedPath((current) => (items.some((item) => item.path === current) ? current : null));
+      setSelectedCommitPath((current) =>
+        items.some((item) => item.path === current) ? current : null,
+      );
+      setSelectedMergePath((current) =>
+        items.some((item) => item.path === current) ? current : null,
+      );
+      setPendingRemove((current) =>
+        current && items.some((item) => item.path === current.path) ? current : null,
+      );
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : String(loadError));
     } finally {
@@ -132,25 +141,30 @@ export function ProjectWorktreeSection({
     void loadWorktrees();
   }, [projectId]);
 
-  useEffect(() => () => {
-    if (copyResetTimerRef.current !== null) {
-      window.clearTimeout(copyResetTimerRef.current);
-    }
-  }, []);
+  useEffect(
+    () => () => {
+      if (copyResetTimerRef.current !== null) {
+        window.clearTimeout(copyResetTimerRef.current);
+      }
+    },
+    [],
+  );
 
   const updateWorktreeChanges = (
     worktreePath: string,
     updater: (change: ProjectGitWorkingTreeChange) => ProjectGitWorkingTreeChange,
   ) => {
-    setWorktrees((current) => current.map((worktree) => {
-      if (worktree.path !== worktreePath) {
-        return worktree;
-      }
-      return {
-        ...worktree,
-        working_tree_changes: worktree.working_tree_changes.map(updater),
-      };
-    }));
+    setWorktrees((current) =>
+      current.map((worktree) => {
+        if (worktree.path !== worktreePath) {
+          return worktree;
+        }
+        return {
+          ...worktree,
+          working_tree_changes: worktree.working_tree_changes.map(updater),
+        };
+      }),
+    );
     setSelectedPreview((current) => {
       if (!current || current.worktreePath !== worktreePath) {
         return current;
@@ -177,7 +191,10 @@ export function ProjectWorktreeSection({
     }, 1600);
   };
 
-  const handlePreview = async (worktree: ProjectGitWorktree, change: ProjectGitWorkingTreeChange) => {
+  const handlePreview = async (
+    worktree: ProjectGitWorktree,
+    change: ProjectGitWorkingTreeChange,
+  ) => {
     const requestId = previewRequestIdRef.current + 1;
     previewRequestIdRef.current = requestId;
     setSelectedPreview({ worktreePath: worktree.path, change });
@@ -200,7 +217,9 @@ export function ProjectWorktreeSection({
       if (previewRequestIdRef.current !== requestId) {
         return;
       }
-      setPreviewError(previewLoadError instanceof Error ? previewLoadError.message : String(previewLoadError));
+      setPreviewError(
+        previewLoadError instanceof Error ? previewLoadError.message : String(previewLoadError),
+      );
     } finally {
       if (previewRequestIdRef.current === requestId) {
         setPreviewLoading(false);
@@ -208,22 +227,32 @@ export function ProjectWorktreeSection({
     }
   };
 
-  const handleToggleStage = async (worktree: ProjectGitWorktree, change: ProjectGitWorkingTreeChange) => {
+  const handleToggleStage = async (
+    worktree: ProjectGitWorktree,
+    change: ProjectGitWorkingTreeChange,
+  ) => {
     setStagingFileState({ worktreePath: worktree.path, filePath: change.path });
     setNotice(null);
     try {
-      const action = change.stage_status === "staged" || change.stage_status === "partially_staged"
-        ? "unstage"
-        : "stage";
-      const message = action === "stage"
-        ? await stageProjectWorktreeFile(projectId, worktree.path, change.path)
-        : await unstageProjectWorktreeFile(projectId, worktree.path, change.path);
-      updateWorktreeChanges(worktree.path, (item) => item.path === change.path
-        ? { ...item, stage_status: normalizeNextStageStatus(item, action) }
-        : item);
+      const action =
+        change.stage_status === "staged" || change.stage_status === "partially_staged"
+          ? "unstage"
+          : "stage";
+      const message =
+        action === "stage"
+          ? await stageProjectWorktreeFile(projectId, worktree.path, change.path)
+          : await unstageProjectWorktreeFile(projectId, worktree.path, change.path);
+      updateWorktreeChanges(worktree.path, (item) =>
+        item.path === change.path
+          ? { ...item, stage_status: normalizeNextStageStatus(item, action) }
+          : item,
+      );
       setNotice({ tone: "success", message });
     } catch (stageError) {
-      setNotice({ tone: "error", message: stageError instanceof Error ? stageError.message : String(stageError) });
+      setNotice({
+        tone: "error",
+        message: stageError instanceof Error ? stageError.message : String(stageError),
+      });
     } finally {
       setStagingFileState(null);
     }
@@ -236,18 +265,21 @@ export function ProjectWorktreeSection({
     setBulkStageState({ worktreePath: worktree.path, action });
     setNotice(null);
     try {
-      const message = action === "stage_all"
-        ? await stageAllProjectWorktreeFiles(projectId, worktree.path)
-        : await unstageAllProjectWorktreeFiles(projectId, worktree.path);
+      const message =
+        action === "stage_all"
+          ? await stageAllProjectWorktreeFiles(projectId, worktree.path)
+          : await unstageAllProjectWorktreeFiles(projectId, worktree.path);
       updateWorktreeChanges(worktree.path, (change) => ({
         ...change,
-        stage_status: action === "stage_all"
-          ? "staged"
-          : normalizeNextStageStatus(change, "unstage"),
+        stage_status:
+          action === "stage_all" ? "staged" : normalizeNextStageStatus(change, "unstage"),
       }));
       setNotice({ tone: "success", message });
     } catch (bulkError) {
-      setNotice({ tone: "error", message: bulkError instanceof Error ? bulkError.message : String(bulkError) });
+      setNotice({
+        tone: "error",
+        message: bulkError instanceof Error ? bulkError.message : String(bulkError),
+      });
     } finally {
       setBulkStageState(null);
     }
@@ -271,23 +303,30 @@ export function ProjectWorktreeSection({
           await unstageProjectWorktreeFile(projectId, worktree.path, path);
         }
       }
-      updateWorktreeChanges(worktree.path, (change) => (
+      updateWorktreeChanges(worktree.path, (change) =>
         paths.includes(change.path)
           ? { ...change, stage_status: normalizeNextStageStatus(change, action) }
-          : change
-      ));
+          : change,
+      );
       setNotice({
         tone: "success",
         message: `已${action === "stage" ? "暂存" : "取消暂存"} ${paths.length} 个文件`,
       });
     } catch (selectedError) {
-      setNotice({ tone: "error", message: selectedError instanceof Error ? selectedError.message : String(selectedError) });
+      setNotice({
+        tone: "error",
+        message: selectedError instanceof Error ? selectedError.message : String(selectedError),
+      });
     } finally {
       setSelectedFilesStageState(null);
     }
   };
 
-  const handleRollback = (worktree: ProjectGitWorktree, target: "selected" | "all", paths: string[] = []) => {
+  const handleRollback = (
+    worktree: ProjectGitWorktree,
+    target: "selected" | "all",
+    paths: string[] = [],
+  ) => {
     setRollbackConfirm({
       worktreePath: worktree.path,
       target,
@@ -302,14 +341,22 @@ export function ProjectWorktreeSection({
     setRollbackInProgressPath(rollbackConfirm.worktreePath);
     setNotice(null);
     try {
-      const message = rollbackConfirm.target === "all"
-        ? await rollbackAllProjectWorktreeChanges(projectId, rollbackConfirm.worktreePath)
-        : await rollbackProjectWorktreeFiles(projectId, rollbackConfirm.worktreePath, rollbackConfirm.paths);
+      const message =
+        rollbackConfirm.target === "all"
+          ? await rollbackAllProjectWorktreeChanges(projectId, rollbackConfirm.worktreePath)
+          : await rollbackProjectWorktreeFiles(
+              projectId,
+              rollbackConfirm.worktreePath,
+              rollbackConfirm.paths,
+            );
       setNotice({ tone: "success", message });
       setRollbackConfirm(null);
       await loadWorktrees();
     } catch (rollbackError) {
-      setNotice({ tone: "error", message: rollbackError instanceof Error ? rollbackError.message : String(rollbackError) });
+      setNotice({
+        tone: "error",
+        message: rollbackError instanceof Error ? rollbackError.message : String(rollbackError),
+      });
     } finally {
       setRollbackInProgressPath(null);
     }
@@ -338,7 +385,11 @@ export function ProjectWorktreeSection({
     setRemoveMode(mode);
     setNotice(null);
     try {
-      const message = await removeProjectGitWorktree(projectId, pendingRemove.path, mode === "force");
+      const message = await removeProjectGitWorktree(
+        projectId,
+        pendingRemove.path,
+        mode === "force",
+      );
       setNotice({ tone: "success", message });
       setPendingRemove(null);
       if (expandedPath === pendingRemove.path) {
@@ -347,7 +398,10 @@ export function ProjectWorktreeSection({
       await loadWorktrees();
       await onChanged?.();
     } catch (removeError) {
-      setNotice({ tone: "error", message: removeError instanceof Error ? removeError.message : String(removeError) });
+      setNotice({
+        tone: "error",
+        message: removeError instanceof Error ? removeError.message : String(removeError),
+      });
     } finally {
       setRemoveMode(null);
     }
@@ -364,7 +418,9 @@ export function ProjectWorktreeSection({
                 统一查看当前项目的 Git worktree，支持预览、暂存、回滚、提交、合并与删除。
               </p>
             </div>
-            <ChevronDown className={`h-4 w-4 text-muted-foreground transition-transform ${open ? "rotate-180" : ""}`} />
+            <ChevronDown
+              className={`h-4 w-4 text-muted-foreground transition-transform ${open ? "rotate-180" : ""}`}
+            />
           </CollapsibleTrigger>
 
           <CollapsibleContent className="border-t border-border/60 px-4 py-3">
@@ -424,14 +480,16 @@ export function ProjectWorktreeSection({
                 const isExpanded = expandedPath === worktree.path;
                 const removeDisabled = worktree.is_main;
                 const mergeDisabled =
-                  worktree.is_main
-                  || worktree.is_bare
-                  || worktree.is_prunable
-                  || worktree.is_detached
-                  || !worktree.branch;
-                const statusLabel = worktree.branch ?? (worktree.is_detached
-                  ? `detached HEAD${worktree.short_head_sha ? ` · ${worktree.short_head_sha}` : ""}`
-                  : "未知分支");
+                  worktree.is_main ||
+                  worktree.is_bare ||
+                  worktree.is_prunable ||
+                  worktree.is_detached ||
+                  !worktree.branch;
+                const statusLabel =
+                  worktree.branch ??
+                  (worktree.is_detached
+                    ? `detached HEAD${worktree.short_head_sha ? ` · ${worktree.short_head_sha}` : ""}`
+                    : "未知分支");
 
                 return (
                   <div key={worktree.path} className="rounded-lg border border-border/60 p-3">
@@ -456,7 +514,11 @@ export function ProjectWorktreeSection({
                             onClick={() => void handleCopyPath(worktree.path)}
                             title={copiedPath === worktree.path ? "已复制路径" : "复制路径"}
                           >
-                            {copiedPath === worktree.path ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+                            {copiedPath === worktree.path ? (
+                              <Check className="h-3.5 w-3.5" />
+                            ) : (
+                              <Copy className="h-3.5 w-3.5" />
+                            )}
                           </Button>
                         </div>
 
@@ -544,7 +606,9 @@ export function ProjectWorktreeSection({
                           onClick={() => setExpandedPath(isExpanded ? null : worktree.path)}
                           className={getGitActionButtonClassName("neutral")}
                         >
-                          {isExpanded ? "收起" : `展开${hasChanges ? `（${worktree.working_tree_changes.length}）` : ""}`}
+                          {isExpanded
+                            ? "收起"
+                            : `展开${hasChanges ? `（${worktree.working_tree_changes.length}）` : ""}`}
                         </Button>
                       </div>
                     </div>
@@ -685,7 +749,9 @@ export function ProjectWorktreeSection({
           {rollbackConfirm?.target === "selected" && (rollbackConfirm.paths.length ?? 0) > 0 && (
             <div className="max-h-40 overflow-y-auto rounded-md border border-border/60 bg-secondary/30 px-3 py-2 text-xs text-muted-foreground">
               {rollbackConfirm?.paths.map((path) => (
-                <div key={path} className="break-all py-0.5 font-mono">{path}</div>
+                <div key={path} className="break-all py-0.5 font-mono">
+                  {path}
+                </div>
               ))}
             </div>
           )}
@@ -731,7 +797,8 @@ export function ProjectWorktreeSection({
             <div className="rounded-md border border-border/60 bg-secondary/30 px-3 py-2 text-xs text-muted-foreground">
               <div className="break-all font-mono text-foreground">{pendingRemove.path}</div>
               <div className="mt-1">
-                分支：{pendingRemove.branch ?? (pendingRemove.is_detached ? "detached HEAD" : "未知")}
+                分支：
+                {pendingRemove.branch ?? (pendingRemove.is_detached ? "detached HEAD" : "未知")}
               </div>
               <div className="mt-1">
                 当前变更：{pendingRemove.working_tree_changes.length} 个文件

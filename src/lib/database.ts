@@ -20,7 +20,5 @@ export async function select<T>(query: string, params?: unknown[]): Promise<T[]>
  * Use Tauri commands (e.g. logActivity) for all mutations.
  */
 export async function execute(_query: string, _params?: unknown[]): Promise<void> {
-  throw new Error(
-    "前端禁止直接执行写 SQL。请改用后端 Tauri command（例如 logActivity）。",
-  );
+  throw new Error("前端禁止直接执行写 SQL。请改用后端 Tauri command（例如 logActivity）。");
 }

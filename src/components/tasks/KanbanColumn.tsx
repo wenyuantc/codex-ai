@@ -1,9 +1,6 @@
 import { memo, useRef } from "react";
 import { useDroppable } from "@dnd-kit/core";
-import {
-  SortableContext,
-  verticalListSortingStrategy,
-} from "@dnd-kit/sortable";
+import { SortableContext, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import type { CodexSessionKind, Task, TaskGitContext, TaskStatus } from "@/lib/types";
 import { TaskCard } from "./TaskCard";
@@ -88,14 +85,8 @@ export const KanbanColumn = memo(function KanbanColumn({
         </span>
       </div>
 
-      <SortableContext
-        items={tasks.map((t) => t.id)}
-        strategy={verticalListSortingStrategy}
-      >
-        <div
-          ref={scrollParentRef}
-          className="flex-1 overflow-y-auto px-2 py-2"
-        >
+      <SortableContext items={tasks.map((t) => t.id)} strategy={verticalListSortingStrategy}>
+        <div ref={scrollParentRef} className="flex-1 overflow-y-auto px-2 py-2">
           {shouldVirtualize ? (
             <div
               className="relative w-full"

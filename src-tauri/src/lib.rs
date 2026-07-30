@@ -1,3 +1,8 @@
+// Engine session launch / Tauri command surfaces intentionally take many
+// positional parameters. Structural consolidation belongs to the engine-trait
+// work (C5), not this lint-toolchain task.
+#![allow(clippy::too_many_arguments)]
+
 mod app;
 mod claude;
 mod codex;

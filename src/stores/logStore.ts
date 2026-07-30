@@ -17,7 +17,7 @@ export const useLogStore = create<LogStore>((set) => ({
     try {
       const logs = await select<ActivityLog>(
         "SELECT * FROM activity_logs ORDER BY created_at DESC LIMIT $1",
-        [limit]
+        [limit],
       );
       set({ logs, loading: false });
     } catch (e) {

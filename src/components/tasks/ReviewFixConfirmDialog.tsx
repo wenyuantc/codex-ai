@@ -45,11 +45,7 @@ export function ReviewFixConfirmDialog({
           >
             取消
           </Button>
-          <Button
-            type="button"
-            onClick={() => void onConfirm()}
-            disabled={creating}
-          >
+          <Button type="button" onClick={() => void onConfirm()} disabled={creating}>
             {creating ? "创建并运行中..." : "确认修复"}
           </Button>
         </DialogFooter>

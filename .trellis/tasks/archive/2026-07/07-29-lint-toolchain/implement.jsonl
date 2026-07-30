@@ -1,0 +1,5 @@
+{"file": ".trellis/spec/frontend/index.md", "reason": "Frontend stack, hard rules, quality entrypoint"}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "Current verification commands; will be updated with lint scripts"}
+{"file": ".trellis/spec/backend/index.md", "reason": "Backend layout and hard rules for safe mechanical fixes"}
+{"file": ".trellis/spec/backend/testing.md", "reason": "Ensure cargo test baseline preserved after clippy fixes"}
+{"file": ".trellis/spec/guides/code-reuse-thinking-guide.md", "reason": "Apply same fix pattern across four AI engines"}

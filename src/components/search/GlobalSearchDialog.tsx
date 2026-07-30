@@ -1,15 +1,14 @@
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent as ReactKeyboardEvent,
+} from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useHotkeys } from "react-hotkeys-hook";
 import { GLOBAL_SHORTCUTS, shortcutDisplay, shortcutKeys } from "@/lib/shortcuts";
-import {
-  Bot,
-  FolderKanban,
-  Loader2,
-  Search,
-  TerminalSquare,
-  UserRound,
-} from "lucide-react";
+import { Bot, FolderKanban, Loader2, Search, TerminalSquare, UserRound } from "lucide-react";
 
 import { logActivity, searchGlobal } from "@/lib/backend";
 import type { GlobalSearchItem, GlobalSearchItemType, GlobalSearchResponse } from "@/lib/types";
@@ -148,7 +147,9 @@ export function GlobalSearchDialog() {
       return;
     }
 
-    const activeElement = document.querySelector<HTMLElement>(`[data-search-index="${activeIndex}"]`);
+    const activeElement = document.querySelector<HTMLElement>(
+      `[data-search-index="${activeIndex}"]`,
+    );
     activeElement?.scrollIntoView({ block: "nearest" });
   }, [activeIndex, open, response]);
 
@@ -205,7 +206,7 @@ export function GlobalSearchDialog() {
 
   const handleNavigate = async (item: GlobalSearchItem) => {
     const targetProject = item.project_id
-      ? allProjects.find((project) => project.id === item.project_id) ?? null
+      ? (allProjects.find((project) => project.id === item.project_id) ?? null)
       : null;
 
     if (item.item_type === "project") {
@@ -422,9 +423,7 @@ function SearchResultRow({ item, active, index, onSelect }: SearchResultRowProps
           <span className="truncate font-medium text-foreground">{item.title}</span>
           <Badge variant="outline">{TYPE_LABELS[item.item_type]}</Badge>
         </div>
-        {item.subtitle && (
-          <p className="truncate text-xs text-muted-foreground">{item.subtitle}</p>
-        )}
+        {item.subtitle && <p className="truncate text-xs text-muted-foreground">{item.subtitle}</p>}
         {item.summary && (
           <p className="line-clamp-2 text-sm text-muted-foreground">{item.summary}</p>
         )}

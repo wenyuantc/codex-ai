@@ -66,39 +66,29 @@ export async function stopGrok(employeeId: string): Promise<void> {
   await invoke("stop_grok", { employeeId });
 }
 
-export async function stopGrokSession(
-  sessionRecordId: string,
-): Promise<void> {
+export async function stopGrokSession(sessionRecordId: string): Promise<void> {
   await invoke("stop_grok_session", { sessionRecordId });
 }
 
-export function onGrokOutput(
-  callback: (output: GrokOutput) => void,
-): Promise<() => void> {
+export function onGrokOutput(callback: (output: GrokOutput) => void): Promise<() => void> {
   return listen<GrokOutput>("grok-stdout", (event) => {
     callback(event.payload);
   });
 }
 
-export function onGrokError(
-  callback: (output: GrokOutput) => void,
-): Promise<() => void> {
+export function onGrokError(callback: (output: GrokOutput) => void): Promise<() => void> {
   return listen<GrokOutput>("grok-stderr", (event) => {
     callback(event.payload);
   });
 }
 
-export function onGrokExit(
-  callback: (exit: GrokExit) => void,
-): Promise<() => void> {
+export function onGrokExit(callback: (exit: GrokExit) => void): Promise<() => void> {
   return listen<GrokExit>("grok-exit", (event) => {
     callback(event.payload);
   });
 }
 
-export function onGrokSession(
-  callback: (session: GrokSession) => void,
-): Promise<() => void> {
+export function onGrokSession(callback: (session: GrokSession) => void): Promise<() => void> {
   return listen<GrokSession>("grok-session", (event) => {
     callback(event.payload);
   });

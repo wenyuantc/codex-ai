@@ -36,11 +36,9 @@ function matchesSessionIdentifier(session: CodexSessionListItem, query: string |
   }
 
   const normalizedQuery = normalizeSearchText(query);
-  return [
-    session.session_id,
-    session.session_record_id,
-    session.cli_session_id,
-  ].some((value) => normalizeSearchText(value) === normalizedQuery);
+  return [session.session_id, session.session_record_id, session.cli_session_id].some(
+    (value) => normalizeSearchText(value) === normalizedQuery,
+  );
 }
 
 function formatAiProviderLabel(provider: AiProvider) {
@@ -103,7 +101,9 @@ function formatResumeStatus(status: CodexSessionResumeStatus) {
   }
 }
 
-function resumeBadgeVariant(status: CodexSessionResumeStatus): "default" | "secondary" | "destructive" | "outline" {
+function resumeBadgeVariant(
+  status: CodexSessionResumeStatus,
+): "default" | "secondary" | "destructive" | "outline" {
   switch (status) {
     case "ready":
       return "default";
@@ -148,7 +148,9 @@ export function SessionsPage() {
   const employees = useEmployeeStore((state) => state.employees);
   const fetchEmployees = useEmployeeStore((state) => state.fetchEmployees);
   const updateEmployeeStatus = useEmployeeStore((state) => state.updateEmployeeStatus);
-  const refreshEmployeeRuntimeStatus = useEmployeeStore((state) => state.refreshEmployeeRuntimeStatus);
+  const refreshEmployeeRuntimeStatus = useEmployeeStore(
+    (state) => state.refreshEmployeeRuntimeStatus,
+  );
 
   const environmentMode = useProjectStore((state) => state.environmentMode);
   const currentProjectId = useProjectStore((state) => state.currentProject?.id);
@@ -178,9 +180,8 @@ export function SessionsPage() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [infoMessage, setInfoMessage] = useState<string | null>(null);
   const highlightedSessionId = searchParams.get("sessionId");
-  const highlightedSessionNonce = (
-    location.state as { globalSearchNonce?: number } | null
-  )?.globalSearchNonce ?? null;
+  const highlightedSessionNonce =
+    (location.state as { globalSearchNonce?: number } | null)?.globalSearchNonce ?? null;
 
   useHotkeys("r", (e) => {
     e.preventDefault();
@@ -207,7 +208,11 @@ export function SessionsPage() {
         return false;
       }
 
-      if (environmentMode === "ssh" && selectedSshConfigId && session.ssh_config_id !== selectedSshConfigId) {
+      if (
+        environmentMode === "ssh" &&
+        selectedSshConfigId &&
+        session.ssh_config_id !== selectedSshConfigId
+      ) {
         return false;
       }
 
@@ -231,17 +236,19 @@ export function SessionsPage() {
         return false;
       }
 
-      const matchesSessionId = !normalizedSessionIdQuery
-        || normalizeSearchText(session.session_id).includes(normalizedSessionIdQuery)
-        || normalizeSearchText(session.session_record_id).includes(normalizedSessionIdQuery)
-        || normalizeSearchText(session.cli_session_id).includes(normalizedSessionIdQuery);
+      const matchesSessionId =
+        !normalizedSessionIdQuery ||
+        normalizeSearchText(session.session_id).includes(normalizedSessionIdQuery) ||
+        normalizeSearchText(session.session_record_id).includes(normalizedSessionIdQuery) ||
+        normalizeSearchText(session.cli_session_id).includes(normalizedSessionIdQuery);
 
       if (!matchesSessionId) {
         return false;
       }
 
-      const matchesTaskId = !normalizedTaskIdQuery
-        || normalizeSearchText(session.task_id).includes(normalizedTaskIdQuery);
+      const matchesTaskId =
+        !normalizedTaskIdQuery ||
+        normalizeSearchText(session.task_id).includes(normalizedTaskIdQuery);
 
       if (!matchesTaskId) {
         return false;
@@ -280,13 +287,15 @@ export function SessionsPage() {
     taskIdQuery,
   ]);
 
-  const totalPages = filteredSessions.length > 0 ? Math.ceil(filteredSessions.length / PAGE_SIZE) : 0;
+  const totalPages =
+    filteredSessions.length > 0 ? Math.ceil(filteredSessions.length / PAGE_SIZE) : 0;
   const pageSessions = useMemo(
     () => filteredSessions.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE),
     [filteredSessions, page],
   );
   const rangeStart = filteredSessions.length === 0 ? 0 : (page - 1) * PAGE_SIZE + 1;
-  const rangeEnd = filteredSessions.length === 0 ? 0 : Math.min(page * PAGE_SIZE, filteredSessions.length);
+  const rangeEnd =
+    filteredSessions.length === 0 ? 0 : Math.min(page * PAGE_SIZE, filteredSessions.length);
 
   useEffect(() => {
     setPage(1);
@@ -330,9 +339,9 @@ export function SessionsPage() {
       return;
     }
 
-    const targetIndex = filteredSessions.findIndex((session) => (
-      matchesSessionIdentifier(session, highlightedSessionId)
-    ));
+    const targetIndex = filteredSessions.findIndex((session) =>
+      matchesSessionIdentifier(session, highlightedSessionId),
+    );
     if (targetIndex < 0) {
       return;
     }
@@ -349,9 +358,9 @@ export function SessionsPage() {
     }
 
     const timeoutId = window.setTimeout(() => {
-      const matchedSession = pageSessions.find((session) => (
-        matchesSessionIdentifier(session, highlightedSessionId)
-      ));
+      const matchedSession = pageSessions.find((session) =>
+        matchesSessionIdentifier(session, highlightedSessionId),
+      );
       if (!matchedSession) {
         return;
       }
@@ -489,12 +498,13 @@ export function SessionsPage() {
       await refreshEmployeeRuntimeStatus(preview.employee_id);
 
       const sessionItems = await loadSessions(true);
-      const resumedSession = sessionItems.find((item) => (
-        item.employee_id === preview.employee_id
-        && item.cli_session_id === preview.resolved_session_id
-        && item.session_kind === (preview.session_kind ?? "execution")
-        && item.status === "running"
-      ));
+      const resumedSession = sessionItems.find(
+        (item) =>
+          item.employee_id === preview.employee_id &&
+          item.cli_session_id === preview.resolved_session_id &&
+          item.session_kind === (preview.session_kind ?? "execution") &&
+          item.status === "running",
+      );
       const nextLogTarget = resumedSession
         ? buildLogTarget(resumedSession)
         : {
@@ -537,9 +547,15 @@ export function SessionsPage() {
             onClick={() => void loadSessions(true)}
             disabled={loading || refreshing}
           >
-            {refreshing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
+            {refreshing ? (
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            ) : (
+              <RefreshCw className="mr-2 h-4 w-4" />
+            )}
             刷新
-            <Kbd variant="subtle" size="xs" className="ml-1.5">R</Kbd>
+            <Kbd variant="subtle" size="xs" className="ml-1.5">
+              R
+            </Kbd>
           </Button>
         </div>
 
@@ -588,7 +604,10 @@ export function SessionsPage() {
                 />
               </div>
               <div className="space-y-2">
-                <label className="text-sm font-medium text-foreground" htmlFor="session-content-search">
+                <label
+                  className="text-sm font-medium text-foreground"
+                  htmlFor="session-content-search"
+                >
                   内容搜索
                 </label>
                 <Input
@@ -700,15 +719,21 @@ export function SessionsPage() {
                           id={`session-row-${session.session_record_id}`}
                           key={session.session_record_id}
                           className={`border-b border-border/60 align-top last:border-b-0 ${
-                            matchesSessionIdentifier(session, highlightedSessionId) ? "bg-primary/5" : ""
+                            matchesSessionIdentifier(session, highlightedSessionId)
+                              ? "bg-primary/5"
+                              : ""
                           }`}
                         >
                           <td className="px-4 py-3">
                             <div className="space-y-1">
                               <div className="font-medium">{session.display_name}</div>
-                              <div className="font-mono text-xs text-muted-foreground">{session.session_id}</div>
+                              <div className="font-mono text-xs text-muted-foreground">
+                                {session.session_id}
+                              </div>
                               {session.summary && (
-                                <div className="max-w-md text-xs text-muted-foreground">{session.summary}</div>
+                                <div className="max-w-md text-xs text-muted-foreground">
+                                  {session.summary}
+                                </div>
                               )}
                               {session.content_preview && (
                                 <div className="max-w-md text-xs text-muted-foreground/80">
@@ -719,9 +744,15 @@ export function SessionsPage() {
                           </td>
                           <td className="px-4 py-3">
                             <div className="flex flex-col gap-2">
-                              <Badge variant="outline">{formatSessionKind(session.session_kind)}</Badge>
-                              <Badge variant="secondary">{formatSessionStatus(session.status)}</Badge>
-                              <Badge variant={session.execution_target === "ssh" ? "default" : "outline"}>
+                              <Badge variant="outline">
+                                {formatSessionKind(session.session_kind)}
+                              </Badge>
+                              <Badge variant="secondary">
+                                {formatSessionStatus(session.status)}
+                              </Badge>
+                              <Badge
+                                variant={session.execution_target === "ssh" ? "default" : "outline"}
+                              >
                                 {session.execution_target === "ssh" ? "SSH" : "本地"}
                               </Badge>
                               <Badge variant={resumeBadgeVariant(session.resume_status)}>
@@ -730,7 +761,11 @@ export function SessionsPage() {
                             </div>
                           </td>
                           <td className="px-4 py-3">
-                            <Badge variant={aiProviderBadgeVariant(normalizeAiProvider(session.ai_provider))}>
+                            <Badge
+                              variant={aiProviderBadgeVariant(
+                                normalizeAiProvider(session.ai_provider),
+                              )}
+                            >
                               {formatAiProviderLabel(normalizeAiProvider(session.ai_provider))}
                             </Badge>
                           </td>
@@ -744,9 +779,13 @@ export function SessionsPage() {
                                 任务ID：
                                 <span className="ml-1 font-mono">{session.task_id ?? "-"}</span>
                               </div>
-                              <div className="text-muted-foreground">{session.project_name ?? "无关联项目"}</div>
+                              <div className="text-muted-foreground">
+                                {session.project_name ?? "无关联项目"}
+                              </div>
                               {session.target_host_label && (
-                                <div className="text-muted-foreground">主机：{session.target_host_label}</div>
+                                <div className="text-muted-foreground">
+                                  主机：{session.target_host_label}
+                                </div>
                               )}
                             </div>
                           </td>
@@ -754,7 +793,9 @@ export function SessionsPage() {
                             <div className="space-y-1 text-xs">
                               <div>{session.employee_name ?? "未绑定"}</div>
                               {session.working_dir && (
-                                <div className="max-w-56 break-all text-muted-foreground">{session.working_dir}</div>
+                                <div className="max-w-56 break-all text-muted-foreground">
+                                  {session.working_dir}
+                                </div>
                               )}
                               {isArtifactCaptureLimited(session.artifact_capture_mode) && (
                                 <SshArtifactLimitedNotice
@@ -783,8 +824,8 @@ export function SessionsPage() {
                                   variant="destructive"
                                   onClick={() => void handleStopSession(session)}
                                   disabled={
-                                    session.status === "stopping"
-                                    || stoppingSessionId === session.session_record_id
+                                    session.status === "stopping" ||
+                                    stoppingSessionId === session.session_record_id
                                   }
                                 >
                                   {stoppingSessionId === session.session_record_id ? (
@@ -816,7 +857,9 @@ export function SessionsPage() {
                                 查看日志
                               </Button>
                               {session.resume_message && (
-                                <div className="text-xs text-muted-foreground">{session.resume_message}</div>
+                                <div className="text-xs text-muted-foreground">
+                                  {session.resume_message}
+                                </div>
                               )}
                             </div>
                           </td>
@@ -877,11 +920,7 @@ export function SessionsPage() {
         onConfirm={handleContinueConversation}
       />
 
-      <SessionLogDialog
-        open={logDialogOpen}
-        session={logTarget}
-        onOpenChange={setLogDialogOpen}
-      />
+      <SessionLogDialog open={logDialogOpen} session={logTarget} onOpenChange={setLogDialogOpen} />
 
       <SessionExecutionChangesDialog
         open={changeDialogOpen}

@@ -19,8 +19,7 @@ export function SshArtifactLimitedNotice({
   compact = false,
 }: SshArtifactLimitedNoticeProps) {
   const shouldShow =
-    force
-    || (artifactCaptureMode != null && isArtifactCaptureLimited(artifactCaptureMode));
+    force || (artifactCaptureMode != null && isArtifactCaptureLimited(artifactCaptureMode));
 
   if (!shouldShow) {
     return null;
@@ -37,7 +36,9 @@ export function SshArtifactLimitedNotice({
           <div className="space-y-1">
             <p className="font-medium">远程变更明细受限</p>
             <p className="text-amber-800/90 dark:text-amber-200/90">
-              SSH 远程执行时，本地数据库通常只保留对话元数据；完整文件快照可能不可用。仍可查看日志、继续对话，或在远程主机检查 git 状态。升级远程 Codex SDK（ssh_full）或到远程机器审阅可获得更完整明细。
+              SSH
+              远程执行时，本地数据库通常只保留对话元数据；完整文件快照可能不可用。仍可查看日志、继续对话，或在远程主机检查
+              git 状态。升级远程 Codex SDK（ssh_full）或到远程机器审阅可获得更完整明细。
             </p>
           </div>
         </div>
@@ -57,14 +58,17 @@ export function SshArtifactLimitedNotice({
           <ul className="list-disc space-y-1.5 pl-4 text-amber-800/95 dark:text-amber-200/95">
             <li>
               <span className="font-medium text-amber-950 dark:text-amber-50">为何受限：</span>
-              当前为 SSH 远程执行。本地数据库主要保存会话元数据；完整文件 diff / 快照不一定会回传到本机。
+              当前为 SSH 远程执行。本地数据库主要保存会话元数据；完整文件 diff /
+              快照不一定会回传到本机。
             </li>
             <li>
               <span className="font-medium text-amber-950 dark:text-amber-50">你仍可以：</span>
               查看会话日志、继续对话，并在远程主机上检查 git status / diff。
             </li>
             <li>
-              <span className="font-medium text-amber-950 dark:text-amber-50">如何获得更完整明细：</span>
+              <span className="font-medium text-amber-950 dark:text-amber-50">
+                如何获得更完整明细：
+              </span>
               升级远程 Codex SDK 以启用 ssh_full 采集（可用时），或直接在远程机器上审阅变更。
             </li>
           </ul>
