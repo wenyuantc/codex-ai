@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { memo, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
@@ -20,8 +20,6 @@ import {
 } from "@/lib/backend";
 import {
   formatDate,
-  formatDuration,
-  getTaskElapsedSeconds,
   getPriorityColor,
   getPriorityLabel,
   getTaskActionRuntimeState,
@@ -37,7 +35,6 @@ import {
   CircleCheckBig,
   Bot,
   ClipboardCheck,
-  Clock,
   FolderKanban,
   GitBranch,
   GripVertical,
@@ -57,6 +54,7 @@ import { DeleteTaskDialog } from "./DeleteTaskDialog";
 import { DeleteTaskWorktreeDialog } from "./DeleteTaskWorktreeDialog";
 import { TaskGitCommitDialog } from "./TaskGitCommitDialog";
 import { CoordinatorPlanDialog } from "./CoordinatorPlanDialog";
+import { TaskElapsedSummary } from "./TaskElapsedSummary";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { ProjectGitActionDialog } from "@/components/projects/ProjectGitActionDialog";
 import { useProjectStore } from "@/stores/projectStore";
@@ -123,7 +121,7 @@ function getGitContextBadge(context: TaskGitContext | null): {
   return null;
 }
 
-export function TaskCard({
+function TaskCardComponent({
   task,
   isOverlay,
   hideRunAction = false,
@@ -159,7 +157,6 @@ export function TaskCard({
   const [coordinatorPlanTerminalVisible, setCoordinatorPlanTerminalVisible] = useState(false);
   const [testerAcceptanceLoading, setTesterAcceptanceLoading] = useState(false);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
-  const [timerNow, setTimerNow] = useState(() => Date.now());
   const [taskTags, setTaskTags] = useState<Tag[]>([]);
   const [dependencyCount, setDependencyCount] = useState(0);
   const executionStartErrorRef = useRef<string | null>(null);
@@ -311,18 +308,6 @@ export function TaskCard({
       "blocked",
       "manual_control",
     ].includes(automationState.status);
-  const elapsedSeconds = getTaskElapsedSeconds(task, timerNow);
-  const completedAtLabel = task.completed_at
-    ? formatDate(task.completed_at)
-    : formatDate(task.updated_at);
-  const taskTimeSummary =
-    task.status === "completed"
-      ? `完成：${completedAtLabel} · 耗时：${formatDuration(elapsedSeconds)}`
-      : task.time_started_at
-        ? `计时中：${formatDuration(elapsedSeconds)}`
-        : task.time_spent_seconds > 0
-          ? `累计：${formatDuration(elapsedSeconds)}`
-          : `创建：${formatDate(task.created_at)}`;
   const overdue = isTaskOverdue(task);
 
   useEffect(() => {
@@ -388,19 +373,6 @@ export function TaskCard({
       void fetchTaskAutomationState(task.id);
     }
   }, [fetchTaskAutomationState, persistedAutomationState, task.automation_mode, task.id]);
-
-  useEffect(() => {
-    if (!task.time_started_at) {
-      return;
-    }
-
-    setTimerNow(Date.now());
-    const intervalId = window.setInterval(() => {
-      setTimerNow(Date.now());
-    }, 1000);
-
-    return () => window.clearInterval(intervalId);
-  }, [task.time_started_at]);
 
   const handleRun = async (e?: React.MouseEvent) => {
     e?.stopPropagation();
@@ -884,10 +856,7 @@ export function TaskCard({
                     {projectName}
                   </span>
                 )}
-                <span className="flex items-center gap-0.5">
-                  <Clock className="h-3 w-3" />
-                  {taskTimeSummary}
-                </span>
+                <TaskElapsedSummary task={task} />
               </div>
               {task.assignee_id && (
                 <span className="inline-block w-3.5 h-3.5 rounded-full bg-primary/10 text-primary text-[8px] leading-[14px] text-center self-start">
@@ -1315,3 +1284,5 @@ export function TaskCard({
     </>
   );
 }
+
+export const TaskCard = memo(TaskCardComponent);

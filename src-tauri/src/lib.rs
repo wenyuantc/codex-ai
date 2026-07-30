@@ -7,6 +7,7 @@ mod app;
 mod claude;
 mod codex;
 mod db;
+mod engine;
 mod git_runtime;
 mod git_workflow;
 mod grok;

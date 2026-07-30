@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useState } from "react";
+import { lazy, Suspense } from "react";
 import {
   AlertTriangle,
   ClipboardCheck,
@@ -13,6 +13,7 @@ import {
 import type { Employee, Task, TaskStatus } from "@/lib/types";
 import { ACTIVE_TASK_STATUSES, PRIORITIES, TASK_STATUSES } from "@/lib/types";
 import { formatDate, formatDuration, getTaskElapsedSeconds } from "@/lib/utils";
+import { useSharedNow } from "@/hooks/useSharedNow";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import {
@@ -154,7 +155,7 @@ export function TaskOverviewPanel({
   onDeleteRequest,
   onDeliveryError,
 }: TaskOverviewPanelProps) {
-  const [timerNow, setTimerNow] = useState(() => Date.now());
+  const timerNow = useSharedNow(Boolean(timeStartedAt));
   const elapsedSeconds = getTaskElapsedSeconds(
     {
       time_started_at: timeStartedAt,
@@ -169,19 +170,6 @@ export function TaskOverviewPanel({
       : timeSpentSeconds > 0
         ? "待继续"
         : "未开始";
-
-  useEffect(() => {
-    if (!timeStartedAt) {
-      return;
-    }
-
-    setTimerNow(Date.now());
-    const intervalId = window.setInterval(() => {
-      setTimerNow(Date.now());
-    }, 1000);
-
-    return () => window.clearInterval(intervalId);
-  }, [timeStartedAt]);
 
   return (
     <div className="space-y-4">

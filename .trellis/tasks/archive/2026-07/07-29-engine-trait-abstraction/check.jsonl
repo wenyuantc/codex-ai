@@ -1,0 +1,6 @@
+{"file": ".trellis/spec/backend/ai-engines.md", "reason": "Verify engine contracts and anti-patterns still held after abstraction"}
+{"file": ".trellis/spec/backend/testing.md", "reason": "Verify test coverage expectations for shared kernel and non-codex engines"}
+{"file": ".trellis/spec/backend/directory-structure.md", "reason": "Verify engine/ layout documented and ownership rules updated"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "Ensure IPC/events/provider strings unchanged across layers"}
+{"file": ".trellis/tasks/07-29-engine-trait-abstraction/prd.md", "reason": "Acceptance criteria gate for check agent"}
+{"file": ".trellis/tasks/07-29-engine-trait-abstraction/design.md", "reason": "Design boundaries: no stream merge, Manager public names preserved"}

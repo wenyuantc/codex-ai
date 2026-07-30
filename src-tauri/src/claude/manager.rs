@@ -1,86 +1,73 @@
-use std::collections::HashMap;
-use std::path::PathBuf;
-use std::sync::Arc;
+use super::process::ClaudeSessionKind;
+use crate::engine::manager::{ManagedProcess, ProcessManager};
 
-use tokio::sync::Mutex;
+pub type ManagedClaudeProcess = ManagedProcess<ClaudeSessionKind>;
+pub type ClaudeManager = ProcessManager<ClaudeSessionKind>;
 
-use super::process::{ClaudeChild, ClaudeSessionKind};
+#[cfg(test)]
+mod tests {
+    use std::process::Stdio;
+    use std::sync::Arc;
 
-#[derive(Clone)]
-pub struct ManagedClaudeProcess {
-    pub employee_id: String,
-    pub task_id: Option<String>,
-    pub session_kind: ClaudeSessionKind,
-    pub child: Arc<Mutex<ClaudeChild>>,
-    pub session_record_id: String,
-    pub cleanup_paths: Vec<PathBuf>,
-}
+    use tokio::process::Command;
+    use tokio::sync::Mutex;
 
-pub struct ClaudeManager {
-    processes: HashMap<String, ManagedClaudeProcess>,
-}
+    use super::*;
+    use crate::engine::EngineChild;
 
-impl ClaudeManager {
-    pub fn new() -> Self {
-        Self {
-            processes: HashMap::new(),
-        }
+    fn spawn_test_child() -> Arc<Mutex<EngineChild>> {
+        let mut command = Command::new("sh");
+        command
+            .arg("-c")
+            .arg("sleep 10")
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null());
+        Arc::new(Mutex::new(EngineChild::new(
+            command.spawn().expect("spawn test child"),
+        )))
     }
 
-    pub fn add_process(
-        &mut self,
-        employee_id: String,
-        task_id: Option<String>,
-        session_kind: ClaudeSessionKind,
-        child: Arc<Mutex<ClaudeChild>>,
-        session_record_id: String,
-        cleanup_paths: Vec<PathBuf>,
-    ) {
-        self.processes.insert(
-            session_record_id.clone(),
-            ManagedClaudeProcess {
-                employee_id,
-                task_id,
-                session_kind,
-                child,
-                session_record_id,
-                cleanup_paths,
-            },
-        );
-    }
+    #[test]
+    fn supports_multiple_task_sessions_for_same_employee() {
+        tauri::async_runtime::block_on(async {
+            let child_one = spawn_test_child();
+            let child_two = spawn_test_child();
 
-    pub fn remove_process(&mut self, session_record_id: &str) -> Option<ManagedClaudeProcess> {
-        self.processes.remove(session_record_id)
-    }
+            let mut manager = ClaudeManager::new();
+            manager.add_process(
+                "emp-1".to_string(),
+                Some("task-1".to_string()),
+                ClaudeSessionKind::Execution,
+                child_one.clone(),
+                "session-1".to_string(),
+                Vec::new(),
+                (),
+            );
+            manager.add_process(
+                "emp-1".to_string(),
+                Some("task-2".to_string()),
+                ClaudeSessionKind::Review,
+                child_two.clone(),
+                "session-2".to_string(),
+                Vec::new(),
+                (),
+            );
 
-    pub fn get_process(&self, session_record_id: &str) -> Option<ManagedClaudeProcess> {
-        self.processes.get(session_record_id).cloned()
-    }
+            assert!(manager.has_employee_processes("emp-1"));
+            assert_eq!(manager.get_employee_processes("emp-1").len(), 2);
+            assert!(manager
+                .get_task_process_any("task-1", ClaudeSessionKind::Execution)
+                .is_some());
+            assert!(manager
+                .get_task_process_any("task-2", ClaudeSessionKind::Review)
+                .is_some());
 
-    pub fn get_employee_processes(&self, employee_id: &str) -> Vec<ManagedClaudeProcess> {
-        self.processes
-            .values()
-            .filter(|process| process.employee_id == employee_id)
-            .cloned()
-            .collect()
-    }
-
-    pub fn has_employee_processes(&self, employee_id: &str) -> bool {
-        self.processes
-            .values()
-            .any(|process| process.employee_id == employee_id)
-    }
-
-    pub fn get_task_process_any(
-        &self,
-        task_id: &str,
-        session_kind: ClaudeSessionKind,
-    ) -> Option<ManagedClaudeProcess> {
-        self.processes
-            .values()
-            .find(|process| {
-                process.task_id.as_deref() == Some(task_id) && process.session_kind == session_kind
-            })
-            .cloned()
+            for child in [child_one, child_two] {
+                let mut child = child.lock().await;
+                let _ = child.kill_process_group();
+                let _ = child.kill().await;
+            }
+        });
     }
 }

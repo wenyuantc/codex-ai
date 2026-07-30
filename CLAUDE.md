@@ -64,13 +64,13 @@ React (UI) → Tauri IPC commands → Rust service layer → SQLite
 - Rust 2021, Tokio async, SQLx 0.8 (compile-time checked queries)
 - Entry: `lib.rs` → `pub fn run()` registers plugins, the four engine managers, tray, and window restoration
 - **168 Tauri commands**, all registered in the single `invoke_handler!` list in `lib.rs`. Largest sources:
-  - `git_workflow.rs` (43), `app/tasks.rs` (18), `app/delivery.rs` (12), `app/remote.rs` (10)
+  - `git_workflow/` (43), `app/tasks.rs` (18), `app/delivery.rs` (12), `app/remote.rs` (10)
   - `codex/process/ai_commands.rs` (9), `app/sessions.rs` (9), `app/projects.rs` (7), `app/database.rs` (7), `app/employees.rs` (6)
 - `app/` submodules: `projects`, `employees`, `tasks`, `delivery`, `sessions`, `review`, `remote`, `database`, `shared`
 - `db/migrations.rs` — versioned DDL, **80 migrations** inline
 - `db/models.rs` — SQLx `query_as!` type definitions for all tables
-- `task_automation.rs` — task state machine (2,976 lines; `task_automation/prompt.rs` is the only extracted piece)
-- `git_workflow.rs` — Git operations (5,515 lines, the largest file in the repo)
+- `task_automation` — review/fix state machine root (`task_automation.rs` + domain slices under `task_automation/`; `prompt.rs` is a real submodule, other slices use `include!`)
+- `git_workflow/` — Git UX commands split by domain (`types`, `runtime`, `worktree`, `context`, `project_ops`, `branch`, `pending_action`, `tests`); composed via `include!` for stable `crate::git_workflow::*` paths
 - `git_runtime.rs` — low-level git process execution (local + SSH)
 - `process_spawn.rs` — shared process spawning; engines are launched from Rust, never via the frontend shell plugin
 - `notifications.rs` — event notification system
@@ -87,7 +87,7 @@ Four engines, each with the same internal shape — `manager.rs` + `settings.rs`
 | `claude/` | 3.3k | start / stop / resume |
 | `opencode/` | 3.2k | start / stop / resume (SDK server spawned at startup from `lib.rs`) |
 
-**There is no shared engine trait** — the codebase has zero `pub trait` declarations. `claude/` and `grok/` are near-copies (`manager.rs` and `process/lifecycle.rs` are 100% identical modulo the engine name; `session_runtime.rs` ~92%); only `process/stream.rs` genuinely differs, since each CLI has its own output protocol. When fixing a session-lifecycle bug, check whether the same bug exists in the other three engines. Codex-only extras: `cli.rs`, `mcp.rs`, `prompt_templates.rs`, `secret_store.rs`, `process/{ai_commands,changes,one_shot}.rs`.
+**Shared process kernel** lives in `src-tauri/src/engine/` (`ExecutionContext`, `EngineChild` + `EngineProcessHandle`, `ProcessManager` + `EngineProcessRegistry`, `resolve_final_session_status`). Each engine re-exports/wraps that kernel; **keep `process/stream.rs` and launch/CLI args per engine**. When fixing a session-lifecycle / working-dir bug, prefer fixing the shared kernel first, then check engine-specific stream/launch paths. Codex-only extras: `cli.rs`, `mcp.rs`, `prompt_templates.rs`, `secret_store.rs`, `process/{ai_commands,changes,one_shot}.rs`, and `CodexProcessExtra` on managed processes.
 
 ### Database
 
@@ -106,7 +106,7 @@ SQLite at `$APPCONFIG/codex-ai.db`, 22 tables:
 
 ### Tests
 
-Rust only (no frontend tests): **246 test cases**, mostly `#[cfg(test)]` modules colocated with the code they cover. Densest: `codex/process/tests.rs` (48), `codex/settings.rs` (22), `git_workflow.rs` (16), `task_automation.rs` (15). The non-codex engines are thinly covered (3–11 each).
+Rust only (no frontend tests): **284 test cases**, mostly `#[cfg(test)]` modules colocated with the code they cover. Densest: `codex/process/tests.rs` (48), `codex/settings.rs` (22), `git_workflow/tests.rs` (16), `task_automation` (15). The non-codex engines are thinly covered (3–11 each).
 
 Cross-cutting integration tests live in `src-tauri/src/app/tests/`:
 - `runtime_and_paths.rs` — app runtime setup

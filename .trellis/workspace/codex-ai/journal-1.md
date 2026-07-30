@@ -117,12 +117,64 @@
 ### Summary
 
 接入 ESLint/Prettier/Clippy 与 CI lint 门禁：Clippy 告警清零（too_many_arguments crate-level allow），前端 format 全量统一，新增 .github/workflows/lint.yml，更新文档与 Trellis quality 指引。验证：npm run lint/format:check/build、cargo clippy -D warnings、cargo test 284 passed。
+## Session 5: 前端列表渲染性能优化
+
+**Date**: 2026-07-30
+**Task**: 前端列表渲染性能优化
+**Branch**: `feat/frontend-render-perf`
+
+### Summary
+
+完成 C4 frontend-render-perf：共享秒级时钟 useSharedNow + TaskElapsedSummary 消除每卡 setInterval；TaskCard/KanbanColumn memo；看板列≥25 启用 @tanstack/react-virtual；npm run build 通过；推送 feat/frontend-render-perf (fd7be41)。
 
 ### Git Commits
 
 | Hash | Message |
 |------|---------|
 | `babbf3b` | (see git log) |
+| `fd7be41` | (see git log) |
+
+### Status
+
+[OK] **Completed**
+
+## Session 6: 引擎 trait 抽象与测试补齐
+
+**Date**: 2026-07-30
+**Task**: 引擎 trait 抽象与测试补齐
+**Branch**: `feat/engine-trait-abstraction`
+
+### Summary
+
+抽取 engine/ 共享进程内核（context/child/manager/status），收敛四引擎 manager/lifecycle/context 重复代码，保留 stream 与启动差异；补齐共享内核与 Claude/Grok manager 测试；cargo test 284→295；更新 ai-engines/directory-structure/CLAUDE 规格。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `decb525` | (see git log) |
+
+### Status
+
+[OK] **Completed**
+
+
+## Session 7: 巨型文件模块化拆分
+
+**Date**: 2026-07-30
+**Task**: 巨型文件模块化拆分
+**Branch**: `feat/split-large-modules`
+
+### Summary
+
+完成 C6：git_workflow 与 task_automation 巨型文件按领域拆分（include! 保持路径稳定），两笔中文 refactor 提交；cargo test 284 全绿，npm run build 通过，并更新目录文档与 CLAUDE.md。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `efa1ea0` | (see git log) |
+| `b7b0923` | (see git log) |
 
 ### Status
 

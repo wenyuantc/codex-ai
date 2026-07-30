@@ -277,7 +277,7 @@ fn spawn_exit_watcher(
         let exit_code = loop {
             let maybe_status = {
                 let mut child = child_handle.lock().await;
-                child.try_wait()
+                child.try_wait_code()
             };
 
             match maybe_status {

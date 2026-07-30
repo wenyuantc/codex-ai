@@ -1458,6 +1458,7 @@ pub async fn start_claude_with_manager(
             child_arc.clone(),
             session_record.id.clone(),
             cleanup_paths,
+            (),
         );
     }
 

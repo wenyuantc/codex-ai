@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   DndContext,
   DragEndEvent,
@@ -206,9 +206,13 @@ export function KanbanBoard({
     });
   };
 
-  const handleGitActionCompleted = async (projectId: string) => {
+  const handleGitActionCompleted = useCallback(async (projectId: string) => {
     await refreshGitOverviews([projectId]);
-  };
+  }, []);
+
+  const handleOpenLog = useCallback((taskId: string, sessionKind?: CodexSessionKind) => {
+    setLogRequest({ taskId, sessionKind });
+  }, []);
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -494,7 +498,7 @@ export function KanbanBoard({
               onToggleTaskSelection={onToggleTaskSelection}
               taskGitContextMap={taskGitContextMap}
               projectGitBranchMap={projectGitBranchMap}
-              onOpenLog={(taskId, sessionKind) => setLogRequest({ taskId, sessionKind })}
+              onOpenLog={handleOpenLog}
               onGitActionCompleted={handleGitActionCompleted}
             />
           ))}
