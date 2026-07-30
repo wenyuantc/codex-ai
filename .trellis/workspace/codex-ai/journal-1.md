@@ -106,3 +106,24 @@
 ### Status
 
 [OK] **Completed**
+
+
+## Session 5: 前端列表渲染性能优化
+
+**Date**: 2026-07-30
+**Task**: 前端列表渲染性能优化
+**Branch**: `feat/frontend-render-perf`
+
+### Summary
+
+完成 C4 frontend-render-perf：共享秒级时钟 useSharedNow + TaskElapsedSummary 消除每卡 setInterval；TaskCard/KanbanColumn memo；看板列≥25 启用 @tanstack/react-virtual；npm run build 通过；推送 feat/frontend-render-perf (fd7be41)。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `fd7be41` | (see git log) |
+
+### Status
+
+[OK] **Completed**
