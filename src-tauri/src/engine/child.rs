@@ -9,6 +9,10 @@ pub struct EngineChild {
 }
 
 /// Minimal process-handle contract shared by engine children.
+///
+/// Kept for cross-engine polymorphism; concrete call sites still use
+/// [`EngineChild`] methods directly until broader trait adoption.
+#[allow(dead_code)]
 pub trait EngineProcessHandle {
     fn kill_process_group(&mut self) -> Result<(), String>;
     fn try_wait(&mut self) -> Result<Option<std::process::ExitStatus>, String>;

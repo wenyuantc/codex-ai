@@ -24,6 +24,10 @@ pub struct ProcessManager<SessionKind, Extra = ()> {
 }
 
 /// Minimal registry contract shared by engine managers.
+///
+/// Kept for cross-engine polymorphism; concrete call sites still use
+/// [`ProcessManager`] methods directly until broader trait adoption.
+#[allow(dead_code)]
 pub trait EngineProcessRegistry {
     fn has_employee_processes(&self, employee_id: &str) -> bool;
 }
@@ -123,6 +127,9 @@ where
             .cloned()
     }
 
+    /// Employee-scoped task process lookup (stricter than [`Self::get_task_process_any`]).
+    /// Currently only exercised by unit tests and codex manager tests.
+    #[cfg(test)]
     pub fn get_task_process(
         &self,
         employee_id: &str,

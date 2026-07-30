@@ -2,13 +2,11 @@
 
 use super::*;
 
+use std::path::PathBuf;
 
-    use std::path::PathBuf;
+use sqlx::SqlitePool;
 
-    use sqlx::SqlitePool;
-
-    use super::*;
-    use crate::app::build_current_migrator;
+use crate::app::build_current_migrator;
 
     async fn setup_test_pool() -> SqlitePool {
         let pool = SqlitePool::connect("sqlite::memory:")
