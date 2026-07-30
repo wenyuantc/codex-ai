@@ -93,12 +93,13 @@ C7 Lint 清零 ← 【强制最后】对最终代码清零，否则 C5/C6 会推
 
 ### 跨子任务验收（父任务负责）
 
-- [ ] 8 个子任务全部完成并各自合回 `main`，每个有独立分支与提交记录
-- [ ] `cargo test --manifest-path src-tauri/Cargo.toml` 全绿，且测试总数 ≥ 246（现有基线，不允许净减少）
-- [ ] `npm run build`（TypeScript 检查 + Vite 打包）通过
-- [ ] 9 项源发现 + 1 项衍生发现（明文 keychain）逐条可追溯到某个已完成子任务，无遗漏
-- [ ] `CLAUDE.md` 中因本次重构而失效的描述已更新（尤其：引擎 trait 数量、文件行数、`invoke_handler!` 命令数、前端直读 SQL 的说明）
-- [ ] 最终集成评审：在全部子任务合并后，完整跑一次应用（`npm run tauri:dev`），确认本地项目与 SSH 远程项目两条路径均可正常创建会话并执行任务
+- [x] 8 个子任务全部完成并各自合回 `main`，每个有独立分支与提交记录
+- [x] `cargo test --manifest-path src-tauri/Cargo.toml` 全绿，且测试总数 ≥ 246（现有基线，不允许净减少）— **2026-07-30 实测 300 passed**
+- [x] `npm run build`（TypeScript 检查 + Vite 打包）通过 — **2026-07-30 通过**
+- [x] 9 项源发现 + 1 项衍生发现（明文 keychain）逐条可追溯到某个已完成子任务，无遗漏
+  - #1+#7 → C1 `07-29-ssh-multiplex-secret`；衍生明文落盘 → C1b；#2 → C2；#5 → C3；#4 → C4；#3+#8 → C5；#6 → C6；#9 → C7
+- [x] `CLAUDE.md` 中因本次重构而失效的描述已更新（引擎共享内核、`git_workflow/` 拆分、前端硬关直读 SQL、lint 门禁、测试数 300）
+- [ ] 最终集成评审：在全部子任务合并后，完整跑一次应用（`npm run tauri:dev`），确认本地项目与 SSH 远程项目两条路径均可正常创建会话并执行任务（**待手工冒烟**）
 
 ### 不做的事（明确排除）
 

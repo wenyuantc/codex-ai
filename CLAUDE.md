@@ -106,7 +106,7 @@ SQLite at `$APPCONFIG/codex-ai.db`, 22 tables:
 
 ### Tests
 
-Rust only (no frontend tests): **284 test cases**, mostly `#[cfg(test)]` modules colocated with the code they cover. Densest: `codex/process/tests.rs` (48), `codex/settings.rs` (22), `git_workflow/tests.rs` (16), `task_automation` (15). The non-codex engines are thinly covered (3–11 each).
+Rust only (no frontend tests): **300 test cases**, mostly `#[cfg(test)]` modules colocated with the code they cover. Densest areas include codex process/settings, shared `engine/` kernel, `git_workflow/`, and `task_automation`. Non-codex engines (claude/grok/opencode) still have thinner coverage than codex, but share the kernel tests.
 
 Cross-cutting integration tests live in `src-tauri/src/app/tests/`:
 - `runtime_and_paths.rs` — app runtime setup
