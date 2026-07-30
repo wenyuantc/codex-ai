@@ -3,8 +3,7 @@
  * All business reads and writes must go through Tauri commands via `@/lib/backend`.
  */
 
-const CLOSED_MESSAGE =
-  "前端禁止直接访问 SQL。请改用后端 Tauri command（见 @/lib/backend）。";
+const CLOSED_MESSAGE = "前端禁止直接访问 SQL。请改用后端 Tauri command（见 @/lib/backend）。";
 
 /**
  * @deprecated Frontend database access is blocked. Use Tauri commands.

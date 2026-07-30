@@ -151,11 +151,7 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
   fetchTasks: async (projectId) => {
     set({ loading: true, activeProjectId: projectId });
     try {
-      const rawTasks = await listTasksCommand(
-        projectId
-          ? { projectId }
-          : { limit: 500 },
-      );
+      const rawTasks = await listTasksCommand(projectId ? { projectId } : { limit: 500 });
       const visibleProjectIds = new Set(
         useProjectStore.getState().projects.map((project) => project.id),
       );

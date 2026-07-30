@@ -1,10 +1,6 @@
 import { create } from "zustand";
 
-import {
-  getDashboardStats,
-  listActivityLogs,
-  type ListActivityLogsInput,
-} from "@/lib/backend";
+import { getDashboardStats, listActivityLogs, type ListActivityLogsInput } from "@/lib/backend";
 import { TASK_STATUSES, type ActivityLog, type EnvironmentMode } from "@/lib/types";
 import { getActivityActionLabel, getStatusLabel } from "@/lib/utils";
 
@@ -199,9 +195,7 @@ export const useDashboardStore = create<DashboardStore>((set) => ({
     const matchedActions = normalizedKeyword
       ? getKeywordMatchedActions(normalizedKeyword, availableActions)
       : [];
-    const matchedStatuses = normalizedKeyword
-      ? getKeywordMatchedStatuses(normalizedKeyword)
-      : [];
+    const matchedStatuses = normalizedKeyword ? getKeywordMatchedStatuses(normalizedKeyword) : [];
 
     const result = await listActivityLogs({
       ...scope,

@@ -212,7 +212,11 @@ export function TaskSessionChainPanel({ taskId, active = true }: TaskSessionChai
           action: "task_automation_fix_started",
           limit: 500,
           offset: 0,
-        }).catch(() => ({ items: [] as ActivityLog[], total: 0, available_actions: [] as string[] })),
+        }).catch(() => ({
+          items: [] as ActivityLog[],
+          total: 0,
+          available_actions: [] as string[],
+        })),
       ]);
 
       if (requestIdRef.current !== requestId) {

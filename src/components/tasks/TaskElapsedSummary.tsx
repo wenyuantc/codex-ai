@@ -7,12 +7,7 @@ import { useSharedNow } from "@/hooks/useSharedNow";
 
 type TaskElapsedFields = Pick<
   Task,
-  | "status"
-  | "time_started_at"
-  | "time_spent_seconds"
-  | "completed_at"
-  | "updated_at"
-  | "created_at"
+  "status" | "time_started_at" | "time_spent_seconds" | "completed_at" | "updated_at" | "created_at"
 >;
 
 interface TaskElapsedSummaryProps {
@@ -35,13 +30,14 @@ export const TaskElapsedSummary = memo(function TaskElapsedSummary({
     ? formatDate(task.completed_at)
     : formatDate(task.updated_at);
 
-  const summary = task.status === "completed"
-    ? `完成：${completedAtLabel} · 耗时：${formatDuration(elapsedSeconds)}`
-    : task.time_started_at
-      ? `计时中：${formatDuration(elapsedSeconds)}`
-      : task.time_spent_seconds > 0
-        ? `累计：${formatDuration(elapsedSeconds)}`
-        : `创建：${formatDate(task.created_at)}`;
+  const summary =
+    task.status === "completed"
+      ? `完成：${completedAtLabel} · 耗时：${formatDuration(elapsedSeconds)}`
+      : task.time_started_at
+        ? `计时中：${formatDuration(elapsedSeconds)}`
+        : task.time_spent_seconds > 0
+          ? `累计：${formatDuration(elapsedSeconds)}`
+          : `创建：${formatDate(task.created_at)}`;
 
   return (
     <span className={className ?? "flex items-center gap-0.5"}>

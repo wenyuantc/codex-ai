@@ -136,11 +136,9 @@ async function loadPerformanceRows(
     listProjects(),
   ]);
   const visibleProjectIds = new Set(
-    filterProjectsByScope(
-      projects,
-      environmentMode,
-      selectedSshConfigId,
-    ).map((project) => project.id),
+    filterProjectsByScope(projects, environmentMode, selectedSshConfigId).map(
+      (project) => project.id,
+    ),
   );
   const filteredEmployees = employees.filter((employee) => {
     if (!projectId) {
