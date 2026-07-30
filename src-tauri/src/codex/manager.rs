@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -8,29 +7,27 @@ use super::process::{
     CodexChild, CodexExecutionProvider, CodexSessionKind, ExecutionChangeBaseline,
     SdkFileChangeStore,
 };
+use crate::engine::manager::{ManagedProcess, ProcessManager};
 
+/// Codex-specific fields stored on each managed process.
 #[derive(Clone)]
-pub struct ManagedCodexProcess {
-    pub employee_id: String,
-    pub task_id: Option<String>,
-    pub session_kind: CodexSessionKind,
-    pub child: Arc<Mutex<CodexChild>>,
-    pub session_record_id: String,
+pub struct CodexProcessExtra {
     pub provider: CodexExecutionProvider,
     pub execution_change_baseline: Option<ExecutionChangeBaseline>,
     pub sdk_file_change_store: Option<SdkFileChangeStore>,
-    pub cleanup_paths: Vec<PathBuf>,
 }
+
+pub type ManagedCodexProcess = ManagedProcess<CodexSessionKind, CodexProcessExtra>;
 
 /// Manages running Codex subprocess instances, keyed by session_record_id.
 pub struct CodexManager {
-    processes: HashMap<String, ManagedCodexProcess>,
+    inner: ProcessManager<CodexSessionKind, CodexProcessExtra>,
 }
 
 impl CodexManager {
     pub fn new() -> Self {
         Self {
-            processes: HashMap::new(),
+            inner: ProcessManager::new(),
         }
     }
 
@@ -46,46 +43,39 @@ impl CodexManager {
         sdk_file_change_store: Option<SdkFileChangeStore>,
         cleanup_paths: Vec<PathBuf>,
     ) {
-        self.processes.insert(
-            session_record_id.clone(),
-            ManagedCodexProcess {
-                employee_id,
-                task_id,
-                session_kind,
-                child,
-                session_record_id,
+        self.inner.add_process(
+            employee_id,
+            task_id,
+            session_kind,
+            child,
+            session_record_id,
+            cleanup_paths,
+            CodexProcessExtra {
                 provider,
                 execution_change_baseline,
                 sdk_file_change_store,
-                cleanup_paths,
             },
         );
     }
 
     pub fn remove_process(&mut self, session_record_id: &str) -> Option<ManagedCodexProcess> {
-        self.processes.remove(session_record_id)
+        self.inner.remove_process(session_record_id)
     }
 
     pub fn get_process(&self, session_record_id: &str) -> Option<ManagedCodexProcess> {
-        self.processes.get(session_record_id).cloned()
+        self.inner.get_process(session_record_id)
     }
 
     pub fn get_employee_processes(&self, employee_id: &str) -> Vec<ManagedCodexProcess> {
-        self.processes
-            .values()
-            .filter(|process| process.employee_id == employee_id)
-            .cloned()
-            .collect()
+        self.inner.get_employee_processes(employee_id)
     }
 
     pub fn get_processes(&self) -> Vec<ManagedCodexProcess> {
-        self.processes.values().cloned().collect()
+        self.inner.get_processes()
     }
 
     pub fn has_employee_processes(&self, employee_id: &str) -> bool {
-        self.processes
-            .values()
-            .any(|process| process.employee_id == employee_id)
+        self.inner.has_employee_processes(employee_id)
     }
 
     #[cfg(test)]
@@ -95,14 +85,8 @@ impl CodexManager {
         task_id: &str,
         session_kind: CodexSessionKind,
     ) -> Option<ManagedCodexProcess> {
-        self.processes
-            .values()
-            .find(|process| {
-                process.employee_id == employee_id
-                    && process.task_id.as_deref() == Some(task_id)
-                    && process.session_kind == session_kind
-            })
-            .cloned()
+        self.inner
+            .get_task_process(employee_id, task_id, session_kind)
     }
 }
 
