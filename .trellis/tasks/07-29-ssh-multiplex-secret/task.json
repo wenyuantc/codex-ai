@@ -15,12 +15,14 @@
   "branch": "feat/ssh-multiplex",
   "base_branch": "main",
   "worktree_path": null,
-  "commit": null,
+  "commit": "19f43ce1401e048c54d4bfe3ac316722e6db6029",
   "pr_url": null,
   "subtasks": [],
   "children": [],
   "parent": "07-29-codex-ai-optimization",
   "relatedFiles": [],
   "notes": "",
-  "meta": {}
+  "meta": {
+    "commit": "19f43ce1401e048c54d4bfe3ac316722e6db6029"
+  }
 }
