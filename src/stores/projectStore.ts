@@ -1,12 +1,12 @@
 import { create } from "zustand";
 
-import { select } from "@/lib/database";
 import {
   createProject as createProjectCommand,
   createSshConfig as createSshConfigCommand,
   deleteProject as deleteProjectCommand,
   permanentlyDeleteProject as permanentlyDeleteProjectCommand,
   restoreProject as restoreProjectCommand,
+  listProjects as listProjectsCommand,
   listTrashedProjects as listTrashedProjectsCommand,
   deleteSshConfig as deleteSshConfigCommand,
   listSshConfigs as listSshConfigsCommand,
@@ -22,7 +22,6 @@ import {
 import {
   DEFAULT_ENVIRONMENT_MODE,
   filterProjectsByScope,
-  normalizeProject,
   projectMatchesScope,
 } from "@/lib/projects";
 import type { EnvironmentMode, Project, SshConfig, SshPasswordProbeResult } from "@/lib/types";
@@ -105,8 +104,7 @@ function resolveSelectedSshConfigId(
 }
 
 async function selectProjectsFromDatabase(): Promise<Project[]> {
-  const rows = await select<Project>("SELECT * FROM projects WHERE deleted_at IS NULL ORDER BY updated_at DESC");
-  return rows.map((project) => normalizeProject(project));
+  return listProjectsCommand();
 }
 
 interface ProjectStore {

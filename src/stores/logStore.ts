@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { select } from "@/lib/database";
+import { listActivityLogs } from "@/lib/backend";
 import type { ActivityLog } from "@/lib/types";
 
 interface LogStore {
@@ -15,11 +15,8 @@ export const useLogStore = create<LogStore>((set) => ({
   fetchLogs: async (limit = 50) => {
     set({ loading: true });
     try {
-      const logs = await select<ActivityLog>(
-        "SELECT * FROM activity_logs ORDER BY created_at DESC LIMIT $1",
-        [limit]
-      );
-      set({ logs, loading: false });
+      const page = await listActivityLogs({ limit });
+      set({ logs: page.items, loading: false });
     } catch (e) {
       console.error("Failed to fetch logs:", e);
       set({ loading: false });

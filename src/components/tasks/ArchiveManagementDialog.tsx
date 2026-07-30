@@ -16,7 +16,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { select } from "@/lib/database";
+import { listTasks } from "@/lib/backend";
 import type { Task } from "@/lib/types";
 import { formatDate, getPriorityLabel, parseDateValue } from "@/lib/utils";
 import { useProjectStore } from "@/stores/projectStore";
@@ -113,18 +113,10 @@ export function ArchiveManagementDialog({
     setLoading(true);
     setError(null);
 
-    const projectPlaceholders = visibleProjectIds
-      .map((_, index) => `$${index + 2}`)
-      .join(", ");
-
-    void select<Task>(
-      `SELECT * FROM tasks
-       WHERE status = $1
-         AND project_id IN (${projectPlaceholders})
-         AND deleted_at IS NULL
-       ORDER BY updated_at DESC, id DESC`,
-      ["archived", ...visibleProjectIds],
-    )
+    void listTasks({
+      status: "archived",
+      projectIds: visibleProjectIds,
+    })
       .then((rows) => {
         if (!active) {
           return;

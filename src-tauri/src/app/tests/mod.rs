@@ -11,7 +11,7 @@ pub(super) use super::{
     collect_local_task_review_context_for_task, compare_global_search_items,
     disable_task_automation_for_archived_task, ensure_statement_terminated,
     fetch_execution_change_history_item_by_session_id, fetch_task_automation_state_record,
-    fetch_task_by_id, filter_image_attachments, insert_task_record,
+    fetch_task_by_id, filter_image_attachments, insert_task_record, list_tasks_with_pool,
     is_task_automation_active_for_archival, normalize_global_search_types,
     normalize_runtime_path_string, record_completion_metric, record_task_review_requested_activity,
     remote_shell_path_expression, remote_task_attachment_dir, remote_task_attachment_path,

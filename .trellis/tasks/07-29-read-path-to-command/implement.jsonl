@@ -1,1 +1,5 @@
-{"_example": "Fill with {\"file\": \"<path>\", \"reason\": \"<why>\"}. Put spec/research files only — no code paths. Run `python3 .trellis/scripts/get_context.py --mode packages` to list available specs. Delete this line once real entries are added."}
+{"file": ".trellis/spec/backend/command-guidelines.md", "reason": "New list/stats Tauri commands must follow Result<T,String>, AppHandle<R>, soft-delete, and registration conventions"}
+{"file": ".trellis/spec/frontend/data-access.md", "reason": "Migration target: replace SQL select read path with backend.ts command wrappers; document will be rewritten after implement"}
+{"file": ".trellis/spec/frontend/state-management.md", "reason": "Zustand stores keep public method signatures while swapping internals to commands"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "New DTOs/commands span UI ↔ IPC ↔ Rust ↔ SQLite; stats and activity scope must stay aligned"}
+{"file": ".trellis/spec/backend/testing.md", "reason": "Add Rust tests for list_tasks LIMIT behavior and dashboard/activity queries"}

@@ -1,10 +1,10 @@
 import { create } from "zustand";
 
-import { select } from "@/lib/database";
 import {
   createEmployee as createEmployeeCommand,
   deleteEmployee as deleteEmployeeCommand,
   getEmployeeRuntimeStatus,
+  listEmployees as listEmployeesCommand,
   updateEmployee as updateEmployeeCommand,
   updateEmployeeStatus as updateEmployeeStatusCommand,
 } from "@/lib/backend";
@@ -182,7 +182,7 @@ export const useEmployeeStore = create<EmployeeStore>((set, get) => ({
   fetchEmployees: async () => {
     set({ loading: true });
     try {
-      const employees = await select<Employee>("SELECT * FROM employees ORDER BY created_at");
+      const employees = await listEmployeesCommand();
       const runtimeResults = await Promise.allSettled(
         employees.map(async (employee) => [employee.id, await getEmployeeRuntimeStatus(employee.id)] as const),
       );

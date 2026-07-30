@@ -20,8 +20,8 @@
 
 ## Hard Rules
 
-1. **Business writes happen in Rust commands**, not in the webview SQL plugin.
-2. **Capabilities** (`src-tauri/capabilities/default.json`) intentionally allow `sql:allow-select` and do **not** allow frontend SQL execute.
+1. **Business reads and writes happen in Rust commands**, not in the webview SQL plugin.
+2. **Capabilities** (`src-tauri/capabilities/default.json`) do **not** grant `sql:allow-select` or `sql:allow-execute`. Frontend `database.ts` is a hard-fail stub; all data access goes through Tauri commands.
 3. **`employees.project_id` is the single source of truth** for employee↔project membership. Do not denormalize membership elsewhere.
 4. **Schema changes require a new migration version** in `get_all_migrations()`.
 5. **Local + SSH execution targets** must both be considered for sessions, attachments, git, and health checks.

@@ -10,10 +10,10 @@
 UI Component / Page
   → Zustand store (cache + orchestration)
     → src/lib/backend.ts (invoke wrappers + normalization)
-      → #[tauri::command] Rust (validate + mutate)
+      → #[tauri::command] Rust (validate + read/mutate)
         → SQLite / filesystem / SSH / AI process
       ← serde models / Result<String errors>
-    ← store refresh (select SQL and/or returned entity)
+    ← store refresh via list/get commands (or returned entity)
   ← render helpers (formatDate, labels, status colors)
 ```
 
@@ -41,7 +41,7 @@ If any step is “unknown”, stop and find the existing closest flow (`create_t
 
 | Boundary | Contract | Reference |
 |----------|----------|-----------|
-| SQL select ↔ TS entity | snake_case field names | `src/lib/types.ts`, `db/models.rs` |
+| Command DTO ↔ TS entity | snake_case field names | `src/lib/types.ts`, `db/models.rs` |
 | invoke args ↔ command params | existing camelCase/payload style in `backend.ts` | `create_task` + `CreateTask` |
 | Update omit vs null | `Option<Option<T>>` + explicit null deserializer | `UpdateTask`, `UpdateProject` |
 | Soft delete | `deleted_at` filters on active lists | projects/tasks fetch helpers |
@@ -50,7 +50,7 @@ If any step is “unknown”, stop and find the existing closest flow (`create_t
 | AI provider | `ai_provider` union + start/stop/label/one-shot branches for **every** engine | `types.ts` `AiProvider`, engine `src/lib/*.ts`, `task_automation`, settings normalize |
 | Employee membership | only `employees.project_id` | employees commands + CLAUDE/README |
 | Schema | migration version bump | `db/migrations.rs` |
-| Permissions | frontend cannot SQL-write | `capabilities/default.json`, `database.ts` |
+| Permissions | frontend cannot SQL-read or SQL-write | `capabilities/default.json`, `database.ts` (hard-fail stub) |
 
 ---
 
@@ -96,10 +96,10 @@ For UI:
 
 ## Common Cross-Layer Mistakes (This Repo)
 
-### 1. Frontend SQL write
+### 1. Frontend SQL read or write
 
-**Bad**: calling plugin execute from UI  
-**Good**: add/use a Tauri command; keep `database.execute` throwing
+**Bad**: calling plugin `select` / `execute` from UI  
+**Good**: add/use a Tauri command via `backend.ts`; keep `database.ts` hard-fail
 
 ### 2. New DB field only in UI
 

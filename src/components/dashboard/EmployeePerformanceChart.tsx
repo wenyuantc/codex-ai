@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
-import { select } from "@/lib/database";
-import { filterProjectsByScope, normalizeProject } from "@/lib/projects";
-import type { EmployeeMetric, EnvironmentMode, Project } from "@/lib/types";
+import { listEmployeeMetrics, listEmployees, listProjects } from "@/lib/backend";
+import { filterProjectsByScope } from "@/lib/projects";
+import type { EnvironmentMode } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { useProjectStore } from "@/stores/projectStore";
 import { Button } from "@/components/ui/button";
@@ -25,12 +25,6 @@ interface PerformanceRow {
   tasks_completed: number;
   average_completion_time: number | null;
   success_rate: number | null;
-}
-
-interface EmployeeLookup {
-  id: string;
-  name: string;
-  project_id: string | null;
 }
 
 interface SortState {
@@ -134,18 +128,13 @@ async function loadPerformanceRows(
   selectedSshConfigId?: string | null,
 ) {
   const [metrics, employees, projects] = await Promise.all([
-    select<EmployeeMetric>(
-      `SELECT * FROM employee_metrics
-       WHERE period_start >= datetime('now', ?)
-       ORDER BY tasks_completed DESC`,
-      [`-${days} days`],
-    ),
-    select<EmployeeLookup>("SELECT id, name, project_id FROM employees"),
-    select<Project>("SELECT * FROM projects WHERE deleted_at IS NULL"),
+    listEmployeeMetrics(Number(days)),
+    listEmployees(),
+    listProjects(),
   ]);
   const visibleProjectIds = new Set(
     filterProjectsByScope(
-      projects.map((project) => normalizeProject(project)),
+      projects,
       environmentMode,
       selectedSshConfigId,
     ).map((project) => project.id),

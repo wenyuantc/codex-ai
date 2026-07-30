@@ -20,9 +20,8 @@
 
 当前核心边界：
 
-- 前端不能写 SQL：`src/lib/database.ts` 的 `execute()` 直接抛错，`capabilities/default.json` 只授予 `sql:default` + `sql:allow-select`（不含 `sql:allow-execute`）
-- 前端仍有部分只读 `select()` 查询直连 SQLite；新增读路径优先走 Tauri command
-- 任务、项目、员工的写路径统一通过 Tauri commands（共 168 个，集中注册在 `lib.rs`）
+- 前端不能直接读写 SQL：`src/lib/database.ts` 的 `select()` / `execute()` / `getDb()` 均硬失败；`capabilities/default.json` 不含 `sql:allow-select` / `sql:allow-execute`
+- 任务、项目、员工等业务读路径与写路径统一通过 Tauri commands（集中注册在 `lib.rs`，经 `src/lib/backend.ts` 包装）
 - 员工归属以 `employees.project_id` 为唯一来源
 - 四个引擎的会话统一写入 `codex_sessions` / `codex_session_events`（表名是历史遗留，非仅 Codex 专用）
 - 数据行为软删除，查询需过滤 `deleted_at IS NULL`

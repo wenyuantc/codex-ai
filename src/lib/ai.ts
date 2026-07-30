@@ -1,9 +1,9 @@
-import { select } from "./database";
-import type { Employee } from "./types";
+import { listEmployees } from "./backend";
 
 // Suggest the best assignee for a task
 export async function suggestAssignee(taskDescription: string): Promise<{ employeeId: string; reason: string }> {
-  const employees = await select<Employee>("SELECT * FROM employees WHERE status != 'error'");
+  const allEmployees = await listEmployees();
+  const employees = allEmployees.filter((employee) => employee.status !== "error");
 
   const developers = employees.filter(e => e.role === 'developer');
   const reviewers = employees.filter(e => e.role === 'reviewer');

@@ -32,27 +32,28 @@ There are no test frameworks configured in this project.
 
 ### Two-Layer Structure
 
-**Frontend** (`src/`): React SPA communicating with SQLite via `@tauri-apps/plugin-sql` and with the Rust backend via `invoke()` / Tauri events.
+**Frontend** (`src/`): React SPA; all business data access goes through Tauri `invoke()` wrappers in `src/lib/backend.ts` (no direct SQLite).
 
-**Backend** (`src-tauri/src/`): Rust Tauri app that manages Codex CLI subprocesses and serves Tauri commands.
+**Backend** (`src-tauri/src/`): Rust Tauri app that owns SQLite (SQLx), manages AI CLI subprocesses, and serves Tauri commands.
 
 ### Data Flow
 
-1. **Direct SQL from frontend**: Stores (Zustand) call `select()`/`execute()` from `src/lib/database.ts`, which uses the Tauri SQL plugin to query SQLite directly. There is no REST API — the frontend writes SQL strings.
-2. **Tauri commands for process management**: Codex process lifecycle (start/stop/restart/stdin) goes through `invoke()` calls to Rust commands in `src-tauri/src/codex/process.rs`.
-3. **Tauri events for real-time output**: Rust emits `codex-stdout`, `codex-stderr`, `codex-exit` events; the frontend listens via `@tauri-apps/api/event`.
+1. **Tauri commands for reads and writes**: Stores call typed wrappers in `src/lib/backend.ts` → Rust `#[tauri::command]` → SQLite. `src/lib/database.ts` is a hard-fail stub; capabilities do not allow frontend SQL select/execute.
+2. **Tauri commands for process management**: Codex/Claude/Grok/OpenCode process lifecycle goes through `invoke()` to Rust engine modules.
+3. **Tauri events for real-time output**: Rust emits engine stdout/stderr/exit events; the frontend listens via `@tauri-apps/api/event`.
 
 ### Frontend Structure
 
 - **Pages** (`src/pages/`): Route-level components — Dashboard, Projects, ProjectDetail, Kanban, Employees, Settings.
 - **Components** (`src/components/`): Domain-organized — `ai/`, `codex/`, `dashboard/`, `employees/`, `layout/`, `projects/`, `tasks/`, `ui/` (shadcn).
-- **Stores** (`src/stores/`): Zustand stores (`taskStore`, `projectStore`, `employeeStore`, `dashboardStore`, `logStore`). Each store owns its SQL queries and data fetching.
+- **Stores** (`src/stores/`): Zustand stores (`taskStore`, `projectStore`, `employeeStore`, `dashboardStore`, `logStore`). Fetch via `backend.ts` list/get commands.
 - **Lib** (`src/lib/`):
-  - `database.ts` — SQLite helper (singleton `Database` instance, parameterized `$1`/`$2` query params)
+  - `backend.ts` — typed Tauri command wrappers (primary data access door)
+  - `database.ts` — hard-fail stub (do not reintroduce frontend SQL)
   - `types.ts` — TypeScript interfaces mirroring DB tables, plus status/priority constants
-  - `ai.ts` — Client-side AI heuristics (assignee suggestion, complexity analysis) — fallback when Codex CLI is unavailable
+  - `ai.ts` — Client-side AI heuristics (assignee suggestion, complexity analysis) — fallback when CLI is unavailable
   - `codex.ts` — Tauri invoke/event wrappers for Codex process management
-  - `utils.ts` — `cn()` (tailwind-merge), `logActivity()`, date/status/priority formatters
+  - `utils.ts` — `cn()` (tailwind-merge), labels, date/status/priority formatters
 
 ### Backend Structure
 

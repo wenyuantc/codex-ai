@@ -328,6 +328,17 @@ pub async fn restore_project<R: Runtime>(app: AppHandle<R>, id: String) -> Resul
 }
 
 #[tauri::command]
+pub async fn list_projects<R: Runtime>(app: AppHandle<R>) -> Result<Vec<Project>, String> {
+    let pool = sqlite_pool(&app).await?;
+    sqlx::query_as::<_, Project>(
+        "SELECT * FROM projects WHERE deleted_at IS NULL ORDER BY updated_at DESC",
+    )
+    .fetch_all(&pool)
+    .await
+    .map_err(|error| format!("获取项目列表失败: {}", error))
+}
+
+#[tauri::command]
 pub async fn list_trashed_projects<R: Runtime>(app: AppHandle<R>) -> Result<Vec<Project>, String> {
     let pool = sqlite_pool(&app).await?;
     sqlx::query_as::<_, Project>(

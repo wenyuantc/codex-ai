@@ -482,3 +482,36 @@ pub async fn update_employee_status<R: Runtime>(
 
     fetch_employee_by_id(&pool, &id).await
 }
+
+#[tauri::command]
+pub async fn list_employees<R: Runtime>(app: AppHandle<R>) -> Result<Vec<Employee>, String> {
+    let pool = sqlite_pool(&app).await?;
+    sqlx::query_as::<_, Employee>("SELECT * FROM employees ORDER BY created_at")
+        .fetch_all(&pool)
+        .await
+        .map_err(|error| format!("获取员工列表失败: {}", error))
+}
+
+#[tauri::command]
+pub async fn list_employee_metrics<R: Runtime>(
+    app: AppHandle<R>,
+    payload: Option<crate::db::models::ListEmployeeMetricsPayload>,
+) -> Result<Vec<EmployeeMetric>, String> {
+    let pool = sqlite_pool(&app).await?;
+    let days = payload
+        .and_then(|p| p.days)
+        .filter(|d| *d > 0)
+        .unwrap_or(30)
+        .clamp(1, 365);
+    let offset = format!("-{days} days");
+
+    sqlx::query_as::<_, EmployeeMetric>(
+        "SELECT * FROM employee_metrics
+         WHERE period_start >= datetime('now', $1)
+         ORDER BY tasks_completed DESC",
+    )
+    .bind(&offset)
+    .fetch_all(&pool)
+    .await
+    .map_err(|error| format!("获取员工绩效失败: {}", error))
+}

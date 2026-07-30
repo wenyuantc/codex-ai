@@ -9,7 +9,7 @@
 | Category | Tool | Examples |
 |----------|------|----------|
 | Domain cache | Zustand store | tasks, projects, employees, notifications, dashboard metrics |
-| Server/DB truth | SQLite via Rust commands (writes) + select (reads) | `tasks`, `projects`, `activity_logs` |
+| Server/DB truth | SQLite via Rust Tauri commands (reads + writes) | `tasks`, `projects`, `activity_logs` |
 | Ephemeral UI | `useState` / dialog open flags | create dialog open, selected card ids |
 | Environment preference | Zustand + `localStorage` | `environmentMode`, selected SSH config, last route |
 | Live engine streams | Zustand + Tauri event listeners | Codex output buffers, session status |
@@ -33,7 +33,7 @@ Follow the existing pattern:
 
 1. `create<StoreState>((set, get) => ({ ... }))`
 2. Data arrays/maps + `loading` flags
-3. `fetchX` methods that **read** via `select()` from `@/lib/database` and/or command wrappers
+3. `fetchX` methods that **read** via `@/lib/backend` command wrappers
 4. Mutation methods that call `@/lib/backend` then refresh local cache (`fetchX` or surgical `set`)
 5. Optional listener init methods returning an unsubscribe function
 
@@ -41,20 +41,17 @@ Example (task create path):
 - UI → `useTaskStore.createTask`
 - store → `createTaskCommand` in `backend.ts`
 - backend → Rust `create_task`
-- store → `fetchTasks` with select SQL
+- store → `fetchTasks` via `listTasks` command
 
-## Read vs Write Split (Critical)
+## Read vs Write (Critical)
 
 ```text
-READ  : select() SQL in stores (allowed by capabilities sql:allow-select)
+READ  : Tauri commands only (list_*/get_*) via backend.ts
 WRITE : Tauri commands only (capabilities block sql execute)
 ```
 
-`src/lib/database.ts`:
-- `select()` — allowed
-- `execute()` — always throws with a Chinese error directing developers to commands
-
-Never reintroduce frontend writes even if a plugin permission looks convenient.
+`src/lib/database.ts` is a hard-fail stub (`select` / `execute` / `getDb` throw).
+Never reintroduce frontend SQL access even if a plugin permission looks convenient.
 
 ## Selector Usage
 
