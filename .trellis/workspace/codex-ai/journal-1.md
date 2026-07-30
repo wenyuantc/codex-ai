@@ -82,3 +82,27 @@
 ### Status
 
 [OK] **Completed**
+
+
+## Session 4: C2 会话事件按天保留与清理落地
+
+**Date**: 2026-07-30
+**Task**: C2 会话事件按天保留与清理落地
+**Branch**: `main`
+
+### Summary
+
+完成优化专项 C2：session-events-policy 默认 30 天可配；purge 只删过期 codex_session_events；手动清理含 VACUUM；启动 best-effort DELETE；migration 41 索引；设置页数据库 Tab UI；activity session_events_purged 中文。合回 main 并 push。归档 07-29-session-events-retention。父任务与 C3–C7 仍为 planning；C1/C1b/C2 已归档。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `e155980` | (see git log) |
+| `2689ff1` | (see git log) |
+| `98a4189` | (see git log) |
+| `e40cd1a` | (see git log) |
+
+### Status
+
+[OK] **Completed**
