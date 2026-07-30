@@ -102,5 +102,5 @@ Before starting engine sessions, validate cwd with `validate_runtime_working_dir
 
 - Returning rich error enums the frontend does not understand (stick to `String` unless introducing a coordinated typed error channel).
 - Accepting unvalidated filesystem paths.
-- Writing secrets into SQLite plain columns (SSH passwords use secret refs / secret store patterns).
+- Writing secrets into SQLite plain columns (SSH passwords use secret refs; at-rest values in OS keychain via `codex/secret_store`, not JSON `value` fields).
 - Performing long remote operations without clear error strings and cleanup.

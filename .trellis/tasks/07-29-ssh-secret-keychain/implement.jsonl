@@ -1,1 +1,5 @@
-{"_example": "Fill with {\"file\": \"<path>\", \"reason\": \"<why>\"}. Put spec/research files only — no code paths. Run `python3 .trellis/scripts/get_context.py --mode packages` to list available specs. Delete this line once real entries are added."}
+{"file": ".trellis/spec/backend/index.md", "reason": "后端总览与硬规则"}
+{"file": ".trellis/spec/backend/ssh-remote.md", "reason": "C1 运行时 CODEX_SSH_SECRET 与 secret 边界"}
+{"file": ".trellis/spec/backend/error-handling.md", "reason": "错误文案与禁止日志泄密"}
+{"file": ".trellis/spec/backend/testing.md", "reason": "可测纯函数与 Memory 后端策略"}
+{"file": ".trellis/spec/backend/command-guidelines.md", "reason": "secret ref 不进 SQLite 明文约定"}

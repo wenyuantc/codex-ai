@@ -59,7 +59,8 @@ Engine modules convert process failures into session events and status updates r
 
 - `eprintln!` is used sparingly for startup/window restore failures and best-effort quit cleanup (e.g. SSH ControlMaster socket sweep in `cleanup_ssh_mux_masters`).
 - Prefer activity logs for user-auditable actions and notifications for actionable system problems.
-- Do not log secrets (passwords, private key material, resolved secret store values, `CODEX_SSH_SECRET`).
+- Do not log secrets (passwords, private key material, resolved secret store values, `CODEX_SSH_SECRET`, keyring payload).
+- SSH at-rest keychain / Secret Service failures return Chinese `String` errors; never silently fall back to plaintext `ssh-secrets.json`.
 
 ## Anti-Patterns
 

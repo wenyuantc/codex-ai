@@ -19,8 +19,9 @@
 
 ## 前置条件
 
-- **建议在 C1（`07-29-ssh-multiplex-secret`）合回 `main` 之后再实现**，避免与 `remote.rs` / secret 读取路径的并发冲突。
+- **C1 已满足**：`07-29-ssh-multiplex-secret` 已合回 `main` 并归档（2026-07-30）；运行时 `CODEX_SSH_SECRET` 策略按 C1 R5 保留。
 - 不依赖 C2–C7。
+- **代码现状（2026-07-30 复核）**：`secret_store.rs` 仍为明文 `ssh-secrets.json`；仓库内无 `keyring` 依赖。历史 commit `cbccc4f` 仅提交了本任务规划文件，**未实现** keychain。
 
 ## Requirements
 
@@ -50,12 +51,12 @@ macOS / Linux / Windows 三条路径均可工作。Linux 无可用 Secret Servic
 
 ## Acceptance Criteria
 
-- [ ] 新保存的 SSH 密码不以明文出现在 `$APPCONFIG/ssh-secrets.json`（文件不存在或为空/无 secrets 字段）
-- [ ] 已有 `ssh-secrets.json` 用户升级后可自动迁移，迁移后旧文件无明文密码残留
-- [ ] 密码认证的 SSH 远程项目在 macOS（必测）与文档声明支持的平台上功能不回归
-- [ ] Windows 上不再依赖「仅靠文件 ACL」保护明文密码文件
-- [ ] `cargo test --manifest-path src-tauri/Cargo.toml` 全绿，测试数不低于基线
-- [ ] 独立分支 + 单独提交合回 `main`（父任务交付约束）
+- [x] 新保存的 SSH 密码不以明文出现在 `$APPCONFIG/ssh-secrets.json`（改走 keychain + `ssh-secret-index.json` 无 value）
+- [x] 已有 `ssh-secrets.json` 用户升级后可自动迁移，迁移后旧文件删除；失败可重试（单测覆盖）
+- [ ] 密码认证的 SSH 远程项目在 macOS（必测）与文档声明支持的平台上功能不回归 — **实机 S8 可选**
+- [x] Windows 上不再依赖「仅靠文件 ACL」保护明文密码文件 — 凭据进 Credential Manager
+- [x] `cargo test --manifest-path src-tauri/Cargo.toml` 全绿，测试数不低于基线（262 → 275）
+- [ ] 独立分支 + 单独提交合回 `main`（提交后勾选）
 
 ## Out of Scope
 

@@ -111,4 +111,75 @@ Do not delete `CODEX_SSH_SECRET` without replacing the askpass contract. Plainte
 
 **Decision**: Keep `CODEX_SSH_SECRET`; multiplexing shortens how often auth re-prompts. FIFO/embedded-script alternatives rejected for Windows parity and disk/constraint reasons.
 
-**At-rest**: JSON plaintext secret store is out of C1 scope → OS keychain child task.
+**At-rest (C1b)**: passwords live in the OS credential store via `keyring` — see next scenario.
+
+---
+
+## Scenario: SSH password at-rest via OS keychain (C1b)
+
+### 1. Scope / Trigger
+
+- Trigger: any change to `codex/secret_store.rs`, secret ref lifecycle, SSH password/passphrase save paths, or keyring dependency.
+- Owner: `src-tauri/src/codex/secret_store.rs`.
+- Callers (`app/remote.rs`) keep the same public API; do not read/write password files ad hoc.
+
+### 2. Signatures
+
+```rust
+pub fn store_secret_value<R: Runtime>(app, value: Option<&str>, replace_ref: Option<&str>) -> Result<Option<String>, String>
+pub fn resolve_secret_value<R: Runtime>(app, secret_ref: Option<&str>) -> Result<Option<String>, String>
+pub fn delete_secret_value<R: Runtime>(app, secret_ref: Option<&str>) -> Result<(), String>
+pub fn sweep_orphan_secret_refs<R: Runtime>(app, active_refs: &HashSet<String>) -> Result<usize, String>
+```
+
+Internal: `SecretBackend` trait; production `KeyringBackend`; tests use `MemoryBackend`.
+
+### 3. Contracts
+
+| Layer | What | Where |
+|-------|------|--------|
+| Credential | password plaintext | OS keychain — `keyring` service `"codex-ai-ssh"`, account = `secret_ref` |
+| Index | ref metadata only (**no `value`**) | `$APPCONFIG/ssh-secret-index.json` (version 2) |
+| Legacy | migration source only | `$APPCONFIG/ssh-secrets.json` — deleted after successful migrate |
+
+- Index writes are atomic (temp + rename); Unix mode 0600.
+- `store`: persist new keyring + index first; on index failure compensate with `backend.delete`; delete replaced ref only after new index is durable.
+- Runtime injection still uses `CODEX_SSH_SECRET` (C1 R5) — keychain is **at-rest**, not the process channel.
+
+### 4. Validation & Error Matrix
+
+| Condition | Behavior |
+|-----------|----------|
+| Secret Service / keychain unavailable | Chinese `Err` (e.g. Linux: install/enable gnome-keyring); **no** plaintext JSON fallback |
+| Legacy migrate partial failure | Keep `ssh-secrets.json`; `Err("迁移 SSH 密钥到系统凭据库失败: …")`; retryable |
+| Index has ref, keyring missing | Resolve returns Chinese corruption-style error (not silent empty success if design marks corrupt) |
+| `NoEntry` on delete | Idempotent success |
+
+### 5. Good / Base / Bad Cases
+
+- **Good**: new password SSH config → only index file on disk; password only in OS store.
+- **Base**: upgrade with old `ssh-secrets.json` → one-shot migrate, legacy file gone, resolve still works.
+- **Bad**: write passwords into index JSON or reintroduce plaintext `ssh-secrets.json` as production path.
+
+### 6. Tests Required
+
+- MemoryBackend: store/resolve, delete, replace_ref, sweep, migrate (index has no password plaintext), migrate failure keeps legacy, atomic/serialize contracts.
+- Do not require interactive real Keychain in default `cargo test`.
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```rust
+// Production path keeps writing entry.value into JSON
+// On Linux keyring failure, fall back to ssh-secrets.json
+// store: delete old secret before new index is durable
+```
+
+#### Correct
+
+```rust
+// value → KeyringBackend only; index = meta only
+// keyring errors → Chinese Err, never plaintext fallback
+// ensure_migrated before every public API entry
+```
