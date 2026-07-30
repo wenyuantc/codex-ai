@@ -49,6 +49,7 @@ pub fn create_tray<R: Runtime>(app: &App<R>) -> Result<(), Box<dyn std::error::E
                 let _ = show_main_window_handle(app);
             }
             "quit" => {
+                crate::app::remote::cleanup_ssh_mux_masters();
                 app.exit(0);
             }
             _ => {}

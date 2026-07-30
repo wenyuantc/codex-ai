@@ -220,6 +220,165 @@ fn create_askpass_script(secret: &str) -> Result<PathBuf, String> {
     Ok(path)
 }
 
+const SSH_MUX_DIR_NAME: &str = "codex-ai-ssh-mux";
+const SSH_MUX_CONTROL_PERSIST: &str = "60s";
+
+/// Sanitize known_hosts_mode for use inside ControlPath filenames.
+fn sanitize_mux_mode(known_hosts_mode: &str) -> String {
+    let trimmed = known_hosts_mode.trim();
+    match trimmed {
+        "off" | "strict" | "accept-new" => trimmed.to_string(),
+        _ => {
+            let sanitized: String = trimmed
+                .chars()
+                .map(|c| {
+                    if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+                        c
+                    } else {
+                        '_'
+                    }
+                })
+                .collect();
+            if sanitized.is_empty() {
+                "accept-new".to_string()
+            } else {
+                sanitized
+            }
+        }
+    }
+}
+
+/// Control socket directory.
+///
+/// Unix domain sockets are limited to ~104 bytes on macOS (`sun_path`).
+/// `std::env::temp_dir()` is often a long `/var/folders/.../T` path, so
+/// `tmpdir/codex-ai-ssh-mux/cm-accept-new-%C` can exceed the limit (110+).
+/// Prefer `/tmp` on Unix when the temp-dir candidate would be too long.
+fn ssh_mux_dir() -> PathBuf {
+    let from_temp = std::env::temp_dir().join(SSH_MUX_DIR_NAME);
+    if cfg!(windows) {
+        return from_temp;
+    }
+
+    // Worst-case expanded socket name under this dir (mode + 40-char %C hash).
+    let worst_case = from_temp.join(format!("cm-accept-new-{}", "a".repeat(40)));
+    if worst_case.to_string_lossy().len() <= 100 {
+        from_temp
+    } else {
+        PathBuf::from("/tmp").join(SSH_MUX_DIR_NAME)
+    }
+}
+
+/// Ensure the ControlPath directory exists (Unix short-connection path only).
+fn ensure_ssh_mux_dir() -> Result<PathBuf, String> {
+    let base_dir = ssh_mux_dir();
+    fs::create_dir_all(&base_dir)
+        .map_err(|error| format!("创建 SSH 复用目录失败: {error}"))?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let permissions = fs::Permissions::from_mode(0o700);
+        fs::set_permissions(&base_dir, permissions)
+            .map_err(|error| format!("设置 SSH 复用目录权限失败: {error}"))?;
+    }
+    Ok(base_dir)
+}
+
+/// Build SSH ControlMaster / ControlPath args for the given connection shape.
+///
+/// Platform is parameterized so table-driven tests can cover Windows and Unix
+/// on a single host. Production callers use [`multiplex_args`].
+fn multiplex_args_impl(
+    is_windows: bool,
+    allocate_tty: bool,
+    known_hosts_mode: &str,
+) -> Vec<String> {
+    if is_windows {
+        return vec![
+            "-o".to_string(),
+            "ControlMaster=no".to_string(),
+            "-o".to_string(),
+            "ControlPath=none".to_string(),
+        ];
+    }
+
+    if allocate_tty {
+        return vec!["-o".to_string(), "ControlMaster=no".to_string()];
+    }
+
+    let mode = sanitize_mux_mode(known_hosts_mode);
+    let control_path = ssh_mux_dir().join(format!("cm-{mode}-%C"));
+    vec![
+        "-o".to_string(),
+        "ControlMaster=auto".to_string(),
+        "-o".to_string(),
+        format!("ControlPath={}", control_path.display()),
+        "-o".to_string(),
+        format!("ControlPersist={SSH_MUX_CONTROL_PERSIST}"),
+    ]
+}
+
+fn multiplex_args(allocate_tty: bool, known_hosts_mode: &str) -> Vec<String> {
+    multiplex_args_impl(cfg!(windows), allocate_tty, known_hosts_mode)
+}
+
+/// Gracefully shut down residual SSH ControlMaster processes and remove sockets.
+/// Best-effort and non-blocking for app quit — failures are logged, never fatal.
+pub(crate) fn cleanup_ssh_mux_masters() {
+    if cfg!(windows) {
+        return;
+    }
+
+    let mux_dir = ssh_mux_dir();
+    if !mux_dir.is_dir() {
+        return;
+    }
+
+    let entries = match fs::read_dir(&mux_dir) {
+        Ok(entries) => entries,
+        Err(error) => {
+            eprintln!("读取 SSH 复用目录失败: {error}");
+            return;
+        }
+    };
+
+    for entry in entries.flatten() {
+        let path = entry.path();
+        // Control sockets are neither regular files nor directories; skip only dirs.
+        if path.is_dir() {
+            continue;
+        }
+
+        let path_str = path.to_string_lossy();
+        // Best-effort master shutdown. BatchMode/ConnectTimeout avoid hang on quit.
+        let _ = Command::new("ssh")
+            .args([
+                "-o",
+                "BatchMode=yes",
+                "-o",
+                "ConnectTimeout=2",
+                "-o",
+                &format!("ControlPath={path_str}"),
+                "-O",
+                "exit",
+                "dummy",
+            ])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status();
+
+        // ssh -O exit usually removes the socket; delete any leftover as fallback.
+        if path.exists() {
+            if let Err(error) = fs::remove_file(&path) {
+                eprintln!(
+                    "清理 SSH 复用 socket 失败: {}: {error}",
+                    path.display()
+                );
+            }
+        }
+    }
+}
+
 pub(crate) async fn build_ssh_command<R: Runtime>(
     app: &AppHandle<R>,
     ssh_config: &SshConfigRecord,
@@ -239,6 +398,14 @@ pub(crate) async fn build_ssh_command<R: Runtime>(
         .arg("ConnectTimeout=15");
     if allocate_tty {
         command.arg("-tt");
+    }
+
+    // Unix short connections need a 0700 ControlPath directory before multiplex args.
+    if !cfg!(windows) && !allocate_tty {
+        ensure_ssh_mux_dir()?;
+    }
+    for arg in multiplex_args(allocate_tty, ssh_config.known_hosts_mode.as_str()) {
+        command.arg(arg);
     }
 
     match ssh_config.known_hosts_mode.as_str() {
@@ -1737,5 +1904,155 @@ pub async fn validate_remote_grok_health<R: Runtime>(
             }
         }
         Err(error) => Err(format!("探测远程 Grok 健康状态失败: {error}")),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{multiplex_args_impl, sanitize_mux_mode, ssh_mux_dir, SSH_MUX_CONTROL_PERSIST};
+
+    #[test]
+    fn sanitize_mux_mode_keeps_known_values() {
+        assert_eq!(sanitize_mux_mode("off"), "off");
+        assert_eq!(sanitize_mux_mode("strict"), "strict");
+        assert_eq!(sanitize_mux_mode("accept-new"), "accept-new");
+        assert_eq!(sanitize_mux_mode("  off  "), "off");
+    }
+
+    #[test]
+    fn sanitize_mux_mode_replaces_unsafe_chars() {
+        assert_eq!(sanitize_mux_mode("weird/mode"), "weird_mode");
+        assert_eq!(sanitize_mux_mode(""), "accept-new");
+        assert_eq!(sanitize_mux_mode("   "), "accept-new");
+    }
+
+    fn assert_windows_args(args: &[String]) {
+        assert_eq!(
+            args,
+            &[
+                "-o".to_string(),
+                "ControlMaster=no".to_string(),
+                "-o".to_string(),
+                "ControlPath=none".to_string(),
+            ]
+        );
+    }
+
+    fn assert_unix_long_args(args: &[String]) {
+        assert_eq!(
+            args,
+            &["-o".to_string(), "ControlMaster=no".to_string(),]
+        );
+    }
+
+    fn assert_unix_short_args(args: &[String], mode: &str) {
+        let expected_path = ssh_mux_dir().join(format!("cm-{mode}-%C"));
+        assert_eq!(args.len(), 6);
+        assert_eq!(args[0], "-o");
+        assert_eq!(args[1], "ControlMaster=auto");
+        assert_eq!(args[2], "-o");
+        assert_eq!(args[3], format!("ControlPath={}", expected_path.display()));
+        assert_eq!(args[4], "-o");
+        assert_eq!(args[5], format!("ControlPersist={SSH_MUX_CONTROL_PERSIST}"));
+        assert!(
+            args[3].contains(&format!("cm-{mode}-%C")),
+            "ControlPath should include mode prefix cm-{mode}-%C, got {}",
+            args[3]
+        );
+    }
+
+    // 12-case matrix: platform × connection length × known_hosts_mode
+    // Uses multiplex_args_impl so both Windows and Unix paths are testable on one host.
+
+    #[test]
+    fn multiplex_windows_short_off() {
+        assert_windows_args(&multiplex_args_impl(true, false, "off"));
+    }
+
+    #[test]
+    fn multiplex_windows_short_strict() {
+        assert_windows_args(&multiplex_args_impl(true, false, "strict"));
+    }
+
+    #[test]
+    fn multiplex_windows_short_accept_new() {
+        assert_windows_args(&multiplex_args_impl(true, false, "accept-new"));
+    }
+
+    #[test]
+    fn multiplex_windows_long_off() {
+        assert_windows_args(&multiplex_args_impl(true, true, "off"));
+    }
+
+    #[test]
+    fn multiplex_windows_long_strict() {
+        assert_windows_args(&multiplex_args_impl(true, true, "strict"));
+    }
+
+    #[test]
+    fn multiplex_windows_long_accept_new() {
+        assert_windows_args(&multiplex_args_impl(true, true, "accept-new"));
+    }
+
+    #[test]
+    fn multiplex_unix_long_off() {
+        assert_unix_long_args(&multiplex_args_impl(false, true, "off"));
+    }
+
+    #[test]
+    fn multiplex_unix_long_strict() {
+        assert_unix_long_args(&multiplex_args_impl(false, true, "strict"));
+    }
+
+    #[test]
+    fn multiplex_unix_long_accept_new() {
+        assert_unix_long_args(&multiplex_args_impl(false, true, "accept-new"));
+    }
+
+    #[test]
+    fn multiplex_unix_short_off() {
+        assert_unix_short_args(&multiplex_args_impl(false, false, "off"), "off");
+    }
+
+    #[test]
+    fn multiplex_unix_short_strict() {
+        assert_unix_short_args(&multiplex_args_impl(false, false, "strict"), "strict");
+    }
+
+    #[test]
+    fn multiplex_unix_short_accept_new() {
+        assert_unix_short_args(
+            &multiplex_args_impl(false, false, "accept-new"),
+            "accept-new",
+        );
+    }
+
+    #[test]
+    fn multiplex_unix_short_modes_use_distinct_control_paths() {
+        let off = multiplex_args_impl(false, false, "off");
+        let strict = multiplex_args_impl(false, false, "strict");
+        let accept = multiplex_args_impl(false, false, "accept-new");
+        let off_path = &off[3];
+        let strict_path = &strict[3];
+        let accept_path = &accept[3];
+        assert_ne!(off_path, strict_path);
+        assert_ne!(off_path, accept_path);
+        assert_ne!(strict_path, accept_path);
+    }
+
+    #[test]
+    fn unix_control_path_stays_within_mac_sun_path_limit() {
+        // macOS AF_UNIX sun_path is typically 104 bytes. Keep margin for safety.
+        let args = multiplex_args_impl(false, false, "accept-new");
+        let control_path = args[3]
+            .strip_prefix("ControlPath=")
+            .expect("ControlPath option");
+        // %C expands to 40 hex chars — substitute before measuring.
+        let expanded = control_path.replace("%C", &"a".repeat(40));
+        assert!(
+            expanded.len() <= 100,
+            "ControlPath too long for macOS sockets ({}): {expanded}",
+            expanded.len()
+        );
     }
 }

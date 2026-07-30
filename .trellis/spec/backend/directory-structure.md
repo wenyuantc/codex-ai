@@ -49,7 +49,7 @@ src-tauri/
 | CRUD for projects/tasks/employees | `app/projects.rs`, `app/tasks.rs`, `app/employees.rs` |
 | Delivery fields (due/tags/deps/milestones) | `app/delivery.rs` |
 | Session list/resume/log/search/activity | `app/sessions.rs` |
-| SSH config + remote command execution | `app/remote.rs` |
+| SSH config + remote command execution | `app/remote.rs` (single `build_ssh_command`; ControlMaster cleanup on tray quit) |
 | Attachments + review prompts | `app/review.rs` |
 | DB maintenance / provider capabilities | `app/database.rs` |
 | Shared pure helpers / constants | `app/shared.rs` |

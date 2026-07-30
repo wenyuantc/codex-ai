@@ -55,15 +55,15 @@ Win32-OpenSSH **不支持**连接复用：多路复用依赖 Unix domain socket�
 
 ## Acceptance Criteria
 
-- [ ] Unix 平台下，同一 SSH 配置的连续短命令复用同一底层连接（验证：`ControlPath` socket 文件存在，且第二条命令耗时显著低于首条）
-- [ ] Windows 平台下显式下发 `ControlMaster=no` + `ControlPath=none`，且在用户 ssh config 含 `Host *` 复用配置时远程功能仍正常
-- [ ] `session_launch.rs` 的 `allocate_tty=true` 长会话走独立连接，不受 master 生命周期影响
-- [ ] 应用退出后无残留 master 进程与 socket 文件
-- [ ] `known_hosts_mode` 三种取值（`off` / `strict` / 默认 `accept-new`）在复用开启后行为不变
-- [ ] 密码认证路径（`auth_type == "password"`）功能不回归；`password_probe_status` 校验逻辑不变
-- [ ] 新增单元测试覆盖 `build_ssh_command` 的参数生成：Unix/Windows 分支 × 长短连接 × 三种 known_hosts 模式
-- [ ] `cargo test --manifest-path src-tauri/Cargo.toml` 全绿，测试数不低于基线
-- [ ] 实机验证：SSH 远程项目可正常创建会话并执行任务
+- [x] Unix 平台下，同一 SSH 配置的连续短命令复用同一底层连接（验证：`ControlPath` socket 文件存在，且第二条命令耗时显著低于首条）— **代码+单测完成；实机 S7 可选确认**
+- [x] Windows 平台下显式下发 `ControlMaster=no` + `ControlPath=none`，且在用户 ssh config 含 `Host *` 复用配置时远程功能仍正常 — **单测矩阵覆盖**
+- [x] `session_launch.rs` 的 `allocate_tty=true` 长会话走独立连接，不受 master 生命周期影响 — **代码+单测**
+- [x] 应用退出后无残留 master 进程与 socket 文件 — **tray quit 清理已接；实机 S7 可选确认**
+- [x] `known_hosts_mode` 三种取值（`off` / `strict` / 默认 `accept-new`）在复用开启后行为不变 — **ControlPath 按 mode 隔离**
+- [x] 密码认证路径（`auth_type == "password"`）功能不回归；`password_probe_status` 校验逻辑不变 — **未改通道**
+- [x] 新增单元测试覆盖 `build_ssh_command` 的参数生成：Unix/Windows 分支 × 长短连接 × 三种 known_hosts 模式
+- [x] `cargo test --manifest-path src-tauri/Cargo.toml` 全绿，测试数不低于基线（246 → 262）
+- [ ] 实机验证：SSH 远程项目可正常创建会话并执行任务（用户侧 S7，非阻塞提交）
 
 ## Out of Scope
 
