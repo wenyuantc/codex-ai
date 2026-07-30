@@ -1,20 +1,12 @@
-use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 
 use tokio::sync::Mutex;
 
 use super::process::{OpenCodeChild, OpenCodeSessionKind};
+use crate::engine::manager::{ManagedProcess, ProcessManager};
 
-#[derive(Clone)]
-pub struct ManagedOpenCodeProcess {
-    pub employee_id: String,
-    pub task_id: Option<String>,
-    pub session_kind: OpenCodeSessionKind,
-    pub child: Arc<Mutex<OpenCodeChild>>,
-    pub session_record_id: String,
-    pub cleanup_paths: Vec<PathBuf>,
-}
+pub type ManagedOpenCodeProcess = ManagedProcess<OpenCodeSessionKind>;
 
 #[derive(Clone)]
 pub struct ManagedOpenCodeSdkServer {
@@ -24,14 +16,14 @@ pub struct ManagedOpenCodeSdkServer {
 }
 
 pub struct OpenCodeManager {
-    processes: HashMap<String, ManagedOpenCodeProcess>,
+    inner: ProcessManager<OpenCodeSessionKind>,
     sdk_server: Option<ManagedOpenCodeSdkServer>,
 }
 
 impl OpenCodeManager {
     pub fn new() -> Self {
         Self {
-            processes: HashMap::new(),
+            inner: ProcessManager::new(),
             sdk_server: None,
         }
     }
@@ -45,33 +37,27 @@ impl OpenCodeManager {
         session_record_id: String,
         cleanup_paths: Vec<PathBuf>,
     ) {
-        self.processes.insert(
-            session_record_id.clone(),
-            ManagedOpenCodeProcess {
-                employee_id,
-                task_id,
-                session_kind,
-                child,
-                session_record_id,
-                cleanup_paths,
-            },
+        self.inner.add_process(
+            employee_id,
+            task_id,
+            session_kind,
+            child,
+            session_record_id,
+            cleanup_paths,
+            (),
         );
     }
 
     pub fn remove_process(&mut self, session_record_id: &str) -> Option<ManagedOpenCodeProcess> {
-        self.processes.remove(session_record_id)
+        self.inner.remove_process(session_record_id)
     }
 
     pub fn get_process(&self, session_record_id: &str) -> Option<ManagedOpenCodeProcess> {
-        self.processes.get(session_record_id).cloned()
+        self.inner.get_process(session_record_id)
     }
 
     pub fn get_employee_processes(&self, employee_id: &str) -> Vec<ManagedOpenCodeProcess> {
-        self.processes
-            .values()
-            .filter(|process| process.employee_id == employee_id)
-            .cloned()
-            .collect()
+        self.inner.get_employee_processes(employee_id)
     }
 
     pub fn set_sdk_server(&mut self, host: String, port: u16, child: Arc<Mutex<OpenCodeChild>>) {
@@ -97,9 +83,7 @@ impl OpenCodeManager {
     }
 
     pub fn has_employee_processes(&self, employee_id: &str) -> bool {
-        self.processes
-            .values()
-            .any(|process| process.employee_id == employee_id)
+        self.inner.has_employee_processes(employee_id)
     }
 
     pub fn has_unbound_employee_process(
@@ -107,11 +91,8 @@ impl OpenCodeManager {
         employee_id: &str,
         session_kind: OpenCodeSessionKind,
     ) -> bool {
-        self.processes.values().any(|process| {
-            process.employee_id == employee_id
-                && process.task_id.is_none()
-                && process.session_kind == session_kind
-        })
+        self.inner
+            .has_unbound_employee_process(employee_id, session_kind)
     }
 
     pub fn get_task_process_any(
@@ -119,12 +100,7 @@ impl OpenCodeManager {
         task_id: &str,
         session_kind: OpenCodeSessionKind,
     ) -> Option<ManagedOpenCodeProcess> {
-        self.processes
-            .values()
-            .find(|process| {
-                process.task_id.as_deref() == Some(task_id) && process.session_kind == session_kind
-            })
-            .cloned()
+        self.inner.get_task_process_any(task_id, session_kind)
     }
 }
 
@@ -144,7 +120,7 @@ mod tests {
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::null());
-        Arc::new(Mutex::new(OpenCodeChild::new(
+        Arc::new(Mutex::new(OpenCodeChild::with_stdio(
             command.spawn().expect("spawn test child"),
             None,
             None,
@@ -187,7 +163,7 @@ mod tests {
 
             for child in [child_one, child_two] {
                 let mut child = child.lock().await;
-                let _ = child.kill_process_group().await;
+                let _ = child.kill_process_group();
                 let _ = child.kill().await;
             }
         });
@@ -224,7 +200,7 @@ mod tests {
 
             for child in [task_child, unbound_child] {
                 let mut child = child.lock().await;
-                let _ = child.kill_process_group().await;
+                let _ = child.kill_process_group();
                 let _ = child.kill().await;
             }
         });

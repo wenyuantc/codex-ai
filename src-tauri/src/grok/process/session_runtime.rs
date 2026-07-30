@@ -35,11 +35,7 @@ fn resolve_final_grok_status(
     current_status: Option<&str>,
     exit_code: Option<i32>,
 ) -> &'static str {
-    match (current_status, exit_code) {
-        (Some("stopping"), _) => "exited",
-        (_, Some(0)) => "exited",
-        _ => "failed",
-    }
+    crate::engine::resolve_final_session_status(current_status, exit_code)
 }
 
 fn grok_session_kind_to_codex(session_kind: GrokSessionKind) -> CodexSessionKind {
