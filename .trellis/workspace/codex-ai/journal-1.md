@@ -37,3 +37,25 @@
 ### Status
 
 [OK] **Completed**
+
+
+## Session 2: C1 SSH ControlMaster 复用落地与合回
+
+**Date**: 2026-07-30
+**Task**: C1 SSH ControlMaster 复用落地与合回
+**Branch**: `main`
+
+### Summary
+
+完成优化专项 C1：build_ssh_command 平台感知 ControlMaster 复用、tray 退出清理、单测 246→262；macOS sun_path 回退 /tmp；R5 保留 CODEX_SSH_SECRET；新增 backend/ssh-remote.md 规范。合回 main 并归档 07-29-ssh-multiplex-secret。规划侧确认 C1b OS keychain 子任务（排在 C1 后）。父任务与其余 7 个子任务仍为 planning。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `19f43ce` | (see git log) |
+| `08f2c39` | (see git log) |
+
+### Status
+
+[OK] **Completed**
