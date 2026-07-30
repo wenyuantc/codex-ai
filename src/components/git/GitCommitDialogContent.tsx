@@ -112,20 +112,11 @@ export function GitCommitDialogContent({
       <DialogFooter className={footerStart ? "gap-2 sm:justify-between" : undefined}>
         {footerStart}
         <div className="flex gap-2">
-          <Button
-            type="button"
-            variant="outline"
-            onClick={onCancel}
-            disabled={busy}
-          >
+          <Button type="button" variant="outline" onClick={onCancel} disabled={busy}>
             取消
           </Button>
           {extraActions}
-          <Button
-            type="button"
-            onClick={() => void onSubmit()}
-            disabled={busy || submitDisabled}
-          >
+          <Button type="button" onClick={() => void onSubmit()} disabled={busy || submitDisabled}>
             {submitLabel}
           </Button>
         </div>

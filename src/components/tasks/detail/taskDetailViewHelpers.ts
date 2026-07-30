@@ -73,7 +73,9 @@ export function getExecutionChangeCaptureModeDescription(
     : "当前列表基于 Git 工作区前后快照估算，可能混入其他并行任务改动；若可查看详情，文本快照来自那次估算结果保存时的预览。";
 }
 
-export function getExecutionSnapshotStatusLabel(status: "text" | "missing" | "binary" | "unavailable") {
+export function getExecutionSnapshotStatusLabel(
+  status: "text" | "missing" | "binary" | "unavailable",
+) {
   switch (status) {
     case "text":
       return "已保存文本快照";

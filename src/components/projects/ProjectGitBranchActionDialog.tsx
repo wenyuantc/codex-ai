@@ -436,7 +436,8 @@ export function ProjectGitBranchActionDialog({
         >
           <SelectTrigger className="bg-background">
             <SelectValue>
-              {MERGE_FAST_FORWARD_OPTIONS.find((o) => o.value === mergeFastForward)?.label ?? mergeFastForward}
+              {MERGE_FAST_FORWARD_OPTIONS.find((o) => o.value === mergeFastForward)?.label ??
+                mergeFastForward}
             </SelectValue>
           </SelectTrigger>
           <SelectContent>
@@ -512,7 +513,12 @@ export function ProjectGitBranchActionDialog({
         )}
 
         <DialogFooter>
-          <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={submitting}>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => onOpenChange(false)}
+            disabled={submitting}
+          >
             取消
           </Button>
           <Button

@@ -11,7 +11,11 @@ interface CodexTerminalProps {
   sessionKind?: CodexSessionKind;
 }
 
-export function CodexTerminal({ taskId, sessionRecordId, sessionKind = "execution" }: CodexTerminalProps) {
+export function CodexTerminal({
+  taskId,
+  sessionRecordId,
+  sessionKind = "execution",
+}: CodexTerminalProps) {
   const clearTaskCodexOutput = useEmployeeStore((s) => s.clearTaskCodexOutput);
   const clearSessionCodexOutput = useEmployeeStore((s) => s.clearSessionCodexOutput);
   const taskLogs = useEmployeeStore((s) => s.taskLogs);
@@ -21,13 +25,10 @@ export function CodexTerminal({ taskId, sessionRecordId, sessionKind = "executio
         key: entry.event_id,
         line: entry.line,
       }))
-    : (taskId
-      ? taskLogs[buildTaskLogKey(taskId, sessionKind)] ?? []
-      : []
-    ).map((line, index) => ({
-      key: `${index}:${line}`,
-      line,
-    }));
+    : (taskId ? (taskLogs[buildTaskLogKey(taskId, sessionKind)] ?? []) : []).map((line, index) => ({
+        key: `${index}:${line}`,
+        line,
+      }));
   const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {

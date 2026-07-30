@@ -59,8 +59,12 @@ export function KanbanPage() {
       setTags([]);
       return;
     }
-    void listMilestones(currentProjectId).then(setMilestones).catch(() => setMilestones([]));
-    void listTags(currentProjectId).then(setTags).catch(() => setTags([]));
+    void listMilestones(currentProjectId)
+      .then(setMilestones)
+      .catch(() => setMilestones([]));
+    void listTags(currentProjectId)
+      .then(setTags)
+      .catch(() => setTags([]));
   }, [currentProjectId]);
 
   const hasProjects = projects.length > 0;
@@ -77,8 +81,8 @@ export function KanbanPage() {
       .filter((task) =>
         !normalized
           ? true
-          : task.title.toLowerCase().includes(normalized)
-            || (task.description ?? "").toLowerCase().includes(normalized),
+          : task.title.toLowerCase().includes(normalized) ||
+            (task.description ?? "").toLowerCase().includes(normalized),
       )
       .map((task) => task.id);
   }, [tasks, overdueOnly, blockedOnly, milestoneFilter, keyword]);
@@ -126,12 +130,16 @@ export function KanbanPage() {
             <Button onClick={() => setShowCreateDialog(true)}>
               <Plus className="h-4 w-4" />
               新建任务
-              <Kbd variant="primary" size="xs" className="ml-1.5">N</Kbd>
+              <Kbd variant="primary" size="xs" className="ml-1.5">
+                N
+              </Kbd>
             </Button>
             <Button variant="outline" onClick={() => setShowArchiveDialog(true)}>
               <Archive className="h-4 w-4" />
               归档管理
-              <Kbd variant="subtle" size="xs" className="ml-1.5">A</Kbd>
+              <Kbd variant="subtle" size="xs" className="ml-1.5">
+                A
+              </Kbd>
             </Button>
           </div>
         </div>

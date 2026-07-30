@@ -66,39 +66,29 @@ export async function stopClaude(employeeId: string): Promise<void> {
   await invoke("stop_claude", { employeeId });
 }
 
-export async function stopClaudeSession(
-  sessionRecordId: string,
-): Promise<void> {
+export async function stopClaudeSession(sessionRecordId: string): Promise<void> {
   await invoke("stop_claude_session", { sessionRecordId });
 }
 
-export function onClaudeOutput(
-  callback: (output: ClaudeOutput) => void,
-): Promise<() => void> {
+export function onClaudeOutput(callback: (output: ClaudeOutput) => void): Promise<() => void> {
   return listen<ClaudeOutput>("claude-stdout", (event) => {
     callback(event.payload);
   });
 }
 
-export function onClaudeError(
-  callback: (output: ClaudeOutput) => void,
-): Promise<() => void> {
+export function onClaudeError(callback: (output: ClaudeOutput) => void): Promise<() => void> {
   return listen<ClaudeOutput>("claude-stderr", (event) => {
     callback(event.payload);
   });
 }
 
-export function onClaudeExit(
-  callback: (exit: ClaudeExit) => void,
-): Promise<() => void> {
+export function onClaudeExit(callback: (exit: ClaudeExit) => void): Promise<() => void> {
   return listen<ClaudeExit>("claude-exit", (event) => {
     callback(event.payload);
   });
 }
 
-export function onClaudeSession(
-  callback: (session: ClaudeSession) => void,
-): Promise<() => void> {
+export function onClaudeSession(callback: (session: ClaudeSession) => void): Promise<() => void> {
   return listen<ClaudeSession>("claude-session", (event) => {
     callback(event.payload);
   });

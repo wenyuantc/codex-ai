@@ -14,6 +14,13 @@ npm run tauri:dev
 # Build (TypeScript check + Vite bundle)
 npm run build
 
+# Lint / format
+npm run lint              # ESLint (src + vite.config)
+npm run lint:fix         # ESLint auto-fix
+npm run format            # Prettier write
+npm run format:check      # Prettier check
+npm run lint:rust         # cargo clippy -D warnings
+
 # Bump app version across package.json / Cargo.toml / tauri.conf.json
 npm run bump-version
 
@@ -29,7 +36,7 @@ npm run tauri:linux        # Linux (AppImage/deb/rpm)
 npm run tauri:windows      # Windows (NSIS/MSI)
 ```
 
-There is no linting configured (no ESLint, Clippy rules, or Prettier).
+Lint gate: ESLint + Prettier + `cargo clippy --all-targets -- -D warnings` (also CI via `.github/workflows/lint.yml`).
 
 ## Architecture
 

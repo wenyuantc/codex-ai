@@ -30,7 +30,8 @@ export function DeleteEmployeeDialog({
         <DialogHeader>
           <DialogTitle>确认删除员工</DialogTitle>
           <DialogDescription>
-            确认删除员工“{employee?.name ?? ""}”吗？该操作会解除其任务指派、保留历史日志并删除关联绩效数据，且无法恢复。
+            确认删除员工“{employee?.name ?? ""}
+            ”吗？该操作会解除其任务指派、保留历史日志并删除关联绩效数据，且无法恢复。
           </DialogDescription>
         </DialogHeader>
 

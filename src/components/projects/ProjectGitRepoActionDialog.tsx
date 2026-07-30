@@ -1,10 +1,6 @@
 import { useEffect, useState } from "react";
 
-import {
-  commitProjectGitChanges,
-  pullProjectGitBranch,
-  pushProjectGitBranch,
-} from "@/lib/backend";
+import { commitProjectGitChanges, pullProjectGitBranch, pushProjectGitBranch } from "@/lib/backend";
 import { aiGenerateCommitMessage } from "@/lib/codex";
 import { buildGitCommitChangePrompts } from "@/lib/gitWorkingTree";
 import type { ProjectGitRepoActionType, ProjectGitWorkingTreeChange } from "@/lib/types";
@@ -162,7 +158,7 @@ export function ProjectGitRepoActionDialog({
     setRemoteName("origin");
     setBranchName(currentBranch ?? projectBranches[0] ?? "");
     setPushForceMode("none");
-    setPullMode(Boolean(workingTreeSummary) ? "rebase" : "ff_only");
+    setPullMode(workingTreeSummary ? "rebase" : "ff_only");
     setPullAutoStash(Boolean(workingTreeSummary));
     setError(null);
   }, [action, currentBranch, open, projectBranches, workingTreeSummary]);
@@ -241,7 +237,12 @@ export function ProjectGitRepoActionDialog({
           result = commitResult;
         }
       } else if (action === "push") {
-        result = await pushProjectGitBranch(projectId, remoteName.trim(), branchName.trim(), pushForceMode);
+        result = await pushProjectGitBranch(
+          projectId,
+          remoteName.trim(),
+          branchName.trim(),
+          pushForceMode,
+        );
       } else {
         result = await pullProjectGitBranch(
           projectId,
@@ -288,17 +289,21 @@ export function ProjectGitRepoActionDialog({
           onGenerateCommitMessage={handleGenerateCommitMessage}
           onCancel={() => onOpenChange(false)}
           onSubmit={() => handleSubmit("primary")}
-          extraActions={(
+          extraActions={
             <Button
               type="button"
               variant="outline"
               onClick={() => void handleSubmit("commit_push")}
               disabled={submitting || commitDisabled || !currentBranch}
-              title={currentBranch ? `提交后推送到 origin/${currentBranch}` : "当前分支未知，暂不可提交并推送"}
+              title={
+                currentBranch
+                  ? `提交后推送到 origin/${currentBranch}`
+                  : "当前分支未知，暂不可提交并推送"
+              }
             >
               {submitMode === "commit_push" ? "提交并推送中..." : "提交并推送"}
             </Button>
-          )}
+          }
         />
       </Dialog>
     );
@@ -364,7 +369,8 @@ export function ProjectGitRepoActionDialog({
               >
                 <SelectTrigger className="bg-background">
                   <SelectValue>
-                    {PUSH_FORCE_MODE_OPTIONS.find((option) => option.value === pushForceMode)?.label ?? pushForceMode}
+                    {PUSH_FORCE_MODE_OPTIONS.find((option) => option.value === pushForceMode)
+                      ?.label ?? pushForceMode}
                   </SelectValue>
                 </SelectTrigger>
                 <SelectContent>
@@ -424,7 +430,8 @@ export function ProjectGitRepoActionDialog({
               >
                 <SelectTrigger className="bg-background">
                   <SelectValue>
-                    {PULL_MODE_OPTIONS.find((option) => option.value === pullMode)?.label ?? pullMode}
+                    {PULL_MODE_OPTIONS.find((option) => option.value === pullMode)?.label ??
+                      pullMode}
                   </SelectValue>
                 </SelectTrigger>
                 <SelectContent>

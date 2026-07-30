@@ -2,12 +2,7 @@ import { useState, useEffect } from "react";
 import { suggestAssignee } from "@/lib/ai";
 import { useTaskStore } from "@/stores/taskStore";
 import { useEmployeeStore } from "@/stores/employeeStore";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Bot, Loader2, Check } from "lucide-react";
 
 interface AISuggestDialogProps {
@@ -80,13 +75,12 @@ export function AISuggestDialog({
                   <div>
                     <div className="font-medium text-sm">{suggestedEmployee.name}</div>
                     <div className="text-xs text-muted-foreground">
-                      {suggestedEmployee.role} · {suggestedEmployee.specialization ?? suggestedEmployee.model}
+                      {suggestedEmployee.role} ·{" "}
+                      {suggestedEmployee.specialization ?? suggestedEmployee.model}
                     </div>
                   </div>
                 </div>
-                <p className="text-xs text-muted-foreground mt-2">
-                  推荐理由：{suggestion.reason}
-                </p>
+                <p className="text-xs text-muted-foreground mt-2">推荐理由：{suggestion.reason}</p>
               </div>
             ) : (
               <p className="text-sm text-muted-foreground">{suggestion.reason}</p>

@@ -1,14 +1,7 @@
 import type { ProjectGitWorkingTreeChange } from "@/lib/types";
 
 export type GitActionButtonTone =
-  | "neutral"
-  | "positive"
-  | "create"
-  | "info"
-  | "warning"
-  | "rollback"
-  | "merge"
-  | "danger";
+  "neutral" | "positive" | "create" | "info" | "warning" | "rollback" | "merge" | "danger";
 
 export function getGitActionButtonClassName(tone: GitActionButtonTone) {
   switch (tone) {
@@ -47,7 +40,9 @@ export function getWorkingTreeChangeLabel(changeType: ProjectGitWorkingTreeChang
   }
 }
 
-export function getWorkingTreeChangeClassName(changeType: ProjectGitWorkingTreeChange["change_type"]) {
+export function getWorkingTreeChangeClassName(
+  changeType: ProjectGitWorkingTreeChange["change_type"],
+) {
   switch (changeType) {
     case "added":
       return "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-200";
@@ -62,7 +57,9 @@ export function getWorkingTreeChangeClassName(changeType: ProjectGitWorkingTreeC
   }
 }
 
-export function getWorkingTreeStageStatusLabel(stageStatus: ProjectGitWorkingTreeChange["stage_status"]) {
+export function getWorkingTreeStageStatusLabel(
+  stageStatus: ProjectGitWorkingTreeChange["stage_status"],
+) {
   switch (stageStatus) {
     case "staged":
       return "已暂存";
@@ -77,7 +74,9 @@ export function getWorkingTreeStageStatusLabel(stageStatus: ProjectGitWorkingTre
   }
 }
 
-export function getWorkingTreeStageStatusClassName(stageStatus: ProjectGitWorkingTreeChange["stage_status"]) {
+export function getWorkingTreeStageStatusClassName(
+  stageStatus: ProjectGitWorkingTreeChange["stage_status"],
+) {
   switch (stageStatus) {
     case "staged":
       return "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-200";

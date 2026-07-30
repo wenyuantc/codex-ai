@@ -49,19 +49,17 @@ export function GitChangesPanel({
     () => changes.slice(0, Math.max(1, maxDisplay)),
     [changes, maxDisplay],
   );
-  const hasStageableFiles = useMemo(
-    () => countStageableGitFiles(changes) > 0,
-    [changes],
-  );
-  const hasStagedFiles = useMemo(
-    () => countStagedGitFiles(changes) > 0,
-    [changes],
-  );
+  const hasStageableFiles = useMemo(() => countStageableGitFiles(changes) > 0, [changes]);
+  const hasStagedFiles = useMemo(() => countStagedGitFiles(changes) > 0, [changes]);
   const selectedPaths = useMemo(
-    () => visibleChanges.filter((change) => selectedFiles.has(change.path)).map((change) => change.path),
+    () =>
+      visibleChanges
+        .filter((change) => selectedFiles.has(change.path))
+        .map((change) => change.path),
     [selectedFiles, visibleChanges],
   );
-  const allVisibleSelected = visibleChanges.length > 0 && visibleChanges.every((change) => selectedFiles.has(change.path));
+  const allVisibleSelected =
+    visibleChanges.length > 0 && visibleChanges.every((change) => selectedFiles.has(change.path));
 
   useEffect(() => {
     const visiblePathSet = new Set(visibleChanges.map((change) => change.path));
@@ -95,9 +93,7 @@ export function GitChangesPanel({
           )}
           <div>
             <h4 className="text-sm font-medium">{title}</h4>
-            {description && (
-              <p className="text-[11px] text-muted-foreground">{description}</p>
-            )}
+            {description && <p className="text-[11px] text-muted-foreground">{description}</p>}
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -131,7 +127,9 @@ export function GitChangesPanel({
               onClick={() => onStageSelected("stage", selectedPaths)}
               className={getGitActionButtonClassName("positive")}
             >
-              {selectedFilesStageAction === "stage" ? "暂存中..." : `暂存选中 (${selectedPaths.length})`}
+              {selectedFilesStageAction === "stage"
+                ? "暂存中..."
+                : `暂存选中 (${selectedPaths.length})`}
             </Button>
           )}
           {selectedPaths.length > 0 && (
@@ -143,7 +141,9 @@ export function GitChangesPanel({
               onClick={() => onStageSelected("unstage", selectedPaths)}
               className={getGitActionButtonClassName("warning")}
             >
-              {selectedFilesStageAction === "unstage" ? "取消中..." : `取消暂存选中 (${selectedPaths.length})`}
+              {selectedFilesStageAction === "unstage"
+                ? "取消中..."
+                : `取消暂存选中 (${selectedPaths.length})`}
             </Button>
           )}
           {selectedPaths.length > 0 && (
@@ -269,12 +269,14 @@ export function GitChangesPanel({
                     )}
                   >
                     {stagingFilePath === change.path
-                      ? (change.stage_status === "staged" || change.stage_status === "partially_staged"
+                      ? change.stage_status === "staged" ||
+                        change.stage_status === "partially_staged"
                         ? "取消中..."
-                        : "暂存中...")
-                      : (change.stage_status === "staged" || change.stage_status === "partially_staged"
+                        : "暂存中..."
+                      : change.stage_status === "staged" ||
+                          change.stage_status === "partially_staged"
                         ? "取消暂存"
-                        : "暂存")}
+                        : "暂存"}
                   </Button>
                 </div>
               </div>

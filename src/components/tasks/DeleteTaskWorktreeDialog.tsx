@@ -67,13 +67,18 @@ export function DeleteTaskWorktreeDialog({
   };
 
   return (
-    <Dialog open={open} onOpenChange={(nextOpen) => {
-      if (!submitting) {
-        onOpenChange(nextOpen);
-      }
-    }}
+    <Dialog
+      open={open}
+      onOpenChange={(nextOpen) => {
+        if (!submitting) {
+          onOpenChange(nextOpen);
+        }
+      }}
     >
-      <DialogContent className="w-[min(96vw,36rem)] max-w-[min(96vw,36rem)] p-0" showCloseButton={!submitting}>
+      <DialogContent
+        className="w-[min(96vw,36rem)] max-w-[min(96vw,36rem)] p-0"
+        showCloseButton={!submitting}
+      >
         <div className="px-6 pt-6">
           <DialogHeader>
             <DialogTitle className="text-[22px] leading-none">删除 Worktree</DialogTitle>
@@ -81,13 +86,19 @@ export function DeleteTaskWorktreeDialog({
 
           <div className="mt-3 space-y-1.5 text-base text-foreground">
             <p>
-              确定要删除 worktree <span className="font-semibold text-foreground">{branchName || "未命名分支"}</span> 吗？
+              确定要删除 worktree{" "}
+              <span className="font-semibold text-foreground">{branchName || "未命名分支"}</span>{" "}
+              吗？
             </p>
-            <p className="text-xl leading-none text-destructive">这将删除目录及其中所有文件，此操作不可撤销！</p>
+            <p className="text-xl leading-none text-destructive">
+              这将删除目录及其中所有文件，此操作不可撤销！
+            </p>
           </div>
 
           <div className="mt-6 space-y-5">
-            <label className={`flex items-start gap-3 text-[15px] ${canDeleteBranch ? "text-foreground" : "text-muted-foreground"}`}>
+            <label
+              className={`flex items-start gap-3 text-[15px] ${canDeleteBranch ? "text-foreground" : "text-muted-foreground"}`}
+            >
               <input
                 type="checkbox"
                 checked={canDeleteBranch ? deleteBranch : false}
@@ -96,8 +107,7 @@ export function DeleteTaskWorktreeDialog({
                 className="mt-1 h-4 w-4 rounded border-border accent-primary"
               />
               <span>
-                同时删除分支{" "}
-                <span className="font-semibold">{branchName || "当前未绑定分支"}</span>
+                同时删除分支 <span className="font-semibold">{branchName || "当前未绑定分支"}</span>
               </span>
             </label>
 

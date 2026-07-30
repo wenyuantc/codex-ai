@@ -36,12 +36,9 @@ function extractText(result) {
         if (!message || typeof message !== "object") {
           return [];
         }
-        return [
-          message.text,
-          message.content,
-          message.output_text,
-          message.outputText,
-        ].filter((value) => typeof value === "string" && value.trim());
+        return [message.text, message.content, message.output_text, message.outputText].filter(
+          (value) => typeof value === "string" && value.trim(),
+        );
       })
       .join("\n")
       .trim();
@@ -101,11 +98,17 @@ function summarizeFileChange(item) {
 }
 
 function normalizeFileChangeKind(kind) {
-  const value = String(kind ?? "").trim().toLowerCase();
+  const value = String(kind ?? "")
+    .trim()
+    .toLowerCase();
   if (["add", "added", "create", "created"].includes(value)) {
     return "added";
   }
-  if (["modify", "modified", "update", "updated", "change", "changed", "edit", "edited"].includes(value)) {
+  if (
+    ["modify", "modified", "update", "updated", "change", "changed", "edit", "edited"].includes(
+      value,
+    )
+  ) {
     return "modified";
   }
   if (["delete", "deleted", "remove", "removed"].includes(value)) {

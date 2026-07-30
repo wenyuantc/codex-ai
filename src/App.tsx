@@ -44,7 +44,9 @@ function GlobalShortcuts() {
   useHotkeys(shortcutKeys(NAV_SHORTCUTS[1]), () => navigate("/projects"), { preventDefault: true });
   useHotkeys(shortcutKeys(NAV_SHORTCUTS[2]), () => navigate("/kanban"), { preventDefault: true });
   useHotkeys(shortcutKeys(NAV_SHORTCUTS[3]), () => navigate("/sessions"), { preventDefault: true });
-  useHotkeys(shortcutKeys(NAV_SHORTCUTS[4]), () => navigate("/employees"), { preventDefault: true });
+  useHotkeys(shortcutKeys(NAV_SHORTCUTS[4]), () => navigate("/employees"), {
+    preventDefault: true,
+  });
   useHotkeys(shortcutKeys(NAV_SHORTCUTS[5]), () => navigate("/settings"), { preventDefault: true });
   useHotkeys(shortcutKeys(NAV_SHORTCUTS[6]), () => navigate("/trash"), { preventDefault: true });
 

@@ -83,10 +83,9 @@ fn json_text_lines(text: &str) -> Vec<String> {
 }
 
 fn json_text_delta(previous: &str, next: &str) -> String {
-    if next.starts_with(previous) {
-        next[previous.len()..].to_string()
-    } else {
-        next.to_string()
+    match next.strip_prefix(previous) {
+        Some(rest) => rest.to_string(),
+        None => next.to_string(),
     }
 }
 
@@ -241,10 +240,11 @@ pub(super) fn parse_claude_cli_json_event_line(
     state: &mut ClaudeCliJsonStreamState,
 ) -> Option<ClaudeCliJsonParsedEvent> {
     let value = serde_json::from_str::<Value>(line).ok()?;
-    let mut parsed = ClaudeCliJsonParsedEvent::default();
-
-    parsed.session_id =
-        json_first_string_field(&value, &["session_id", "sessionId"]).map(ToOwned::to_owned);
+    let mut parsed = ClaudeCliJsonParsedEvent {
+        session_id: json_first_string_field(&value, &["session_id", "sessionId"])
+            .map(ToOwned::to_owned),
+        ..Default::default()
+    };
 
     match json_string_field(&value, "type") {
         Some("system") => {}

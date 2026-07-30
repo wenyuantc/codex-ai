@@ -41,7 +41,7 @@ pub fn create_tray<R: Runtime>(app: &App<R>) -> Result<(), Box<dyn std::error::E
                 ..
             } = event
             {
-                let _ = show_main_window_handle(&tray.app_handle());
+                let _ = show_main_window_handle(tray.app_handle());
             }
         })
         .on_menu_event(|app, event| match event.id.as_ref() {

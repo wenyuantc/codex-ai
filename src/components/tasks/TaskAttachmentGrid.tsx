@@ -25,23 +25,21 @@ interface TaskAttachmentGridProps {
   emptyText?: string;
 }
 
-export function TaskAttachmentGrid({
-  items,
-  emptyText = "暂无附件",
-}: TaskAttachmentGridProps) {
+export function TaskAttachmentGrid({ items, emptyText = "暂无附件" }: TaskAttachmentGridProps) {
   const [previewUrls, setPreviewUrls] = useState<Record<string, string>>({});
   const previewKey = useMemo(
     () => items.map((item) => `${item.id}:${item.path}:${item.mimeType ?? ""}`).join("|"),
     [items],
   );
   const previewItems = useMemo(
-    () => items
-      .filter((item) => isImageAttachment(item.path, item.mimeType))
-      .map((item) => ({
-        id: item.id,
-        path: item.path,
-        mimeType: item.mimeType,
-      })),
+    () =>
+      items
+        .filter((item) => isImageAttachment(item.path, item.mimeType))
+        .map((item) => ({
+          id: item.id,
+          path: item.path,
+          mimeType: item.mimeType,
+        })),
     [previewKey],
   );
 
@@ -59,10 +57,9 @@ export function TaskAttachmentGrid({
         previewItems.map(async (item) => {
           try {
             const bytes = await readImageFile(item.path);
-            const blob = new Blob(
-              [new Uint8Array(bytes)],
-              { type: item.mimeType || guessImageMimeType(item.path) },
-            );
+            const blob = new Blob([new Uint8Array(bytes)], {
+              type: item.mimeType || guessImageMimeType(item.path),
+            });
             const url = URL.createObjectURL(blob);
             objectUrls.push(url);
             return [item.id, url] as const;
@@ -78,9 +75,7 @@ export function TaskAttachmentGrid({
         return;
       }
 
-      setPreviewUrls(
-        Object.fromEntries(results.filter(([, url]) => url)),
-      );
+      setPreviewUrls(Object.fromEntries(results.filter(([, url]) => url)));
     }
 
     void loadPreviews();
@@ -106,17 +101,10 @@ export function TaskAttachmentGrid({
         const isImage = isImageAttachment(item.path, item.mimeType);
 
         return (
-          <div
-            key={item.id}
-            className="overflow-hidden rounded-lg border border-border bg-card"
-          >
+          <div key={item.id} className="overflow-hidden rounded-lg border border-border bg-card">
             <div className="relative aspect-[4/3] bg-muted/40">
               {previewSrc ? (
-                <img
-                  src={previewSrc}
-                  alt={item.name}
-                  className="h-full w-full object-cover"
-                />
+                <img src={previewSrc} alt={item.name} className="h-full w-full object-cover" />
               ) : (
                 <div className="flex h-full items-center justify-center text-muted-foreground">
                   {isImage ? <ImageIcon className="h-8 w-8" /> : <File className="h-8 w-8" />}

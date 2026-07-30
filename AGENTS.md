@@ -14,6 +14,8 @@
 - `npm run dev`：启动仅用于浏览器开发的 Vite 前端。
 - `npm run build`：执行 TypeScript 编译并生成前端产物。
 - `npm run preview`：在本地预览生产构建后的前端包。
+- `npm run lint` / `npm run format:check`：前端 ESLint 与 Prettier 检查。
+- `npm run lint:rust`：`cargo clippy --all-targets -- -D warnings`。
 - `npm run tauri dev`：启动带 Rust 后端且前端支持热更新的桌面应用。
 - `npm run tauri build`：构建可分发的桌面安装包。
 - `cargo test --manifest-path src-tauri/Cargo.toml`：运行 Tauri 层的 Rust 测试与编译检查。

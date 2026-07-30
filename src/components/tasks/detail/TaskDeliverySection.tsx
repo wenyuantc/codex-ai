@@ -82,8 +82,7 @@ export function TaskDeliverySection({
   );
   const availableDeps = projectTasks.filter(
     (item) =>
-      item.id !== task.id
-      && !dependencies.some((dep) => dep.depends_on_task_id === item.id),
+      item.id !== task.id && !dependencies.some((dep) => dep.depends_on_task_id === item.id),
   );
 
   const handleAddExistingTag = async (tagId: string) => {
@@ -186,7 +185,9 @@ export function TaskDeliverySection({
             className={`mt-1 h-8 text-xs ${overdue ? "border-destructive text-destructive" : ""}`}
           />
           {dueDate && (
-            <p className={`mt-1 text-[11px] ${overdue ? "text-destructive" : "text-muted-foreground"}`}>
+            <p
+              className={`mt-1 text-[11px] ${overdue ? "text-destructive" : "text-muted-foreground"}`}
+            >
               {overdue ? "已逾期 · " : ""}
               {formatDate(dueDate)}
             </p>
@@ -197,7 +198,9 @@ export function TaskDeliverySection({
           <label className="text-xs font-medium text-muted-foreground">里程碑</label>
           <Select
             value={milestoneId || NONE_VALUE}
-            onValueChange={(value) => onMilestoneChange(!value || value === NONE_VALUE ? "" : value)}
+            onValueChange={(value) =>
+              onMilestoneChange(!value || value === NONE_VALUE ? "" : value)
+            }
           >
             <SelectTrigger className="mt-1 h-8 bg-background text-xs">
               <SelectValue>

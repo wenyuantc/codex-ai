@@ -60,7 +60,9 @@ export function ContinueConversationDialog({
     let currentProject = project;
     if (!currentProject) {
       await fetchProjects();
-      currentProject = useProjectStore.getState().projects.find((item) => item.id === task.project_id);
+      currentProject = useProjectStore
+        .getState()
+        .projects.find((item) => item.id === task.project_id);
     }
 
     if (!currentProject) {
@@ -105,7 +107,10 @@ export function ContinueConversationDialog({
 
         <div className="space-y-2">
           <div className="flex items-center justify-between gap-3">
-            <label className="text-sm font-medium text-foreground" htmlFor="continue-conversation-prompt">
+            <label
+              className="text-sm font-medium text-foreground"
+              htmlFor="continue-conversation-prompt"
+            >
               对话内容
             </label>
             <Button

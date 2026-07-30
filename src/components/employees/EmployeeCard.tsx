@@ -56,12 +56,41 @@ export function EmployeeCard({ employee, taskCount = 0, highlighted = false }: E
     tester: "测试员",
     coordinator: "协调员",
   };
-  const allModelOptions = employee.ai_provider === "claude" ? CLAUDE_MODEL_OPTIONS : employee.ai_provider === "opencode" ? [] : employee.ai_provider === "grok" ? GROK_MODEL_OPTIONS : CODEX_MODEL_OPTIONS;
-  const allEffortOptions = employee.ai_provider === "claude" ? CLAUDE_THINKING_BUDGET_OPTIONS : employee.ai_provider === "opencode" ? OPENCODE_EFFORT_OPTIONS : employee.ai_provider === "grok" ? GROK_EFFORT_OPTIONS : REASONING_EFFORT_OPTIONS;
-  const displayModel = employee.ai_provider === "claude" ? normalizeClaudeModel(employee.model) : employee.ai_provider === "grok" ? normalizeGrokModel(employee.model) : employee.model;
-  const modelLabel = allModelOptions.find((option) => option.value === displayModel)?.label ?? displayModel;
-  const reasoningLabel = allEffortOptions.find((option) => option.value === employee.reasoning_effort)?.label ?? employee.reasoning_effort;
-  const providerLabel = employee.ai_provider === "claude" ? "Claude" : employee.ai_provider === "opencode" ? "OpenCode" : employee.ai_provider === "grok" ? "Grok" : "Codex";
+  const allModelOptions =
+    employee.ai_provider === "claude"
+      ? CLAUDE_MODEL_OPTIONS
+      : employee.ai_provider === "opencode"
+        ? []
+        : employee.ai_provider === "grok"
+          ? GROK_MODEL_OPTIONS
+          : CODEX_MODEL_OPTIONS;
+  const allEffortOptions =
+    employee.ai_provider === "claude"
+      ? CLAUDE_THINKING_BUDGET_OPTIONS
+      : employee.ai_provider === "opencode"
+        ? OPENCODE_EFFORT_OPTIONS
+        : employee.ai_provider === "grok"
+          ? GROK_EFFORT_OPTIONS
+          : REASONING_EFFORT_OPTIONS;
+  const displayModel =
+    employee.ai_provider === "claude"
+      ? normalizeClaudeModel(employee.model)
+      : employee.ai_provider === "grok"
+        ? normalizeGrokModel(employee.model)
+        : employee.model;
+  const modelLabel =
+    allModelOptions.find((option) => option.value === displayModel)?.label ?? displayModel;
+  const reasoningLabel =
+    allEffortOptions.find((option) => option.value === employee.reasoning_effort)?.label ??
+    employee.reasoning_effort;
+  const providerLabel =
+    employee.ai_provider === "claude"
+      ? "Claude"
+      : employee.ai_provider === "opencode"
+        ? "OpenCode"
+        : employee.ai_provider === "grok"
+          ? "Grok"
+          : "Codex";
 
   return (
     <div
@@ -83,8 +112,21 @@ export function EmployeeCard({ employee, taskCount = 0, highlighted = false }: E
               {employee.specialization && ` · ${employee.specialization}`}
             </div>
             <div className="text-[11px] text-muted-foreground/80 truncate">
-              <span className={employee.ai_provider === "claude" ? "text-orange-500" : employee.ai_provider === "opencode" ? "text-blue-500" : employee.ai_provider === "grok" ? "text-purple-500" : "text-green-500"}>{providerLabel}</span>
-              {" · "}{modelLabel} · 推理{reasoningLabel}
+              <span
+                className={
+                  employee.ai_provider === "claude"
+                    ? "text-orange-500"
+                    : employee.ai_provider === "opencode"
+                      ? "text-blue-500"
+                      : employee.ai_provider === "grok"
+                        ? "text-purple-500"
+                        : "text-green-500"
+                }
+              >
+                {providerLabel}
+              </span>
+              {" · "}
+              {modelLabel} · 推理{reasoningLabel}
             </div>
           </div>
           <EmployeeStatusBadge status={employee.status} />
@@ -95,7 +137,9 @@ export function EmployeeCard({ employee, taskCount = 0, highlighted = false }: E
           <div className="mt-3">
             <div className="flex justify-between text-xs text-muted-foreground mb-1">
               <span>工作负载</span>
-              <span>{taskCount}/{MAX_TASKS}</span>
+              <span>
+                {taskCount}/{MAX_TASKS}
+              </span>
             </div>
             <Progress value={workload} className="h-1.5" />
           </div>
@@ -154,11 +198,7 @@ export function EmployeeCard({ employee, taskCount = 0, highlighted = false }: E
         onOpenChange={setShowRunningDialog}
       />
 
-      <EditEmployeeDialog
-        open={showEdit}
-        onOpenChange={setShowEdit}
-        employee={employee}
-      />
+      <EditEmployeeDialog open={showEdit} onOpenChange={setShowEdit} employee={employee} />
 
       <DeleteEmployeeDialog
         open={showDeleteDialog}

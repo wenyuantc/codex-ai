@@ -126,7 +126,9 @@ export function SshSettingsTab({
                   {editingSshConfigId ? "编辑 SSH 配置" : "新建 SSH 配置"}
                 </h4>
                 <p className="text-xs text-muted-foreground">
-                  {editingSshConfigId ? "更新后会保留当前配置引用。" : "保存后可用于 SSH 项目和远程运行设置。"}
+                  {editingSshConfigId
+                    ? "更新后会保留当前配置引用。"
+                    : "保存后可用于 SSH 项目和远程运行设置。"}
                 </p>
               </div>
               {selectedSshConfig && (
@@ -193,7 +195,9 @@ export function SshSettingsTab({
                 </Select>
               </div>
               <div>
-                <label className="text-xs font-medium text-muted-foreground">Known Hosts 策略</label>
+                <label className="text-xs font-medium text-muted-foreground">
+                  Known Hosts 策略
+                </label>
                 <Select
                   value={sshForm.knownHostsMode}
                   onValueChange={(value) => onFormChange({ knownHostsMode: value ?? "accept-new" })}
@@ -236,12 +240,18 @@ export function SshSettingsTab({
                   </div>
                 </div>
                 <div>
-                  <label className="text-xs font-medium text-muted-foreground">Passphrase（可选）</label>
+                  <label className="text-xs font-medium text-muted-foreground">
+                    Passphrase（可选）
+                  </label>
                   <Input
                     type="password"
                     value={sshForm.passphrase}
                     onChange={(event) => onFormChange({ passphrase: event.target.value })}
-                    placeholder={selectedSshConfig?.passphrase_configured ? "留空表示保持现有 passphrase" : "可选"}
+                    placeholder={
+                      selectedSshConfig?.passphrase_configured
+                        ? "留空表示保持现有 passphrase"
+                        : "可选"
+                    }
                     className="mt-1"
                   />
                 </div>
@@ -254,17 +264,27 @@ export function SshSettingsTab({
                     type="password"
                     value={sshForm.password}
                     onChange={(event) => onFormChange({ password: event.target.value })}
-                    placeholder={selectedSshConfig?.password_configured ? "留空表示保持现有密码" : "输入登录密码"}
+                    placeholder={
+                      selectedSshConfig?.password_configured
+                        ? "留空表示保持现有密码"
+                        : "输入登录密码"
+                    }
                     className="mt-1"
                   />
                 </div>
                 <div>
-                  <label className="text-xs font-medium text-muted-foreground">Passphrase（可选）</label>
+                  <label className="text-xs font-medium text-muted-foreground">
+                    Passphrase（可选）
+                  </label>
                   <Input
                     type="password"
                     value={sshForm.passphrase}
                     onChange={(event) => onFormChange({ passphrase: event.target.value })}
-                    placeholder={selectedSshConfig?.passphrase_configured ? "留空表示保持现有 passphrase" : "可选"}
+                    placeholder={
+                      selectedSshConfig?.passphrase_configured
+                        ? "留空表示保持现有 passphrase"
+                        : "可选"
+                    }
                     className="mt-1"
                   />
                 </div>
@@ -277,12 +297,16 @@ export function SshSettingsTab({
                 <div className="mt-1">主机：{selectedSshConfigSummary}</div>
                 <div className="mt-1">
                   连接测试：
-                  {(selectedSshConfig.auth_type === "password"
-                    ? selectedSshConfig.password_probe_status
-                    : selectedSshConfig.last_check_status)
-                    ? ` ${selectedSshConfig.auth_type === "password"
+                  {(
+                    selectedSshConfig.auth_type === "password"
                       ? selectedSshConfig.password_probe_status
-                      : selectedSshConfig.last_check_status}`
+                      : selectedSshConfig.last_check_status
+                  )
+                    ? ` ${
+                        selectedSshConfig.auth_type === "password"
+                          ? selectedSshConfig.password_probe_status
+                          : selectedSshConfig.last_check_status
+                      }`
                     : " 未检测"}
                 </div>
                 {(selectedSshConfig.auth_type === "password"
@@ -307,9 +331,11 @@ export function SshSettingsTab({
                 onClick={onTestConnection}
                 disabled={sshFormLoading !== null || !selectedSshConfigId}
               >
-                {sshFormLoading === "probe"
-                  ? <Loader2 className="h-4 w-4 animate-spin" />
-                  : <ServerCog className="h-4 w-4" />}
+                {sshFormLoading === "probe" ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <ServerCog className="h-4 w-4" />
+                )}
                 测试连接
               </Button>
               <Button
@@ -317,9 +343,11 @@ export function SshSettingsTab({
                 onClick={onDelete}
                 disabled={sshFormLoading !== null || !editingSshConfigId}
               >
-                {sshFormLoading === "delete"
-                  ? <Loader2 className="h-4 w-4 animate-spin" />
-                  : <Trash2 className="h-4 w-4" />}
+                {sshFormLoading === "delete" ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Trash2 className="h-4 w-4" />
+                )}
                 删除配置
               </Button>
             </div>

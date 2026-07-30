@@ -11,11 +11,7 @@ import {
   countStageableGitFiles,
   countStagedGitFiles,
 } from "@/lib/gitWorkingTree";
-import type {
-  Task,
-  TaskGitCommitOverview,
-  TaskGitContext,
-} from "@/lib/types";
+import type { Task, TaskGitCommitOverview, TaskGitContext } from "@/lib/types";
 import { GitCommitDialogContent } from "@/components/git/GitCommitDialogContent";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
@@ -74,7 +70,7 @@ export function TaskGitCommitDialog({
   };
 
   const ensureStagedOverview = async () => {
-    const currentOverview = overview ?? await refreshOverview();
+    const currentOverview = overview ?? (await refreshOverview());
     if (!currentOverview) {
       return null;
     }
@@ -119,9 +115,7 @@ export function TaskGitCommitDialog({
     if (!currentOverview) {
       return;
     }
-    const stagedChangePrompts = buildGitCommitChangePrompts(
-      currentOverview.working_tree_changes,
-    );
+    const stagedChangePrompts = buildGitCommitChangePrompts(currentOverview.working_tree_changes);
     if (stagedChangePrompts.length === 0) {
       setError("当前没有已暂存文件，无法生成提交信息。");
       return;
@@ -170,8 +164,7 @@ export function TaskGitCommitDialog({
     }
   };
 
-  const busy =
-    loadingOverview || stagingAll || generatingCommitMessage || committing;
+  const busy = loadingOverview || stagingAll || generatingCommitMessage || committing;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -179,7 +172,10 @@ export function TaskGitCommitDialog({
         title="提交任务代码"
         description="基于任务 worktree 创建本地提交；如果当前还没有已暂存文件，会先自动暂存全部修改。"
         summaryRows={[
-          { label: "当前分支", value: overview?.current_branch ?? gitContext.task_branch ?? "未知" },
+          {
+            label: "当前分支",
+            value: overview?.current_branch ?? gitContext.task_branch ?? "未知",
+          },
           { label: "已暂存文件", value: stagedFileCount },
           { label: "待暂存文件", value: stageableFileCount },
         ]}
@@ -188,18 +184,12 @@ export function TaskGitCommitDialog({
         generatingCommitMessage={generatingCommitMessage || stagingAll}
         error={error}
         generateDisabled={loadingOverview}
-        submitLabel={
-          committing
-            ? "提交中..."
-            : stagingAll
-              ? "暂存中..."
-              : "创建提交"
-        }
+        submitLabel={committing ? "提交中..." : stagingAll ? "暂存中..." : "创建提交"}
         onCommitMessageChange={setCommitMessage}
         onGenerateCommitMessage={handleGenerateCommitMessage}
         onCancel={() => onOpenChange(false)}
         onSubmit={handleSubmit}
-        footerStart={(
+        footerStart={
           <Button
             type="button"
             variant="ghost"
@@ -211,9 +201,11 @@ export function TaskGitCommitDialog({
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                 刷新中...
               </>
-            ) : "刷新状态"}
+            ) : (
+              "刷新状态"
+            )}
           </Button>
-        )}
+        }
       />
     </Dialog>
   );

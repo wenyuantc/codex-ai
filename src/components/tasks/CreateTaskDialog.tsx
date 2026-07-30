@@ -18,12 +18,7 @@ import {
   setTaskTags,
 } from "@/lib/backend";
 import { getProjectWorkingDir } from "@/lib/projects";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
@@ -45,11 +40,7 @@ interface CreateTaskDialogProps {
   projectId?: string;
 }
 
-export function CreateTaskDialog({
-  open,
-  onOpenChange,
-  projectId,
-}: CreateTaskDialogProps) {
+export function CreateTaskDialog({ open, onOpenChange, projectId }: CreateTaskDialogProps) {
   const { createTask, tasks, fetchTasks } = useTaskStore();
   const { projects, fetchProjects } = useProjectStore();
   const { employees, fetchEmployees } = useEmployeeStore();
@@ -58,9 +49,7 @@ export function CreateTaskDialog({
   const [description, setDescription] = useState("");
   const [priority, setPriority] = useState("medium");
   const [useWorktree, setUseWorktree] = useState("false");
-  const [selectedProjectId, setSelectedProjectId] = useState(
-    projectId ?? ""
-  );
+  const [selectedProjectId, setSelectedProjectId] = useState(projectId ?? "");
   const [assigneeId, setAssigneeId] = useState("");
   const [reviewerId, setReviewerId] = useState("");
   const [coordinatorId, setCoordinatorId] = useState("");
@@ -190,14 +179,31 @@ export function CreateTaskDialog({
       multiple: true,
       title: "选择任务附件（图片/文档/日志）",
       filters: [
-        { name: "Attachments", extensions: ["png", "jpg", "jpeg", "gif", "webp", "bmp", "svg", "pdf", "md", "txt", "log", "json", "csv", "doc", "docx", "zip"] },
+        {
+          name: "Attachments",
+          extensions: [
+            "png",
+            "jpg",
+            "jpeg",
+            "gif",
+            "webp",
+            "bmp",
+            "svg",
+            "pdf",
+            "md",
+            "txt",
+            "log",
+            "json",
+            "csv",
+            "doc",
+            "docx",
+            "zip",
+          ],
+        },
       ],
     });
 
-    const nextPaths = dedupePaths([
-      ...attachmentPaths,
-      ...normalizeDialogSelection(selected),
-    ]);
+    const nextPaths = dedupePaths([...attachmentPaths, ...normalizeDialogSelection(selected)]);
     setAttachmentPaths(nextPaths);
   };
 
@@ -250,20 +256,23 @@ export function CreateTaskDialog({
     setCreateError(null);
     setSaving(true);
     try {
-      const created = await createTask({
-        title: title.trim(),
-        description: description.trim() || undefined,
-        priority,
-        project_id: selectedProjectId,
-        use_worktree: useWorktree === "true",
-        assignee_id: assigneeId || undefined,
-        reviewer_id: reviewerId || undefined,
-        coordinator_id: coordinatorId || undefined,
-        due_date: dueDate || null,
-        attachment_source_paths: attachmentPaths,
-      }, {
-        refreshProjectId: projectId,
-      });
+      const created = await createTask(
+        {
+          title: title.trim(),
+          description: description.trim() || undefined,
+          priority,
+          project_id: selectedProjectId,
+          use_worktree: useWorktree === "true",
+          assignee_id: assigneeId || undefined,
+          reviewer_id: reviewerId || undefined,
+          coordinator_id: coordinatorId || undefined,
+          due_date: dueDate || null,
+          attachment_source_paths: attachmentPaths,
+        },
+        {
+          refreshProjectId: projectId,
+        },
+      );
       if (selectedTagIds.length > 0) {
         await setTaskTags({ task_id: created.id, tag_ids: selectedTagIds });
       }
@@ -290,9 +299,7 @@ export function CreateTaskDialog({
 
         <div className="space-y-3">
           <div>
-            <label className="text-xs font-medium text-muted-foreground">
-              标题 *
-            </label>
+            <label className="text-xs font-medium text-muted-foreground">标题 *</label>
             <Input
               value={title}
               onChange={(e) => setTitle(e.target.value)}
@@ -303,9 +310,7 @@ export function CreateTaskDialog({
 
           <div className="space-y-2">
             <div className="flex items-center justify-between gap-3">
-              <label className="text-xs font-medium text-muted-foreground">
-                描述
-              </label>
+              <label className="text-xs font-medium text-muted-foreground">描述</label>
               <button
                 type="button"
                 onClick={() => void handleGenerateOptimizedDescription()}
@@ -338,7 +343,9 @@ export function CreateTaskDialog({
                 <div className="flex items-center justify-between gap-2">
                   <div>
                     <p className="text-xs font-medium text-primary">优化后的提示词</p>
-                    <p className="text-[11px] text-muted-foreground">确认后会替换当前详情输入框内容</p>
+                    <p className="text-[11px] text-muted-foreground">
+                      确认后会替换当前详情输入框内容
+                    </p>
                   </div>
                   <button
                     type="button"
@@ -357,9 +364,7 @@ export function CreateTaskDialog({
 
           <div className="space-y-3">
             <div>
-              <label className="text-xs font-medium text-muted-foreground">
-                项目 *
-              </label>
+              <label className="text-xs font-medium text-muted-foreground">项目 *</label>
               <Select
                 value={selectedProjectId || null}
                 onValueChange={(value) => {
@@ -374,7 +379,7 @@ export function CreateTaskDialog({
                   <SelectValue placeholder="选择项目">
                     {(value) =>
                       typeof value === "string"
-                        ? projects.find((project) => project.id === value)?.name ?? "选择项目"
+                        ? (projects.find((project) => project.id === value)?.name ?? "选择项目")
                         : "选择项目"
                     }
                   </SelectValue>
@@ -391,9 +396,7 @@ export function CreateTaskDialog({
 
             <div className="grid gap-3 md:grid-cols-2">
               <div>
-                <label className="text-xs font-medium text-muted-foreground">
-                  Worktree 模式
-                </label>
+                <label className="text-xs font-medium text-muted-foreground">Worktree 模式</label>
                 <Select
                   value={useWorktree}
                   onValueChange={(value) => setUseWorktree(value ?? "false")}
@@ -427,18 +430,13 @@ export function CreateTaskDialog({
               </div>
 
               <div>
-                <label className="text-xs font-medium text-muted-foreground">
-                  优先级
-                </label>
-                <Select
-                  value={priority}
-                  onValueChange={(value) => setPriority(value ?? "medium")}
-                >
+                <label className="text-xs font-medium text-muted-foreground">优先级</label>
+                <Select value={priority} onValueChange={(value) => setPriority(value ?? "medium")}>
                   <SelectTrigger className="mt-1 bg-background">
                     <SelectValue placeholder="选择优先级">
                       {(value) =>
                         typeof value === "string"
-                          ? PRIORITIES.find((item) => item.value === value)?.label ?? "选择优先级"
+                          ? (PRIORITIES.find((item) => item.value === value)?.label ?? "选择优先级")
                           : "选择优先级"
                       }
                     </SelectValue>
@@ -455,9 +453,7 @@ export function CreateTaskDialog({
             </div>
 
             <div>
-              <label className="text-xs font-medium text-muted-foreground">
-                截止日期（可选）
-              </label>
+              <label className="text-xs font-medium text-muted-foreground">截止日期（可选）</label>
               <Input
                 type="date"
                 value={dueDate}
@@ -468,9 +464,7 @@ export function CreateTaskDialog({
             </div>
 
             <div className="space-y-2">
-              <label className="text-xs font-medium text-muted-foreground">
-                标签（可选）
-              </label>
+              <label className="text-xs font-medium text-muted-foreground">标签（可选）</label>
               <div className="flex flex-wrap gap-1.5">
                 {selectedTagIds.length === 0 && (
                   <span className="text-[11px] text-muted-foreground">未选择标签</span>
@@ -522,9 +516,7 @@ export function CreateTaskDialog({
             </div>
 
             <div className="space-y-2">
-              <label className="text-xs font-medium text-muted-foreground">
-                依赖任务（可选）
-              </label>
+              <label className="text-xs font-medium text-muted-foreground">依赖任务（可选）</label>
               <div className="flex flex-wrap gap-1.5">
                 {dependencyTaskIds.length === 0 && (
                   <span className="text-[11px] text-muted-foreground">未选择依赖</span>
@@ -574,9 +566,7 @@ export function CreateTaskDialog({
           </div>
 
           <div>
-            <label className="text-xs font-medium text-muted-foreground">
-              指派给
-            </label>
+            <label className="text-xs font-medium text-muted-foreground">指派给</label>
             <Select
               disabled={saving}
               value={assigneeId || UNASSIGNED_VALUE}
@@ -603,7 +593,14 @@ export function CreateTaskDialog({
                 <SelectItem value={UNASSIGNED_VALUE}>未指派</SelectItem>
                 {employees.map((emp) => (
                   <SelectItem key={emp.id} value={emp.id}>
-                    {emp.name} ({getEmployeeRoleLabel(emp.role)}) · {emp.ai_provider === "claude" ? "Claude" : emp.ai_provider === "opencode" ? "OpenCode" : emp.ai_provider === "grok" ? "Grok" : "Codex"}
+                    {emp.name} ({getEmployeeRoleLabel(emp.role)}) ·{" "}
+                    {emp.ai_provider === "claude"
+                      ? "Claude"
+                      : emp.ai_provider === "opencode"
+                        ? "OpenCode"
+                        : emp.ai_provider === "grok"
+                          ? "Grok"
+                          : "Codex"}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -611,9 +608,7 @@ export function CreateTaskDialog({
           </div>
 
           <div>
-            <label className="text-xs font-medium text-muted-foreground">
-              审查员
-            </label>
+            <label className="text-xs font-medium text-muted-foreground">审查员</label>
             <Select
               disabled={saving}
               value={reviewerId || UNASSIGNED_VALUE}
@@ -640,7 +635,14 @@ export function CreateTaskDialog({
                 <SelectItem value={UNASSIGNED_VALUE}>未指定</SelectItem>
                 {reviewerCandidates.map((emp) => (
                   <SelectItem key={emp.id} value={emp.id}>
-                    {emp.name} ({getEmployeeRoleLabel(emp.role)}) · {emp.ai_provider === "claude" ? "Claude" : emp.ai_provider === "opencode" ? "OpenCode" : emp.ai_provider === "grok" ? "Grok" : "Codex"}
+                    {emp.name} ({getEmployeeRoleLabel(emp.role)}) ·{" "}
+                    {emp.ai_provider === "claude"
+                      ? "Claude"
+                      : emp.ai_provider === "opencode"
+                        ? "OpenCode"
+                        : emp.ai_provider === "grok"
+                          ? "Grok"
+                          : "Codex"}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -653,9 +655,7 @@ export function CreateTaskDialog({
           </div>
 
           <div>
-            <label className="text-xs font-medium text-muted-foreground">
-              协调员
-            </label>
+            <label className="text-xs font-medium text-muted-foreground">协调员</label>
             <Select
               disabled={saving}
               value={coordinatorId || UNASSIGNED_VALUE}
@@ -682,7 +682,14 @@ export function CreateTaskDialog({
                 <SelectItem value={UNASSIGNED_VALUE}>未指定</SelectItem>
                 {coordinatorCandidates.map((emp) => (
                   <SelectItem key={emp.id} value={emp.id}>
-                    {emp.name} ({getEmployeeRoleLabel(emp.role)}) · {emp.ai_provider === "claude" ? "Claude" : emp.ai_provider === "opencode" ? "OpenCode" : emp.ai_provider === "grok" ? "Grok" : "Codex"}
+                    {emp.name} ({getEmployeeRoleLabel(emp.role)}) ·{" "}
+                    {emp.ai_provider === "claude"
+                      ? "Claude"
+                      : emp.ai_provider === "opencode"
+                        ? "OpenCode"
+                        : emp.ai_provider === "grok"
+                          ? "Grok"
+                          : "Codex"}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -692,11 +699,10 @@ export function CreateTaskDialog({
           <div className="space-y-2">
             <div className="flex items-center justify-between gap-3">
               <div>
-                <label className="text-xs font-medium text-muted-foreground">
-                  附件
-                </label>
+                <label className="text-xs font-medium text-muted-foreground">附件</label>
                 <p className="text-[11px] text-muted-foreground">
-                  创建任务时会复制到应用托管目录；图片会在后续运行 Codex 时自动附带，其他文件会作为任务附件保留。
+                  创建任务时会复制到应用托管目录；图片会在后续运行 Codex
+                  时自动附带，其他文件会作为任务附件保留。
                 </p>
               </div>
               <button
@@ -722,8 +728,9 @@ export function CreateTaskDialog({
                 id: path,
                 name: path.split(/[\\/]/).pop() ?? path,
                 path,
-                  removable: true,
-                  onRemove: () => setAttachmentPaths((current) => current.filter((item) => item !== path)),
+                removable: true,
+                onRemove: () =>
+                  setAttachmentPaths((current) => current.filter((item) => item !== path)),
               }))}
               emptyText="还没有添加附件"
             />

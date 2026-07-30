@@ -30,16 +30,11 @@ function sortNotifications(items: NotificationItem[]) {
   });
 }
 
-function mergeNotifications(
-  persisted: AppNotification[],
-  transient: TransientNotification[],
-) {
+function mergeNotifications(persisted: AppNotification[], transient: TransientNotification[]) {
   return sortNotifications([...transient, ...persisted]);
 }
 
-function getHighestUnreadSeverity(
-  notifications: NotificationItem[],
-): NotificationSeverity | null {
+function getHighestUnreadSeverity(notifications: NotificationItem[]): NotificationSeverity | null {
   const severityRank: Record<NotificationSeverity, number> = {
     info: 1,
     success: 2,
@@ -61,10 +56,7 @@ function getHighestUnreadSeverity(
   }, null);
 }
 
-function buildDerivedState(
-  persisted: AppNotification[],
-  transient: TransientNotification[],
-) {
+function buildDerivedState(persisted: AppNotification[], transient: TransientNotification[]) {
   const notifications = mergeNotifications(persisted, transient);
   const unreadCount = notifications.filter((notification) => !notification.is_read).length;
   return {
@@ -126,17 +118,15 @@ export const useNotificationStore = create<NotificationStore>((set, get) => ({
   },
 
   markRead: async (id) => {
-    const isTransientNotification = get().transientNotifications.some(
-      (notification) => notification.id === id,
-    ) || isTransientNotificationId(id);
+    const isTransientNotification =
+      get().transientNotifications.some((notification) => notification.id === id) ||
+      isTransientNotificationId(id);
 
     if (isTransientNotification) {
       set((state) => {
-        const transientNotifications = state.transientNotifications.map((notification) => (
-          notification.id === id
-            ? { ...notification, is_read: true }
-            : notification
-        ));
+        const transientNotifications = state.transientNotifications.map((notification) =>
+          notification.id === id ? { ...notification, is_read: true } : notification,
+        );
         return buildDerivedState(state.persistedNotifications, transientNotifications);
       });
       return;

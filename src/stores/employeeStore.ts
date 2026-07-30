@@ -67,7 +67,15 @@ interface EmployeeStore {
     updates: Partial<
       Pick<
         Employee,
-        "name" | "role" | "model" | "reasoning_effort" | "specialization" | "system_prompt" | "project_id" | "status" | "ai_provider"
+        | "name"
+        | "role"
+        | "model"
+        | "reasoning_effort"
+        | "specialization"
+        | "system_prompt"
+        | "project_id"
+        | "status"
+        | "ai_provider"
       >
     >,
   ) => Promise<void>;
@@ -142,7 +150,10 @@ function appendSessionLogLine(
   ];
 }
 
-function mergeSessionLogHistory(historyLines: CodexSessionLogLine[], liveLines: CodexSessionLogLine[]) {
+function mergeSessionLogHistory(
+  historyLines: CodexSessionLogLine[],
+  liveLines: CodexSessionLogLine[],
+) {
   const mergedLines = historyLines.slice(-2000);
   const seenEventIds = new Set(mergedLines.map((entry) => entry.event_id));
 
@@ -159,11 +170,11 @@ function mergeSessionLogHistory(historyLines: CodexSessionLogLine[], liveLines: 
 async function syncEmployeeRuntime(employeeId: string) {
   const runtime = await getEmployeeRuntimeStatus(employeeId);
   useEmployeeStore.setState((state) => ({
-    employees: state.employees.map((employee) => (
+    employees: state.employees.map((employee) =>
       employee.id === employeeId
         ? { ...employee, status: deriveEmployeeRuntimeStatus(employee, runtime) }
-        : employee
-    )),
+        : employee,
+    ),
     employeeRuntime: {
       ...state.employeeRuntime,
       [employeeId]: runtime,
@@ -184,11 +195,16 @@ export const useEmployeeStore = create<EmployeeStore>((set, get) => ({
     try {
       const employees = await select<Employee>("SELECT * FROM employees ORDER BY created_at");
       const runtimeResults = await Promise.allSettled(
-        employees.map(async (employee) => [employee.id, await getEmployeeRuntimeStatus(employee.id)] as const),
+        employees.map(
+          async (employee) => [employee.id, await getEmployeeRuntimeStatus(employee.id)] as const,
+        ),
       );
       const runtimeMap = new Map(
         runtimeResults
-          .filter((result): result is PromiseFulfilledResult<readonly [string, EmployeeRuntimeStatus]> => result.status === "fulfilled")
+          .filter(
+            (result): result is PromiseFulfilledResult<readonly [string, EmployeeRuntimeStatus]> =>
+              result.status === "fulfilled",
+          )
           .map((result) => result.value),
       );
 
@@ -199,15 +215,18 @@ export const useEmployeeStore = create<EmployeeStore>((set, get) => ({
             ? { ...employee, status: deriveEmployeeRuntimeStatus(employee, runtime) }
             : employee;
         }),
-        employeeRuntime: employees.reduce<Record<string, EmployeeRuntimeStatus>>((acc, employee) => {
-          const runtime = runtimeMap.get(employee.id);
-          if (runtime) {
-            acc[employee.id] = runtime;
-          } else if (state.employeeRuntime[employee.id]) {
-            acc[employee.id] = state.employeeRuntime[employee.id];
-          }
-          return acc;
-        }, { ...state.employeeRuntime }),
+        employeeRuntime: employees.reduce<Record<string, EmployeeRuntimeStatus>>(
+          (acc, employee) => {
+            const runtime = runtimeMap.get(employee.id);
+            if (runtime) {
+              acc[employee.id] = runtime;
+            } else if (state.employeeRuntime[employee.id]) {
+              acc[employee.id] = state.employeeRuntime[employee.id];
+            }
+            return acc;
+          },
+          { ...state.employeeRuntime },
+        ),
         loading: false,
       }));
     } catch (error) {
@@ -252,7 +271,7 @@ export const useEmployeeStore = create<EmployeeStore>((set, get) => ({
   updateEmployeeStatus: async (id, status) => {
     const employee = await updateEmployeeStatusCommand(id, status);
     set((state) => ({
-      employees: state.employees.map((current) => (
+      employees: state.employees.map((current) =>
         current.id === id
           ? {
               ...employee,
@@ -263,12 +282,19 @@ export const useEmployeeStore = create<EmployeeStore>((set, get) => ({
                     ? deriveEmployeeRuntimeStatus(employee, state.employeeRuntime[id])
                     : employee.status,
             }
-          : current
-      )),
+          : current,
+      ),
     }));
   },
 
-  addCodexOutput: (_employeeId, line, taskId, sessionKind = "execution", sessionRecordId, sessionEventId) => {
+  addCodexOutput: (
+    _employeeId,
+    line,
+    taskId,
+    sessionKind = "execution",
+    sessionRecordId,
+    sessionEventId,
+  ) => {
     set((state) => ({
       taskLogs: taskId
         ? {
@@ -305,10 +331,7 @@ export const useEmployeeStore = create<EmployeeStore>((set, get) => ({
     set((state) => ({
       sessionLogs: {
         ...state.sessionLogs,
-        [sessionRecordId]: mergeSessionLogHistory(
-          lines,
-          state.sessionLogs[sessionRecordId] ?? [],
-        ),
+        [sessionRecordId]: mergeSessionLogHistory(lines, state.sessionLogs[sessionRecordId] ?? []),
       },
     }));
   },
@@ -339,11 +362,9 @@ export const useEmployeeStore = create<EmployeeStore>((set, get) => ({
         }),
         onCodexSession((session: CodexSession) => {
           set((state) => ({
-            employees: state.employees.map((employee) => (
-              employee.id === session.employee_id
-                ? { ...employee, status: "busy" }
-                : employee
-            )),
+            employees: state.employees.map((employee) =>
+              employee.id === session.employee_id ? { ...employee, status: "busy" } : employee,
+            ),
           }));
           void get().refreshEmployeeRuntimeStatus(session.employee_id);
         }),
@@ -385,11 +406,9 @@ export const useEmployeeStore = create<EmployeeStore>((set, get) => ({
         }),
         onClaudeSession((session: ClaudeSession) => {
           set((state) => ({
-            employees: state.employees.map((employee) => (
-              employee.id === session.employee_id
-                ? { ...employee, status: "busy" }
-                : employee
-            )),
+            employees: state.employees.map((employee) =>
+              employee.id === session.employee_id ? { ...employee, status: "busy" } : employee,
+            ),
           }));
           void get().refreshEmployeeRuntimeStatus(session.employee_id);
         }),
@@ -407,7 +426,10 @@ export const useEmployeeStore = create<EmployeeStore>((set, get) => ({
 
           void (async () => {
             const runtime = await syncEmployeeRuntime(exit.employee_id).catch((error) => {
-              console.error(`Failed to sync runtime after Claude exit for ${exit.employee_id}:`, error);
+              console.error(
+                `Failed to sync runtime after Claude exit for ${exit.employee_id}:`,
+                error,
+              );
               return null;
             });
 
@@ -431,11 +453,9 @@ export const useEmployeeStore = create<EmployeeStore>((set, get) => ({
         }),
         onOpenCodeSession((session: OpenCodeSession) => {
           set((state) => ({
-            employees: state.employees.map((employee) => (
-              employee.id === session.employee_id
-                ? { ...employee, status: "busy" }
-                : employee
-            )),
+            employees: state.employees.map((employee) =>
+              employee.id === session.employee_id ? { ...employee, status: "busy" } : employee,
+            ),
           }));
           void get().refreshEmployeeRuntimeStatus(session.employee_id);
         }),
@@ -453,7 +473,10 @@ export const useEmployeeStore = create<EmployeeStore>((set, get) => ({
 
           void (async () => {
             const runtime = await syncEmployeeRuntime(exit.employee_id).catch((error) => {
-              console.error(`Failed to sync runtime after OpenCode exit for ${exit.employee_id}:`, error);
+              console.error(
+                `Failed to sync runtime after OpenCode exit for ${exit.employee_id}:`,
+                error,
+              );
               return null;
             });
 
@@ -477,11 +500,9 @@ export const useEmployeeStore = create<EmployeeStore>((set, get) => ({
         }),
         onGrokSession((session: GrokSession) => {
           set((state) => ({
-            employees: state.employees.map((employee) => (
-              employee.id === session.employee_id
-                ? { ...employee, status: "busy" }
-                : employee
-            )),
+            employees: state.employees.map((employee) =>
+              employee.id === session.employee_id ? { ...employee, status: "busy" } : employee,
+            ),
           }));
           void get().refreshEmployeeRuntimeStatus(session.employee_id);
         }),
@@ -499,7 +520,10 @@ export const useEmployeeStore = create<EmployeeStore>((set, get) => ({
 
           void (async () => {
             const runtime = await syncEmployeeRuntime(exit.employee_id).catch((error) => {
-              console.error(`Failed to sync runtime after Grok exit for ${exit.employee_id}:`, error);
+              console.error(
+                `Failed to sync runtime after Grok exit for ${exit.employee_id}:`,
+                error,
+              );
               return null;
             });
 

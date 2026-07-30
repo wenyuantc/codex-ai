@@ -1352,7 +1352,7 @@ pub async fn start_opencode_with_manager(
             .ok_or_else(|| "SSH 项目缺少远程仓库目录，无法启动 OpenCode。".to_string())?
     };
 
-    if let (Some(ref task_id), Some(ref task_git_context_id)) =
+    if let (Some(task_id), Some(task_git_context_id)) =
         (task_id.as_ref(), task_git_context_id.as_ref())
     {
         let validated_worktree =

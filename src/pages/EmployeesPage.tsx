@@ -13,9 +13,8 @@ export function EmployeesPage() {
   const [searchParams] = useSearchParams();
   const currentProjectId = useProjectStore((state) => state.currentProject?.id);
   const highlightedEmployeeId = searchParams.get("employeeId");
-  const highlightedEmployeeNonce = (
-    location.state as { globalSearchNonce?: number } | null
-  )?.globalSearchNonce ?? null;
+  const highlightedEmployeeNonce =
+    (location.state as { globalSearchNonce?: number } | null)?.globalSearchNonce ?? null;
 
   useHotkeys("n", () => setShowCreate(true), { preventDefault: true });
 
@@ -29,7 +28,9 @@ export function EmployeesPage() {
         >
           <Plus className="h-4 w-4" />
           添加员工
-          <Kbd variant="primary" size="xs" className="ml-1.5">N</Kbd>
+          <Kbd variant="primary" size="xs" className="ml-1.5">
+            N
+          </Kbd>
         </button>
       </div>
 

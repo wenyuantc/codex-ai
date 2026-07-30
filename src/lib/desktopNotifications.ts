@@ -20,7 +20,8 @@ const desktopDeliveryReasons = new Set<DesktopNotificationEvent["reason"]>([
 let desktopNotificationRefCount = 0;
 let desktopNotificationInitPromise: Promise<void> | null = null;
 let desktopNotificationCleanup: (() => void) | null = null;
-let desktopNotificationOpenHandler: ((payload: DesktopNotificationExtra) => Promise<void>) | null = null;
+let desktopNotificationOpenHandler: ((payload: DesktopNotificationExtra) => Promise<void>) | null =
+  null;
 let desktopNotificationPermissionRequested = false;
 
 const deliveredDesktopNotificationKeys = new Set<string>();
@@ -38,13 +39,13 @@ function isDesktopNotificationExtra(value: unknown): value is DesktopNotificatio
 
   const candidate = value as Partial<DesktopNotificationExtra>;
   return (
-    typeof candidate.notification_id === "string"
-    && typeof candidate.title === "string"
-    && typeof candidate.message === "string"
-    && typeof candidate.last_triggered_at === "string"
-    && typeof candidate.is_transient === "boolean"
-    && typeof candidate.reason === "string"
-    && desktopDeliveryReasons.has(candidate.reason as DesktopNotificationEvent["reason"])
+    typeof candidate.notification_id === "string" &&
+    typeof candidate.title === "string" &&
+    typeof candidate.message === "string" &&
+    typeof candidate.last_triggered_at === "string" &&
+    typeof candidate.is_transient === "boolean" &&
+    typeof candidate.reason === "string" &&
+    desktopDeliveryReasons.has(candidate.reason as DesktopNotificationEvent["reason"])
   );
 }
 
@@ -67,10 +68,7 @@ async function shouldSendDesktopNotification(event: DesktopNotificationEvent) {
 
   try {
     const window = getCurrentWindow();
-    const [visible, focused] = await Promise.all([
-      window.isVisible(),
-      window.isFocused(),
-    ]);
+    const [visible, focused] = await Promise.all([window.isVisible(), window.isFocused()]);
     return !(visible && focused);
   } catch (error) {
     console.error("Failed to inspect window visibility for desktop notifications:", error);

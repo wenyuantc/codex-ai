@@ -1,5 +1,14 @@
 import { lazy, Suspense, useEffect, useState } from "react";
-import { AlertTriangle, ClipboardCheck, Clock, Network, Pencil, Save, Trash2, X } from "lucide-react";
+import {
+  AlertTriangle,
+  ClipboardCheck,
+  Clock,
+  Network,
+  Pencil,
+  Save,
+  Trash2,
+  X,
+} from "lucide-react";
 
 import type { Employee, Task, TaskStatus } from "@/lib/types";
 import { ACTIVE_TASK_STATUSES, PRIORITIES, TASK_STATUSES } from "@/lib/types";
@@ -16,9 +25,11 @@ import {
 import { TaskDeliverySection } from "./TaskDeliverySection";
 
 const UNASSIGNED_VALUE = "__unassigned__";
-const MonacoMarkdownEditor = lazy(() => import("./MonacoMarkdownEditor").then((module) => ({
-  default: module.MonacoMarkdownEditor,
-})));
+const MonacoMarkdownEditor = lazy(() =>
+  import("./MonacoMarkdownEditor").then((module) => ({
+    default: module.MonacoMarkdownEditor,
+  })),
+);
 
 interface TaskOverviewPanelProps {
   task: Task;
@@ -79,7 +90,9 @@ interface TaskOverviewPanelProps {
 
 function MonacoEditorFallback({ className }: { className: string }) {
   return (
-    <div className={`${className} flex items-center justify-center rounded-md border border-dashed text-xs text-muted-foreground`}>
+    <div
+      className={`${className} flex items-center justify-center rounded-md border border-dashed text-xs text-muted-foreground`}
+    >
       正在加载编辑器...
     </div>
   );
@@ -142,10 +155,13 @@ export function TaskOverviewPanel({
   onDeliveryError,
 }: TaskOverviewPanelProps) {
   const [timerNow, setTimerNow] = useState(() => Date.now());
-  const elapsedSeconds = getTaskElapsedSeconds({
-    time_started_at: timeStartedAt,
-    time_spent_seconds: timeSpentSeconds,
-  }, timerNow);
+  const elapsedSeconds = getTaskElapsedSeconds(
+    {
+      time_started_at: timeStartedAt,
+      time_spent_seconds: timeSpentSeconds,
+    },
+    timerNow,
+  );
   const timerStatus = timeStartedAt
     ? "计时中"
     : completedAt
@@ -195,7 +211,7 @@ export function TaskOverviewPanel({
               <SelectValue>
                 {(value) =>
                   typeof value === "string"
-                    ? TASK_STATUSES.find((item) => item.value === value)?.label ?? value
+                    ? (TASK_STATUSES.find((item) => item.value === value)?.label ?? value)
                     : "选择状态"
                 }
               </SelectValue>
@@ -217,7 +233,7 @@ export function TaskOverviewPanel({
               <SelectValue>
                 {(value) =>
                   typeof value === "string"
-                    ? PRIORITIES.find((item) => item.value === value)?.label ?? value
+                    ? (PRIORITIES.find((item) => item.value === value)?.label ?? value)
                     : "选择优先级"
                 }
               </SelectValue>
@@ -236,7 +252,9 @@ export function TaskOverviewPanel({
           <span className="shrink-0 whitespace-nowrap text-xs text-muted-foreground">指派</span>
           <Select
             value={assigneeId || UNASSIGNED_VALUE}
-            onValueChange={(value) => onAssigneeChange(!value || value === UNASSIGNED_VALUE ? "" : value)}
+            onValueChange={(value) =>
+              onAssigneeChange(!value || value === UNASSIGNED_VALUE ? "" : value)
+            }
           >
             <SelectTrigger className="h-7 w-[240px] shrink-0 rounded-md px-2 text-xs">
               <SelectValue>
@@ -246,7 +264,9 @@ export function TaskOverviewPanel({
                   }
 
                   const emp = employees.find((e) => e.id === value);
-                  return emp ? `${emp.name} · ${emp.ai_provider === "claude" ? "Claude" : emp.ai_provider === "opencode" ? "OpenCode" : emp.ai_provider === "grok" ? "Grok" : "Codex"}` : "未指派";
+                  return emp
+                    ? `${emp.name} · ${emp.ai_provider === "claude" ? "Claude" : emp.ai_provider === "opencode" ? "OpenCode" : emp.ai_provider === "grok" ? "Grok" : "Codex"}`
+                    : "未指派";
                 }}
               </SelectValue>
             </SelectTrigger>
@@ -254,7 +274,14 @@ export function TaskOverviewPanel({
               <SelectItem value={UNASSIGNED_VALUE}>未指派</SelectItem>
               {employees.map((emp) => (
                 <SelectItem key={emp.id} value={emp.id}>
-                  {emp.name} · {emp.ai_provider === "claude" ? "Claude" : emp.ai_provider === "opencode" ? "OpenCode" : emp.ai_provider === "grok" ? "Grok" : "Codex"}
+                  {emp.name} ·{" "}
+                  {emp.ai_provider === "claude"
+                    ? "Claude"
+                    : emp.ai_provider === "opencode"
+                      ? "OpenCode"
+                      : emp.ai_provider === "grok"
+                        ? "Grok"
+                        : "Codex"}
                 </SelectItem>
               ))}
             </SelectContent>
@@ -265,7 +292,9 @@ export function TaskOverviewPanel({
           <span className="shrink-0 whitespace-nowrap text-xs text-muted-foreground">审查员</span>
           <Select
             value={reviewerId || UNASSIGNED_VALUE}
-            onValueChange={(value) => onReviewerChange(!value || value === UNASSIGNED_VALUE ? "" : value)}
+            onValueChange={(value) =>
+              onReviewerChange(!value || value === UNASSIGNED_VALUE ? "" : value)
+            }
           >
             <SelectTrigger className="h-7 w-[240px] shrink-0 rounded-md px-2 text-xs">
               <SelectValue>
@@ -275,7 +304,9 @@ export function TaskOverviewPanel({
                   }
 
                   const emp = employees.find((e) => e.id === value);
-                  return emp ? `${emp.name} · ${emp.ai_provider === "claude" ? "Claude" : emp.ai_provider === "opencode" ? "OpenCode" : emp.ai_provider === "grok" ? "Grok" : "Codex"}` : "未指定";
+                  return emp
+                    ? `${emp.name} · ${emp.ai_provider === "claude" ? "Claude" : emp.ai_provider === "opencode" ? "OpenCode" : emp.ai_provider === "grok" ? "Grok" : "Codex"}`
+                    : "未指定";
                 }}
               </SelectValue>
             </SelectTrigger>
@@ -283,7 +314,14 @@ export function TaskOverviewPanel({
               <SelectItem value={UNASSIGNED_VALUE}>未指定</SelectItem>
               {reviewerCandidates.map((emp) => (
                 <SelectItem key={emp.id} value={emp.id}>
-                  {emp.name} · {emp.ai_provider === "claude" ? "Claude" : emp.ai_provider === "opencode" ? "OpenCode" : emp.ai_provider === "grok" ? "Grok" : "Codex"}
+                  {emp.name} ·{" "}
+                  {emp.ai_provider === "claude"
+                    ? "Claude"
+                    : emp.ai_provider === "opencode"
+                      ? "OpenCode"
+                      : emp.ai_provider === "grok"
+                        ? "Grok"
+                        : "Codex"}
                 </SelectItem>
               ))}
             </SelectContent>
@@ -294,7 +332,9 @@ export function TaskOverviewPanel({
           <span className="shrink-0 whitespace-nowrap text-xs text-muted-foreground">协调员</span>
           <Select
             value={coordinatorId || UNASSIGNED_VALUE}
-            onValueChange={(value) => onCoordinatorChange(!value || value === UNASSIGNED_VALUE ? "" : value)}
+            onValueChange={(value) =>
+              onCoordinatorChange(!value || value === UNASSIGNED_VALUE ? "" : value)
+            }
           >
             <SelectTrigger className="h-7 w-[240px] shrink-0 rounded-md px-2 text-xs">
               <SelectValue>
@@ -304,7 +344,9 @@ export function TaskOverviewPanel({
                   }
 
                   const emp = coordinatorCandidates.find((e) => e.id === value);
-                  return emp ? `${emp.name} · ${emp.ai_provider === "claude" ? "Claude" : emp.ai_provider === "opencode" ? "OpenCode" : emp.ai_provider === "grok" ? "Grok" : "Codex"}` : "未指定";
+                  return emp
+                    ? `${emp.name} · ${emp.ai_provider === "claude" ? "Claude" : emp.ai_provider === "opencode" ? "OpenCode" : emp.ai_provider === "grok" ? "Grok" : "Codex"}`
+                    : "未指定";
                 }}
               </SelectValue>
             </SelectTrigger>
@@ -312,7 +354,14 @@ export function TaskOverviewPanel({
               <SelectItem value={UNASSIGNED_VALUE}>未指定</SelectItem>
               {coordinatorCandidates.map((emp) => (
                 <SelectItem key={emp.id} value={emp.id}>
-                  {emp.name} · {emp.ai_provider === "claude" ? "Claude" : emp.ai_provider === "opencode" ? "OpenCode" : emp.ai_provider === "grok" ? "Grok" : "Codex"}
+                  {emp.name} ·{" "}
+                  {emp.ai_provider === "claude"
+                    ? "Claude"
+                    : emp.ai_provider === "opencode"
+                      ? "OpenCode"
+                      : emp.ai_provider === "grok"
+                        ? "Grok"
+                        : "Codex"}
                 </SelectItem>
               ))}
             </SelectContent>
@@ -459,9 +508,7 @@ export function TaskOverviewPanel({
       </section>
 
       <div>
-        <label className="text-xs font-medium text-muted-foreground">
-          描述
-        </label>
+        <label className="text-xs font-medium text-muted-foreground">描述</label>
         <Suspense fallback={<MonacoEditorFallback className="mt-1 h-[220px]" />}>
           <MonacoMarkdownEditor
             value={description}
@@ -475,9 +522,7 @@ export function TaskOverviewPanel({
 
       <div>
         <div className="flex items-center justify-between gap-2">
-          <label className="text-xs font-medium text-muted-foreground">
-            计划内容
-          </label>
+          <label className="text-xs font-medium text-muted-foreground">计划内容</label>
           <div className="flex items-center gap-1">
             {planEditing && planHasChanges && (
               <button

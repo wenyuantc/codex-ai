@@ -2,12 +2,12 @@ import type {
   ArtifactCaptureMode,
   Task,
   TaskAutomationState as PersistedTaskAutomationState,
-} from "./types"
-import { clsx, type ClassValue } from "clsx"
-import { twMerge } from "tailwind-merge"
+} from "./types";
+import { clsx, type ClassValue } from "clsx";
+import { twMerge } from "tailwind-merge";
 
 export function cn(...inputs: ClassValue[]) {
-  return twMerge(clsx(inputs))
+  return twMerge(clsx(inputs));
 }
 
 export function parseDateValue(dateStr: string): Date | null {
@@ -17,9 +17,7 @@ export function parseDateValue(dateStr: string): Date | null {
   }
 
   const normalized = trimmed.includes("T") ? trimmed : trimmed.replace(" ", "T");
-  const withTimezone = /(?:Z|[+-]\d{2}:\d{2})$/i.test(normalized)
-    ? normalized
-    : `${normalized}Z`;
+  const withTimezone = /(?:Z|[+-]\d{2}:\d{2})$/i.test(normalized) ? normalized : `${normalized}Z`;
   const parsed = new Date(withTimezone);
 
   return Number.isNaN(parsed.getTime()) ? null : parsed;
@@ -249,7 +247,10 @@ export function isArtifactCaptureLimited(mode: ArtifactCaptureMode): boolean {
   return mode === "ssh_git_status" || mode === "ssh_none";
 }
 
-export function getActivityDetailsLabel(action: string, details: string | null | undefined): string | null {
+export function getActivityDetailsLabel(
+  action: string,
+  details: string | null | undefined,
+): string | null {
   if (!details) {
     return null;
   }
@@ -303,12 +304,12 @@ export function getEmployeeRoleLabel(role: string): string {
 }
 
 export interface TaskAutomationDisplayState {
-  enabled: boolean
-  status: string
-  updatedAt: string | null
-  note: string | null
-  source: "task" | "automation_state"
-  roundCount: number | null
+  enabled: boolean;
+  status: string;
+  updatedAt: string | null;
+  note: string | null;
+  source: "task" | "automation_state";
+  roundCount: number | null;
 }
 
 export function getTaskAutomationStatusLabel(status: string): string {
@@ -330,63 +331,57 @@ export function getTaskAutomationStatusLabel(status: string): string {
     blocked: "已阻塞",
     manual_control: "转人工处理",
     skip_disabled: "因配置关闭而跳过",
-  }
+  };
 
-  return labels[status] || status
+  return labels[status] || status;
 }
 
-const ACTIVE_REVIEW_AUTOMATION_PHASES = new Set([
-  "launching_review",
-  "waiting_review",
-])
+const ACTIVE_REVIEW_AUTOMATION_PHASES = new Set(["launching_review", "waiting_review"]);
 
 const ACTIVE_EXECUTION_AUTOMATION_PHASES = new Set([
   "launching_fix",
   "waiting_execution",
   "committing_code",
-])
+]);
 
 export function isTaskAutomationReviewActive(
   automationState?: Pick<TaskAutomationDisplayState, "enabled" | "status"> | null,
 ): boolean {
   return Boolean(
-    automationState?.enabled
-    && ACTIVE_REVIEW_AUTOMATION_PHASES.has(automationState.status),
-  )
+    automationState?.enabled && ACTIVE_REVIEW_AUTOMATION_PHASES.has(automationState.status),
+  );
 }
 
 export function isTaskAutomationExecutionActive(
   automationState?: Pick<TaskAutomationDisplayState, "enabled" | "status"> | null,
 ): boolean {
   return Boolean(
-    automationState?.enabled
-    && ACTIVE_EXECUTION_AUTOMATION_PHASES.has(automationState.status),
-  )
+    automationState?.enabled && ACTIVE_EXECUTION_AUTOMATION_PHASES.has(automationState.status),
+  );
 }
 
 export interface TaskActionRuntimeState {
-  reviewActive: boolean
-  executionActive: boolean
+  reviewActive: boolean;
+  executionActive: boolean;
 }
 
 export function getTaskActionRuntimeState(params: {
-  automationState?: Pick<TaskAutomationDisplayState, "enabled" | "status"> | null
-  isReviewRunning: boolean
-  isExecutionRunning: boolean
+  automationState?: Pick<TaskAutomationDisplayState, "enabled" | "status"> | null;
+  isReviewRunning: boolean;
+  isExecutionRunning: boolean;
 }): TaskActionRuntimeState {
   return {
-    reviewActive:
-      params.isReviewRunning || isTaskAutomationReviewActive(params.automationState),
+    reviewActive: params.isReviewRunning || isTaskAutomationReviewActive(params.automationState),
     executionActive:
       params.isExecutionRunning || isTaskAutomationExecutionActive(params.automationState),
-  }
+  };
 }
 
 export function getTaskAutomationDisplayState(
   task: Task,
   automationState?: PersistedTaskAutomationState | null,
 ): TaskAutomationDisplayState {
-  const enabled = task.automation_mode === "review_fix_loop_v1"
+  const enabled = task.automation_mode === "review_fix_loop_v1";
 
   if (!enabled) {
     return {
@@ -396,7 +391,7 @@ export function getTaskAutomationDisplayState(
       note: null,
       source: "task",
       roundCount: null,
-    }
+    };
   }
 
   if (!automationState) {
@@ -407,7 +402,7 @@ export function getTaskAutomationDisplayState(
       note: null,
       source: "task",
       roundCount: 0,
-    }
+    };
   }
 
   return {
@@ -417,7 +412,7 @@ export function getTaskAutomationDisplayState(
     note: automationState.last_error ?? automationState.last_verdict?.summary ?? null,
     source: "automation_state",
     roundCount: automationState.round_count,
-  }
+  };
 }
 
 export function timeAgo(dateStr: string | null): string {

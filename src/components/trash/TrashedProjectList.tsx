@@ -51,9 +51,7 @@ export function TrashedProjectList() {
             className="flex items-center justify-between rounded-lg border border-border bg-card px-4 py-3"
           >
             <div className="min-w-0 flex-1">
-              <p className="truncate text-sm font-medium text-foreground">
-                {project.name}
-              </p>
+              <p className="truncate text-sm font-medium text-foreground">{project.name}</p>
               <p className="text-xs text-muted-foreground">
                 删除于 {timeAgo(project.deleted_at)}
                 <span className="ml-2 rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">

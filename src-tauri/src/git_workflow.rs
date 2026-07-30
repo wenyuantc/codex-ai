@@ -830,11 +830,8 @@ fn build_worktree_path(
                 .worktree_custom_root
                 .as_deref()
                 .ok_or_else(|| "当前 Git 偏好缺少自定义 Worktree 根目录".to_string())?;
-            if root == "~" || root.starts_with("~/") {
-                Path::new(root).join(&repo_slug).join(&task_slug)
-            } else {
-                Path::new(root).join(&repo_slug).join(&task_slug)
-            }
+            // `~` expansion happens later in path resolution; both branches build the same path.
+            Path::new(root).join(&repo_slug).join(&task_slug)
         }
         _ => {
             let parent = repo
@@ -916,11 +913,10 @@ async fn context_is_healthy<R: Runtime>(
     runtime: &GitProjectRuntimeContext,
     context: &TaskGitContextRecord,
 ) -> bool {
-    let branch_exists =
-        match git_ref_exists(app, runtime, &format!("refs/heads/{}", context.task_branch)).await {
-            Ok(value) => value,
-            Err(_) => false,
-        };
+    let branch_exists: bool =
+        git_ref_exists(app, runtime, &format!("refs/heads/{}", context.task_branch))
+            .await
+            .unwrap_or_default();
     if !branch_exists {
         return false;
     }

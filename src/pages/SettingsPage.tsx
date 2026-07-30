@@ -83,9 +83,7 @@ import {
 import { applyTheme, getThemePreference, type ThemeMode } from "@/lib/theme";
 import { useProjectStore } from "@/stores/projectStore";
 
-const DATABASE_FILE_FILTERS = [
-  { name: "SQL 备份", extensions: ["sql"] },
-];
+const DATABASE_FILE_FILTERS = [{ name: "SQL 备份", extensions: ["sql"] }];
 
 const SETTINGS_TABS: Array<{ value: SettingsTabValue; label: string }> = [
   { value: "runtime", label: "界面与运行" },
@@ -98,7 +96,8 @@ const SETTINGS_TABS: Array<{ value: SettingsTabValue; label: string }> = [
 
 const isTauriRuntime =
   typeof window !== "undefined" &&
-  typeof (window as typeof window & { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__ !== "undefined";
+  typeof (window as typeof window & { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__ !==
+    "undefined";
 
 const DEFAULT_GIT_PREFERENCES: GitPreferences = {
   default_task_use_worktree: false,
@@ -148,7 +147,10 @@ function buildBackupDefaultPath(health: CodexHealthCheck | null) {
 
   if (!databasePath) return fileName;
 
-  const lastSeparatorIndex = Math.max(databasePath.lastIndexOf("/"), databasePath.lastIndexOf("\\"));
+  const lastSeparatorIndex = Math.max(
+    databasePath.lastIndexOf("/"),
+    databasePath.lastIndexOf("\\"),
+  );
   if (lastSeparatorIndex < 0) return fileName;
 
   const directory = databasePath.slice(0, lastSeparatorIndex);
@@ -166,7 +168,9 @@ export function SettingsPage() {
   const fetchSshConfigs = useProjectStore((state) => state.fetchSshConfigs);
 
   const [themeMode, setThemeMode] = useState<ThemeMode>(getThemePreference);
-  const [codexHealth, setCodexHealth] = useState<CodexHealthCheck | RemoteCodexHealthCheck | null>(null);
+  const [codexHealth, setCodexHealth] = useState<CodexHealthCheck | RemoteCodexHealthCheck | null>(
+    null,
+  );
   const [codexSettings, setCodexSettings] = useState<CodexSettings | null>(null);
   const [taskSdkEnabled, setTaskSdkEnabled] = useState(false);
   const [oneShotSdkEnabled, setOneShotSdkEnabled] = useState(false);
@@ -229,7 +233,9 @@ export function SettingsPage() {
   const [opencodeHost, setOpenCodeHost] = useState("127.0.0.1");
   const [opencodePort, setOpenCodePort] = useState(4096);
   const [opencodeNodePathOverride, setOpenCodeNodePathOverride] = useState("");
-  const [opencodeActionLoading, setOpenCodeActionLoading] = useState<"save" | "install" | null>(null);
+  const [opencodeActionLoading, setOpenCodeActionLoading] = useState<"save" | "install" | null>(
+    null,
+  );
   const [opencodeActionMessage, setOpenCodeActionMessage] = useState<string | null>(null);
   const [opencodeActionError, setOpenCodeActionError] = useState<string | null>(null);
   const [opencodeModelList, setOpenCodeModelList] = useState<OpenCodeModelInfo[]>([]);
@@ -253,10 +259,10 @@ export function SettingsPage() {
   const isRemoteMode = environmentMode === "ssh";
   const remoteTargetName = selectedSshConfig?.name ?? "当前 SSH 配置";
   const passwordAuthBlocked = Boolean(
-    isRemoteMode
-    && selectedSshConfig
-    && selectedSshConfig.auth_type === "password"
-    && !selectedSshConfig.password_execution_allowed,
+    isRemoteMode &&
+    selectedSshConfig &&
+    selectedSshConfig.auth_type === "password" &&
+    !selectedSshConfig.password_execution_allowed,
   );
   const activeTab = getSettingsTabFromSection(searchParams.get("section"));
   const requestedSshConfigId = searchParams.get("sshConfigId");
@@ -306,10 +312,12 @@ export function SettingsPage() {
       normalizeAiCommitMessageLength(gitPreferences.ai_commit_message_length),
     );
     setAiCommitModelSource(normalizeAiCommitModelSource(gitPreferences.ai_commit_model_source));
-    setAiCommitModel(normalizeModelForProvider(
-      normalizeAiProvider(gitPreferences.ai_commit_preferred_provider),
-      gitPreferences.ai_commit_model,
-    ));
+    setAiCommitModel(
+      normalizeModelForProvider(
+        normalizeAiProvider(gitPreferences.ai_commit_preferred_provider),
+        gitPreferences.ai_commit_model,
+      ),
+    );
     setGitAiProvider(normalizeAiProvider(gitPreferences.ai_commit_preferred_provider));
     setAiCommitReasoningEffort(
       normalizeReasoningEffortForProvider(
@@ -406,10 +414,7 @@ export function SettingsPage() {
     }
 
     try {
-      const [health, settings] = await Promise.all([
-        checkClaudeSdkHealth(),
-        getClaudeSettings(),
-      ]);
+      const [health, settings] = await Promise.all([checkClaudeSdkHealth(), getClaudeSettings()]);
       setClaudeHealth(health);
       setClaudeSdkEnabled(settings.sdk_enabled);
       setClaudeDefaultModel(normalizeClaudeModel(settings.default_model));
@@ -583,9 +588,10 @@ export function SettingsPage() {
         },
         node_path_override: nodePathOverride.trim() || null,
       };
-      const nextSettings = isRemoteMode && selectedSshConfigId
-        ? await updateRemoteCodexSettings(selectedSshConfigId, updates)
-        : await updateCodexSettings(updates);
+      const nextSettings =
+        isRemoteMode && selectedSshConfigId
+          ? await updateRemoteCodexSettings(selectedSshConfigId, updates)
+          : await updateCodexSettings(updates);
       setCodexSettings(nextSettings);
       setSdkActionMessage(isRemoteMode ? `远程配置已保存到 ${remoteTargetName}` : "系统设置已保存");
       await loadRuntimeState();
@@ -609,9 +615,10 @@ export function SettingsPage() {
     setSdkActionMessage(null);
 
     try {
-      const result = isRemoteMode && selectedSshConfigId
-        ? await installRemoteCodexSdk(selectedSshConfigId)
-        : await installCodexSdk();
+      const result =
+        isRemoteMode && selectedSshConfigId
+          ? await installRemoteCodexSdk(selectedSshConfigId)
+          : await installCodexSdk();
       setSdkActionMessage(
         result.sdk_version
           ? `${isRemoteMode ? "远程" : "本地"} SDK 安装完成，版本 ${result.sdk_version}`
@@ -667,10 +674,10 @@ export function SettingsPage() {
         setOneShotModel(models[0].value);
       }
       if (
-        models.length > 0
-        && aiCommitModelSource === "custom"
-        && gitAiProvider === "opencode"
-        && !models.some((m) => m.value === aiCommitModel)
+        models.length > 0 &&
+        aiCommitModelSource === "custom" &&
+        gitAiProvider === "opencode" &&
+        !models.some((m) => m.value === aiCommitModel)
       ) {
         setAiCommitModel(models[0].value);
       }
@@ -694,9 +701,7 @@ export function SettingsPage() {
     try {
       const result = await installOpenCodeSdk();
       setOpenCodeActionMessage(
-        result.sdk_version
-          ? `OpenCode SDK 安装完成，版本 ${result.sdk_version}`
-          : result.message,
+        result.sdk_version ? `OpenCode SDK 安装完成，版本 ${result.sdk_version}` : result.message,
       );
       await loadOpenCodeState();
       // SDK newly installed, auto-fetch models
@@ -737,7 +742,9 @@ export function SettingsPage() {
 
   async function handleInstallClaudeSdk() {
     if (isRemoteMode) {
-      setClaudeActionError("Claude SDK 安装仅适用于本地执行目标，SSH 目标请在远端安装 Claude CLI。");
+      setClaudeActionError(
+        "Claude SDK 安装仅适用于本地执行目标，SSH 目标请在远端安装 Claude CLI。",
+      );
       setClaudeActionMessage(null);
       return;
     }
@@ -748,9 +755,7 @@ export function SettingsPage() {
     try {
       const result = await installClaudeSdk();
       setClaudeActionMessage(
-        result.sdk_version
-          ? `Claude SDK 安装完成，版本 ${result.sdk_version}`
-          : result.message,
+        result.sdk_version ? `Claude SDK 安装完成，版本 ${result.sdk_version}` : result.message,
       );
       await loadClaudeState();
     } catch (error) {
@@ -1164,7 +1169,8 @@ export function SettingsPage() {
             <div className="rounded-lg border border-border bg-card p-4 space-y-2">
               <h3 className="text-sm font-medium">三引擎能力对照</h3>
               <p className="text-xs text-muted-foreground">
-                Codex / Claude / OpenCode 能力并不完全对称。重启与会话中发送输入目前仅 Codex 完整支持。
+                Codex / Claude / OpenCode 能力并不完全对称。重启与会话中发送输入目前仅 Codex
+                完整支持。
               </p>
               <EngineCapabilityBadges />
             </div>

@@ -158,12 +158,17 @@ export function SessionExecutionChangesDialog({
               </div>
               <div className="rounded-md border border-border/70 bg-muted/20 px-3 py-2">
                 <div className="font-medium text-foreground">最近更新时间</div>
-                <div className="mt-1 text-muted-foreground">{formatDate(session.last_updated_at)}</div>
                 <div className="mt-1 text-muted-foreground">
-                  员工：{session.employee_name ?? "未绑定"} · 任务：{session.task_title ?? "无关联任务"}
+                  {formatDate(session.last_updated_at)}
+                </div>
+                <div className="mt-1 text-muted-foreground">
+                  员工：{session.employee_name ?? "未绑定"} · 任务：
+                  {session.task_title ?? "无关联任务"}
                 </div>
                 {session.target_host_label && (
-                  <div className="mt-1 text-muted-foreground">主机：{session.target_host_label}</div>
+                  <div className="mt-1 text-muted-foreground">
+                    主机：{session.target_host_label}
+                  </div>
                 )}
               </div>
               {session.working_dir && (
@@ -186,11 +191,13 @@ export function SessionExecutionChangesDialog({
 
           <TaskFileChangeHistoryPanel
             title="执行对话改动文件"
-            description={session?.artifact_capture_mode === "local_full"
-              ? "SDK 对话按 Codex 事件精确记录；CLI 对话仅在缺少结构化事件时回退为 Git 快照估算。"
-              : session?.artifact_capture_mode === "ssh_full"
-                ? "当前远程对话已保存文件级明细；SDK 对话优先使用 Codex 事件，CLI 对话按远程 Git 快照估算。"
-                : "当前是远程对话，变更采集能力受限，仅展示 SSH v1 可提供的记录。"}
+            description={
+              session?.artifact_capture_mode === "local_full"
+                ? "SDK 对话按 Codex 事件精确记录；CLI 对话仅在缺少结构化事件时回退为 Git 快照估算。"
+                : session?.artifact_capture_mode === "ssh_full"
+                  ? "当前远程对话已保存文件级明细；SDK 对话优先使用 Codex 事件，CLI 对话按远程 Git 快照估算。"
+                  : "当前是远程对话，变更采集能力受限，仅展示 SSH v1 可提供的记录。"
+            }
             history={history ? [history] : []}
             loading={historyLoading}
             error={historyError}
@@ -212,7 +219,8 @@ export function SessionExecutionChangesDialog({
         loading={changeDetailLoading}
         error={changeDetailError}
         detail={
-          changeDetail ?? (selectedChange
+          changeDetail ??
+          (selectedChange
             ? {
                 change: selectedChange,
                 working_dir: session?.working_dir ?? null,

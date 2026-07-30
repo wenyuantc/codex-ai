@@ -76,12 +76,12 @@ pub fn save_window_size<R: Runtime>(window: &Window<R>) -> Result<(), String> {
     };
 
     let app = window.app_handle();
-    let config_dir = app_config_dir(&app)?;
+    let config_dir = app_config_dir(app)?;
     fs::create_dir_all(&config_dir).map_err(|error| format!("创建应用配置目录失败: {error}"))?;
 
     let raw = serde_json::to_string_pretty(&state)
         .map_err(|error| format!("序列化窗口状态失败: {error}"))?;
-    fs::write(window_state_file_path(&app)?, raw)
+    fs::write(window_state_file_path(app)?, raw)
         .map_err(|error| format!("写入窗口状态失败: {error}"))
 }
 

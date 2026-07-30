@@ -100,9 +100,7 @@ function normalizeSessionListItem(session: CodexSessionListItem): CodexSessionLi
 
 function normalizeHealthCheck(health: RawHealthCheck): CodexHealthCheck {
   const passwordExecutionAllowed =
-    health.password_execution_allowed
-    ?? health.password_auth_available
-    ?? false;
+    health.password_execution_allowed ?? health.password_auth_available ?? false;
   return {
     ...health,
     execution_target: normalizeExecutionTarget(health.execution_target),
@@ -116,9 +114,7 @@ function normalizeHealthCheck(health: RawHealthCheck): CodexHealthCheck {
 
 function normalizeSshConfig(config: RawSshConfig): SshConfig {
   const passwordExecutionAllowed =
-    config.password_execution_allowed
-    ?? config.password_auth_available
-    ?? false;
+    config.password_execution_allowed ?? config.password_auth_available ?? false;
   return {
     ...config,
     port: Number(config.port ?? 22) || 22,
@@ -140,7 +136,9 @@ function normalizePasswordProbeResult(result: RawSshPasswordProbeResult): SshPas
   const status =
     result.status === "passed"
       ? "supported"
-      : result.status === "supported" || result.status === "unsupported" || result.status === "failed"
+      : result.status === "supported" ||
+          result.status === "unsupported" ||
+          result.status === "failed"
         ? result.status
         : "failed";
   return {
@@ -669,11 +667,17 @@ export async function listProjectGitWorktrees(projectId: string): Promise<Projec
   return invoke("list_project_git_worktrees", { projectId });
 }
 
-export async function stageProjectGitFile(projectId: string, relativePath: string): Promise<string> {
+export async function stageProjectGitFile(
+  projectId: string,
+  relativePath: string,
+): Promise<string> {
   return invoke("stage_project_git_file", { projectId, relativePath });
 }
 
-export async function unstageProjectGitFile(projectId: string, relativePath: string): Promise<string> {
+export async function unstageProjectGitFile(
+  projectId: string,
+  relativePath: string,
+): Promise<string> {
   return invoke("unstage_project_git_file", { projectId, relativePath });
 }
 
@@ -685,7 +689,10 @@ export async function unstageAllProjectGitFiles(projectId: string): Promise<stri
   return invoke("unstage_all_project_git_files", { projectId });
 }
 
-export async function rollbackProjectGitFiles(projectId: string, relativePaths: string[]): Promise<string> {
+export async function rollbackProjectGitFiles(
+  projectId: string,
+  relativePaths: string[],
+): Promise<string> {
   return invoke("rollback_project_git_files", { projectId, relativePaths });
 }
 
@@ -931,7 +938,9 @@ export async function refreshTaskGitContext(taskGitContextId: string): Promise<T
   return invoke("refresh_task_git_context", { taskGitContextId });
 }
 
-export async function getTaskGitCommitOverview(taskGitContextId: string): Promise<TaskGitCommitOverview> {
+export async function getTaskGitCommitOverview(
+  taskGitContextId: string,
+): Promise<TaskGitCommitOverview> {
   return invoke("get_task_git_commit_overview", { taskGitContextId });
 }
 
@@ -939,7 +948,10 @@ export async function stageAllTaskGitFiles(taskGitContextId: string): Promise<st
   return invoke("stage_all_task_git_files", { taskGitContextId });
 }
 
-export async function commitTaskGitChanges(taskGitContextId: string, message: string): Promise<string> {
+export async function commitTaskGitChanges(
+  taskGitContextId: string,
+  message: string,
+): Promise<string> {
   return invoke("commit_task_git_changes", { taskGitContextId, message });
 }
 
@@ -1076,9 +1088,7 @@ export async function getGrokSettings(): Promise<GrokSettings> {
   return invoke("get_grok_settings");
 }
 
-export async function updateGrokSettings(
-  updates: Partial<GrokSettings>,
-): Promise<GrokSettings> {
+export async function updateGrokSettings(updates: Partial<GrokSettings>): Promise<GrokSettings> {
   return invoke("update_grok_settings", { updates });
 }
 
@@ -1133,7 +1143,10 @@ export async function createSshConfig(input: CreateSshConfigInput): Promise<SshC
   return normalizeSshConfig(await invoke<SshConfig>("create_ssh_config", { payload: input }));
 }
 
-export async function updateSshConfig(id: string, updates: UpdateSshConfigInput): Promise<SshConfig> {
+export async function updateSshConfig(
+  id: string,
+  updates: UpdateSshConfigInput,
+): Promise<SshConfig> {
   return normalizeSshConfig(await invoke<SshConfig>("update_ssh_config", { id, updates }));
 }
 
@@ -1167,7 +1180,10 @@ export async function createTask(input: CreateTaskInput): Promise<Task> {
   return invoke("create_task", { payload: input });
 }
 
-export async function addTaskAttachments(taskId: string, sourcePaths: string[]): Promise<TaskAttachment[]> {
+export async function addTaskAttachments(
+  taskId: string,
+  sourcePaths: string[],
+): Promise<TaskAttachment[]> {
   return invoke("add_task_attachments", { taskId, sourcePaths });
 }
 
@@ -1191,7 +1207,10 @@ export async function createMilestone(input: CreateMilestoneInput): Promise<Mile
   return invoke("create_milestone", { payload: input });
 }
 
-export async function updateMilestone(id: string, updates: UpdateMilestoneInput): Promise<Milestone> {
+export async function updateMilestone(
+  id: string,
+  updates: UpdateMilestoneInput,
+): Promise<Milestone> {
   return invoke("update_milestone", { id, updates });
 }
 

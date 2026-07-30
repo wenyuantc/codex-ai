@@ -2,7 +2,13 @@ import { create } from "zustand";
 
 import { select } from "@/lib/database";
 import { filterProjectsByScope, normalizeProject } from "@/lib/projects";
-import { TASK_STATUSES, type ActivityLog, type EnvironmentMode, type Project, type Task } from "@/lib/types";
+import {
+  TASK_STATUSES,
+  type ActivityLog,
+  type EnvironmentMode,
+  type Project,
+  type Task,
+} from "@/lib/types";
 import { getActivityActionLabel, getStatusLabel } from "@/lib/utils";
 
 const GLOBAL_ACTIVITY_PREFIXES = [
@@ -68,7 +74,11 @@ interface DashboardStore {
   stats: DashboardStats | null;
   recentActivities: ActivityLog[];
   loading: boolean;
-  fetchStats: (environmentMode: EnvironmentMode, selectedSshConfigId?: string | null, projectId?: string) => Promise<void>;
+  fetchStats: (
+    environmentMode: EnvironmentMode,
+    selectedSshConfigId?: string | null,
+    projectId?: string,
+  ) => Promise<void>;
   fetchRecentActivities: (
     environmentMode: EnvironmentMode,
     selectedSshConfigId?: string | null,
@@ -96,7 +106,9 @@ const ACTIVITY_ORDER = "ORDER BY a.created_at DESC, a.id DESC";
 let pendingProjectsLoad: Promise<Project[]> | null = null;
 
 async function loadProjects() {
-  pendingProjectsLoad ??= select<Project>("SELECT * FROM projects WHERE deleted_at IS NULL ORDER BY updated_at DESC")
+  pendingProjectsLoad ??= select<Project>(
+    "SELECT * FROM projects WHERE deleted_at IS NULL ORDER BY updated_at DESC",
+  )
     .then((rows) => rows.map((project) => normalizeProject(project)))
     .finally(() => {
       pendingProjectsLoad = null;
@@ -132,15 +144,13 @@ function isInvalidDateRange(filters: ActivityFilters) {
   const startTimestamp = normalizeDateToTimestamp(filters.startDate, false);
   const endTimestamp = normalizeDateToTimestamp(filters.endDate, true);
 
-  return (
-    startTimestamp !== null
-    && endTimestamp !== null
-    && startTimestamp > endTimestamp
-  );
+  return startTimestamp !== null && endTimestamp !== null && startTimestamp > endTimestamp;
 }
 
 function appendGlobalActivityCondition(params: unknown[], tableAlias = "a") {
-  const prefixConditions = GLOBAL_ACTIVITY_PREFIXES.map(() => `${tableAlias}.action LIKE ? ESCAPE '\\'`);
+  const prefixConditions = GLOBAL_ACTIVITY_PREFIXES.map(
+    () => `${tableAlias}.action LIKE ? ESCAPE '\\'`,
+  );
   params.push(...GLOBAL_ACTIVITY_PREFIXES.map((prefix) => `${escapeSqlLike(prefix)}%`));
 
   if (GLOBAL_ACTIVITY_ACTIONS.size === 0) {
@@ -159,7 +169,9 @@ async function loadVisibleProjectIds(
 ) {
   const projects = await loadProjects();
   return new Set(
-    filterProjectsByScope(projects, environmentMode, selectedSshConfigId).map((project) => project.id),
+    filterProjectsByScope(projects, environmentMode, selectedSshConfigId).map(
+      (project) => project.id,
+    ),
   );
 }
 
@@ -208,15 +220,15 @@ function appendLikeCondition(
 }
 
 function getKeywordMatchedActions(keyword: string, availableActions: string[]) {
-  return availableActions.filter((action) => (
-    normalizeSearchText(getActivityActionLabel(action)).includes(keyword)
-  ));
+  return availableActions.filter((action) =>
+    normalizeSearchText(getActivityActionLabel(action)).includes(keyword),
+  );
 }
 
 function getKeywordMatchedStatuses(keyword: string) {
-  return TASK_STATUSES
-    .filter((status) => normalizeSearchText(getStatusLabel(status.value)).includes(keyword))
-    .map((status) => status.value);
+  return TASK_STATUSES.filter((status) =>
+    normalizeSearchText(getStatusLabel(status.value)).includes(keyword),
+  ).map((status) => status.value);
 }
 
 function appendActivityFilterConditions(
@@ -277,7 +289,13 @@ function buildActivityWhere(
   const where: string[] = [];
   const params: unknown[] = [];
 
-  appendActivityScopeConditions(where, params, visibleProjectIds, environmentMode, filters.projectId);
+  appendActivityScopeConditions(
+    where,
+    params,
+    visibleProjectIds,
+    environmentMode,
+    filters.projectId,
+  );
   appendActivityFilterConditions(where, params, filters, availableActions);
 
   return {
@@ -338,9 +356,9 @@ async function countActivityItems(
 }
 
 function getAvailableActivityActions(actions: string[]) {
-  return Array.from(new Set(actions)).sort((left, right) => (
-    getActivityActionLabel(left).localeCompare(getActivityActionLabel(right), "zh-CN")
-  ));
+  return Array.from(new Set(actions)).sort((left, right) =>
+    getActivityActionLabel(left).localeCompare(getActivityActionLabel(right), "zh-CN"),
+  );
 }
 
 export const useDashboardStore = create<DashboardStore>((set) => ({
@@ -360,20 +378,15 @@ export const useDashboardStore = create<DashboardStore>((set) => ({
         ),
       ]);
 
-      const visibleProjects = filterProjectsByScope(
-        projects,
-        environmentMode,
-        selectedSshConfigId,
-      );
+      const visibleProjects = filterProjectsByScope(projects, environmentMode, selectedSshConfigId);
       const visibleProjectIds = new Set(visibleProjects.map((project) => project.id));
-      const scopedProjectIds = projectId && visibleProjectIds.has(projectId)
-        ? new Set([projectId])
-        : visibleProjectIds;
+      const scopedProjectIds =
+        projectId && visibleProjectIds.has(projectId) ? new Set([projectId]) : visibleProjectIds;
 
       const filteredTasks = tasks.filter((task) => scopedProjectIds.has(task.project_id));
-      const filteredEmployees = employees.filter((employee) => (
-        employee.project_id ? scopedProjectIds.has(employee.project_id) : !projectId
-      ));
+      const filteredEmployees = employees.filter((employee) =>
+        employee.project_id ? scopedProjectIds.has(employee.project_id) : !projectId,
+      );
 
       const tasksByStatus: Record<string, number> = {};
       let completed = 0;
@@ -385,11 +398,15 @@ export const useDashboardStore = create<DashboardStore>((set) => ({
       }
 
       const scopedProjects = visibleProjects.filter((project) => scopedProjectIds.has(project.id));
-      const onlineEmployees = filteredEmployees.filter((employee) => employee.status === "online" || employee.status === "busy");
-      const unreadNotifications = notifications.filter((notification) => notification.is_read === 0).length;
-      const highSeverityNotifications = notifications.filter((notification) => (
-        notification.severity === "error" || notification.severity === "critical"
-      )).length;
+      const onlineEmployees = filteredEmployees.filter(
+        (employee) => employee.status === "online" || employee.status === "busy",
+      );
+      const unreadNotifications = notifications.filter(
+        (notification) => notification.is_read === 0,
+      ).length;
+      const highSeverityNotifications = notifications.filter(
+        (notification) => notification.severity === "error" || notification.severity === "critical",
+      ).length;
 
       set({
         stats: {
@@ -399,7 +416,8 @@ export const useDashboardStore = create<DashboardStore>((set) => ({
           tasksByStatus,
           totalEmployees: filteredEmployees.length,
           onlineEmployees: onlineEmployees.length,
-          completionRate: filteredTasks.length > 0 ? Math.round((completed / filteredTasks.length) * 100) : 0,
+          completionRate:
+            filteredTasks.length > 0 ? Math.round((completed / filteredTasks.length) * 100) : 0,
           unreadNotifications,
           highSeverityNotifications,
         },
@@ -429,12 +447,22 @@ export const useDashboardStore = create<DashboardStore>((set) => ({
     }
   },
 
-  fetchActivitiesPage: async (environmentMode, selectedSshConfigId, page = 1, pageSize = 20, filters = {}) => {
+  fetchActivitiesPage: async (
+    environmentMode,
+    selectedSshConfigId,
+    page = 1,
+    pageSize = 20,
+    filters = {},
+  ) => {
     const safePage = Math.max(1, page);
     const safePageSize = Math.max(1, pageSize);
     const offset = (safePage - 1) * safePageSize;
     const visibleProjectIds = await loadVisibleProjectIds(environmentMode, selectedSshConfigId);
-    const availableActions = await loadAvailableActivityActions(visibleProjectIds, environmentMode, filters.projectId);
+    const availableActions = await loadAvailableActivityActions(
+      visibleProjectIds,
+      environmentMode,
+      filters.projectId,
+    );
 
     if (isInvalidDateRange(filters)) {
       return {
@@ -445,7 +473,14 @@ export const useDashboardStore = create<DashboardStore>((set) => ({
     }
 
     const [items, total] = await Promise.all([
-      loadActivityItems(visibleProjectIds, environmentMode, filters, safePageSize, offset, availableActions),
+      loadActivityItems(
+        visibleProjectIds,
+        environmentMode,
+        filters,
+        safePageSize,
+        offset,
+        availableActions,
+      ),
       countActivityItems(visibleProjectIds, environmentMode, filters, availableActions),
     ]);
 

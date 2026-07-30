@@ -13,11 +13,8 @@ export async function openNotificationTarget(
   notification: NotificationOpenTarget,
 ) {
   if (notification.ssh_config_id) {
-    const {
-      environmentMode,
-      setEnvironmentMode,
-      setSelectedSshConfigId,
-    } = useProjectStore.getState();
+    const { environmentMode, setEnvironmentMode, setSelectedSshConfigId } =
+      useProjectStore.getState();
 
     if (environmentMode !== "ssh") {
       await setEnvironmentMode("ssh");
@@ -34,7 +31,8 @@ export async function openNotificationTarget(
       setEnvironmentMode,
       setSelectedSshConfigId,
     } = useProjectStore.getState();
-    const targetProject = allProjects.find((project) => project.id === notification.project_id) ?? null;
+    const targetProject =
+      allProjects.find((project) => project.id === notification.project_id) ?? null;
 
     if (targetProject?.project_type === "ssh") {
       if (environmentMode !== "ssh") {

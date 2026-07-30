@@ -1,12 +1,7 @@
 import { useState, useEffect } from "react";
 import { useProjectStore } from "@/stores/projectStore";
 import type { Project, ProjectType } from "@/lib/types";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -122,7 +117,11 @@ export function EditProjectDialog({ open, onOpenChange, project }: EditProjectDi
             >
               <SelectTrigger className="mt-1">
                 <SelectValue>
-                  {(value) => getProjectTypeLabel(typeof value === "string" ? value as ProjectType : projectType)}
+                  {(value) =>
+                    getProjectTypeLabel(
+                      typeof value === "string" ? (value as ProjectType) : projectType,
+                    )
+                  }
                 </SelectValue>
               </SelectTrigger>
               <SelectContent>
@@ -147,7 +146,9 @@ export function EditProjectDialog({ open, onOpenChange, project }: EditProjectDi
                 >
                   <SelectTrigger className="mt-1 bg-background">
                     <SelectValue placeholder="选择 SSH 配置">
-                      {(value) => sshConfigs.find((config) => config.id === value)?.name ?? "选择 SSH 配置"}
+                      {(value) =>
+                        sshConfigs.find((config) => config.id === value)?.name ?? "选择 SSH 配置"
+                      }
                     </SelectValue>
                   </SelectTrigger>
                   <SelectContent>
@@ -174,10 +175,7 @@ export function EditProjectDialog({ open, onOpenChange, project }: EditProjectDi
 
           <div>
             <label className="text-xs font-medium text-muted-foreground">状态</label>
-            <Select
-              value={status}
-              onValueChange={(value) => setStatus(value ?? "active")}
-            >
+            <Select value={status} onValueChange={(value) => setStatus(value ?? "active")}>
               <SelectTrigger className="mt-1">
                 <SelectValue placeholder="选择状态">
                   {(value) => (typeof value === "string" ? getStatusLabel(value) : "选择状态")}
@@ -206,9 +204,11 @@ export function EditProjectDialog({ open, onOpenChange, project }: EditProjectDi
             <button
               onClick={handleSave}
               disabled={
-                saving
-                || !name.trim()
-                || (projectType === "local" ? !repoPath.trim() : (!sshConfigId || !remoteRepoPath.trim()))
+                saving ||
+                !name.trim() ||
+                (projectType === "local"
+                  ? !repoPath.trim()
+                  : !sshConfigId || !remoteRepoPath.trim())
               }
               className="px-3 py-1.5 text-sm bg-primary text-primary-foreground rounded-md hover:bg-primary/90 disabled:opacity-50"
             >

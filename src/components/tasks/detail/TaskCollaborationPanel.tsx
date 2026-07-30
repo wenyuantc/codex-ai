@@ -34,9 +34,7 @@ export function TaskCollaborationPanel({
       <div className="space-y-3">
         <div className="flex items-start justify-between gap-3">
           <div>
-            <label className="text-xs font-medium text-muted-foreground">
-              附件
-            </label>
+            <label className="text-xs font-medium text-muted-foreground">附件</label>
             <p className="text-[11px] text-muted-foreground">
               当前任务的附件会随任务上下文保留，图片会在每次启动和续聊时自动附带给 Codex。
             </p>
@@ -81,9 +79,7 @@ export function TaskCollaborationPanel({
               fileSize: attachment.file_size,
               mimeType: attachment.mime_type,
               removable: deletingAttachmentId !== attachment.id,
-              onOpen: isTauriRuntime
-                ? () => onOpenAttachment(attachment.stored_path)
-                : undefined,
+              onOpen: isTauriRuntime ? () => onOpenAttachment(attachment.stored_path) : undefined,
               onRemove: () => onDeleteAttachment(attachment.id),
             }))}
             emptyText="当前任务还没有附件"

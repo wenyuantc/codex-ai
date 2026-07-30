@@ -1056,7 +1056,7 @@ pub async fn start_claude_with_manager(
         let remote_command = build_remote_claude_session_command(&run_cwd, &cli_args);
 
         let (mut command, askpass_path) =
-            match build_ssh_command(&app, &ssh_config, Some(&remote_command), true, false).await {
+            match build_ssh_command(&app, ssh_config, Some(&remote_command), true, false).await {
                 Ok(result) => result,
                 Err(error) => {
                     finalize_claude_launch_failure(

@@ -13,7 +13,9 @@ interface RepoPathFieldProps {
 }
 
 const isTauriRuntime =
-  typeof window !== "undefined" && typeof (window as typeof window & { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__ !== "undefined";
+  typeof window !== "undefined" &&
+  typeof (window as typeof window & { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__ !==
+    "undefined";
 
 export function RepoPathField({
   label = "仓库路径",

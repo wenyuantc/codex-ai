@@ -62,31 +62,32 @@ export function KanbanBoard({
   const [activeTask, setActiveTask] = useState<Task | null>(null);
   const dragOriginStatusRef = useRef<TaskStatus | null>(null);
   const [searchTaskOpen, setSearchTaskOpen] = useState(false);
-  const [gitOverviewByProjectId, setGitOverviewByProjectId] = useState<Record<string, ProjectGitOverview>>({});
-  const [taskGitContextsByProjectId, setTaskGitContextsByProjectId] = useState<Record<string, TaskGitContext[]>>({});
+  const [gitOverviewByProjectId, setGitOverviewByProjectId] = useState<
+    Record<string, ProjectGitOverview>
+  >({});
+  const [taskGitContextsByProjectId, setTaskGitContextsByProjectId] = useState<
+    Record<string, TaskGitContext[]>
+  >({});
   const [logRequest, setLogRequest] = useState<{
     taskId: string;
     sessionKind?: CodexSessionKind;
   } | null>(null);
-  const targetTask = targetTaskId ? tasks.find((task) => task.id === targetTaskId) ?? null : null;
-  const activeTasks = useMemo(
-    () => {
-      const normalized = keyword.trim().toLowerCase();
-      return tasks
-        .filter((task) => task.status !== "archived")
-        .filter((task) => (overdueOnly ? isTaskOverdue(task) : true))
-        .filter((task) => (blockedOnly ? task.status === "blocked" : true))
-        .filter((task) => (milestoneId ? task.milestone_id === milestoneId : true))
-        .filter((task) =>
-          !normalized
-            ? true
-            : task.title.toLowerCase().includes(normalized)
-              || (task.description ?? "").toLowerCase().includes(normalized),
-        );
-      // tagId 需要 task_tags 异步映射；当前先保留入口，后续可在卡片徽章层过滤
-    },
-    [tasks, overdueOnly, blockedOnly, milestoneId, keyword],
-  );
+  const targetTask = targetTaskId ? (tasks.find((task) => task.id === targetTaskId) ?? null) : null;
+  const activeTasks = useMemo(() => {
+    const normalized = keyword.trim().toLowerCase();
+    return tasks
+      .filter((task) => task.status !== "archived")
+      .filter((task) => (overdueOnly ? isTaskOverdue(task) : true))
+      .filter((task) => (blockedOnly ? task.status === "blocked" : true))
+      .filter((task) => (milestoneId ? task.milestone_id === milestoneId : true))
+      .filter((task) =>
+        !normalized
+          ? true
+          : task.title.toLowerCase().includes(normalized) ||
+            (task.description ?? "").toLowerCase().includes(normalized),
+      );
+    // tagId 需要 task_tags 异步映射；当前先保留入口，后续可在卡片徽章层过滤
+  }, [tasks, overdueOnly, blockedOnly, milestoneId, keyword]);
   const projectMap = useMemo(
     () => new Map(projects.map((project) => [project.id, project])),
     [projects],
@@ -104,7 +105,10 @@ export function KanbanBoard({
   const gitContextRefreshKey = useMemo(
     () =>
       activeTasks
-        .map((task) => `${task.id}:${task.status}:${task.last_codex_session_id ?? ""}:${task.updated_at}`)
+        .map(
+          (task) =>
+            `${task.id}:${task.status}:${task.last_codex_session_id ?? ""}:${task.updated_at}`,
+        )
         .sort()
         .join("|"),
     [activeTasks],
@@ -113,25 +117,22 @@ export function KanbanBoard({
     () => Object.fromEntries(activeTasks.map((task) => [task.id, task.project_id])),
     [activeTasks],
   );
-  const taskGitContextMap = useMemo(
-    () => {
-      const entries: Array<[string, TaskGitContext]> = [];
+  const taskGitContextMap = useMemo(() => {
+    const entries: Array<[string, TaskGitContext]> = [];
 
-      Object.values(taskGitContextsByProjectId).forEach((contexts) => {
-        const seenTaskIds = new Set<string>();
-        contexts.forEach((context) => {
-          if (seenTaskIds.has(context.task_id)) {
-            return;
-          }
-          seenTaskIds.add(context.task_id);
-          entries.push([context.task_id, context]);
-        });
+    Object.values(taskGitContextsByProjectId).forEach((contexts) => {
+      const seenTaskIds = new Set<string>();
+      contexts.forEach((context) => {
+        if (seenTaskIds.has(context.task_id)) {
+          return;
+        }
+        seenTaskIds.add(context.task_id);
+        entries.push([context.task_id, context]);
       });
+    });
 
-      return Object.fromEntries(entries);
-    },
-    [taskGitContextsByProjectId],
-  );
+    return Object.fromEntries(entries);
+  }, [taskGitContextsByProjectId]);
   const projectGitBranchMap = useMemo(
     () =>
       Object.fromEntries(
@@ -212,7 +213,7 @@ export function KanbanBoard({
   const sensors = useSensors(
     useSensor(PointerSensor, {
       activationConstraint: { distance: 5 },
-    })
+    }),
   );
 
   const getTaskById = (taskId: string) =>
@@ -224,7 +225,7 @@ export function KanbanBoard({
       return targetStatus;
     }
 
-    return getTaskById(overId)?.status as TaskStatus | undefined ?? null;
+    return (getTaskById(overId)?.status as TaskStatus | undefined) ?? null;
   };
 
   const collisionDetection = (args: Parameters<typeof pointerWithin>[0]) => {
@@ -295,7 +296,9 @@ export function KanbanBoard({
     }
 
     if (targetStatus === "blocked") {
-      const reason = window.prompt("请填写阻塞原因（必填）：", currentTask.blocked_reason ?? "")?.trim();
+      const reason = window
+        .prompt("请填写阻塞原因（必填）：", currentTask.blocked_reason ?? "")
+        ?.trim();
       if (!reason) {
         moveTask(taskId, originalStatus);
         return;
@@ -330,7 +333,7 @@ export function KanbanBoard({
   const getTasksByStatus = (status: TaskStatus) =>
     activeTasks.filter((task) => task.status === status);
 
-  const logTask = logRequest ? tasks.find((task) => task.id === logRequest.taskId) ?? null : null;
+  const logTask = logRequest ? (tasks.find((task) => task.id === logRequest.taskId) ?? null) : null;
   const logAssigneeName = logTask?.assignee_id
     ? employees.find((employee) => employee.id === logTask.assignee_id)?.name
     : undefined;

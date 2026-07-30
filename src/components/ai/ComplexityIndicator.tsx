@@ -34,15 +34,15 @@ export function ComplexityIndicator({
   const label = getComplexityLabel(clampedScore);
 
   return (
-    <div className={cn("flex items-center gap-1.5", className)} title={breakdown ?? `${clampedScore}/10 ${label}`}>
+    <div
+      className={cn("flex items-center gap-1.5", className)}
+      title={breakdown ?? `${clampedScore}/10 ${label}`}
+    >
       <div className="flex gap-px">
         {Array.from({ length: 10 }).map((_, i) => (
           <div
             key={i}
-            className={cn(
-              "w-1.5 h-3 rounded-sm",
-              i < clampedScore ? color : "bg-muted"
-            )}
+            className={cn("w-1.5 h-3 rounded-sm", i < clampedScore ? color : "bg-muted")}
           />
         ))}
       </div>
