@@ -56,7 +56,7 @@ macOS / Linux / Windows 三条路径均可工作。Linux 无可用 Secret Servic
 - [ ] 密码认证的 SSH 远程项目在 macOS（必测）与文档声明支持的平台上功能不回归 — **实机 S8 可选**
 - [x] Windows 上不再依赖「仅靠文件 ACL」保护明文密码文件 — 凭据进 Credential Manager
 - [x] `cargo test --manifest-path src-tauri/Cargo.toml` 全绿，测试数不低于基线（262 → 275）
-- [ ] 独立分支 + 单独提交合回 `main`（提交后勾选）
+- [x] 独立分支 + 单独提交合回 `main`（`3084c30`，FF 合入 2026-07-30）
 
 ## Out of Scope
 
