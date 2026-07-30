@@ -15,8 +15,8 @@
 | Models | `src-tauri/src/db/models.rs` |
 | Migrations | Inline versioned list in `src-tauri/src/db/migrations.rs` |
 | AI engines | `codex/`, `claude/`, `opencode/`, `grok/` managers + process submodules |
-| Git | `git_workflow.rs` + `git_runtime.rs` |
-| Automation | `task_automation.rs` (+ prompt submodule) |
+| Git | `git_workflow/` (domain slices) + `git_runtime.rs` |
+| Automation | `task_automation` (+ `prompt` submodule and domain slices) |
 
 ## Hard Rules
 

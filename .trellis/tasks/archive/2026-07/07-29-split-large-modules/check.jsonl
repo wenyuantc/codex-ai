@@ -1,0 +1,5 @@
+{"file": ".trellis/spec/backend/index.md", "reason": "Verify hard rules still hold after split (writes in Rust, SSH dual-path)"}
+{"file": ".trellis/spec/backend/directory-structure.md", "reason": "Check final layout matches documented ownership"}
+{"file": ".trellis/spec/backend/command-guidelines.md", "reason": "Confirm command names/signatures and lib.rs registration unchanged"}
+{"file": ".trellis/spec/backend/testing.md", "reason": "Ensure tests moved intact and suite not net-reduced"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "Confirm IPC/engine boundaries untouched by structural move"}

@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 6
+- **Total Sessions**: 7
 - **Last Active**: 2026-07-30
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~148 | Active |
+| `journal-1.md` | ~171 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 7 | 2026-07-30 | 巨型文件模块化拆分 | `efa1ea0`, `b7b0923` | `feat/split-large-modules` |
 | 6 | 2026-07-30 | 引擎 trait 抽象与测试补齐 | `decb525` | `feat/engine-trait-abstraction` |
 | 5 | 2026-07-30 | 前端列表渲染性能优化 | `fd7be41` | `feat/frontend-render-perf` |
 | 4 | 2026-07-30 | C2 会话事件按天保留与清理落地 | `e155980`, `2689ff1`, `98a4189`, `e40cd1a` | `main` |

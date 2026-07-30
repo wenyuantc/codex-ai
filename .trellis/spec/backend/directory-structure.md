@@ -33,15 +33,34 @@ src-tauri/
     ├── claude/                 # Claude engine
     ├── opencode/               # OpenCode engine
     ├── grok/                   # Grok Build CLI engine (manager/settings/process)
-    ├── git_workflow.rs         # project/task git commands
-    ├── git_runtime.rs
-    ├── task_automation.rs      # review-fix loop orchestration
+    ├── git_workflow/           # project/task git commands (domain file-split)
+    │   ├── mod.rs              # imports + include! wiring; crate path git_workflow::*
+    │   ├── types.rs            # DTOs / state constants
+    │   ├── runtime.rs          # runtime resolve, run_git helpers
+    │   ├── worktree.rs         # worktree list/stage/commit/remove/merge
+    │   ├── context.rs          # task_git_contexts + prepare/engine hooks
+    │   ├── project_ops.rs      # overview/commits/preview/main-tree stage-commit
+    │   ├── branch.rs           # push/pull/checkout/create/delete/merge branches
+    │   ├── pending_action.rs   # request/confirm/cancel git action
+    │   └── tests.rs
+    ├── git_runtime.rs          # low-level git process (local + SSH)
+    ├── task_automation.rs      # review-fix loop root (mod prompt + include! slices)
+    ├── task_automation/
+    │   ├── prompt.rs           # fix-prompt builder (real submodule)
+    │   ├── state.rs            # phases/policy/state upsert
+    │   ├── session_exit.rs     # resume/orphan + session exit handlers
+    │   ├── fix_loop.rs         # review/fix retries + fix round launch
+    │   ├── restart.rs          # restart_task_automation*
+    │   ├── review_data.rs      # review report/verdict recovery helpers
+    │   └── tests_modules.rs    # #[cfg(test)] modules
     ├── notifications.rs
     ├── process_spawn.rs
     ├── tray.rs
     ├── window_state.rs
     └── window_event.rs
 ```
+
+> **Split note**: `git_workflow/*` and most `task_automation/*` slices are composed with `include!` so items share one module namespace (Tauri command inventory + private helper visibility stay stable). `task_automation/prompt.rs` remains a real `mod prompt` submodule.
 
 ## Ownership Rules
 
@@ -54,10 +73,10 @@ src-tauri/
 | Attachments + review prompts | `app/review.rs` |
 | DB maintenance / provider capabilities | `app/database.rs` |
 | Shared pure helpers / constants | `app/shared.rs` |
-| Git UX commands | `git_workflow.rs` |
+| Git UX commands | `git_workflow/` (`crate::git_workflow`) |
 | Shared engine process kernel | `engine/` (`ExecutionContext`, `EngineChild`, `ProcessManager`) |
 | Engine process lifecycle / protocol | `codex|claude|opencode|grok` (stream + launch; manager/context re-export kernel) |
-| Auto review/fix state machine | `task_automation.rs` |
+| Auto review/fix state machine | `task_automation` (+ `task_automation/*` slices) |
 | Sticky/transient notifications | `notifications.rs` |
 
 ## Adding A New Command
