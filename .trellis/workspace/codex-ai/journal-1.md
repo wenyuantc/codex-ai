@@ -106,3 +106,24 @@
 ### Status
 
 [OK] **Completed**
+
+
+## Session 5: 引入 lint 工具链
+
+**Date**: 2026-07-30
+**Task**: 引入 lint 工具链
+**Branch**: `feat/lint-toolchain`
+
+### Summary
+
+接入 ESLint/Prettier/Clippy 与 CI lint 门禁：Clippy 告警清零（too_many_arguments crate-level allow），前端 format 全量统一，新增 .github/workflows/lint.yml，更新文档与 Trellis quality 指引。验证：npm run lint/format:check/build、cargo clippy -D warnings、cargo test 284 passed。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `babbf3b` | (see git log) |
+
+### Status
+
+[OK] **Completed**
