@@ -892,6 +892,642 @@ async fn count_tasks_with_scope(
         .map_err(|e| format!("统计任务失败: {e}"))
 }
 
+// ========== Activity log list + homepage dashboard stats ==========
+
+const LIST_ACTIVITY_DEFAULT_LIMIT: i64 = 50;
+const LIST_ACTIVITY_MAX_LIMIT: i64 = 500;
+
+const GLOBAL_ACTIVITY_PREFIXES: &[&str] = &[
+    "environment_",
+    "global_",
+    "notification_",
+    "opencode_",
+    "remote_",
+    "ssh_",
+];
+
+const GLOBAL_ACTIVITY_ACTIONS: &[&str] = &[
+    "employee_project_membership_conflict_migrated",
+    "git_runtime_installed",
+    "git_runtime_install_failed",
+];
+
+fn escape_sql_like(value: &str) -> String {
+    value
+        .replace('\\', "\\\\")
+        .replace('%', "\\%")
+        .replace('_', "\\_")
+}
+
+fn parse_activity_date_bound(date: &str, end_of_day: bool) -> Option<i64> {
+    let trimmed = date.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    let date_part = trimmed.split('T').next().unwrap_or(trimmed).trim();
+    let naive_date = chrono::NaiveDate::parse_from_str(date_part, "%Y-%m-%d").ok()?;
+    let naive_dt = if end_of_day {
+        naive_date.and_hms_milli_opt(23, 59, 59, 999)?
+    } else {
+        naive_date.and_hms_opt(0, 0, 0)?
+    };
+    Some(naive_dt.and_utc().timestamp())
+}
+
+async fn resolve_visible_project_ids(
+    pool: &SqlitePool,
+    environment_mode: Option<&str>,
+    selected_ssh_config_id: Option<&str>,
+    explicit_project_ids: Option<&[String]>,
+) -> Result<Vec<String>, String> {
+    if let Some(ids) = explicit_project_ids {
+        return Ok(ids.to_vec());
+    }
+
+    let mode = environment_mode.unwrap_or("local");
+    let mut builder = QueryBuilder::<Sqlite>::new(
+        "SELECT id FROM projects WHERE deleted_at IS NULL AND project_type = ",
+    );
+    builder.push_bind(mode);
+
+    if mode == "ssh" {
+        let Some(ssh_id) = selected_ssh_config_id
+            .map(str::trim)
+            .filter(|v| !v.is_empty())
+        else {
+            return Ok(Vec::new());
+        };
+        builder.push(" AND ssh_config_id = ");
+        builder.push_bind(ssh_id);
+    }
+
+    builder
+        .build_query_scalar::<String>()
+        .fetch_all(pool)
+        .await
+        .map_err(|e| format!("解析可见项目失败: {e}"))
+}
+
+/// Push activity scope predicates onto a QueryBuilder that already has a WHERE clause started
+/// (or is about to use AND). Returns false when the result set is intentionally empty.
+fn push_activity_scope_conditions(
+    builder: &mut QueryBuilder<'_, Sqlite>,
+    visible_project_ids: &[String],
+    environment_mode: Option<&str>,
+    project_id: Option<&str>,
+    has_prior_where: bool,
+) -> bool {
+    let join = if has_prior_where { " AND " } else { " WHERE " };
+
+    if let Some(pid) = project_id.map(str::trim).filter(|v| !v.is_empty()) {
+        if !visible_project_ids.iter().any(|id| id == pid) {
+            builder.push(join);
+            builder.push("1 = 0");
+            return false;
+        }
+        builder.push(join);
+        builder.push("a.project_id = ");
+        builder.push_bind(pid.to_string());
+        return true;
+    }
+
+    // No environment scoping requested → no scope filter (logStore simple path).
+    if environment_mode.is_none() && visible_project_ids.is_empty() {
+        return true;
+    }
+
+    let mode = environment_mode.unwrap_or("local");
+    builder.push(join);
+    builder.push("(");
+
+    let mut wrote_any = false;
+    if !visible_project_ids.is_empty() {
+        builder.push("a.project_id IN (");
+        {
+            let mut separated = builder.separated(", ");
+            for id in visible_project_ids {
+                separated.push_bind(id.clone());
+            }
+        }
+        builder.push(")");
+        wrote_any = true;
+    }
+
+    if wrote_any {
+        builder.push(" OR ");
+    }
+
+    if mode == "ssh" {
+        builder.push("(a.project_id IS NULL AND (");
+        let mut first = true;
+        for prefix in GLOBAL_ACTIVITY_PREFIXES {
+            if !first {
+                builder.push(" OR ");
+            }
+            first = false;
+            builder.push("a.action LIKE ");
+            builder.push_bind(format!("{}%", escape_sql_like(prefix)));
+            builder.push(" ESCAPE '\\'");
+        }
+        if !GLOBAL_ACTIVITY_ACTIONS.is_empty() {
+            builder.push(" OR a.action IN (");
+            {
+                let mut separated = builder.separated(", ");
+                for action in GLOBAL_ACTIVITY_ACTIONS {
+                    separated.push_bind(*action);
+                }
+            }
+            builder.push(")");
+        }
+        builder.push("))");
+    } else {
+        builder.push("a.project_id IS NULL");
+    }
+
+    builder.push(")");
+    true
+}
+
+fn push_activity_filter_conditions(
+    builder: &mut QueryBuilder<'_, Sqlite>,
+    payload: &crate::db::models::ListActivityLogsPayload,
+    has_prior_where: bool,
+) -> bool {
+    let mut has_where = has_prior_where;
+
+    let push_and = |builder: &mut QueryBuilder<'_, Sqlite>, has_where: &mut bool| {
+        if *has_where {
+            builder.push(" AND ");
+        } else {
+            builder.push(" WHERE ");
+            *has_where = true;
+        }
+    };
+
+    if let Some(task_id) = payload
+        .task_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+    {
+        push_and(builder, &mut has_where);
+        builder.push("a.task_id = ");
+        builder.push_bind(task_id.to_string());
+    }
+
+    if let Some(action) = payload
+        .action
+        .as_deref()
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+    {
+        push_and(builder, &mut has_where);
+        builder.push("a.action = ");
+        builder.push_bind(action.to_string());
+    }
+
+    let keyword = payload
+        .keyword
+        .as_deref()
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+        .map(|v| v.to_lowercase());
+
+    if let Some(keyword) = keyword {
+        let pattern = format!("%{}%", escape_sql_like(&keyword));
+        push_and(builder, &mut has_where);
+        builder.push("(");
+        builder.push("LOWER(a.action) LIKE ");
+        builder.push_bind(pattern.clone());
+        builder.push(" ESCAPE '\\'");
+        builder.push(" OR LOWER(COALESCE(a.details, '')) LIKE ");
+        builder.push_bind(pattern.clone());
+        builder.push(" ESCAPE '\\'");
+        builder.push(" OR LOWER(COALESCE(p.name, '')) LIKE ");
+        builder.push_bind(pattern.clone());
+        builder.push(" ESCAPE '\\'");
+        builder.push(" OR LOWER(COALESCE(e.name, '')) LIKE ");
+        builder.push_bind(pattern.clone());
+        builder.push(" ESCAPE '\\'");
+
+        if let Some(matched) = payload.matched_actions.as_ref() {
+            if !matched.is_empty() {
+                builder.push(" OR a.action IN (");
+                {
+                    let mut separated = builder.separated(", ");
+                    for action in matched {
+                        separated.push_bind(action.clone());
+                    }
+                }
+                builder.push(")");
+            }
+        }
+
+        if let Some(statuses) = payload.matched_statuses.as_ref() {
+            for status in statuses {
+                builder.push(" OR a.details LIKE ");
+                builder.push_bind(format!("%{}%", escape_sql_like(status)));
+                builder.push(" ESCAPE '\\'");
+            }
+        }
+
+        builder.push(")");
+    }
+
+    if let Some(start) = payload
+        .start_date
+        .as_deref()
+        .and_then(|d| parse_activity_date_bound(d, false))
+    {
+        push_and(builder, &mut has_where);
+        builder.push("CAST(strftime('%s', a.created_at) AS INTEGER) >= ");
+        builder.push_bind(start);
+    }
+
+    if let Some(end) = payload
+        .end_date
+        .as_deref()
+        .and_then(|d| parse_activity_date_bound(d, true))
+    {
+        push_and(builder, &mut has_where);
+        builder.push("CAST(strftime('%s', a.created_at) AS INTEGER) <= ");
+        builder.push_bind(end);
+    }
+
+    has_where
+}
+
+fn activity_date_range_invalid(payload: &crate::db::models::ListActivityLogsPayload) -> bool {
+    let start = payload
+        .start_date
+        .as_deref()
+        .and_then(|d| parse_activity_date_bound(d, false));
+    let end = payload
+        .end_date
+        .as_deref()
+        .and_then(|d| parse_activity_date_bound(d, true));
+    matches!((start, end), (Some(s), Some(e)) if s > e)
+}
+
+pub(crate) async fn list_activity_logs_with_pool(
+    pool: &SqlitePool,
+    payload: &crate::db::models::ListActivityLogsPayload,
+) -> Result<crate::db::models::ActivityLogPage, String> {
+    use crate::db::models::{ActivityLogPage, ActivityLogRow};
+
+    let limit = payload
+        .limit
+        .filter(|v| *v > 0)
+        .unwrap_or(LIST_ACTIVITY_DEFAULT_LIMIT)
+        .clamp(1, LIST_ACTIVITY_MAX_LIMIT);
+    let offset = payload.offset.unwrap_or(0).max(0);
+    let include_total = payload.include_total.unwrap_or(false);
+
+    let environment_mode = payload
+        .environment_mode
+        .as_deref()
+        .map(str::trim)
+        .filter(|v| !v.is_empty());
+    let selected_ssh = payload
+        .selected_ssh_config_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|v| !v.is_empty());
+    let project_id = payload
+        .project_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|v| !v.is_empty());
+
+    // Resolve visible projects when environment or explicit ids are provided,
+    // or when a single project_id filter needs membership check.
+    let needs_scope = environment_mode.is_some()
+        || payload.project_ids.as_ref().is_some_and(|ids| !ids.is_empty())
+        || project_id.is_some();
+
+    let visible_project_ids = if needs_scope {
+        resolve_visible_project_ids(
+            pool,
+            environment_mode,
+            selected_ssh,
+            payload.project_ids.as_deref(),
+        )
+        .await?
+    } else {
+        Vec::new()
+    };
+
+    let mut available_actions = Vec::new();
+    if include_total {
+        let mut actions_builder = QueryBuilder::<Sqlite>::new(
+            "SELECT DISTINCT a.action FROM activity_logs a",
+        );
+        // Scope-only for available actions (ignore keyword/action/date filters).
+        let env_for_scope = if needs_scope { environment_mode } else { None };
+        let _ = push_activity_scope_conditions(
+            &mut actions_builder,
+            &visible_project_ids,
+            env_for_scope,
+            project_id,
+            false,
+        );
+        let mut actions: Vec<String> = actions_builder
+            .build_query_scalar::<String>()
+            .fetch_all(pool)
+            .await
+            .map_err(|e| format!("获取活动类型失败: {e}"))?;
+        actions.sort();
+        available_actions = actions;
+    }
+
+    if activity_date_range_invalid(payload) {
+        return Ok(ActivityLogPage {
+            items: Vec::new(),
+            total: 0,
+            available_actions,
+        });
+    }
+
+    let items_select = "SELECT a.id, a.employee_id, a.action, a.details, a.task_id, a.project_id, a.created_at, \
+         e.name AS employee_name, p.name AS project_name \
+         FROM activity_logs a \
+         LEFT JOIN employees e ON a.employee_id = e.id \
+         LEFT JOIN projects p ON a.project_id = p.id";
+    let count_select = "SELECT COUNT(*) FROM activity_logs a \
+         LEFT JOIN employees e ON a.employee_id = e.id \
+         LEFT JOIN projects p ON a.project_id = p.id";
+
+    let mut items_q = QueryBuilder::<Sqlite>::new(items_select);
+    let mut has_where = false;
+    if needs_scope {
+        let _ = push_activity_scope_conditions(
+            &mut items_q,
+            &visible_project_ids,
+            environment_mode,
+            project_id,
+            has_where,
+        );
+        has_where = true;
+    }
+    let _ = push_activity_filter_conditions(&mut items_q, payload, has_where);
+    items_q.push(" ORDER BY a.created_at DESC, a.id DESC LIMIT ");
+    items_q.push_bind(limit);
+    items_q.push(" OFFSET ");
+    items_q.push_bind(offset);
+
+    let items: Vec<ActivityLogRow> = items_q
+        .build_query_as::<ActivityLogRow>()
+        .fetch_all(pool)
+        .await
+        .map_err(|e| format!("获取活动日志失败: {e}"))?;
+
+    let total = if include_total {
+        let mut count_q = QueryBuilder::<Sqlite>::new(count_select);
+        let mut has_where = false;
+        if needs_scope {
+            let _ = push_activity_scope_conditions(
+                &mut count_q,
+                &visible_project_ids,
+                environment_mode,
+                project_id,
+                has_where,
+            );
+            has_where = true;
+        }
+        let _ = push_activity_filter_conditions(&mut count_q, payload, has_where);
+        count_q
+            .build_query_scalar::<i64>()
+            .fetch_one(pool)
+            .await
+            .map_err(|e| format!("统计活动日志失败: {e}"))?
+    } else {
+        0
+    };
+
+    Ok(ActivityLogPage {
+        items,
+        total,
+        available_actions,
+    })
+}
+
+#[tauri::command]
+pub async fn list_activity_logs<R: Runtime>(
+    app: AppHandle<R>,
+    payload: Option<crate::db::models::ListActivityLogsPayload>,
+) -> Result<crate::db::models::ActivityLogPage, String> {
+    let pool = sqlite_pool(&app).await?;
+    let payload = payload.unwrap_or_default();
+    list_activity_logs_with_pool(&pool, &payload).await
+}
+
+async fn resolve_scoped_project_ids_for_stats(
+    pool: &SqlitePool,
+    environment_mode: Option<&str>,
+    selected_ssh_config_id: Option<&str>,
+    project_id: Option<&str>,
+) -> Result<Vec<String>, String> {
+    let mode = environment_mode.unwrap_or("local");
+    let mut builder = QueryBuilder::<Sqlite>::new(
+        "SELECT id FROM projects WHERE deleted_at IS NULL AND project_type = ",
+    );
+    builder.push_bind(mode);
+    if mode == "ssh" {
+        let Some(ssh_id) = selected_ssh_config_id
+            .map(str::trim)
+            .filter(|v| !v.is_empty())
+        else {
+            return Ok(Vec::new());
+        };
+        builder.push(" AND ssh_config_id = ");
+        builder.push_bind(ssh_id);
+    }
+    let visible: Vec<String> = builder
+        .build_query_scalar::<String>()
+        .fetch_all(pool)
+        .await
+        .map_err(|e| format!("解析可见项目失败: {e}"))?;
+
+    if let Some(pid) = project_id.map(str::trim).filter(|v| !v.is_empty()) {
+        if visible.iter().any(|id| id == pid) {
+            return Ok(vec![pid.to_string()]);
+        }
+        return Ok(Vec::new());
+    }
+    Ok(visible)
+}
+
+pub(crate) async fn get_dashboard_stats_with_pool(
+    pool: &SqlitePool,
+    payload: &crate::db::models::GetDashboardStatsPayload,
+) -> Result<crate::db::models::DashboardStats, String> {
+    use crate::db::models::DashboardStats;
+    use std::collections::HashMap;
+
+    let environment_mode = payload
+        .environment_mode
+        .as_deref()
+        .map(str::trim)
+        .filter(|v| !v.is_empty());
+    let selected_ssh = payload
+        .selected_ssh_config_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|v| !v.is_empty());
+    let project_id = payload
+        .project_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|v| !v.is_empty());
+
+    let scoped_ids = resolve_scoped_project_ids_for_stats(
+        pool,
+        environment_mode,
+        selected_ssh,
+        project_id,
+    )
+    .await?;
+
+    // Projects
+    let (total_projects, active_projects) = if scoped_ids.is_empty() {
+        (0_i64, 0_i64)
+    } else {
+        let mut count_builder = QueryBuilder::<Sqlite>::new(
+            "SELECT COUNT(*), COALESCE(SUM(CASE WHEN status = 'active' THEN 1 ELSE 0 END), 0) \
+             FROM projects WHERE deleted_at IS NULL AND id IN (",
+        );
+        {
+            let mut separated = count_builder.separated(", ");
+            for id in &scoped_ids {
+                separated.push_bind(id);
+            }
+        }
+        count_builder.push(")");
+        count_builder
+            .build_query_as::<(i64, i64)>()
+            .fetch_one(pool)
+            .await
+            .map_err(|e| format!("统计项目失败: {e}"))?
+    };
+
+    // Tasks by status
+    let mut tasks_by_status: HashMap<String, i64> = HashMap::new();
+    let (total_tasks, completed) = if scoped_ids.is_empty() {
+        (0_i64, 0_i64)
+    } else {
+        let mut status_builder = QueryBuilder::<Sqlite>::new(
+            "SELECT status, COUNT(*) FROM tasks WHERE deleted_at IS NULL AND project_id IN (",
+        );
+        {
+            let mut separated = status_builder.separated(", ");
+            for id in &scoped_ids {
+                separated.push_bind(id);
+            }
+        }
+        status_builder.push(") GROUP BY status");
+        let rows: Vec<(String, i64)> = status_builder
+            .build_query_as::<(String, i64)>()
+            .fetch_all(pool)
+            .await
+            .map_err(|e| format!("统计任务失败: {e}"))?;
+        let mut total = 0_i64;
+        let mut completed = 0_i64;
+        for (status, count) in rows {
+            total += count;
+            if status == "completed" {
+                completed = count;
+            }
+            tasks_by_status.insert(status, count);
+        }
+        (total, completed)
+    };
+
+    let completion_rate = if total_tasks > 0 {
+        ((completed as f64 / total_tasks as f64) * 100.0).round() as i64
+    } else {
+        0
+    };
+
+    // Employees: project_id in scoped OR (no project filter and employee unbound)
+    let (total_employees, online_employees) = if scoped_ids.is_empty() && project_id.is_some() {
+        (0_i64, 0_i64)
+    } else if scoped_ids.is_empty() {
+        // No visible projects and no single project filter — still count unbound employees only
+        // when not filtering by project (matches frontend: employee.project_id ? scoped : !projectId)
+        sqlx::query_as::<_, (i64, i64)>(
+            "SELECT COUNT(*),
+                    COALESCE(SUM(CASE WHEN status IN ('online', 'busy') THEN 1 ELSE 0 END), 0)
+             FROM employees WHERE project_id IS NULL",
+        )
+        .fetch_one(pool)
+        .await
+        .map_err(|e| format!("统计员工失败: {e}"))?
+    } else {
+        let mut emp_builder = QueryBuilder::<Sqlite>::new(
+            "SELECT COUNT(*),
+                    COALESCE(SUM(CASE WHEN status IN ('online', 'busy') THEN 1 ELSE 0 END), 0)
+             FROM employees WHERE ",
+        );
+        if project_id.is_some() {
+            emp_builder.push("project_id IN (");
+            {
+                let mut separated = emp_builder.separated(", ");
+                for id in &scoped_ids {
+                    separated.push_bind(id);
+                }
+            }
+            emp_builder.push(")");
+        } else {
+            emp_builder.push("(project_id IN (");
+            {
+                let mut separated = emp_builder.separated(", ");
+                for id in &scoped_ids {
+                    separated.push_bind(id);
+                }
+            }
+            emp_builder.push(") OR project_id IS NULL)");
+        }
+        emp_builder
+            .build_query_as::<(i64, i64)>()
+            .fetch_one(pool)
+            .await
+            .map_err(|e| format!("统计员工失败: {e}"))?
+    };
+
+    // Notifications: all active (frontend did not scope by project)
+    let (unread_notifications, high_severity_notifications) = sqlx::query_as::<_, (i64, i64)>(
+        "SELECT
+            COALESCE(SUM(CASE WHEN is_read = 0 THEN 1 ELSE 0 END), 0),
+            COALESCE(SUM(CASE WHEN severity IN ('error', 'critical') THEN 1 ELSE 0 END), 0)
+         FROM notifications WHERE state = 'active'",
+    )
+    .fetch_one(pool)
+    .await
+    .map_err(|e| format!("统计通知失败: {e}"))?;
+
+    Ok(DashboardStats {
+        total_projects,
+        active_projects,
+        total_tasks,
+        tasks_by_status,
+        total_employees,
+        online_employees,
+        completion_rate,
+        unread_notifications,
+        high_severity_notifications,
+    })
+}
+
+#[tauri::command]
+pub async fn get_dashboard_stats<R: Runtime>(
+    app: AppHandle<R>,
+    payload: Option<crate::db::models::GetDashboardStatsPayload>,
+) -> Result<crate::db::models::DashboardStats, String> {
+    let pool = sqlite_pool(&app).await?;
+    let payload = payload.unwrap_or_default();
+    get_dashboard_stats_with_pool(&pool, &payload).await
+}
+
 #[tauri::command]
 pub async fn get_dashboard_report_summary<R: Runtime>(
     app: AppHandle<R>,

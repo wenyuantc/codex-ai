@@ -279,3 +279,93 @@ fn fetch_execution_change_history_item_falls_back_to_session_started_provider() 
         pool.close().await;
     });
 }
+
+#[test]
+fn list_tasks_applies_global_limit_and_project_scope() {
+    tauri::async_runtime::block_on(async {
+        let pool = setup_test_pool().await;
+        insert_project(&pool, "proj-a").await;
+        insert_project(&pool, "proj-b").await;
+
+        for index in 0..5 {
+            let task = Task {
+                id: format!("task-{index}"),
+                title: format!("Task {index}"),
+                description: None,
+                status: if index % 2 == 0 {
+                    "todo".to_string()
+                } else {
+                    "archived".to_string()
+                },
+                priority: "medium".to_string(),
+                project_id: if index < 3 {
+                    "proj-a".to_string()
+                } else {
+                    "proj-b".to_string()
+                },
+                use_worktree: false,
+                assignee_id: None,
+                reviewer_id: None,
+                coordinator_id: None,
+                complexity: None,
+                ai_suggestion: None,
+                plan_content: None,
+                automation_mode: None,
+                last_codex_session_id: None,
+                last_review_session_id: None,
+                time_started_at: None,
+                time_spent_seconds: 0,
+                completed_at: None,
+                deleted_at: None,
+                due_date: None,
+                blocked_reason: None,
+                milestone_id: None,
+                created_at: format!("2026-04-21 00:00:0{index}"),
+                updated_at: format!("2026-04-21 00:00:0{index}"),
+            };
+            let mut tx = pool.begin().await.expect("begin");
+            insert_task_record(&mut tx, &task)
+                .await
+                .expect("insert task");
+            tx.commit().await.expect("commit");
+        }
+
+        let limited = list_tasks_with_pool(
+            &pool,
+            &crate::db::models::ListTasksPayload {
+                limit: Some(2),
+                ..Default::default()
+            },
+        )
+        .await
+        .expect("list limited tasks");
+        assert_eq!(limited.len(), 2);
+
+        let by_project = list_tasks_with_pool(
+            &pool,
+            &crate::db::models::ListTasksPayload {
+                project_id: Some("proj-a".to_string()),
+                limit: Some(1), // ignored when project_id set
+                ..Default::default()
+            },
+        )
+        .await
+        .expect("list project tasks");
+        assert_eq!(by_project.len(), 3);
+
+        let archived = list_tasks_with_pool(
+            &pool,
+            &crate::db::models::ListTasksPayload {
+                status: Some("archived".to_string()),
+                project_ids: Some(vec!["proj-a".to_string(), "proj-b".to_string()]),
+                ..Default::default()
+            },
+        )
+        .await
+        .expect("list archived tasks");
+        assert_eq!(archived.len(), 2);
+        assert!(archived.iter().all(|task| task.status == "archived"));
+
+        pool.close().await;
+    });
+}

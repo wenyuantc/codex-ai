@@ -1837,6 +1837,191 @@ pub async fn list_trashed_tasks<R: Runtime>(app: AppHandle<R>) -> Result<Vec<Tas
     .map_err(|error| format!("获取回收站任务列表失败: {}", error))
 }
 
+/// Default/max LIMIT for global task lists (no project_id / project_ids).
+pub(crate) const LIST_TASKS_DEFAULT_LIMIT: i64 = 500;
+pub(crate) const LIST_TASKS_MAX_LIMIT: i64 = 1000;
+
+/// Resolve LIMIT for `list_tasks`.
+/// - With `project_id` or non-empty `project_ids`: no LIMIT (returns `None`).
+/// - Otherwise: clamp requested limit into 1..=1000, default 500.
+pub(crate) fn resolve_list_tasks_limit(
+    project_id: Option<&str>,
+    project_ids: Option<&[String]>,
+    limit: Option<i64>,
+) -> Option<i64> {
+    let has_project_id = project_id.map(str::trim).is_some_and(|v| !v.is_empty());
+    let has_project_ids = project_ids.is_some_and(|ids| !ids.is_empty());
+    if has_project_id || has_project_ids {
+        return None;
+    }
+    let resolved = limit
+        .filter(|v| *v > 0)
+        .unwrap_or(LIST_TASKS_DEFAULT_LIMIT)
+        .clamp(1, LIST_TASKS_MAX_LIMIT);
+    Some(resolved)
+}
+
+pub(crate) async fn list_tasks_with_pool(
+    pool: &SqlitePool,
+    payload: &crate::db::models::ListTasksPayload,
+) -> Result<Vec<Task>, String> {
+    let project_id = payload
+        .project_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|v| !v.is_empty());
+    let status = payload
+        .status
+        .as_deref()
+        .map(str::trim)
+        .filter(|v| !v.is_empty());
+    let project_ids = payload.project_ids.as_deref();
+    let limit = resolve_list_tasks_limit(project_id, project_ids, payload.limit);
+    let offset = payload.offset.unwrap_or(0).max(0);
+
+    let mut builder = QueryBuilder::<Sqlite>::new(
+        "SELECT * FROM tasks WHERE deleted_at IS NULL",
+    );
+
+    if let Some(pid) = project_id {
+        builder.push(" AND project_id = ");
+        builder.push_bind(pid);
+    }
+
+    if let Some(st) = status {
+        builder.push(" AND status = ");
+        builder.push_bind(st);
+    }
+
+    if let Some(ids) = project_ids {
+        if !ids.is_empty() {
+            builder.push(" AND project_id IN (");
+            let mut separated = builder.separated(", ");
+            for id in ids {
+                separated.push_bind(id);
+            }
+            separated.push_unseparated(")");
+        }
+    }
+
+    builder.push(" ORDER BY updated_at DESC, id DESC");
+
+    if let Some(lim) = limit {
+        builder.push(" LIMIT ");
+        builder.push_bind(lim);
+        builder.push(" OFFSET ");
+        builder.push_bind(offset);
+    }
+
+    builder
+        .build_query_as::<Task>()
+        .fetch_all(pool)
+        .await
+        .map_err(|error| format!("获取任务列表失败: {}", error))
+}
+
+#[tauri::command]
+pub async fn list_tasks<R: Runtime>(
+    app: AppHandle<R>,
+    payload: Option<crate::db::models::ListTasksPayload>,
+) -> Result<Vec<Task>, String> {
+    let pool = sqlite_pool(&app).await?;
+    let payload = payload.unwrap_or_default();
+    list_tasks_with_pool(&pool, &payload).await
+}
+
+#[tauri::command]
+pub async fn list_task_attachments<R: Runtime>(
+    app: AppHandle<R>,
+    task_id: String,
+) -> Result<Vec<TaskAttachment>, String> {
+    let pool = sqlite_pool(&app).await?;
+    fetch_task_attachments(&pool, &task_id).await
+}
+
+#[tauri::command]
+pub async fn list_task_subtasks<R: Runtime>(
+    app: AppHandle<R>,
+    task_id: String,
+) -> Result<Vec<Subtask>, String> {
+    let pool = sqlite_pool(&app).await?;
+    fetch_task_subtasks(&pool, &task_id).await
+}
+
+pub(crate) async fn fetch_task_comments(
+    pool: &SqlitePool,
+    task_id: &str,
+) -> Result<Vec<Comment>, String> {
+    sqlx::query_as::<_, Comment>(
+        "SELECT * FROM comments WHERE task_id = $1 ORDER BY created_at",
+    )
+    .bind(task_id)
+    .fetch_all(pool)
+    .await
+    .map_err(|error| format!("获取任务评论失败: {}", error))
+}
+
+#[tauri::command]
+pub async fn list_task_comments<R: Runtime>(
+    app: AppHandle<R>,
+    task_id: String,
+) -> Result<Vec<Comment>, String> {
+    let pool = sqlite_pool(&app).await?;
+    fetch_task_comments(&pool, &task_id).await
+}
+
+#[cfg(test)]
+mod list_tasks_limit_tests {
+    use super::{
+        resolve_list_tasks_limit, LIST_TASKS_DEFAULT_LIMIT, LIST_TASKS_MAX_LIMIT,
+    };
+
+    #[test]
+    fn project_id_disables_limit() {
+        assert_eq!(
+            resolve_list_tasks_limit(Some("p1"), None, Some(10)),
+            None
+        );
+    }
+
+    #[test]
+    fn project_ids_disables_limit() {
+        let ids = vec!["p1".to_string(), "p2".to_string()];
+        assert_eq!(
+            resolve_list_tasks_limit(None, Some(&ids), Some(10)),
+            None
+        );
+    }
+
+    #[test]
+    fn global_list_uses_default_limit() {
+        assert_eq!(
+            resolve_list_tasks_limit(None, None, None),
+            Some(LIST_TASKS_DEFAULT_LIMIT)
+        );
+    }
+
+    #[test]
+    fn global_list_clamps_limit() {
+        assert_eq!(
+            resolve_list_tasks_limit(None, None, Some(0)),
+            Some(LIST_TASKS_DEFAULT_LIMIT)
+        );
+        assert_eq!(
+            resolve_list_tasks_limit(None, None, Some(-5)),
+            Some(LIST_TASKS_DEFAULT_LIMIT)
+        );
+        assert_eq!(
+            resolve_list_tasks_limit(None, None, Some(50)),
+            Some(50)
+        );
+        assert_eq!(
+            resolve_list_tasks_limit(None, None, Some(5000)),
+            Some(LIST_TASKS_MAX_LIMIT)
+        );
+    }
+}
+
 #[tauri::command]
 pub async fn create_subtask<R: Runtime>(
     app: AppHandle<R>,

@@ -960,6 +960,106 @@ pub struct DashboardWorkloadItem {
     pub completed_tasks: i64,
 }
 
+// ========== Read-path list / dashboard DTOs ==========
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct ListTasksPayload {
+    #[serde(default)]
+    pub project_id: Option<String>,
+    #[serde(default)]
+    pub status: Option<String>,
+    #[serde(default)]
+    pub project_ids: Option<Vec<String>>,
+    #[serde(default)]
+    pub limit: Option<i64>,
+    #[serde(default)]
+    pub offset: Option<i64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct ListActivityLogsPayload {
+    #[serde(default)]
+    pub limit: Option<i64>,
+    #[serde(default)]
+    pub offset: Option<i64>,
+    #[serde(default)]
+    pub task_id: Option<String>,
+    #[serde(default)]
+    pub action: Option<String>,
+    #[serde(default)]
+    pub project_id: Option<String>,
+    #[serde(default)]
+    pub environment_mode: Option<String>,
+    #[serde(default)]
+    pub selected_ssh_config_id: Option<String>,
+    #[serde(default)]
+    pub keyword: Option<String>,
+    #[serde(default)]
+    pub start_date: Option<String>,
+    #[serde(default)]
+    pub end_date: Option<String>,
+    #[serde(default)]
+    pub include_total: Option<bool>,
+    #[serde(default)]
+    pub project_ids: Option<Vec<String>>,
+    /// Frontend reverse-matches Chinese action labels and passes matched action keys.
+    #[serde(default)]
+    pub matched_actions: Option<Vec<String>>,
+    /// Frontend reverse-matches Chinese status labels and passes status values for details LIKE.
+    #[serde(default)]
+    pub matched_statuses: Option<Vec<String>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+pub struct ActivityLogRow {
+    pub id: String,
+    pub employee_id: Option<String>,
+    pub action: String,
+    pub details: Option<String>,
+    pub task_id: Option<String>,
+    pub project_id: Option<String>,
+    pub created_at: String,
+    pub employee_name: Option<String>,
+    pub project_name: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ActivityLogPage {
+    pub items: Vec<ActivityLogRow>,
+    pub total: i64,
+    pub available_actions: Vec<String>,
+}
+
+/// Homepage dashboard stats (distinct from `DashboardReportSummary`).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DashboardStats {
+    pub total_projects: i64,
+    pub active_projects: i64,
+    pub total_tasks: i64,
+    pub tasks_by_status: HashMap<String, i64>,
+    pub total_employees: i64,
+    pub online_employees: i64,
+    pub completion_rate: i64,
+    pub unread_notifications: i64,
+    pub high_severity_notifications: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct GetDashboardStatsPayload {
+    #[serde(default)]
+    pub environment_mode: Option<String>,
+    #[serde(default)]
+    pub selected_ssh_config_id: Option<String>,
+    #[serde(default)]
+    pub project_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct ListEmployeeMetricsPayload {
+    #[serde(default)]
+    pub days: Option<i64>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExportTasksCsvPayload {
     #[serde(default)]

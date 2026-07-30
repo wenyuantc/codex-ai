@@ -6,11 +6,10 @@ import { SessionLogDialog, type SessionLogTarget } from "@/components/sessions/S
 import { SshArtifactLimitedNotice } from "@/components/sessions/SshArtifactLimitedNotice";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { listCodexSessions, prepareCodexSessionResume } from "@/lib/backend";
+import { listActivityLogs, listCodexSessions, prepareCodexSessionResume } from "@/lib/backend";
 import { startClaude, stopClaudeSession } from "@/lib/claude";
 import { startGrok, stopGrokSession } from "@/lib/grok";
 import { startCodex, stopCodexSession } from "@/lib/codex";
-import { select } from "@/lib/database";
 import { startOpenCode, stopOpenCodeSession } from "@/lib/opencode";
 import type {
   ActivityLog,
@@ -206,12 +205,14 @@ export function TaskSessionChainPanel({ taskId, active = true }: TaskSessionChai
     setError(null);
 
     try {
-      const [allSessions, activity] = await Promise.all([
+      const [allSessions, activityPage] = await Promise.all([
         listCodexSessions(),
-        select<ActivityLog>(
-          "SELECT * FROM activity_logs WHERE task_id = $1 AND action = 'task_automation_fix_started' ORDER BY created_at ASC",
-          [taskId],
-        ).catch(() => [] as ActivityLog[]),
+        listActivityLogs({
+          taskId,
+          action: "task_automation_fix_started",
+          limit: 500,
+          offset: 0,
+        }).catch(() => ({ items: [] as ActivityLog[], total: 0, available_actions: [] as string[] })),
       ]);
 
       if (requestIdRef.current !== requestId) {
@@ -219,7 +220,8 @@ export function TaskSessionChainPanel({ taskId, active = true }: TaskSessionChai
       }
 
       setSessions(allSessions.filter((session) => session.task_id === taskId));
-      setFixLogs(activity);
+      // Backend returns DESC; chain UI expects chronological ASC.
+      setFixLogs([...activityPage.items].reverse());
     } catch (loadError) {
       if (requestIdRef.current !== requestId) {
         return;

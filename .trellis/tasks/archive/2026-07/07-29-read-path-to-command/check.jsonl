@@ -1,0 +1,4 @@
+{"file": ".trellis/spec/frontend/data-access.md", "reason": "Verify no business frontend SQL remains and architecture matches post-migration rules"}
+{"file": ".trellis/spec/backend/command-guidelines.md", "reason": "Verify new commands follow handler shape, soft-delete, and error string conventions"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "Verify stats/activity/task list contracts match across layers and SSH scope"}
+{"file": ".trellis/spec/frontend/state-management.md", "reason": "Verify store public APIs remain stable for C4 consumers"}

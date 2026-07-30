@@ -1,5 +1,4 @@
 import { create } from "zustand";
-import { select } from "@/lib/database";
 import type {
   CodexSessionKind,
   Task,
@@ -24,6 +23,10 @@ import {
   deleteTask as deleteTaskCommand,
   permanentlyDeleteTask as permanentlyDeleteTaskCommand,
   restoreTask as restoreTaskCommand,
+  listTaskAttachments as listTaskAttachmentsCommand,
+  listTaskComments as listTaskCommentsCommand,
+  listTaskSubtasks as listTaskSubtasksCommand,
+  listTasks as listTasksCommand,
   listTrashedTasks as listTrashedTasksCommand,
   getTaskAutomationState as getTaskAutomationStateCommand,
   restartTaskAutomation as restartTaskAutomationCommand,
@@ -148,14 +151,11 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
   fetchTasks: async (projectId) => {
     set({ loading: true, activeProjectId: projectId });
     try {
-      const rawTasks = projectId
-        ? await select<Task>(
-            "SELECT * FROM tasks WHERE project_id = $1 AND deleted_at IS NULL ORDER BY updated_at DESC",
-            [projectId],
-          )
-        : await select<Task>(
-            "SELECT * FROM tasks WHERE deleted_at IS NULL ORDER BY updated_at DESC",
-          );
+      const rawTasks = await listTasksCommand(
+        projectId
+          ? { projectId }
+          : { limit: 500 },
+      );
       const visibleProjectIds = new Set(
         useProjectStore.getState().projects.map((project) => project.id),
       );
@@ -190,26 +190,17 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
   },
 
   fetchAttachments: async (taskId) => {
-    const attachments = await select<TaskAttachment>(
-      "SELECT * FROM task_attachments WHERE task_id = $1 ORDER BY sort_order, created_at",
-      [taskId],
-    );
+    const attachments = await listTaskAttachmentsCommand(taskId);
     set((state) => ({ attachments: { ...state.attachments, [taskId]: attachments } }));
   },
 
   fetchSubtasks: async (taskId) => {
-    const subtasks = await select<Subtask>(
-      "SELECT * FROM subtasks WHERE task_id = $1 ORDER BY sort_order",
-      [taskId],
-    );
+    const subtasks = await listTaskSubtasksCommand(taskId);
     set((state) => ({ subtasks: { ...state.subtasks, [taskId]: subtasks } }));
   },
 
   fetchComments: async (taskId) => {
-    const comments = await select<Comment>(
-      "SELECT * FROM comments WHERE task_id = $1 ORDER BY created_at",
-      [taskId],
-    );
+    const comments = await listTaskCommentsCommand(taskId);
     set((state) => ({ comments: { ...state.comments, [taskId]: comments } }));
   },
 

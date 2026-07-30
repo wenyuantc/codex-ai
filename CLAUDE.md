@@ -57,7 +57,7 @@ React (UI) → Tauri IPC commands → Rust service layer → SQLite
 - Component folders are feature-organized: `ai/`, `codex/`, `dashboard/`, `employees/`, `git/`, `keyboard/`, `layout/`, `projects/`, `search/`, `sessions/`, `settings/`, `tasks/`, `trash/`, `ui/`
 - Keyboard shortcuts are declared in one place: `src/lib/shortcuts.ts` (`NAV_SHORTCUTS` ⌘1–⌘7, `GLOBAL_SHORTCUTS` ⌘K/⌘T/⌘B/?, `PAGE_SHORTCUTS` N/A/R). Add new shortcuts there, not inline.
 
-**Frontend reads SQL directly, writes never.** `src/lib/database.ts` exposes `select()`; its `execute()` throws by design and `capabilities/default.json` grants only `sql:default` + `sql:allow-select` (no `sql:allow-execute`). Read queries still live in some stores/components — new read paths should prefer a Tauri command, and all mutations must.
+**Frontend never touches SQLite.** All reads and writes go through Tauri commands via `src/lib/backend.ts`. `src/lib/database.ts` is a hard-fail stub (`select` / `execute` / `getDb` throw). `capabilities/default.json` does not grant `sql:allow-select` or `sql:allow-execute` (only `sql:default` remains for plugin registration if needed).
 
 ### Backend (`src-tauri/src/`)
 

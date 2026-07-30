@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { normalizeProject } from "./projects";
 import type {
+  ActivityLog,
   AiProvider,
   AppNotification,
   ArtifactCaptureMode,
@@ -25,6 +26,7 @@ import type {
   Comment,
   ConfirmGitActionResult,
   Employee,
+  EmployeeMetric,
   EnvironmentMode,
   GitActionRequestResult,
   GlobalSearchItemType,
@@ -454,6 +456,125 @@ export async function getDashboardReportSummary(input?: {
   return invoke("get_dashboard_report_summary", {
     projectId: input?.projectId ?? null,
     environmentMode: input?.environmentMode ?? null,
+  });
+}
+
+export interface DashboardStats {
+  total_projects: number;
+  active_projects: number;
+  total_tasks: number;
+  tasks_by_status: Record<string, number>;
+  total_employees: number;
+  online_employees: number;
+  completion_rate: number;
+  unread_notifications: number;
+  high_severity_notifications: number;
+}
+
+export interface GetDashboardStatsInput {
+  environmentMode?: string | null;
+  selectedSshConfigId?: string | null;
+  projectId?: string | null;
+}
+
+export async function getDashboardStats(input?: GetDashboardStatsInput): Promise<DashboardStats> {
+  return invoke("get_dashboard_stats", {
+    payload: {
+      environment_mode: input?.environmentMode ?? null,
+      selected_ssh_config_id: input?.selectedSshConfigId ?? null,
+      project_id: input?.projectId ?? null,
+    },
+  });
+}
+
+export interface ListTasksInput {
+  projectId?: string | null;
+  status?: string | null;
+  projectIds?: string[] | null;
+  limit?: number | null;
+  offset?: number | null;
+}
+
+export async function listTasks(input?: ListTasksInput): Promise<Task[]> {
+  return invoke("list_tasks", {
+    payload: {
+      project_id: input?.projectId ?? null,
+      status: input?.status ?? null,
+      project_ids: input?.projectIds ?? null,
+      limit: input?.limit ?? null,
+      offset: input?.offset ?? null,
+    },
+  });
+}
+
+export async function listTaskAttachments(taskId: string): Promise<TaskAttachment[]> {
+  return invoke("list_task_attachments", { taskId });
+}
+
+export async function listTaskSubtasks(taskId: string): Promise<Subtask[]> {
+  return invoke("list_task_subtasks", { taskId });
+}
+
+export async function listTaskComments(taskId: string): Promise<Comment[]> {
+  return invoke("list_task_comments", { taskId });
+}
+
+export async function listProjects(): Promise<Project[]> {
+  const projects = await invoke<Project[]>("list_projects");
+  return projects.map(normalizeProject);
+}
+
+export async function listEmployees(): Promise<Employee[]> {
+  return invoke("list_employees");
+}
+
+export async function listEmployeeMetrics(days?: number): Promise<EmployeeMetric[]> {
+  return invoke("list_employee_metrics", {
+    payload: { days: days ?? null },
+  });
+}
+
+export interface ActivityLogPage {
+  items: ActivityLog[];
+  total: number;
+  available_actions: string[];
+}
+
+export interface ListActivityLogsInput {
+  limit?: number | null;
+  offset?: number | null;
+  taskId?: string | null;
+  action?: string | null;
+  projectId?: string | null;
+  environmentMode?: string | null;
+  selectedSshConfigId?: string | null;
+  keyword?: string | null;
+  startDate?: string | null;
+  endDate?: string | null;
+  includeTotal?: boolean | null;
+  projectIds?: string[] | null;
+  matchedActions?: string[] | null;
+  matchedStatuses?: string[] | null;
+}
+
+export async function listActivityLogs(input?: ListActivityLogsInput): Promise<ActivityLogPage> {
+  return invoke("list_activity_logs", {
+    payload: {
+      limit: input?.limit ?? null,
+      offset: input?.offset ?? null,
+      task_id: input?.taskId ?? null,
+      action: input?.action ?? null,
+      project_id: input?.projectId ?? null,
+      environment_mode: input?.environmentMode ?? null,
+      selected_ssh_config_id: input?.selectedSshConfigId ?? null,
+      keyword: input?.keyword ?? null,
+      start_date: input?.startDate ?? null,
+      end_date: input?.endDate ?? null,
+      include_total: input?.includeTotal ?? null,
+      project_ids: input?.projectIds ?? null,
+      matched_actions: input?.matchedActions ?? null,
+      matched_statuses: input?.matchedStatuses ?? null,
+    },
   });
 }
 
