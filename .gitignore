@@ -26,10 +26,4 @@ dist-ssr
 .playwright-cli
 output
 .playwright-mcp
-.openclaude
-.claude
-.cursor
-.agents
-.codex
-.opencode
-.grok
+
