@@ -15,7 +15,7 @@
   "branch": "feat/session-events-retention",
   "base_branch": "main",
   "worktree_path": null,
-  "commit": null,
+  "commit": "2689ff10f4773b7b4eb32e1c35d16e8b7f4fa36b",
   "pr_url": null,
   "subtasks": [],
   "children": [],
