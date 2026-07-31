@@ -78,6 +78,17 @@ SSH realities encoded in product behavior:
 
 New engine features must not assume local filesystem diffs always exist.
 
+### Claude-specific contracts
+
+| Item | Contract |
+|------|----------|
+| Provider id | `"claude"` (label `Claude`) |
+| Session mode (CLI fallback) | `claude -p ... --output-format stream-json --verbose --permission-mode bypassPermissions` |
+| Print + stream-json | **Must** pass `--verbose` with `-p`/`--print` and `--output-format stream-json`; Claude CLI exits 1 otherwise |
+| Args builder | Local + SSH share `build_claude_cli_args` in `claude/process/mod.rs` — keep them in sync |
+| System prompt | `--system-prompt` when non-empty |
+| Resume | `--resume <session_id>` when resuming |
+
 ### Grok-specific contracts
 
 | Item | Contract |

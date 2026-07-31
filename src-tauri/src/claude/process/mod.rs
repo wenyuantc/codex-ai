@@ -138,9 +138,11 @@ fn build_claude_cli_args(
         args.push(effort.to_string());
     }
 
+    // Claude CLI requires --verbose when combining --print (-p) with stream-json.
     args.extend([
         "--output-format".to_string(),
         "stream-json".to_string(),
+        "--verbose".to_string(),
         "--permission-mode".to_string(),
         "bypassPermissions".to_string(),
     ]);
@@ -319,6 +321,10 @@ mod tests {
 
         assert!(!args.contains(&"--effort".to_string()));
         assert!(!args.contains(&"auto".to_string()));
+        assert!(args.contains(&"--verbose".to_string()));
+        assert!(args
+            .windows(2)
+            .any(|pair| pair[0] == "--output-format" && pair[1] == "stream-json"));
     }
 
     #[test]
@@ -334,6 +340,7 @@ mod tests {
         assert!(args
             .windows(2)
             .any(|pair| pair[0] == "--resume" && pair[1] == "session-123"));
+        assert!(args.contains(&"--verbose".to_string()));
     }
 
     #[test]
@@ -345,6 +352,7 @@ mod tests {
         assert!(command.contains("PATH="));
         assert!(command.contains("\"$HOME/.local/bin\""));
         assert!(command.contains("exec claude"));
+        assert!(command.contains("--verbose"));
         assert!(command.contains("$HOME/repo with space"));
         assert!(!command.contains("修复"));
         assert!(!command.contains("bug"));
