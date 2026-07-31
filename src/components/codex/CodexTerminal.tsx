@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react";
 import type { CodexSessionKind } from "@/lib/types";
 import { useEmployeeStore } from "@/stores/employeeStore";
 import { buildTaskLogKey } from "@/stores/employeeStore";
+import { getLineColor } from "@/components/tasks/detail/taskDetailViewHelpers";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Eraser } from "lucide-react";
 
@@ -34,15 +35,6 @@ export function CodexTerminal({
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [output.length]);
-
-  function getLineColor(line: string): string {
-    if (line.startsWith("[ERROR]")) return "text-red-400";
-    if (line.startsWith("[EXIT]")) return "text-yellow-400";
-    if (line.startsWith("[思考]")) return "text-zinc-500";
-    if (line.startsWith("[命令]") || line.startsWith("[工具]")) return "text-cyan-400";
-    if (line.startsWith("[STDERR]")) return "text-orange-400";
-    return "text-green-400";
-  }
 
   return (
     <div className="relative">

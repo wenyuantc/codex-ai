@@ -3,6 +3,20 @@ import type { TaskExecutionChangeHistoryItem } from "@/lib/types";
 export function getLineColor(line: string): string {
   if (line.startsWith("[ERROR]")) return "text-red-400";
   if (line.startsWith("[EXIT]")) return "text-yellow-400";
+  if (line.startsWith("[思考]")) return "text-zinc-500";
+  if (
+    line.startsWith("[命令]") ||
+    line.startsWith("[工具]") ||
+    line.startsWith("[读取]") ||
+    line.startsWith("[写入]") ||
+    line.startsWith("[编辑]") ||
+    line.startsWith("[工具结果]")
+  ) {
+    return "text-cyan-400";
+  }
+  if (line.startsWith("[计划]") || line.startsWith("[待办]")) return "text-violet-400";
+  if (line.startsWith("[用量]")) return "text-zinc-500";
+  if (line.startsWith("[STDERR]")) return "text-orange-400";
   return "text-green-400";
 }
 
