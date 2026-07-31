@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 10
+- **Total Sessions**: 11
 - **Last Active**: 2026-07-31
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~224 | Active |
+| `journal-1.md` | ~245 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 11 | 2026-07-31 | 修复看板状态不同步与停止按钮假 loading | `6fc25d2` | `main` |
 | 10 | 2026-07-31 | 修复 Claude stream-json 缺 --verbose | `acdc74b` | `main` |
 | 9 | 2026-07-30 | 优化专项父任务集成验收与归档 | `43dbcf6`, `1925cc6` | `main` |
 | 8 | 2026-07-30 | 引入 lint 工具链 | `babbf3b` | `feat/lint-toolchain` |

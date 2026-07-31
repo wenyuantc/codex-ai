@@ -222,3 +222,24 @@ Claude CLI -p+stream-json 补齐 --verbose，修复运行/审核任务退出码1
 ### Status
 
 [OK] **Completed**
+
+
+## Session 11: 修复看板状态不同步与停止按钮假 loading
+
+**Date**: 2026-07-31
+**Task**: 修复看板状态不同步与停止按钮假 loading
+**Branch**: `main`
+
+### Summary
+
+修复看板任务 status 变更不刷新（automation 成功/失败/人工停止补 emit；全引擎 exit 刷新任务列表；不再用 session_kind 强改 status）以及停止后仍显示运行中 loading（stop 后刷新 automationStates + 400ms 二次同步）。同步更新 frontend/backend Trellis spec。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `6fc25d2` | (see git log) |
+
+### Status
+
+[OK] **Completed**
