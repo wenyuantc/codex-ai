@@ -42,6 +42,9 @@ interface KanbanBoardProps {
   keyword?: string;
   selectedTaskIds?: string[];
   onToggleTaskSelection?: (taskId: string) => void;
+  /** Open task log from outside the board (e.g. create-and-run). */
+  pendingLogRequest?: { taskId: string; sessionKind?: CodexSessionKind } | null;
+  onPendingLogRequestConsumed?: () => void;
 }
 
 export function KanbanBoard({
@@ -55,6 +58,8 @@ export function KanbanBoard({
   keyword = "",
   selectedTaskIds = [],
   onToggleTaskSelection,
+  pendingLogRequest = null,
+  onPendingLogRequestConsumed,
 }: KanbanBoardProps) {
   const { tasks, moveTask, updateTask, updateTaskStatus, fetchTasks } = useTaskStore();
   const employees = useEmployeeStore((s) => s.employees);
@@ -213,6 +218,17 @@ export function KanbanBoard({
   const handleOpenLog = useCallback((taskId: string, sessionKind?: CodexSessionKind) => {
     setLogRequest({ taskId, sessionKind });
   }, []);
+
+  useEffect(() => {
+    if (!pendingLogRequest?.taskId) {
+      return;
+    }
+    setLogRequest({
+      taskId: pendingLogRequest.taskId,
+      sessionKind: pendingLogRequest.sessionKind,
+    });
+    onPendingLogRequestConsumed?.();
+  }, [pendingLogRequest, onPendingLogRequestConsumed]);
 
   const sensors = useSensors(
     useSensor(PointerSensor, {

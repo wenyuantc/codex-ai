@@ -1,10 +1,10 @@
 import { useState } from "react";
 
-import { startCodex, stopCodexSession } from "@/lib/codex";
-import { startClaude, stopClaudeSession } from "@/lib/claude";
-import { startGrok, stopGrokSession } from "@/lib/grok";
-import { startOpenCode, stopOpenCodeSession } from "@/lib/opencode";
-import { prepareTaskGitExecution } from "@/lib/backend";
+import { stopCodexSession } from "@/lib/codex";
+import { stopClaudeSession } from "@/lib/claude";
+import { stopGrokSession } from "@/lib/grok";
+import { stopOpenCodeSession } from "@/lib/opencode";
+import { reportTaskRunSessionError, startTaskRunSession } from "@/lib/taskRunSession";
 import type { Employee, ProjectType, Task } from "@/lib/types";
 import { buildTaskLogKey, useEmployeeStore } from "@/stores/employeeStore";
 import { useTaskStore } from "@/stores/taskStore";
@@ -57,13 +57,9 @@ export function useTaskExecutionActions({
   );
   const taskLogs = useEmployeeStore((state) => state.taskLogs);
   const updateEmployeeStatus = useEmployeeStore((state) => state.updateEmployeeStatus);
-  const addCodexOutput = useEmployeeStore((state) => state.addCodexOutput);
-  const clearTaskCodexOutput = useEmployeeStore((state) => state.clearTaskCodexOutput);
   const refreshEmployeeRuntimeStatus = useEmployeeStore(
     (state) => state.refreshEmployeeRuntimeStatus,
   );
-  const updateTaskStatus = useTaskStore((state) => state.updateTaskStatus);
-  const startTaskTimer = useTaskStore((state) => state.startTaskTimer);
   const fetchTaskAutomationState = useTaskStore((state) => state.fetchTaskAutomationState);
   const fetchTasks = useTaskStore((state) => state.fetchTasks);
 
@@ -75,14 +71,7 @@ export function useTaskExecutionActions({
   const output = taskLogs[buildTaskLogKey(task.id, "execution")] ?? [];
 
   const handleExecutionError = async (error: unknown, action: TaskExecutionAction) => {
-    const message = error instanceof Error ? error.message : String(error);
-    if (assigneeId) {
-      addCodexOutput(assigneeId, `[ERROR] ${message}`, task.id);
-      const runtime = await refreshEmployeeRuntimeStatus(assigneeId);
-      if (!runtime?.running) {
-        await updateEmployeeStatus(assigneeId, "error");
-      }
-    }
+    const message = await reportTaskRunSessionError(error, assigneeId, task.id);
     onError?.(message, action);
   };
 
@@ -95,67 +84,20 @@ export function useTaskExecutionActions({
       await handleExecutionError(new Error("请先指定执行员工，再执行任务。"), action);
       return;
     }
-    if (task.status === "archived") {
-      await handleExecutionError(new Error("已归档任务不可启动执行会话"), action);
-      return;
-    }
 
     setLoading(action);
     try {
-      if (action === "run" && clearTaskOutputOnRun) {
-        clearTaskCodexOutput(task.id);
-      } else if (action === "continue" && clearTaskOutputOnContinue) {
-        clearTaskCodexOutput(task.id);
-      }
-
       const executionInput = await prepareExecutionInput(followUpPrompt, options);
-      let workingDir = projectRepoPath ?? undefined;
-      let taskGitContextId: string | undefined;
-
-      if (task.use_worktree) {
-        const prepared = await prepareTaskGitExecution(task.id);
-        workingDir = prepared.working_dir;
-        taskGitContextId = prepared.task_git_context_id;
-      }
-
-      if (!workingDir) {
-        throw new Error("当前项目缺少可用工作目录，无法启动任务执行。");
-      }
-
-      await updateEmployeeStatus(assigneeId, "busy");
-      await updateTaskStatus(task.id, "in_progress");
-
-      const startOptions = {
-        model: assignee?.model,
-        reasoningEffort: assignee?.reasoning_effort,
-        systemPrompt: assignee?.system_prompt,
-        workingDir,
-        taskId: task.id,
-        taskGitContextId,
-        resumeSessionId: executionInput.resumeSessionId,
-        imagePaths: executionInput.imagePaths,
-      };
-
-      if (assignee?.ai_provider === "claude") {
-        await startClaude(assigneeId, executionInput.prompt, startOptions);
-      } else if (assignee?.ai_provider === "opencode") {
-        await startOpenCode({
-          employeeId: assigneeId,
-          taskDescription: executionInput.prompt,
-          model: assignee.model,
-          workingDir,
-          taskId: task.id,
-          taskGitContextId,
-          resumeSessionId: executionInput.resumeSessionId,
-          imagePaths: executionInput.imagePaths,
-        });
-      } else if (assignee?.ai_provider === "grok") {
-        await startGrok(assigneeId, executionInput.prompt, startOptions);
-      } else {
-        await startCodex(assigneeId, executionInput.prompt, startOptions);
-      }
-      await startTaskTimer(task.id);
-      await refreshEmployeeRuntimeStatus(assigneeId);
+      await startTaskRunSession({
+        task,
+        assigneeId,
+        assignee,
+        projectRepoPath,
+        executionInput,
+        clearTaskOutput:
+          (action === "run" && clearTaskOutputOnRun) ||
+          (action === "continue" && clearTaskOutputOnContinue),
+      });
       onStarted?.(action);
     } catch (error) {
       await handleExecutionError(error, action);

@@ -60,6 +60,10 @@ import { ProjectGitActionDialog } from "@/components/projects/ProjectGitActionDi
 import { useProjectStore } from "@/stores/projectStore";
 import { useEmployeeStore } from "@/stores/employeeStore";
 import { useTaskStore } from "@/stores/taskStore";
+import {
+  getTaskBackgroundRunLabel,
+  useTaskBackgroundRunStore,
+} from "@/stores/taskBackgroundRunStore";
 import { useTaskExecutionActions } from "./hooks/useTaskExecutionActions";
 import { useTaskReviewActions } from "./hooks/useTaskReviewActions";
 import { getProjectWorkingDir } from "@/lib/projects";
@@ -241,9 +245,14 @@ function TaskCardComponent({
     reviewerId: task.reviewer_id,
     status: task.status,
   });
+  const backgroundRun = useTaskBackgroundRunStore((state) => state.byTaskId[task.id]);
+  const backgroundRunLabel = getTaskBackgroundRunLabel(backgroundRun);
+  const isBackgroundPlanning = backgroundRun?.phase === "planning";
+  const isBackgroundStarting = backgroundRun?.phase === "starting";
+  const isBackgroundRunBusy = isBackgroundPlanning || isBackgroundStarting;
   const runtimeState = getTaskActionRuntimeState({
     automationState,
-    isExecutionRunning: executionActions.isRunning,
+    isExecutionRunning: executionActions.isRunning || isBackgroundRunBusy,
     isReviewRunning: reviewActions.isRunning,
   });
   const isRunning = runtimeState.executionActive;
@@ -255,7 +264,8 @@ function TaskCardComponent({
     reviewActions.loading ||
     automationSubmitting ||
     automationRestarting ||
-    openingCommitDialog;
+    openingCommitDialog ||
+    isBackgroundRunBusy;
   const shouldShowActionBar = !isOverlay && (isRunning || isReviewTask || !hideRunAction);
   const shouldShowPrimaryMenuAction = isRunning || isReviewTask || !hideRunAction;
   const isWorktreeModeEnabled = task.use_worktree;
@@ -779,7 +789,28 @@ function TaskCardComponent({
                   {gitContextBadge.label}
                 </span>
               )}
-              {task.coordinator_id && (
+              {backgroundRunLabel && (
+                <span
+                  className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] ${
+                    backgroundRun?.phase === "error"
+                      ? "bg-destructive/10 text-destructive"
+                      : "bg-violet-500/10 text-violet-700 dark:text-violet-200"
+                  }`}
+                  title={
+                    backgroundRun?.phase === "error"
+                      ? (backgroundRun.error ?? backgroundRunLabel)
+                      : backgroundRunLabel
+                  }
+                >
+                  {backgroundRun?.phase === "error" ? (
+                    <Network className="h-3 w-3" />
+                  ) : (
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                  )}
+                  {backgroundRunLabel}
+                </span>
+              )}
+              {task.coordinator_id && !isBackgroundPlanning && (
                 <button
                   type="button"
                   onClick={(e) => {
@@ -883,6 +914,15 @@ function TaskCardComponent({
                       <span className="inline-block w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
                     )}
                     停止
+                  </button>
+                ) : isBackgroundRunBusy ? (
+                  <button
+                    disabled
+                    className="flex items-center gap-1 px-2 py-0.5 text-xs bg-violet-600 text-white rounded opacity-90"
+                    title={backgroundRunLabel ?? "后台启动中"}
+                  >
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                    {isBackgroundPlanning ? "生成计划中" : "启动中"}
                   </button>
                 ) : (
                   <button

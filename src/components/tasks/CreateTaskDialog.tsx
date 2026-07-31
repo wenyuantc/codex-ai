@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
-import { Loader2, Paperclip, Sparkles, X } from "lucide-react";
+import { Loader2, Paperclip, Play, Sparkles, X } from "lucide-react";
 
 import { useTaskStore } from "@/stores/taskStore";
 import { useProjectStore } from "@/stores/projectStore";
@@ -8,7 +8,7 @@ import { useEmployeeStore } from "@/stores/employeeStore";
 import { useAiOptimizePrompt } from "@/hooks/useAiOptimizePrompt";
 import { getEmployeeRoleLabel } from "@/lib/utils";
 import { dedupePaths, isTauriRuntime, normalizeDialogSelection } from "@/lib/taskAttachments";
-import type { Tag, Task } from "@/lib/types";
+import type { CodexSessionKind, Tag, Task } from "@/lib/types";
 import { PRIORITIES } from "@/lib/types";
 import {
   addTaskDependency,
@@ -18,6 +18,8 @@ import {
   setTaskTags,
 } from "@/lib/backend";
 import { getProjectWorkingDir } from "@/lib/projects";
+import { createTaskForRun, continueCreatedTaskRun } from "@/lib/taskCreateAndRun";
+import { useTaskBackgroundRunStore } from "@/stores/taskBackgroundRunStore";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -38,9 +40,15 @@ interface CreateTaskDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   projectId?: string;
+  onOpenLog?: (taskId: string, sessionKind?: CodexSessionKind) => void;
 }
 
-export function CreateTaskDialog({ open, onOpenChange, projectId }: CreateTaskDialogProps) {
+export function CreateTaskDialog({
+  open,
+  onOpenChange,
+  projectId,
+  onOpenLog,
+}: CreateTaskDialogProps) {
   const { createTask, tasks, fetchTasks } = useTaskStore();
   const { projects, fetchProjects } = useProjectStore();
   const { employees, fetchEmployees } = useEmployeeStore();
@@ -62,6 +70,8 @@ export function CreateTaskDialog({ open, onOpenChange, projectId }: CreateTaskDi
   const [saving, setSaving] = useState(false);
   const [defaultsLoading, setDefaultsLoading] = useState(false);
   const [defaultAutomationEnabled, setDefaultAutomationEnabled] = useState(false);
+  const busy = saving;
+  const setBackgroundPhase = useTaskBackgroundRunStore((state) => state.setPhase);
   const selectedProject = projects.find((project) => project.id === selectedProjectId);
   const coordinatorCandidates = employees.filter((employee) => employee.role === "coordinator");
   const reviewerCandidates = employees.filter((employee) => employee.role === "reviewer");
@@ -152,6 +162,10 @@ export function CreateTaskDialog({ open, onOpenChange, projectId }: CreateTaskDi
   }, [open, selectedProjectId, fetchTasks]);
 
   const handleOpen = (isOpen: boolean) => {
+    // Block dismiss while create is in flight. Successful submits close via closeAfterSuccess().
+    if (!isOpen && saving) {
+      return;
+    }
     if (isOpen) {
       fetchEmployees();
       fetchProjects();
@@ -171,6 +185,41 @@ export function CreateTaskDialog({ open, onOpenChange, projectId }: CreateTaskDi
       setCreateError(null);
     }
     onOpenChange(isOpen);
+  };
+
+  /** Close without the in-flight guard (create / create-and-run success only). */
+  const closeAfterSuccess = () => {
+    setSaving(false);
+    onOpenChange(false);
+  };
+
+  const buildCreatePayload = () => ({
+    title: title.trim(),
+    description: description.trim() || undefined,
+    priority,
+    project_id: selectedProjectId,
+    use_worktree: useWorktree === "true",
+    assignee_id: assigneeId || undefined,
+    reviewer_id: reviewerId || undefined,
+    coordinator_id: coordinatorId || undefined,
+    due_date: dueDate || null,
+    attachment_source_paths: attachmentPaths,
+  });
+
+  const validateCreateBase = (requireAssignee: boolean): string | null => {
+    if (!title.trim() || !selectedProjectId) {
+      return "请填写标题并选择项目。";
+    }
+    if (defaultsLoading) {
+      return "任务默认设置仍在加载，请稍候再试。";
+    }
+    if (defaultAutomationEnabled && !reviewerId) {
+      return "当前已开启“新建任务默认自动质控”，请先指定审查员。";
+    }
+    if (requireAssignee && !assigneeId) {
+      return "创建并执行需要先指定执行员工。";
+    }
+    return null;
   };
 
   const handleSelectAttachments = async () => {
@@ -244,35 +293,17 @@ export function CreateTaskDialog({ open, onOpenChange, projectId }: CreateTaskDi
   };
 
   const handleCreate = async () => {
-    if (!title.trim() || !selectedProjectId) return;
-    if (defaultsLoading) {
-      setCreateError("任务默认设置仍在加载，请稍候再试。");
-      return;
-    }
-    if (defaultAutomationEnabled && !reviewerId) {
-      setCreateError("当前已开启“新建任务默认自动质控”，请先指定审查员。");
+    const validationError = validateCreateBase(false);
+    if (validationError) {
+      setCreateError(validationError);
       return;
     }
     setCreateError(null);
     setSaving(true);
     try {
-      const created = await createTask(
-        {
-          title: title.trim(),
-          description: description.trim() || undefined,
-          priority,
-          project_id: selectedProjectId,
-          use_worktree: useWorktree === "true",
-          assignee_id: assigneeId || undefined,
-          reviewer_id: reviewerId || undefined,
-          coordinator_id: coordinatorId || undefined,
-          due_date: dueDate || null,
-          attachment_source_paths: attachmentPaths,
-        },
-        {
-          refreshProjectId: projectId,
-        },
-      );
+      const created = await createTask(buildCreatePayload(), {
+        refreshProjectId: projectId,
+      });
       if (selectedTagIds.length > 0) {
         await setTaskTags({ task_id: created.id, tag_ids: selectedTagIds });
       }
@@ -282,10 +313,64 @@ export function CreateTaskDialog({ open, onOpenChange, projectId }: CreateTaskDi
           depends_on_task_id: dependsOnTaskId,
         });
       }
-      handleOpen(false);
+      closeAfterSuccess();
     } catch (error) {
       setCreateError(error instanceof Error ? error.message : String(error));
-    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleCreateAndRun = async () => {
+    const validationError = validateCreateBase(true);
+    if (validationError) {
+      setCreateError(validationError);
+      return;
+    }
+    if (!selectedProject) {
+      setCreateError("当前项目不存在，无法创建并执行。");
+      return;
+    }
+    const assignee = employees.find((employee) => employee.id === assigneeId);
+    if (!assignee) {
+      setCreateError("未找到指定的执行员工。");
+      return;
+    }
+
+    setCreateError(null);
+    setSaving(true);
+    const payload = buildCreatePayload();
+    const projectSnapshot = selectedProject;
+    const assigneeSnapshot = assignee;
+    const openLog = onOpenLog;
+
+    try {
+      // 1) Create only — keep dialog open for create errors.
+      const task = await createTaskForRun({
+        payload,
+        tagIds: selectedTagIds,
+        dependencyTaskIds,
+        refreshProjectId: projectId,
+      });
+
+      // 2) Seed kanban badge immediately, close dialog, run plan+execute in background.
+      setBackgroundPhase(task.id, payload.coordinator_id ? "planning" : "starting");
+      closeAfterSuccess();
+
+      void continueCreatedTaskRun({
+        task,
+        payload,
+        project: projectSnapshot,
+        assignee: assigneeSnapshot,
+      })
+        .then(({ task: startedTask }) => {
+          openLog?.(startedTask.id, "execution");
+        })
+        .catch((error) => {
+          console.error("Background create-and-run failed:", error);
+        });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setCreateError(message);
       setSaving(false);
     }
   };
@@ -314,7 +399,7 @@ export function CreateTaskDialog({ open, onOpenChange, projectId }: CreateTaskDi
               <button
                 type="button"
                 onClick={() => void handleGenerateOptimizedDescription()}
-                disabled={saving || optimizePrompt.loading}
+                disabled={busy || optimizePrompt.loading}
                 className="flex items-center gap-1 rounded-md border border-input px-2.5 py-1.5 text-xs hover:bg-accent disabled:opacity-50"
               >
                 {optimizePrompt.loading ? (
@@ -400,7 +485,7 @@ export function CreateTaskDialog({ open, onOpenChange, projectId }: CreateTaskDi
                 <Select
                   value={useWorktree}
                   onValueChange={(value) => setUseWorktree(value ?? "false")}
-                  disabled={saving || defaultsLoading}
+                  disabled={busy || defaultsLoading}
                 >
                   <SelectTrigger className="mt-1 bg-background">
                     <SelectValue placeholder="选择是否启用 worktree">
@@ -459,7 +544,7 @@ export function CreateTaskDialog({ open, onOpenChange, projectId }: CreateTaskDi
                 value={dueDate}
                 onChange={(e) => setDueDate(e.target.value)}
                 className="mt-1"
-                disabled={saving}
+                disabled={busy}
               />
             </div>
 
@@ -491,7 +576,7 @@ export function CreateTaskDialog({ open, onOpenChange, projectId }: CreateTaskDi
                 })}
               </div>
               <Select
-                disabled={saving || !selectedProjectId || projectTags.length === 0}
+                disabled={busy || !selectedProjectId || projectTags.length === 0}
                 value={NONE_VALUE}
                 onValueChange={(value) => {
                   if (!value || value === NONE_VALUE || selectedTagIds.includes(value)) {
@@ -540,7 +625,7 @@ export function CreateTaskDialog({ open, onOpenChange, projectId }: CreateTaskDi
                 })}
               </div>
               <Select
-                disabled={saving || !selectedProjectId || projectTasks.length === 0}
+                disabled={busy || !selectedProjectId || projectTasks.length === 0}
                 value={NONE_VALUE}
                 onValueChange={(value) => {
                   if (!value || value === NONE_VALUE || dependencyTaskIds.includes(value)) {
@@ -568,7 +653,7 @@ export function CreateTaskDialog({ open, onOpenChange, projectId }: CreateTaskDi
           <div>
             <label className="text-xs font-medium text-muted-foreground">指派给</label>
             <Select
-              disabled={saving}
+              disabled={busy}
               value={assigneeId || UNASSIGNED_VALUE}
               onValueChange={(value) => {
                 setCreateError(null);
@@ -610,7 +695,7 @@ export function CreateTaskDialog({ open, onOpenChange, projectId }: CreateTaskDi
           <div>
             <label className="text-xs font-medium text-muted-foreground">审查员</label>
             <Select
-              disabled={saving}
+              disabled={busy}
               value={reviewerId || UNASSIGNED_VALUE}
               onValueChange={(value) => {
                 setCreateError(null);
@@ -657,7 +742,7 @@ export function CreateTaskDialog({ open, onOpenChange, projectId }: CreateTaskDi
           <div>
             <label className="text-xs font-medium text-muted-foreground">协调员</label>
             <Select
-              disabled={saving}
+              disabled={busy}
               value={coordinatorId || UNASSIGNED_VALUE}
               onValueChange={(value) => {
                 setCreateError(null);
@@ -742,19 +827,35 @@ export function CreateTaskDialog({ open, onOpenChange, projectId }: CreateTaskDi
             </div>
           )}
 
-          <div className="flex justify-end gap-2 pt-2">
+          <div className="flex flex-wrap justify-end gap-2 pt-2">
             <button
+              type="button"
               onClick={() => handleOpen(false)}
-              className="px-3 py-1.5 text-sm border border-input rounded-md hover:bg-accent"
+              disabled={busy}
+              className="px-3 py-1.5 text-sm border border-input rounded-md hover:bg-accent disabled:opacity-50"
             >
               取消
             </button>
             <button
-              onClick={handleCreate}
-              disabled={!title.trim() || !selectedProjectId || saving || defaultsLoading}
-              className="px-3 py-1.5 text-sm bg-primary text-primary-foreground rounded-md hover:bg-primary/90 disabled:opacity-50"
+              type="button"
+              onClick={() => void handleCreate()}
+              disabled={!title.trim() || !selectedProjectId || busy || defaultsLoading}
+              className="px-3 py-1.5 text-sm border border-input rounded-md hover:bg-accent disabled:opacity-50"
             >
               {saving ? "创建中..." : defaultsLoading ? "加载默认值..." : "创建"}
+            </button>
+            <button
+              type="button"
+              onClick={() => void handleCreateAndRun()}
+              disabled={!title.trim() || !selectedProjectId || busy || defaultsLoading}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-primary text-primary-foreground rounded-md hover:bg-primary/90 disabled:opacity-50"
+            >
+              {busy ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Play className="h-3.5 w-3.5" />
+              )}
+              {defaultsLoading ? "加载默认值..." : busy ? "创建中..." : "创建并执行"}
             </button>
           </div>
         </div>

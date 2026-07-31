@@ -1,7 +1,7 @@
 import { useHotkeys } from "react-hotkeys-hook";
 import { Kbd } from "@/components/keyboard/Kbd";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { KanbanBoard } from "@/components/tasks/KanbanBoard";
 import { ArchiveManagementDialog } from "@/components/tasks/ArchiveManagementDialog";
@@ -16,7 +16,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { batchUpdateTasks, listMilestones, listTags } from "@/lib/backend";
-import type { Milestone, Tag } from "@/lib/types";
+import type { CodexSessionKind, Milestone, Tag } from "@/lib/types";
 import { useTaskStore } from "@/stores/taskStore";
 import { useProjectStore } from "@/stores/projectStore";
 import { useEmployeeStore } from "@/stores/employeeStore";
@@ -31,6 +31,16 @@ export function KanbanPage() {
   const { fetchEmployees } = useEmployeeStore();
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [showArchiveDialog, setShowArchiveDialog] = useState(false);
+  const [pendingLogRequest, setPendingLogRequest] = useState<{
+    taskId: string;
+    sessionKind?: CodexSessionKind;
+  } | null>(null);
+  const consumePendingLogRequest = useCallback(() => {
+    setPendingLogRequest(null);
+  }, []);
+  const handleCreateOpenLog = useCallback((taskId: string, sessionKind?: CodexSessionKind) => {
+    setPendingLogRequest({ taskId, sessionKind });
+  }, []);
   const [overdueOnly, setOverdueOnly] = useState(false);
   const [blockedOnly, setBlockedOnly] = useState(false);
   const [milestoneFilter, setMilestoneFilter] = useState<string>("all");
@@ -238,6 +248,8 @@ export function KanbanPage() {
               nextSearchParams.delete("taskId");
               setSearchParams(nextSearchParams, { replace: true });
             }}
+            pendingLogRequest={pendingLogRequest}
+            onPendingLogRequestConsumed={consumePendingLogRequest}
           />
         ) : (
           <div className="flex h-full items-center justify-center rounded-lg border border-dashed border-border text-sm text-muted-foreground">
@@ -252,6 +264,7 @@ export function KanbanPage() {
           open={showCreateDialog}
           onOpenChange={setShowCreateDialog}
           projectId={currentProjectId}
+          onOpenLog={handleCreateOpenLog}
         />
       )}
       {showArchiveDialog && (
