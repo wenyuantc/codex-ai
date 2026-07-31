@@ -1,11 +1,15 @@
 name: build-desktop-installers
 
 # 仅在手动触发或推送新标签时构建桌面端安装包。
+# 推送 tag 时：三端构建完成后自动创建/更新 GitHub Release 并挂载安装包。
 on:
   workflow_dispatch:
   push:
     tags:
-      - "*"
+      - "v*"
+
+permissions:
+  contents: read
 
 jobs:
   build-installers:
@@ -33,8 +37,6 @@ jobs:
             artifact_path: src-tauri/target/release/bundle/dmg/*.dmg
 
     runs-on: ${{ matrix.os }}
-    permissions:
-      contents: read
 
     steps:
       - name: 检出代码
@@ -82,3 +84,117 @@ jobs:
           name: ${{ matrix.artifact_name }}
           path: ${{ matrix.artifact_path }}
           if-no-files-found: error
+          retention-days: 14
+
+  # 仅在 push tag（v*）时发布；workflow_dispatch 只构建、不发版。
+  publish-release:
+    name: Publish GitHub Release
+    needs: build-installers
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: 下载全部构建产物
+        uses: actions/download-artifact@v4
+        with:
+          # 按 artifact 名称分子目录，避免跨平台文件名冲突
+          path: release-assets
+
+      - name: 列出待发布文件
+        run: |
+          echo "Release assets:"
+          find release-assets -type f | sort
+          test -n "$(find release-assets -type f)" || {
+            echo "No release assets found"
+            exit 1
+          }
+
+      # softprops 在 generate_release_notes=true 时会把 body 拼到自动 notes 前面
+      - name: 生成中文发版说明
+        env:
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+
+          list_assets() {
+            local pattern="$1"
+            find release-assets -type f -name "$pattern" 2>/dev/null | sort | while read -r f; do
+              printf -- '- `%s`\n' "$(basename "$f")"
+            done
+          }
+
+          WINDOWS_ASSETS="$(list_assets '*.msi')"
+          MACOS_ASSETS="$(list_assets '*.dmg')"
+          LINUX_APPIMAGE="$(list_assets '*.AppImage')"
+          LINUX_DEB="$(list_assets '*.deb')"
+          LINUX_RPM="$(list_assets '*.rpm')"
+
+          {
+            echo "## Codex AI ${TAG_NAME}"
+            echo
+            echo "AI 员工协作桌面端（Tauri）正式安装包。"
+            echo
+            echo "### 下载安装包"
+            echo
+            echo "#### Windows"
+            if [ -n "${WINDOWS_ASSETS}" ]; then
+              echo "${WINDOWS_ASSETS}"
+            else
+              echo "- （本次无 Windows 安装包）"
+            fi
+            echo
+            echo "#### macOS"
+            if [ -n "${MACOS_ASSETS}" ]; then
+              echo "${MACOS_ASSETS}"
+            else
+              echo "- （本次无 macOS 安装包）"
+            fi
+            echo
+            echo "#### Linux"
+            if [ -n "${LINUX_APPIMAGE}${LINUX_DEB}${LINUX_RPM}" ]; then
+              [ -n "${LINUX_APPIMAGE}" ] && echo "${LINUX_APPIMAGE}"
+              [ -n "${LINUX_DEB}" ] && echo "${LINUX_DEB}"
+              [ -n "${LINUX_RPM}" ] && echo "${LINUX_RPM}"
+            else
+              echo "- （本次无 Linux 安装包）"
+            fi
+            echo
+            echo "### 安装说明"
+            echo
+            echo "| 平台 | 说明 |"
+            echo "| --- | --- |"
+            echo "| **Windows** | 下载 \`.msi\`，双击安装。如遇 SmartScreen 提示，选择「仍要运行」。 |"
+            echo "| **macOS** | 下载 \`.dmg\`，拖入「应用程序」。未签名构建首次打开可能需在「系统设置 → 隐私与安全性」中允许。 |"
+            echo "| **Linux** | 推荐 \`.AppImage\`（\`chmod +x\` 后直接运行）；或按发行版安装 \`.deb\` / \`.rpm\`。 |"
+            echo
+            echo "### 更新内容"
+            echo
+            echo "以下为相对上一版本的提交与 PR 变更（由 GitHub 自动生成）："
+            echo
+          } > release-body.md
+
+          echo "----- release-body.md -----"
+          cat release-body.md
+
+      - name: 创建 / 更新 GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: Codex AI ${{ github.ref_name }}
+          draft: false
+          # alpha / beta / rc 标签标记为预发布
+          prerelease: ${{ contains(github.ref_name, '-alpha') || contains(github.ref_name, '-beta') || contains(github.ref_name, '-rc') }}
+          # 中文说明在前，GitHub 自动 notes 追加在后
+          body_path: release-body.md
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+          files: |
+            release-assets/**/*.msi
+            release-assets/**/*.AppImage
+            release-assets/**/*.deb
+            release-assets/**/*.rpm
+            release-assets/**/*.dmg
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
