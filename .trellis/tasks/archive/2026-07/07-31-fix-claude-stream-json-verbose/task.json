@@ -1,0 +1,29 @@
+{
+  "id": "fix-claude-stream-json-verbose",
+  "name": "fix-claude-stream-json-verbose",
+  "title": "修复 Claude stream-json 缺少 --verbose 导致任务/审核失败",
+  "description": "",
+  "status": "completed",
+  "dev_type": null,
+  "scope": "claude",
+  "package": null,
+  "priority": "P2",
+  "creator": "codex-ai",
+  "assignee": "codex-ai",
+  "createdAt": "2026-07-31",
+  "completedAt": "2026-07-31",
+  "branch": null,
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {
+    "description": "Claude CLI -p + stream-json 缺 --verbose 导致运行/审核任务退出码 1",
+    "notes": "Implemented: --verbose in build_claude_cli_args; unit tests pass. Manual smoke pending."
+  }
+}
