@@ -243,3 +243,24 @@ Claude CLI -p+stream-json 补齐 --verbose，修复运行/审核任务退出码1
 ### Status
 
 [OK] **Completed**
+
+
+## Session 12: 看板创建并后台执行
+
+**Date**: 2026-08-01
+**Task**: 看板创建并后台执行
+**Branch**: `main`
+
+### Summary
+
+看板新建任务增加「创建并执行」：创建后立即关窗；有协调员后台生成计划再启动，无协调员直接执行；任务卡展示协调员生成计划中/启动中；抽取 startTaskRunSession 共享执行内核。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `024841a` | (see git log) |
+
+### Status
+
+[OK] **Completed**
