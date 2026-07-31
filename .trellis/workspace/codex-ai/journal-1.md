@@ -201,3 +201,24 @@
 ### Status
 
 [OK] **Completed**
+
+
+## Session 10: 修复 Claude stream-json 缺 --verbose
+
+**Date**: 2026-07-31
+**Task**: 修复 Claude stream-json 缺 --verbose
+**Branch**: `main`
+
+### Summary
+
+Claude CLI -p+stream-json 补齐 --verbose，修复运行/审核任务退出码1；更新单元测试与 ai-engines Claude 契约；BUG.md 保持清空。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `acdc74b` | (see git log) |
+
+### Status
+
+[OK] **Completed**
