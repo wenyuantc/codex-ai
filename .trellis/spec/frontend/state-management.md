@@ -69,6 +69,10 @@ For imperative work inside effects/event handlers, `useXStore.getState()` is acc
 - Initialize once from `MainLayout` effects.
 - Listener methods must return cleanup that unsubscribes all Tauri listeners.
 - On session exit events, stores refresh related collections (tasks/employees) rather than requiring every page to know about engine events.
+- **All four engines** (`codex` / `claude` / `grok` / `opencode`) must drive the same task-list refresh path on exit. Codex-only listeners leave the kanban board stale after Claude/Grok/OpenCode sessions.
+- Also refresh on `task-automation-state-changed` (automation phase + often task `status`). Exit events alone race automation write-back; the emit is the post-commit signal.
+- Do **not** optimistically force `task.status` from `session_kind` (e.g. execution → `in_progress`, review → `review`). Session id fields may update locally; status is owned by backend commands / automation and must come from `fetchTasks` / `updateTaskStatus` / returned task rows.
+- After manual **stop**, refresh `employeeRuntime` **and** `automationStates` (and tasks if status/timer fields change). Cards treat active automation phases (`waiting_execution`, `launching_fix`, …) as “running”; a stale phase shows permanent Loader UI even when the process is gone.
 
 ## Derived / Display Helpers
 

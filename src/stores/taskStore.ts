@@ -11,8 +11,12 @@ import {
   onCodexExit,
   onCodexSession,
   onTaskAutomationStateChanged,
+  type CodexExit,
   type CodexSession,
 } from "@/lib/codex";
+import { onClaudeExit, type ClaudeExit } from "@/lib/claude";
+import { onGrokExit, type GrokExit } from "@/lib/grok";
+import { onOpenCodeExit, type OpenCodeExitEvent } from "@/lib/opencode";
 import {
   addTaskAttachments as addTaskAttachmentsCommand,
   createComment as createCommentCommand,
@@ -265,14 +269,16 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
   },
 
   setTaskLastSessionId: async (taskId, sessionId, sessionKind) => {
-    const nextStatus = sessionKind === "review" ? "review" : "in_progress";
-
+    // Only optimistically patch session id fields — never force status by session_kind.
+    // Status is owned by backend (manual updates / task_automation) and refreshed via
+    // fetchTasks / updateTaskStatus / automation events. Forcing in_progress|review here
+    // races with automation transitions (e.g. execution exit → review).
     set((state) => ({
       tasks: state.tasks.map((task) =>
         task.id === taskId
           ? sessionKind === "review"
-            ? { ...task, status: nextStatus, last_review_session_id: sessionId }
-            : { ...task, status: nextStatus, last_codex_session_id: sessionId }
+            ? { ...task, last_review_session_id: sessionId }
+            : { ...task, last_codex_session_id: sessionId }
           : task,
       ),
     }));
@@ -429,6 +435,14 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
     codexSessionListenerRefCount += 1;
 
     if (!codexSessionListenersInitPromise && !codexSessionListenersCleanup) {
+      const refreshTaskAfterSessionExit = (taskId: string | null | undefined) => {
+        if (!taskId) {
+          return;
+        }
+        void get().fetchTaskAutomationState(taskId);
+        void get().fetchTasks(get().activeProjectId);
+      };
+
       codexSessionListenersInitPromise = Promise.all([
         onCodexSession((session: CodexSession) => {
           if (session.task_id) {
@@ -439,13 +453,19 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
             );
           }
         }),
-        onCodexExit((exit) => {
-          if (!exit.task_id) {
-            return;
-          }
-
-          void get().fetchTaskAutomationState(exit.task_id);
-          void get().fetchTasks(get().activeProjectId);
+        onCodexExit((exit: CodexExit) => {
+          refreshTaskAfterSessionExit(exit.task_id);
+        }),
+        // Non-Codex engines also drive task_automation / status transitions; refresh
+        // the kanban list when those sessions end (Codex-only listeners left the board stale).
+        onClaudeExit((exit: ClaudeExit) => {
+          refreshTaskAfterSessionExit(exit.task_id);
+        }),
+        onGrokExit((exit: GrokExit) => {
+          refreshTaskAfterSessionExit(exit.task_id);
+        }),
+        onOpenCodeExit((exit: OpenCodeExitEvent) => {
+          refreshTaskAfterSessionExit(exit.task_id);
         }),
         onTaskAutomationStateChanged((event) => {
           void get().fetchTaskAutomationState(event.task_id);

@@ -128,6 +128,14 @@ When adding another CLI engine, prefer **Claude/Grok process shape** over Codex 
 
 When changing session exit semantics, verify automation still observes the events it needs.
 
+**Frontend refresh contract**: after automation commits a phase or task status change that the UI must show without a full page reload, call `emit_task_automation_state_changed` (`task-automation-state-changed`). Required on at least:
+- successful launch finalize (`waiting_review` / `waiting_execution`)
+- launch failures (`review_launch_failed` / `fix_launch_failed`)
+- manual stop → `manual_control`
+- existing terminal paths (`completed` / `blocked` / `commit_failed` / …)
+
+`*-exit` alone is not enough: the process exit event often arrives **before** automation finishes writing task status/phase.
+
 ## Prompt / Review Integration
 
 - Review launch and attachment handling: `app/review.rs`

@@ -201,9 +201,12 @@ async fn retry_pending_review(
             return Ok(false);
         }
         mark_launch_failure(pool, &task, PHASE_REVIEW_LAUNCH_FAILED, &error).await?;
+        emit_task_automation_state_changed(app, &task, PHASE_REVIEW_LAUNCH_FAILED);
         return Err(error);
     }
 
+    // Notify frontend after status=review + waiting_review are committed so kanban can refresh.
+    emit_task_automation_state_changed(app, &task, PHASE_WAITING_REVIEW);
     Ok(true)
 }
 
@@ -251,9 +254,12 @@ async fn retry_pending_fix(
 
     if let Err(error) = result {
         mark_launch_failure(pool, &task, PHASE_FIX_LAUNCH_FAILED, &error).await?;
+        emit_task_automation_state_changed(app, &task, PHASE_FIX_LAUNCH_FAILED);
         return Err(error);
     }
 
+    // Notify frontend after status=in_progress + waiting_execution are committed.
+    emit_task_automation_state_changed(app, &task, PHASE_WAITING_EXECUTION);
     Ok(())
 }
 

@@ -64,6 +64,8 @@ export function useTaskExecutionActions({
   );
   const updateTaskStatus = useTaskStore((state) => state.updateTaskStatus);
   const startTaskTimer = useTaskStore((state) => state.startTaskTimer);
+  const fetchTaskAutomationState = useTaskStore((state) => state.fetchTaskAutomationState);
+  const fetchTasks = useTaskStore((state) => state.fetchTasks);
 
   const runningSession =
     employeeRuntime?.sessions.find(
@@ -193,6 +195,20 @@ export function useTaskExecutionActions({
       if (!runtime?.running) {
         await updateEmployeeStatus(assigneeId, "offline");
       }
+      // Automation may flip to manual_control after the process exits; refresh so the
+      // card does not keep treating stale waiting_execution phases as "运行中".
+      // Exit handlers can finish after stop returns — do an immediate refresh plus a
+      // short deferred one to cover that race (backend also emits when ready).
+      const refreshAfterStop = async () => {
+        if (task.automation_mode === "review_fix_loop_v1") {
+          await fetchTaskAutomationState(task.id);
+        }
+        await fetchTasks(useTaskStore.getState().activeProjectId);
+      };
+      await refreshAfterStop();
+      window.setTimeout(() => {
+        void refreshAfterStop();
+      }, 400);
       onStopped?.();
     } catch (error) {
       await handleExecutionError(error, "stop");

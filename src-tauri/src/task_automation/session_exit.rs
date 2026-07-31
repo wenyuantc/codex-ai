@@ -247,6 +247,7 @@ async fn handle_execution_exit(
             Some(task.project_id.as_str()),
         )
         .await?;
+        emit_task_automation_state_changed(app, task, PHASE_MANUAL_CONTROL);
         return Ok(());
     }
 
@@ -342,6 +343,7 @@ async fn handle_review_exit(
             Some(task.project_id.as_str()),
         )
         .await?;
+        emit_task_automation_state_changed(app, task, PHASE_MANUAL_CONTROL);
         return Ok(());
     }
 
