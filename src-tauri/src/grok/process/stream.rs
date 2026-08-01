@@ -251,7 +251,7 @@ fn extract_session_id(value: &Value) -> Option<String> {
     .map(ToOwned::to_owned)
 }
 
-fn tool_payload<'a>(value: &'a Value) -> &'a Value {
+fn tool_payload(value: &Value) -> &Value {
     // 兼容 data 包装：{"type":"tool_call","data":{...}}
     match value.get("data") {
         Some(data) if data.is_object() => data,
@@ -264,7 +264,7 @@ fn tool_call_id(payload: &Value) -> Option<String> {
 }
 
 /// Grok 把工具元数据放在 `_meta["x.ai/tool"]`（键名含 `/`，不能用未转义 JSON Pointer）。
-fn grok_tool_meta<'a>(payload: &'a Value) -> Option<&'a Value> {
+fn grok_tool_meta(payload: &Value) -> Option<&Value> {
     payload.get("_meta")?.get("x.ai/tool")
 }
 
@@ -281,7 +281,7 @@ fn tool_display_name(payload: &Value) -> Option<String> {
         .map(ToOwned::to_owned)
 }
 
-fn tool_input_value<'a>(payload: &'a Value) -> Option<&'a Value> {
+fn tool_input_value(payload: &Value) -> Option<&Value> {
     payload
         .get("rawInput")
         .or_else(|| payload.get("raw_input"))
@@ -295,7 +295,7 @@ fn tool_input_value<'a>(payload: &'a Value) -> Option<&'a Value> {
         })
 }
 
-fn tool_input_object<'a>(payload: &'a Value) -> Option<&'a serde_json::Map<String, Value>> {
+fn tool_input_object(payload: &Value) -> Option<&serde_json::Map<String, Value>> {
     tool_input_value(payload)?.as_object()
 }
 
@@ -422,8 +422,6 @@ fn file_action_label(name: &str) -> &'static str {
         "[编辑]"
     } else if lower.contains("write") || lower == "write" {
         "[写入]"
-    } else if lower.contains("list") {
-        "[工具]"
     } else {
         "[工具]"
     }
@@ -524,10 +522,10 @@ fn summarize_tool_start(payload: &Value) -> Option<String> {
         }
 
         // write 只有 content 没有 path 时至少提示写入
-        if lower.contains("write") {
-            if map_string(input, &["content", "new_string", "text"]).is_some() {
-                return Some(format!("[写入] {name}"));
-            }
+        if lower.contains("write")
+            && map_string(input, &["content", "new_string", "text"]).is_some()
+        {
+            return Some(format!("[写入] {name}"));
         }
     } else if let Some(input_val) = tool_input_value(payload) {
         if let Some(text) = input_val.as_str().map(str::trim).filter(|item| !item.is_empty()) {
