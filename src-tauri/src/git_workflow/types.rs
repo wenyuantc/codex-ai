@@ -248,6 +248,65 @@ pub struct TaskGitCommitOverview {
     pub refreshed_at: String,
 }
 
+const TASK_COMMIT_MODE_WORKTREE: &str = "worktree";
+const TASK_COMMIT_MODE_PROJECT_REPO: &str = "project_repo";
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TaskCommitActionState {
+    pub task_id: String,
+    pub project_id: String,
+    pub mode: String,
+    pub task_git_context_id: Option<String>,
+    pub working_dir: Option<String>,
+    pub execution_target: Option<String>,
+    pub current_branch: Option<String>,
+    pub git_context_state: Option<String>,
+    pub worktree_missing: bool,
+    pub has_stageable: bool,
+    pub has_staged: bool,
+    pub has_unmerged: bool,
+    pub can_commit: bool,
+    pub can_ai_commit: bool,
+    pub can_merge: bool,
+    pub warnings: Vec<String>,
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TaskCommitOverview {
+    pub task_id: String,
+    pub project_id: String,
+    pub mode: String,
+    pub task_git_context_id: Option<String>,
+    pub working_dir: String,
+    pub execution_target: String,
+    pub current_branch: Option<String>,
+    pub working_tree_summary: Option<String>,
+    pub working_tree_changes: Vec<ProjectGitWorkingTreeChange>,
+    pub has_unmerged: bool,
+    pub warning: Option<String>,
+    pub refreshed_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TaskAiCommitResult {
+    pub task_id: String,
+    pub mode: String,
+    pub message: String,
+    pub detail: String,
+    pub conflict_resolved: bool,
+    pub merge_ready: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TaskAiConflictResolveResult {
+    pub task_id: String,
+    pub working_dir: String,
+    pub resolved_files: Vec<String>,
+    pub detail: String,
+    pub merge_completed: bool,
+}
+
 #[derive(Debug, Clone)]
 pub(crate) enum TaskGitAutoCommitOutcome {
     Committed { detail: String },

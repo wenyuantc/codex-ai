@@ -572,6 +572,73 @@ pub async fn confirm_git_action<R: Runtime>(
             })
         }
         Err(error) => {
+            let looks_like_conflict = error.to_lowercase().contains("conflict")
+                || error.contains("冲突")
+                || error.contains("CONFLICT")
+                || error.contains("Automatic merge failed");
+            if action_type == "merge" && looks_like_conflict {
+                let task = fetch_task_by_id(&pool, &context.task_id).await?;
+                match ai_resolve_conflicts_in_dir(
+                    &app,
+                    &task,
+                    &project,
+                    &runtime,
+                    &runtime.repo_path,
+                    "post_merge",
+                )
+                .await
+                {
+                    Ok(resolve) if resolve.merge_completed || !resolve.resolved_files.is_empty() => {
+                        // Retry merge completion only; if files resolved + merge commit done, mark completed.
+                        if resolve.merge_completed {
+                            clear_pending_action_fields(&mut context);
+                            context.context_version += 1;
+                            context.state = TASK_GIT_STATE_COMPLETED.to_string();
+                            context.last_error = None;
+                            context.updated_at = now_sqlite();
+                            let saved = save_task_git_context(&pool, &context).await?;
+                            let result_message = format!(
+                                "合并冲突已由 AI 自动解决：{}",
+                                resolve.detail
+                            );
+                            insert_activity_log(
+                                &pool,
+                                "git_action_confirmed",
+                                &result_message,
+                                None,
+                                Some(&context.task_id),
+                                Some(&context.project_id),
+                            )
+                            .await?;
+                            return Ok(ConfirmGitActionResult {
+                                context: TaskGitContextSummary::from(saved),
+                                action_type,
+                                message: result_message,
+                            });
+                        }
+                        // Resolved files but merge commit incomplete — surface original + resolve info.
+                        let combined = format!(
+                            "{error}；AI 已尝试解冲突（{}），请检查后重试合并",
+                            resolve.detail
+                        );
+                        reject_pending_action(&pool, &mut context, &combined, false).await?;
+                        return Err(combined);
+                    }
+                    Ok(resolve) => {
+                        let combined = format!(
+                            "{error}；AI 解冲突结果：{}",
+                            resolve.detail
+                        );
+                        reject_pending_action(&pool, &mut context, &combined, false).await?;
+                        return Err(combined);
+                    }
+                    Err(resolve_error) => {
+                        let combined = format!("{error}；AI 自动解冲突失败：{resolve_error}");
+                        reject_pending_action(&pool, &mut context, &combined, false).await?;
+                        return Err(combined);
+                    }
+                }
+            }
             reject_pending_action(&pool, &mut context, &error, false).await?;
             Err(error)
         }

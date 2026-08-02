@@ -52,6 +52,7 @@ pub use self::ai_commands::*;
 pub use self::lifecycle::CodexChild;
 
 pub(crate) use self::lifecycle::stop_codex_for_automation_restart;
+pub(crate) use self::one_shot::run_ai_command;
 
 use self::{
     changes::*, command_builders::*, context::*, lifecycle::*, one_shot::*, prompts::*,

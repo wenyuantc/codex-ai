@@ -1093,6 +1093,71 @@ pub(crate) async fn collect_status_changes<R: Runtime>(
     Ok(result.changes)
 }
 
+pub(crate) async fn write_text_file<R: Runtime>(
+    app: &AppHandle<R>,
+    execution_target: &str,
+    ssh_config_id: Option<&str>,
+    repo_path: &str,
+    relative_path: &str,
+    text: &str,
+) -> Result<String, String> {
+    let result: GitBridgeMessageResult = call_bridge(
+        app,
+        execution_target,
+        ssh_config_id,
+        serde_json::json!({
+            "command": "write_text_file",
+            "repoPath": repo_path,
+            "relativePath": relative_path,
+            "text": text,
+        }),
+    )
+    .await?;
+    Ok(result.message)
+}
+
+pub(crate) async fn stage_paths<R: Runtime>(
+    app: &AppHandle<R>,
+    execution_target: &str,
+    ssh_config_id: Option<&str>,
+    repo_path: &str,
+    paths: &[String],
+) -> Result<String, String> {
+    let result: GitBridgeMessageResult = call_bridge(
+        app,
+        execution_target,
+        ssh_config_id,
+        serde_json::json!({
+            "command": "stage_paths",
+            "repoPath": repo_path,
+            "paths": paths,
+        }),
+    )
+    .await?;
+    Ok(result.message)
+}
+
+pub(crate) async fn complete_merge_commit<R: Runtime>(
+    app: &AppHandle<R>,
+    execution_target: &str,
+    ssh_config_id: Option<&str>,
+    repo_path: &str,
+    message: Option<&str>,
+) -> Result<String, String> {
+    let result: GitBridgeMessageResult = call_bridge(
+        app,
+        execution_target,
+        ssh_config_id,
+        serde_json::json!({
+            "command": "complete_merge_commit",
+            "repoPath": repo_path,
+            "message": message.unwrap_or("Merge conflict resolved"),
+        }),
+    )
+    .await?;
+    Ok(result.message)
+}
+
 pub(crate) async fn capture_worktree_text_snapshot<R: Runtime>(
     app: &AppHandle<R>,
     execution_target: &str,

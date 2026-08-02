@@ -4,7 +4,8 @@ function isStageableChange(change: ProjectGitWorkingTreeChange) {
   return (
     change.stage_status === "unstaged" ||
     change.stage_status === "untracked" ||
-    change.stage_status === "partially_staged"
+    change.stage_status === "partially_staged" ||
+    change.stage_status === "unmerged"
   );
 }
 

@@ -6,17 +6,20 @@ import type {
   CodexSessionKind,
   Tag,
   Task,
+  TaskCommitActionState,
+  TaskCommitOverview,
   TaskDependency,
-  TaskGitCommitOverview,
   TaskGitContext,
 } from "@/lib/types";
 import {
+  aiCommitTaskChanges,
   aiGenerateCoordinatorTaskPlan,
   aiGenerateTesterAcceptance,
-  getTaskGitCommitOverview,
+  getTaskCommitActionState,
+  getTaskCommitOverview,
   listTaskDependencies,
   listTaskTags,
-  stageAllTaskGitFiles,
+  stageAllTaskCommitFiles,
 } from "@/lib/backend";
 import {
   formatDate,
@@ -64,6 +67,11 @@ import {
   getTaskBackgroundRunLabel,
   useTaskBackgroundRunStore,
 } from "@/stores/taskBackgroundRunStore";
+import {
+  getTaskAiCommitLabel,
+  isTaskAiCommitBusy,
+  useTaskAiCommitStore,
+} from "@/stores/taskAiCommitStore";
 import { useTaskExecutionActions } from "./hooks/useTaskExecutionActions";
 import { useTaskReviewActions } from "./hooks/useTaskReviewActions";
 import { getProjectWorkingDir } from "@/lib/projects";
@@ -144,10 +152,11 @@ function TaskCardComponent({
   const [showGitActionDialog, setShowGitActionDialog] = useState(false);
   const [showCommitDialog, setShowCommitDialog] = useState(false);
   const [openingCommitDialog, setOpeningCommitDialog] = useState(false);
-  const [initialCommitOverview, setInitialCommitOverview] = useState<TaskGitCommitOverview | null>(
+  const [initialCommitOverview, setInitialCommitOverview] = useState<TaskCommitOverview | null>(
     null,
   );
   const [initialCommitError, setInitialCommitError] = useState<string | null>(null);
+  const [commitActionState, setCommitActionState] = useState<TaskCommitActionState | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [automationSubmitting, setAutomationSubmitting] = useState(false);
   const [automationRestarting, setAutomationRestarting] = useState(false);
@@ -250,6 +259,11 @@ function TaskCardComponent({
   const isBackgroundPlanning = backgroundRun?.phase === "planning";
   const isBackgroundStarting = backgroundRun?.phase === "starting";
   const isBackgroundRunBusy = isBackgroundPlanning || isBackgroundStarting;
+  const aiCommitEntry = useTaskAiCommitStore((state) => state.byTaskId[task.id]);
+  const setAiCommitPhase = useTaskAiCommitStore((state) => state.setPhase);
+  const clearAiCommitPhase = useTaskAiCommitStore((state) => state.clear);
+  const aiCommitLabel = getTaskAiCommitLabel(aiCommitEntry);
+  const aiCommitting = isTaskAiCommitBusy(aiCommitEntry);
   const runtimeState = getTaskActionRuntimeState({
     automationState,
     isExecutionRunning: executionActions.isRunning || isBackgroundRunBusy,
@@ -265,6 +279,7 @@ function TaskCardComponent({
     automationSubmitting ||
     automationRestarting ||
     openingCommitDialog ||
+    aiCommitting ||
     isBackgroundRunBusy;
   const shouldShowActionBar = !isOverlay && (isRunning || isReviewTask || !hideRunAction);
   const shouldShowPrimaryMenuAction = isRunning || isReviewTask || !hideRunAction;
@@ -279,31 +294,44 @@ function TaskCardComponent({
   const canMarkCompleted = task.status !== "completed" && task.status !== "archived";
   const shouldShowTaskActionBar = shouldShowActionBar;
   const gitContextBadge = getGitContextBadge(gitContext);
+  const backendCanCommit = Boolean(commitActionState?.can_commit || commitActionState?.can_ai_commit);
+  const backendCanMerge = Boolean(commitActionState?.can_merge);
   const canTriggerMergeAction = Boolean(
-    gitContext &&
-    !gitContext.worktree_missing &&
-    gitContext.state !== "failed" &&
-    gitContext.state !== "completed" &&
-    gitContext.state !== "drifted",
-  );
-  const canCommitTaskCode = Boolean(
-    gitContext &&
-    !gitContext.worktree_missing &&
     !hasActiveSession &&
-    gitContext.state !== "failed" &&
-    gitContext.state !== "completed" &&
-    gitContext.state !== "merge_ready" &&
-    gitContext.state !== "drifted" &&
-    gitContext.state !== "action_pending" &&
-    (automationState.status === "commit_failed" ||
-      automationState.status === "blocked" ||
-      automationState.status === "manual_control" ||
-      !automationState.enabled),
+    ((backendCanMerge && gitContext) ||
+      (gitContext &&
+        !gitContext.worktree_missing &&
+        gitContext.state !== "failed" &&
+        gitContext.state !== "completed" &&
+        gitContext.state !== "drifted" &&
+        commitActionState === null)),
+  );
+  // Prefer backend dirty/unmerged state; keep automation-aware fallback while state loads.
+  const canCommitTaskCode = Boolean(
+    !hasActiveSession &&
+    (backendCanCommit ||
+      (commitActionState === null &&
+        gitContext &&
+        !gitContext.worktree_missing &&
+        gitContext.state !== "failed" &&
+        gitContext.state !== "completed" &&
+        gitContext.state !== "merge_ready" &&
+        gitContext.state !== "drifted" &&
+        gitContext.state !== "action_pending" &&
+        (automationState.status === "commit_failed" ||
+          automationState.status === "blocked" ||
+          automationState.status === "manual_control" ||
+          !automationState.enabled ||
+          task.status === "completed"))),
+  );
+  const canAiCommitTaskCode = Boolean(
+    !hasActiveSession && (commitActionState?.can_ai_commit || canCommitTaskCode),
   );
   const hasPreLogActions =
     shouldShowPrimaryMenuAction ||
     Boolean(task.last_codex_session_id) ||
     canCommitTaskCode ||
+    canAiCommitTaskCode ||
     canTriggerMergeAction ||
     canDeleteWorktree;
   const canRestartAutomation =
@@ -343,6 +371,37 @@ function TaskCardComponent({
       cancelled = true;
     };
   }, [isOverlay, task.id, task.updated_at]);
+
+  useEffect(() => {
+    if (isOverlay) {
+      return;
+    }
+    let cancelled = false;
+    void getTaskCommitActionState(task.id)
+      .then((state) => {
+        if (!cancelled) {
+          setCommitActionState(state);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setCommitActionState(null);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    isOverlay,
+    task.id,
+    task.updated_at,
+    task.status,
+    task.use_worktree,
+    gitContext?.id,
+    gitContext?.state,
+    gitContext?.updated_at,
+    gitContext?.worktree_missing,
+  ]);
 
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: task.id,
@@ -640,20 +699,21 @@ function TaskCardComponent({
   };
 
   const openCommitDialog = async () => {
-    if (!canCommitTaskCode || !gitContext) {
+    if (!canCommitTaskCode) {
       return;
     }
     setContextMenu(null);
     setOpeningCommitDialog(true);
+    clearAiCommitPhase(task.id);
 
-    let nextOverview = null;
+    let nextOverview: TaskCommitOverview | null = null;
     let nextError: string | null = null;
 
     try {
-      nextOverview = await getTaskGitCommitOverview(gitContext.id);
+      nextOverview = await getTaskCommitOverview(task.id);
       if (countStageableGitFiles(nextOverview.working_tree_changes) > 0) {
-        await stageAllTaskGitFiles(gitContext.id);
-        nextOverview = await getTaskGitCommitOverview(gitContext.id);
+        await stageAllTaskCommitFiles(task.id);
+        nextOverview = await getTaskCommitOverview(task.id);
       }
     } catch (error) {
       nextError = error instanceof Error ? error.message : String(error);
@@ -662,6 +722,33 @@ function TaskCardComponent({
       setInitialCommitError(nextError);
       setShowCommitDialog(true);
       setOpeningCommitDialog(false);
+    }
+  };
+
+  const handleAiCommit = async () => {
+    if (!canAiCommitTaskCode || aiCommitting) {
+      return;
+    }
+    setContextMenu(null);
+    setAiCommitPhase(task.id, "committing");
+    try {
+      const result = await aiCommitTaskChanges(task.id);
+      const detail = result.conflict_resolved
+        ? `${result.detail}（已自动解决冲突）`
+        : result.detail;
+      setAiCommitPhase(task.id, "success", { detail });
+      await onGitActionCompleted?.(task.project_id, detail);
+      const nextState = await getTaskCommitActionState(task.id);
+      setCommitActionState(nextState);
+      window.setTimeout(() => {
+        const current = useTaskAiCommitStore.getState().byTaskId[task.id];
+        if (current?.phase === "success") {
+          clearAiCommitPhase(task.id);
+        }
+      }, 5000);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setAiCommitPhase(task.id, "error", { error: message });
     }
   };
 
@@ -808,6 +895,35 @@ function TaskCardComponent({
                     <Loader2 className="h-3 w-3 animate-spin" />
                   )}
                   {backgroundRunLabel}
+                </span>
+              )}
+              {aiCommitLabel && (
+                <span
+                  className={`inline-flex max-w-full items-center gap-1 rounded-full px-2 py-0.5 text-[11px] ${
+                    aiCommitEntry?.phase === "error"
+                      ? "bg-destructive/10 text-destructive"
+                      : aiCommitEntry?.phase === "success"
+                        ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-200"
+                        : "bg-indigo-500/10 text-indigo-700 dark:text-indigo-200"
+                  }`}
+                  title={
+                    aiCommitEntry?.phase === "error"
+                      ? (aiCommitEntry.error ?? aiCommitLabel)
+                      : (aiCommitEntry?.detail ?? aiCommitLabel)
+                  }
+                  onClick={(e) => {
+                    if (aiCommitEntry?.phase === "error" || aiCommitEntry?.phase === "success") {
+                      e.stopPropagation();
+                      clearAiCommitPhase(task.id);
+                    }
+                  }}
+                >
+                  {aiCommitting ? (
+                    <Loader2 className="h-3 w-3 shrink-0 animate-spin" />
+                  ) : (
+                    <Bot className="h-3 w-3 shrink-0" />
+                  )}
+                  <span className="truncate">{aiCommitLabel}</span>
                 </span>
               )}
               {task.coordinator_id && !isBackgroundPlanning && (
@@ -1162,6 +1278,36 @@ function TaskCardComponent({
                   {openingCommitDialog ? "准备提交中" : "提交代码"}
                 </button>
               )}
+              {canAiCommitTaskCode && (
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => void handleAiCommit()}
+                  disabled={isActionLoading}
+                  title={
+                    commitActionState?.warnings?.[0] ||
+                    (commitActionState?.mode === "project_repo"
+                      ? "将 AI 提交项目主仓库当前工作区改动"
+                      : "AI 生成提交说明并提交；如有冲突将自动尝试解决")
+                  }
+                  className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-left hover:bg-accent hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-50"
+                >
+                  {aiCommitting ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Bot className="h-4 w-4" />
+                  )}
+                  {aiCommitting ? "AI 提交中" : "AI 提交"}
+                </button>
+              )}
+              {aiCommitEntry?.phase === "error" && aiCommitEntry.error && (
+                <div
+                  className="px-2 py-1 text-[11px] text-destructive"
+                  title={aiCommitEntry.error}
+                >
+                  {aiCommitEntry.error}
+                </div>
+              )}
               {canDeleteWorktree && (
                 <button
                   type="button"
@@ -1302,7 +1448,7 @@ function TaskCardComponent({
           }}
         />
       )}
-      {!isOverlay && gitContext && (
+      {!isOverlay && (
         <TaskGitCommitDialog
           open={showCommitDialog}
           onOpenChange={(open) => {
@@ -1313,10 +1459,11 @@ function TaskCardComponent({
             }
           }}
           task={task}
-          gitContext={gitContext}
           initialOverview={initialCommitOverview}
           initialError={initialCommitError}
           onCommitted={async (message) => {
+            const nextState = await getTaskCommitActionState(task.id);
+            setCommitActionState(nextState);
             await onGitActionCompleted?.(task.project_id, message);
           }}
         />

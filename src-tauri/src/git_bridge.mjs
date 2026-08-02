@@ -606,8 +606,20 @@ function classifyStatusEntry(entry) {
   return "modified";
 }
 
+function isUnmergedStatus(statusX, statusY) {
+  if (statusX === "U" || statusY === "U") {
+    return true;
+  }
+  // Other unmerged index states from git status porcelain.
+  const key = `${statusX}${statusY}`;
+  return key === "DD" || key === "AA" || key === "AU" || key === "UA" || key === "DU" || key === "UD";
+}
+
 function deriveStageStatus(entry) {
   const { status_x: statusX, status_y: statusY } = entry;
+  if (isUnmergedStatus(statusX, statusY)) {
+    return "unmerged";
+  }
   if (statusX === "?" && statusY === "?") {
     return "untracked";
   }
@@ -1422,6 +1434,32 @@ async function executeCommand(input) {
       return {
         snapshot: await captureRevisionTextSnapshot(repoPath, input.revision, input.relativePath),
       };
+    case "write_text_file": {
+      const relativePath = requiredText(input, ["relativePath", "relative_path"], "relativePath");
+      const text = typeof input.text === "string" ? input.text : "";
+      const targetPath = resolveTargetPath(repoPath, relativePath);
+      await fsp.mkdir(path.dirname(targetPath), { recursive: true });
+      await fsp.writeFile(targetPath, text, "utf8");
+      return { message: `已写入 ${relativePath}` };
+    }
+    case "stage_paths": {
+      const paths = Array.isArray(input.paths)
+        ? input.paths.map((item) => String(item || "").trim()).filter(Boolean)
+        : [];
+      if (paths.length === 0) {
+        throw new Error("stage_paths 至少需要一个路径");
+      }
+      await gitRaw(repoPath, ["add", "--", ...paths]);
+      return { message: `已暂存 ${paths.length} 个文件` };
+    }
+    case "complete_merge_commit": {
+      const message =
+        typeof input.message === "string" && input.message.trim()
+          ? input.message.trim()
+          : "Merge conflict resolved";
+      await gitRaw(repoPath, ["commit", "--no-edit", "-m", message]);
+      return { message: "已完成合并提交" };
+    }
     default:
       throw new Error(`unsupported command: ${input.command}`);
   }

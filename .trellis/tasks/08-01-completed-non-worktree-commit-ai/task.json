@@ -1,0 +1,28 @@
+{
+  "id": "completed-non-worktree-commit-ai",
+  "name": "completed-non-worktree-commit-ai",
+  "title": "完成态/非Worktree提交与AI提交(含自动解冲突)",
+  "description": "",
+  "status": "in_progress",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "P2",
+  "creator": "codex-ai",
+  "assignee": "codex-ai",
+  "createdAt": "2026-08-01",
+  "completedAt": null,
+  "branch": null,
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {
+    "description": "完成态与非Worktree任务菜单支持提交/AI提交，冲突自动解决；非Worktree不做合并"
+  }
+}

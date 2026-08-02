@@ -35,6 +35,7 @@ include!("context.rs");
 include!("project_ops.rs");
 include!("branch.rs");
 include!("pending_action.rs");
+include!("task_commit.rs");
 
 #[cfg(test)]
 mod tests;

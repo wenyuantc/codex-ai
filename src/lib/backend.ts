@@ -40,6 +40,10 @@ import type {
   ProjectGitOverview,
   ProjectGitWorktree,
   TaskGitCommitOverview,
+  TaskCommitActionState,
+  TaskCommitOverview,
+  TaskAiCommitResult,
+  TaskAiConflictResolveResult,
   RemoteCodexHealthCheck,
   RemoteCodexSdkInstallResult,
   RemoteCodexSettings,
@@ -1074,6 +1078,38 @@ export async function commitTaskGitChanges(
   message: string,
 ): Promise<string> {
   return invoke("commit_task_git_changes", { taskGitContextId, message });
+}
+
+export async function getTaskCommitActionState(taskId: string): Promise<TaskCommitActionState> {
+  return invoke("get_task_commit_action_state", { taskId });
+}
+
+export async function getTaskCommitOverview(taskId: string): Promise<TaskCommitOverview> {
+  return invoke("get_task_commit_overview", { taskId });
+}
+
+export async function stageAllTaskCommitFiles(taskId: string): Promise<string> {
+  return invoke("stage_all_task_commit_files", { taskId });
+}
+
+export async function commitTaskChanges(taskId: string, message: string): Promise<string> {
+  return invoke("commit_task_changes", { taskId, message });
+}
+
+export async function aiCommitTaskChanges(taskId: string): Promise<TaskAiCommitResult> {
+  return invoke("ai_commit_task_changes", { taskId });
+}
+
+export async function aiResolveTaskGitConflicts(
+  taskId: string,
+  phase?: "pre_commit" | "post_merge" | string,
+  workingDirOverride?: string | null,
+): Promise<TaskAiConflictResolveResult> {
+  return invoke("ai_resolve_task_git_conflicts", {
+    taskId,
+    phase: phase ?? null,
+    workingDirOverride: workingDirOverride ?? null,
+  });
 }
 
 export async function reconcileTaskGitContext(taskGitContextId: string): Promise<TaskGitContext> {

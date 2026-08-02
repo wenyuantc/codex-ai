@@ -1,0 +1,9 @@
+{"file": ".trellis/spec/backend/index.md", "reason": "Backend hard rules: Tauri commands, activity logs, SSH dual-path"}
+{"file": ".trellis/spec/backend/command-guidelines.md", "reason": "Shape of new git/task commands and validation"}
+{"file": ".trellis/spec/backend/ssh-remote.md", "reason": "Non-worktree and conflict resolve must work over SSH git_runtime"}
+{"file": ".trellis/spec/backend/ai-engines.md", "reason": "AI commit message and conflict-resolve sessions use engine/one-shot paths"}
+{"file": ".trellis/spec/frontend/index.md", "reason": "Frontend IPC-only mutations, activity Chinese labels"}
+{"file": ".trellis/spec/frontend/component-guidelines.md", "reason": "TaskCard menu and dialog composition"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "UI ↔ IPC ↔ Rust ↔ git/SSH boundary for dual commit targets"}
+{"file": ".trellis/tasks/08-01-completed-non-worktree-commit-ai/design.md", "reason": "Authoritative technical design for this task"}
+{"file": ".trellis/tasks/08-01-completed-non-worktree-commit-ai/prd.md", "reason": "Requirements and acceptance criteria"}

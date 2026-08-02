@@ -11,9 +11,9 @@ use super::{
     build_remote_sdk_bridge_command, build_session_exec_args, commit_message_uses_process_language,
     compose_codex_prompt, compute_execution_session_file_changes_from_entries,
     detect_exec_json_output_flag, extract_review_report, extract_review_verdict,
-    extract_session_id_from_output, format_session_prompt_log, hash_worktree_path, normalize_model,
-    normalize_reasoning_effort, normalize_session_file_change_paths, parse_ai_subtasks_response,
-    parse_cli_json_event_line,
+    extract_session_id_from_output, format_commit_message_validation_failure,
+    format_session_prompt_log, hash_worktree_path, normalize_model, normalize_reasoning_effort,
+    normalize_session_file_change_paths, parse_ai_subtasks_response, parse_cli_json_event_line,
     parse_sdk_bridge_output, parse_sdk_file_change_event, sdk_codex_path_override_allowed_for_os,
     should_capture_execution_change_baseline, validate_generated_commit_message, CliJsonOutputFlag,
     CliJsonStreamState, CodexExecutionProvider, CodexSessionKind, TextSnapshot,
@@ -627,9 +627,32 @@ fn detects_process_language_in_commit_message_subject() {
     assert!(commit_message_uses_process_language(
         "fix: 更新工作区提交信息\n\n- 优化提交文案"
     ));
+    assert!(commit_message_uses_process_language(
+        "chore: 暂存全部改动并生成提交信息\n\n- 仅整理 git 流程"
+    ));
     assert!(!commit_message_uses_process_language(
         "fix: 调整首页说明文案\n\n- 将社区文案改为更准确的描述"
     ));
+    // Product wording that contains bare “工作区/核对” should not be rejected.
+    assert!(!commit_message_uses_process_language(
+        "feat: 优化任务工作区体验\n\n- 支持非 Worktree 提交入口"
+    ));
+    assert!(!commit_message_uses_process_language(
+        "feat: 增加验收核对清单\n\n- 方便测试员勾选"
+    ));
+}
+
+#[test]
+fn commit_message_validation_failure_includes_reason_and_preview() {
+    let error = format_commit_message_validation_failure(
+        "title_with_body",
+        "它在描述提交流程，而不是实际改动",
+        "chore: 暂存全部改动\n\n仅整理流程",
+    );
+    assert!(error.contains("title_with_body"));
+    assert!(error.contains("它在描述提交流程，而不是实际改动"));
+    assert!(error.contains("最近一次输出"));
+    assert!(error.contains("chore: 暂存全部改动"));
 }
 
 #[test]

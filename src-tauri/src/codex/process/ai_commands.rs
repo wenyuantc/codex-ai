@@ -19,8 +19,30 @@ use crate::codex::{
     load_remote_codex_settings,
 };
 
-const COMMIT_MESSAGE_PROCESS_TERMS: &[&str] =
-    &["暂存", "已暂存", "工作区", "核对", "文件列表", "待提交文件"];
+/// Process-language phrases that indicate the model is describing git staging
+/// workflow rather than product/code changes. Prefer multi-character phrases
+/// over bare words like “工作区/核对” to reduce false positives on product copy.
+const COMMIT_MESSAGE_PROCESS_PHRASES: &[&str] = &[
+    "已暂存",
+    "待提交文件",
+    "待提交",
+    "文件列表",
+    "暂存内容",
+    "暂存文件",
+    "暂存全部",
+    "暂存并",
+    "暂存区",
+    "工作区提交",
+    "工作区改动",
+    "工作区文件",
+    "工作区变更",
+    "更新工作区",
+    "当前工作区",
+    "核对工作区",
+    "核对内容",
+    "核对文件",
+    "核对首页",
+];
 
 fn normalize_generated_commit_message(raw: &str) -> Result<String, String> {
     let mut normalized_lines = Vec::new();
@@ -85,10 +107,35 @@ pub(crate) fn commit_message_uses_process_language(message: &str) -> bool {
         .trim()
         .to_lowercase();
 
-    !subject.is_empty()
-        && COMMIT_MESSAGE_PROCESS_TERMS
-            .iter()
-            .any(|term| subject.contains(&term.to_lowercase()))
+    if subject.is_empty() {
+        return false;
+    }
+
+    COMMIT_MESSAGE_PROCESS_PHRASES
+        .iter()
+        .any(|phrase| subject.contains(&phrase.to_lowercase()))
+}
+
+fn truncate_commit_message_for_error(message: &str, max_chars: usize) -> String {
+    let trimmed = message.trim();
+    if trimmed.chars().count() <= max_chars {
+        return trimmed.to_string();
+    }
+    let preview: String = trimmed.chars().take(max_chars).collect();
+    format!("{preview}…")
+}
+
+pub(crate) fn format_commit_message_validation_failure(
+    ai_commit_message_length: &str,
+    validation_error: &str,
+    latest_message: &str,
+) -> String {
+    format!(
+        "AI 生成的提交信息仍不符合要求（{}）：{}。最近一次输出：\n{}",
+        ai_commit_message_length,
+        validation_error.trim(),
+        truncate_commit_message_for_error(latest_message, 240)
+    )
 }
 
 fn build_commit_message_retry_prompt(
@@ -439,26 +486,24 @@ pub(crate) async fn generate_commit_message_for_project<R: Runtime>(
     )
     .await?;
     let retried = normalize_generated_commit_message(&retried_raw)?;
-    if validate_generated_commit_message(
+    match validate_generated_commit_message(
         &retried,
         &settings.git_preferences.ai_commit_message_length,
-    )
-    .is_ok()
-    {
-        return Ok(GeneratedCommitMessage {
+    ) {
+        Ok(()) => Ok(GeneratedCommitMessage {
             message: retried,
             project_id: project.id.clone(),
             project_name: project.name.trim().to_string(),
             provider: ai_selection.effective_provider,
             model: ai_selection.effective_model,
             reasoning_effort: ai_selection.effective_reasoning_effort,
-        });
+        }),
+        Err(retry_validation_error) => Err(format_commit_message_validation_failure(
+            &settings.git_preferences.ai_commit_message_length,
+            &retry_validation_error,
+            &retried,
+        )),
     }
-
-    Err(format!(
-        "AI 生成的提交信息仍不符合要求（{}），请手动确认后再提交",
-        settings.git_preferences.ai_commit_message_length
-    ))
 }
 
 #[tauri::command]

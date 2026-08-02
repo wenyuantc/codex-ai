@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 
 import {
-  commitTaskGitChanges,
-  getTaskGitCommitOverview,
-  stageAllTaskGitFiles,
+  commitTaskChanges,
+  getTaskCommitOverview,
+  stageAllTaskCommitFiles,
 } from "@/lib/backend";
 import { aiGenerateCommitMessage } from "@/lib/codex";
 import {
@@ -11,7 +11,7 @@ import {
   countStageableGitFiles,
   countStagedGitFiles,
 } from "@/lib/gitWorkingTree";
-import type { Task, TaskGitCommitOverview, TaskGitContext } from "@/lib/types";
+import type { Task, TaskCommitOverview } from "@/lib/types";
 import { GitCommitDialogContent } from "@/components/git/GitCommitDialogContent";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
@@ -21,8 +21,7 @@ interface TaskGitCommitDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   task: Task;
-  gitContext: TaskGitContext;
-  initialOverview?: TaskGitCommitOverview | null;
+  initialOverview?: TaskCommitOverview | null;
   initialError?: string | null;
   onCommitted?: (message: string) => Promise<void> | void;
 }
@@ -31,12 +30,11 @@ export function TaskGitCommitDialog({
   open,
   onOpenChange,
   task,
-  gitContext,
   initialOverview = null,
   initialError = null,
   onCommitted,
 }: TaskGitCommitDialogProps) {
-  const [overview, setOverview] = useState<TaskGitCommitOverview | null>(null);
+  const [overview, setOverview] = useState<TaskCommitOverview | null>(null);
   const [loadingOverview, setLoadingOverview] = useState(false);
   const [stagingAll, setStagingAll] = useState(false);
   const [generatingCommitMessage, setGeneratingCommitMessage] = useState(false);
@@ -52,11 +50,12 @@ export function TaskGitCommitDialog({
     () => countStagedGitFiles(overview?.working_tree_changes ?? []),
     [overview],
   );
+  const isProjectRepoMode = overview?.mode === "project_repo";
 
   const refreshOverview = async () => {
     setLoadingOverview(true);
     try {
-      const nextOverview = await getTaskGitCommitOverview(gitContext.id);
+      const nextOverview = await getTaskCommitOverview(task.id);
       setOverview(nextOverview);
       setError(null);
       return nextOverview;
@@ -77,16 +76,20 @@ export function TaskGitCommitDialog({
     if (countStagedGitFiles(currentOverview.working_tree_changes) > 0) {
       return currentOverview;
     }
-    if (!currentOverview.working_tree_summary) {
-      setError("当前任务 worktree 没有可提交的改动。");
+    if (!currentOverview.working_tree_summary && currentOverview.working_tree_changes.length === 0) {
+      setError(
+        isProjectRepoMode
+          ? "当前项目主仓库没有可提交的改动。"
+          : "当前任务 worktree 没有可提交的改动。",
+      );
       return null;
     }
 
     setStagingAll(true);
     setError(null);
     try {
-      await stageAllTaskGitFiles(gitContext.id);
-      const stagedOverview = await getTaskGitCommitOverview(gitContext.id);
+      await stageAllTaskCommitFiles(task.id);
+      const stagedOverview = await getTaskCommitOverview(task.id);
       setOverview(stagedOverview);
       return stagedOverview;
     } catch (stageError) {
@@ -107,7 +110,7 @@ export function TaskGitCommitDialog({
     if (!initialOverview && !initialError) {
       void refreshOverview();
     }
-  }, [gitContext.id, initialError, initialOverview, open]);
+  }, [task.id, initialError, initialOverview, open]);
 
   const handleGenerateCommitMessage = async () => {
     setError(null);
@@ -154,7 +157,7 @@ export function TaskGitCommitDialog({
 
     setCommitting(true);
     try {
-      const result = await commitTaskGitChanges(gitContext.id, commitMessage.trim());
+      const result = await commitTaskChanges(task.id, commitMessage.trim());
       await onCommitted?.(result);
       onOpenChange(false);
     } catch (submitError) {
@@ -165,19 +168,29 @@ export function TaskGitCommitDialog({
   };
 
   const busy = loadingOverview || stagingAll || generatingCommitMessage || committing;
+  const description = isProjectRepoMode
+    ? "基于项目主仓库创建本地提交。注意：非 Worktree 会提交当前工作区全部改动（可能包含其他任务文件）。若尚无已暂存文件，会先自动暂存。"
+    : "基于任务 worktree 创建本地提交；如果当前还没有已暂存文件，会先自动暂存全部修改。";
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <GitCommitDialogContent
-        title="提交任务代码"
-        description="基于任务 worktree 创建本地提交；如果当前还没有已暂存文件，会先自动暂存全部修改。"
+        title={isProjectRepoMode ? "提交主仓库代码" : "提交任务代码"}
+        description={description}
         summaryRows={[
           {
             label: "当前分支",
-            value: overview?.current_branch ?? gitContext.task_branch ?? "未知",
+            value: overview?.current_branch ?? "未知",
+          },
+          {
+            label: "提交目标",
+            value: isProjectRepoMode ? "项目主仓库" : "任务 Worktree",
           },
           { label: "已暂存文件", value: stagedFileCount },
           { label: "待暂存文件", value: stageableFileCount },
+          ...(overview?.warning
+            ? [{ label: "提示", value: overview.warning }]
+            : []),
         ]}
         commitMessage={commitMessage}
         busy={busy}

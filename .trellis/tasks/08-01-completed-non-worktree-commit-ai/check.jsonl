@@ -1,0 +1,5 @@
+{"file": ".trellis/tasks/08-01-completed-non-worktree-commit-ai/prd.md", "reason": "Acceptance criteria AC1–AC8 verification source"}
+{"file": ".trellis/tasks/08-01-completed-non-worktree-commit-ai/design.md", "reason": "Contracts and dual-path/SSH/conflict scope to verify against implementation"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "Cross-layer consistency checklist for git + activity + SSH"}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "Build/lint/smoke expectations after UI changes"}
+{"file": ".trellis/spec/backend/testing.md", "reason": "Rust test expectations for git_workflow changes"}

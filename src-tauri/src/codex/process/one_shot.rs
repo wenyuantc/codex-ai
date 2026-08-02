@@ -758,7 +758,7 @@ async fn run_opencode_one_shot_via_sdk<R: Runtime>(
     parse_result
 }
 
-pub(super) async fn run_ai_command<R: Runtime>(
+pub(crate) async fn run_ai_command<R: Runtime>(
     app: &AppHandle<R>,
     prompt: String,
     image_paths: Option<Vec<String>>,

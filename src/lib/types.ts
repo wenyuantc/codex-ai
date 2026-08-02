@@ -505,7 +505,7 @@ export interface ProjectGitCommitDetail {
 }
 
 export interface ProjectGitWorkingTreeChange extends ProjectGitFileChangeRef {
-  stage_status: "staged" | "unstaged" | "partially_staged" | "untracked";
+  stage_status: "staged" | "unstaged" | "partially_staged" | "untracked" | "unmerged";
   can_open_file: boolean;
 }
 
@@ -578,6 +578,60 @@ export interface TaskGitCommitOverview {
   working_tree_summary: string | null;
   working_tree_changes: ProjectGitWorkingTreeChange[];
   refreshed_at: string;
+}
+
+export type TaskCommitMode = "worktree" | "project_repo";
+
+export interface TaskCommitActionState {
+  task_id: string;
+  project_id: string;
+  mode: TaskCommitMode | string;
+  task_git_context_id: string | null;
+  working_dir: string | null;
+  execution_target: EnvironmentMode | string | null;
+  current_branch: string | null;
+  git_context_state: TaskGitContextState | string | null;
+  worktree_missing: boolean;
+  has_stageable: boolean;
+  has_staged: boolean;
+  has_unmerged: boolean;
+  can_commit: boolean;
+  can_ai_commit: boolean;
+  can_merge: boolean;
+  warnings: string[];
+  error: string | null;
+}
+
+export interface TaskCommitOverview {
+  task_id: string;
+  project_id: string;
+  mode: TaskCommitMode | string;
+  task_git_context_id: string | null;
+  working_dir: string;
+  execution_target: EnvironmentMode | string;
+  current_branch: string | null;
+  working_tree_summary: string | null;
+  working_tree_changes: ProjectGitWorkingTreeChange[];
+  has_unmerged: boolean;
+  warning: string | null;
+  refreshed_at: string;
+}
+
+export interface TaskAiCommitResult {
+  task_id: string;
+  mode: TaskCommitMode | string;
+  message: string;
+  detail: string;
+  conflict_resolved: boolean;
+  merge_ready: boolean;
+}
+
+export interface TaskAiConflictResolveResult {
+  task_id: string;
+  working_dir: string;
+  resolved_files: string[];
+  detail: string;
+  merge_completed: boolean;
 }
 
 export interface PreparedTaskGitExecution {
