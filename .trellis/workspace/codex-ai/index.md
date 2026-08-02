@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 12
-- **Last Active**: 2026-08-01
+- **Total Sessions**: 13
+- **Last Active**: 2026-08-03
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~266 | Active |
+| `journal-1.md` | ~287 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 13 | 2026-08-03 | 完成态/非Worktree 提交与 AI 提交 | `29810c0` | `main` |
 | 12 | 2026-08-01 | 看板创建并后台执行 | `024841a` | `main` |
 | 11 | 2026-07-31 | 修复看板状态不同步与停止按钮假 loading | `6fc25d2` | `main` |
 | 10 | 2026-07-31 | 修复 Claude stream-json 缺 --verbose | `acdc74b` | `main` |

@@ -264,3 +264,24 @@ Claude CLI -p+stream-json 补齐 --verbose，修复运行/审核任务退出码1
 ### Status
 
 [OK] **Completed**
+
+
+## Session 13: 完成态/非Worktree 提交与 AI 提交
+
+**Date**: 2026-08-03
+**Task**: 完成态/非Worktree 提交与 AI 提交
+**Branch**: `main`
+
+### Summary
+
+实现看板任务完成态与非 Worktree 的提交/AI 提交入口，支持冲突自动解决与卡片状态展示；收紧 AI 提交信息过程词校验并透出失败原因。已验证 build/clippy 与相关单测。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `29810c0` | (see git log) |
+
+### Status
+
+[OK] **Completed**
