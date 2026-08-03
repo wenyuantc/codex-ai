@@ -384,6 +384,8 @@ pub(crate) fn decode_task_automation_state(
         last_error: record.last_error,
         last_verdict,
         updated_at: record.updated_at,
+        pipeline_active: record.pipeline_active,
+        pipeline_step_index: record.pipeline_step_index,
     })
 }
 
@@ -568,6 +570,8 @@ pub(crate) fn is_task_automation_active_for_archival(phase: &str) -> bool {
             | TASK_AUTOMATION_PHASE_LAUNCHING_FIX
             | TASK_AUTOMATION_PHASE_WAITING_EXECUTION
             | TASK_AUTOMATION_PHASE_COMMITTING_CODE
+            | "pipeline_launching_step"
+            | "pipeline_waiting_step"
     )
 }
 

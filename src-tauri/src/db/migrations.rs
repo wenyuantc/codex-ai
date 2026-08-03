@@ -1049,6 +1049,40 @@ pub fn get_all_migrations() -> Vec<Migration> {
             "#,
             kind: tauri_plugin_sql::MigrationKind::Up,
         },
+        Migration {
+            version: 42,
+            description: "task pipeline steps and automation pipeline cursor",
+            sql: r#"
+                CREATE TABLE task_pipeline_steps (
+                    id TEXT PRIMARY KEY,
+                    task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+                    step_index INTEGER NOT NULL,
+                    title TEXT NOT NULL,
+                    goal TEXT,
+                    success_criteria TEXT,
+                    employee_id TEXT REFERENCES employees(id) ON DELETE SET NULL,
+                    status TEXT NOT NULL DEFAULT 'pending',
+                    session_id TEXT,
+                    handoff_summary TEXT,
+                    last_error TEXT,
+                    started_at TEXT,
+                    ended_at TEXT,
+                    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+                    UNIQUE(task_id, step_index)
+                );
+
+                CREATE INDEX idx_task_pipeline_steps_task
+                    ON task_pipeline_steps(task_id, step_index);
+
+                ALTER TABLE task_automation_state
+                    ADD COLUMN pipeline_active INTEGER NOT NULL DEFAULT 0;
+
+                ALTER TABLE task_automation_state
+                    ADD COLUMN pipeline_step_index INTEGER;
+            "#,
+            kind: tauri_plugin_sql::MigrationKind::Up,
+        },
     ]
 }
 
@@ -1090,7 +1124,7 @@ mod tests {
 
     #[test]
     fn latest_migration_version_includes_session_events_retention_index() {
-        assert_eq!(latest_migration_version(), 41);
+        assert_eq!(latest_migration_version(), 42);
     }
 
     #[test]

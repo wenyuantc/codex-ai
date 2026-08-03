@@ -157,6 +157,13 @@ export function getActivityActionLabel(action: string): string {
     task_review_failed: "代码审核失败",
     task_coordinator_changed: "更新任务协调员",
     task_plan_generated: "协调员生成计划",
+    task_pipeline_plan_saved: "保存编排工作包",
+    task_pipeline_started: "开始按计划编排",
+    task_pipeline_step_started: "编排步骤开始",
+    task_pipeline_step_completed: "编排步骤完成",
+    task_pipeline_step_failed: "编排步骤失败",
+    task_pipeline_completed: "编排全部完成",
+    task_pipeline_aborted: "编排转人工",
     task_tester_acceptance_generated: "测试员生成验收清单",
     task_plan_saved: "保存任务计划",
     task_worktree_enabled: "开启任务 Worktree 模式",
@@ -341,6 +348,9 @@ export function getTaskAutomationStatusLabel(status: string): string {
     blocked: "已阻塞",
     manual_control: "转人工处理",
     skip_disabled: "因配置关闭而跳过",
+    pipeline_launching_step: "编排启动步骤中",
+    pipeline_waiting_step: "编排执行中",
+    pipeline_step_failed: "编排步骤失败",
   };
 
   return labels[status] || status;
@@ -352,6 +362,11 @@ const ACTIVE_EXECUTION_AUTOMATION_PHASES = new Set([
   "launching_fix",
   "waiting_execution",
   "committing_code",
+]);
+
+const ACTIVE_PIPELINE_PHASES = new Set([
+  "pipeline_launching_step",
+  "pipeline_waiting_step",
 ]);
 
 export function isTaskAutomationReviewActive(
@@ -370,6 +385,16 @@ export function isTaskAutomationExecutionActive(
   );
 }
 
+/** Coordinator pipeline is mid-flight (launching or waiting on a step). */
+export function isTaskPipelineRunning(
+  automationState?: Pick<PersistedTaskAutomationState, "pipeline_active" | "phase"> | null,
+): boolean {
+  if (!automationState?.pipeline_active) {
+    return false;
+  }
+  return ACTIVE_PIPELINE_PHASES.has(automationState.phase);
+}
+
 export interface TaskActionRuntimeState {
   reviewActive: boolean;
   executionActive: boolean;
@@ -379,11 +404,15 @@ export function getTaskActionRuntimeState(params: {
   automationState?: Pick<TaskAutomationDisplayState, "enabled" | "status"> | null;
   isReviewRunning: boolean;
   isExecutionRunning: boolean;
+  /** Raw automation row — used for pipeline_active even when auto-QC is off. */
+  pipelineState?: Pick<PersistedTaskAutomationState, "pipeline_active" | "phase"> | null;
 }): TaskActionRuntimeState {
   return {
     reviewActive: params.isReviewRunning || isTaskAutomationReviewActive(params.automationState),
     executionActive:
-      params.isExecutionRunning || isTaskAutomationExecutionActive(params.automationState),
+      params.isExecutionRunning ||
+      isTaskAutomationExecutionActive(params.automationState) ||
+      isTaskPipelineRunning(params.pipelineState),
   };
 }
 

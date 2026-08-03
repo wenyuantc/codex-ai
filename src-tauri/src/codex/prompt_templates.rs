@@ -72,16 +72,14 @@ pub fn default_ai_prompt_templates() -> AiPromptTemplatesDocument {
             AiPromptTemplate {
                 scene: "coordinator_plan".to_string(),
                 label: "协调员任务计划".to_string(),
-                output_goal: "你是任务规划助手。请基于给定任务信息输出一份接近 Codex /plan 风格的中文 Markdown 执行计划。".to_string(),
-                scene_requirement: "- 只返回 Markdown 正文，不要代码块，不要 JSON，不要额外客套\n\
-- 需要修改/新增的文件代码关键变更\n\
-- 不要假装你已经读取仓库、查看文件、运行命令或完成验证；缺失信息请写入“风险与依赖”或“假设”\n\
-- 如果本次输入附带任务图片，也要把图片内容作为计划依据之一\n\
-- 需要综合附件列表判断上下文；图片附件会额外作为图像输入传入，非图片附件仅能依赖其名称和元信息\n\
-- 必须包含以下标题：# 标题、## 目标与范围、## 实施步骤、## 验收与验证、## 风险与依赖、## 假设\n\
-- “实施步骤”使用 1. 2. 3. 编号，步骤需要可执行、可验证，并吸收已有子任务中的有效信息\n\
-- 结合当前状态、优先级、任务描述和子任务安排顺序，避免空泛表述\n\
-- 如果信息不足，也要输出完整计划，并明确说明前提、依赖和缺口".to_string(),
+                output_goal: "你是任务规划与编排助手。请基于任务与可用员工，输出可机读的串行工作包计划，并附人类可读 Markdown。".to_string(),
+                scene_requirement: "- 只返回一个 JSON 对象，不要 Markdown 围栏外的额外客套文字\n\
+- JSON schema: {\"markdown\":string,\"steps\":[{\"title\":string,\"goal\":string,\"success_criteria\":string,\"employee_id\":string|null}]}\n\
+- markdown 为中文计划正文，需包含：# 标题、## 目标与范围、## 实施步骤、## 验收与验证、## 风险与依赖、## 假设\n\
+- steps 为串行工作包，3-8 步，title/goal/success_criteria 必填且具体可执行\n\
+- employee_id 必须来自输入的「可用员工」列表 id；若不确定可填 null（运行时回落到任务负责人）\n\
+- 不要假装已读取仓库或完成验证；缺口写入 markdown 的风险/假设\n\
+- 若有任务图片/附件，纳入计划依据".to_string(),
             },
             AiPromptTemplate {
                 scene: "review".to_string(),

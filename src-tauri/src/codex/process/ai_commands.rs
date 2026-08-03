@@ -639,6 +639,152 @@ pub async fn ai_generate_plan(
     .await
 }
 
+#[derive(Debug, Deserialize)]
+struct CoordinatorPlanStepDraft {
+    title: String,
+    #[serde(default)]
+    goal: Option<String>,
+    #[serde(default)]
+    success_criteria: Option<String>,
+    #[serde(default)]
+    employee_id: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct CoordinatorPlanStructured {
+    markdown: String,
+    steps: Vec<CoordinatorPlanStepDraft>,
+}
+
+fn extract_json_object_slice(raw: &str) -> Option<&str> {
+    let trimmed = raw.trim();
+    if let Some(start) = trimmed.find("```") {
+        let after_fence = &trimmed[start + 3..];
+        let after_lang = after_fence
+            .strip_prefix("json")
+            .or_else(|| after_fence.strip_prefix("JSON"))
+            .unwrap_or(after_fence);
+        let body = after_lang.trim_start_matches(['\r', '\n', ' ']);
+        if let Some(end) = body.find("```") {
+            let candidate = body[..end].trim();
+            if candidate.starts_with('{') {
+                return Some(candidate);
+            }
+        }
+    }
+    let start = trimmed.find('{')?;
+    let end = trimmed.rfind('}')?;
+    if end <= start {
+        return None;
+    }
+    Some(trimmed[start..=end].trim())
+}
+
+fn parse_coordinator_structured_plan(raw: &str) -> Result<(String, Vec<CoordinatorPlanStepDraft>), String> {
+    if let Some(json_slice) = extract_json_object_slice(raw) {
+        if let Ok(parsed) = serde_json::from_str::<CoordinatorPlanStructured>(json_slice) {
+            let markdown = parsed.markdown.trim().to_string();
+            let steps = parsed
+                .steps
+                .into_iter()
+                .filter(|step| !step.title.trim().is_empty())
+                .collect::<Vec<_>>();
+            if !markdown.is_empty() && !steps.is_empty() {
+                return Ok((markdown, steps));
+            }
+        }
+    }
+
+    // Fallback: treat whole response as markdown and synthesize one step.
+    let markdown = raw.trim().to_string();
+    if markdown.is_empty() {
+        return Err("协调员未返回可用计划".to_string());
+    }
+    Ok((
+        markdown.clone(),
+        vec![CoordinatorPlanStepDraft {
+            title: "执行协调员计划".to_string(),
+            goal: Some(markdown.chars().take(500).collect()),
+            success_criteria: Some("完成本任务计划中的主要目标并通过基础验证".to_string()),
+            employee_id: None,
+        }],
+    ))
+}
+
+async fn replace_task_pipeline_steps_from_plan(
+    pool: &sqlx::SqlitePool,
+    task_id: &str,
+    steps: &[CoordinatorPlanStepDraft],
+    valid_employee_ids: &std::collections::HashSet<String>,
+) -> Result<usize, String> {
+    sqlx::query("DELETE FROM task_pipeline_steps WHERE task_id = $1")
+        .bind(task_id)
+        .execute(pool)
+        .await
+        .map_err(|error| format!("Failed to clear previous pipeline steps: {}", error))?;
+
+    let now = now_sqlite();
+    for (index, step) in steps.iter().enumerate() {
+        let title = step.title.trim();
+        if title.is_empty() {
+            continue;
+        }
+        let employee_id = step
+            .employee_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .filter(|value| valid_employee_ids.contains(*value))
+            .map(str::to_string);
+        let goal = step
+            .goal
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string);
+        let success_criteria = step
+            .success_criteria
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string);
+
+        sqlx::query(
+            r#"
+            INSERT INTO task_pipeline_steps (
+                id, task_id, step_index, title, goal, success_criteria, employee_id,
+                status, session_id, handoff_summary, last_error, started_at, ended_at,
+                created_at, updated_at
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, 'pending', NULL, NULL, NULL, NULL, NULL, $8, $8)
+            "#,
+        )
+        .bind(new_id())
+        .bind(task_id)
+        .bind(index as i32)
+        .bind(title)
+        .bind(&goal)
+        .bind(&success_criteria)
+        .bind(&employee_id)
+        .bind(&now)
+        .execute(pool)
+        .await
+        .map_err(|error| format!("Failed to insert pipeline step: {}", error))?;
+    }
+
+    let count = sqlx::query_scalar::<_, i64>(
+        "SELECT COUNT(*) FROM task_pipeline_steps WHERE task_id = $1",
+    )
+    .bind(task_id)
+    .fetch_one(pool)
+    .await
+    .map_err(|error| format!("Failed to count pipeline steps: {}", error))?;
+
+    if count == 0 {
+        return Err("结构化计划未包含有效工作包步骤".to_string());
+    }
+    Ok(count as usize)
+}
+
 #[tauri::command]
 pub async fn ai_generate_coordinator_task_plan(
     app: AppHandle,
@@ -666,6 +812,42 @@ pub async fn ai_generate_coordinator_task_plan(
         ));
     }
 
+    let project_employees = sqlx::query_as::<_, Employee>(
+        r#"
+        SELECT *
+        FROM employees
+        WHERE project_id = $1 OR project_id IS NULL
+        ORDER BY name ASC
+        "#,
+    )
+    .bind(&task.project_id)
+    .fetch_all(&pool)
+    .await
+    .map_err(|error| format!("Failed to list project employees: {}", error))?;
+
+    let employee_lines = if project_employees.is_empty() {
+        "（暂无项目员工）".to_string()
+    } else {
+        project_employees
+            .iter()
+            .map(|employee| {
+                format!(
+                    "- id={} | name={} | role={} | provider={} | model={}",
+                    employee.id,
+                    employee.name,
+                    employee.role,
+                    employee.ai_provider,
+                    employee.model
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+    };
+    let valid_employee_ids = project_employees
+        .iter()
+        .map(|employee| employee.id.clone())
+        .collect::<std::collections::HashSet<_>>();
+
     let subtasks = fetch_task_subtasks(&pool, &task.id).await?;
     let attachments = fetch_task_attachments(&pool, &task.id).await?;
     let subtask_titles = subtasks
@@ -686,7 +868,7 @@ pub async fn ai_generate_coordinator_task_plan(
         crate::codex::default_ai_prompt_templates()
     });
     let plan_template = find_ai_prompt_template(&templates, "coordinator_plan");
-    let prompt = build_ai_generate_plan_prompt_with_attachments(
+    let base_prompt = build_ai_generate_plan_prompt_with_attachments(
         if task_title.is_empty() {
             &task.title
         } else {
@@ -707,6 +889,12 @@ pub async fn ai_generate_coordinator_task_plan(
         &attachment_items,
         plan_template,
     );
+    let prompt = format!(
+        "{}\n\n可用员工（请仅使用下列 id 作为 steps.employee_id）：\n{}\n任务负责人 assignee_id：{}",
+        base_prompt,
+        employee_lines,
+        task.assignee_id.as_deref().unwrap_or("（未设置）")
+    );
     let image_paths = attachments
         .iter()
         .filter(|attachment| task_attachment_is_image(attachment))
@@ -726,6 +914,17 @@ pub async fn ai_generate_coordinator_task_plan(
     )
     .await?;
 
+    let (markdown, steps) = parse_coordinator_structured_plan(&result)?;
+    let step_count =
+        replace_task_pipeline_steps_from_plan(&pool, &task.id, &steps, &valid_employee_ids).await?;
+
+    sqlx::query("UPDATE tasks SET plan_content = $1 WHERE id = $2")
+        .bind(&markdown)
+        .bind(&task.id)
+        .execute(&pool)
+        .await
+        .map_err(|error| format!("Failed to save plan_content: {}", error))?;
+
     let generated_at = now_sqlite();
     let details = format_task_plan_generated_activity_details(
         &task.title,
@@ -744,8 +943,17 @@ pub async fn ai_generate_coordinator_task_plan(
         Some(&task.project_id),
     )
     .await?;
+    insert_activity_log(
+        &pool,
+        "task_pipeline_plan_saved",
+        &format!("{}（工作包 {} 步）", task.title, step_count),
+        Some(&coordinator.id),
+        Some(&task.id),
+        Some(&task.project_id),
+    )
+    .await?;
 
-    Ok(result)
+    Ok(markdown)
 }
 
 #[tauri::command]

@@ -534,6 +534,8 @@ pub struct TaskAutomationStateRecord {
     pub last_error: Option<String>,
     pub last_verdict_json: Option<String>,
     pub updated_at: String,
+    pub pipeline_active: bool,
+    pub pipeline_step_index: Option<i32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -548,6 +550,51 @@ pub struct TaskAutomationState {
     pub last_error: Option<String>,
     pub last_verdict: Option<ReviewVerdict>,
     pub updated_at: String,
+    pub pipeline_active: bool,
+    pub pipeline_step_index: Option<i32>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+pub struct TaskPipelineStep {
+    pub id: String,
+    pub task_id: String,
+    pub step_index: i32,
+    pub title: String,
+    pub goal: Option<String>,
+    pub success_criteria: Option<String>,
+    pub employee_id: Option<String>,
+    pub status: String,
+    pub session_id: Option<String>,
+    pub handoff_summary: Option<String>,
+    pub last_error: Option<String>,
+    pub started_at: Option<String>,
+    pub ended_at: Option<String>,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UpdateTaskPipelineStepPayload {
+    pub step_id: String,
+    pub employee_id: Option<Option<String>>,
+    pub title: Option<String>,
+    pub goal: Option<Option<String>>,
+    pub success_criteria: Option<Option<String>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StartTaskPipelinePayload {
+    pub task_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RetryTaskPipelineStepPayload {
+    pub task_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AbortTaskPipelinePayload {
+    pub task_id: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

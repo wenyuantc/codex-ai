@@ -160,18 +160,17 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
         useProjectStore.getState().projects.map((project) => project.id),
       );
       const tasks = rawTasks.filter((task) => visibleProjectIds.has(task.project_id));
+      // Fetch for all active tasks so pipeline_active is visible even without auto-QC.
       const automationEntries = await Promise.all(
-        tasks
-          .filter((task) => task.automation_mode === "review_fix_loop_v1")
-          .map(async (task) => {
-            try {
-              const automationState = await getTaskAutomationStateCommand(task.id);
-              return [task.id, automationState] as const;
-            } catch (error) {
-              console.error(`Failed to fetch automation state for task ${task.id}:`, error);
-              return [task.id, null] as const;
-            }
-          }),
+        tasks.map(async (task) => {
+          try {
+            const automationState = await getTaskAutomationStateCommand(task.id);
+            return [task.id, automationState] as const;
+          } catch (error) {
+            console.error(`Failed to fetch automation state for task ${task.id}:`, error);
+            return [task.id, null] as const;
+          }
+        }),
       );
 
       set((state) => ({

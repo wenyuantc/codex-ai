@@ -10,16 +10,22 @@ import type {
   TaskCommitOverview,
   TaskDependency,
   TaskGitContext,
+  TaskPipelineStep,
 } from "@/lib/types";
 import {
+  abortTaskPipeline,
   aiCommitTaskChanges,
   aiGenerateCoordinatorTaskPlan,
   aiGenerateTesterAcceptance,
   getTaskCommitActionState,
   getTaskCommitOverview,
   listTaskDependencies,
+  listTaskPipelineSteps,
   listTaskTags,
+  retryTaskPipelineStep,
   stageAllTaskCommitFiles,
+  startTaskPipeline,
+  updateTaskPipelineStep,
 } from "@/lib/backend";
 import {
   formatDate,
@@ -168,6 +174,11 @@ function TaskCardComponent({
   const [coordinatorPlanError, setCoordinatorPlanError] = useState<string | null>(null);
   const [coordinatorPlanLogs, setCoordinatorPlanLogs] = useState<string[]>([]);
   const [coordinatorPlanTerminalVisible, setCoordinatorPlanTerminalVisible] = useState(false);
+  const [pipelineSteps, setPipelineSteps] = useState<TaskPipelineStep[]>([]);
+  const [pipelineLoading, setPipelineLoading] = useState(false);
+  const [pipelineActionLoading, setPipelineActionLoading] = useState(false);
+  const [pipelineError, setPipelineError] = useState<string | null>(null);
+  const [pipelineNotice, setPipelineNotice] = useState<string | null>(null);
   const [testerAcceptanceLoading, setTesterAcceptanceLoading] = useState(false);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
   const [taskTags, setTaskTags] = useState<Tag[]>([]);
@@ -268,9 +279,19 @@ function TaskCardComponent({
     automationState,
     isExecutionRunning: executionActions.isRunning || isBackgroundRunBusy,
     isReviewRunning: reviewActions.isRunning,
+    pipelineState: persistedAutomationState ?? null,
   });
   const isRunning = runtimeState.executionActive;
   const isReviewRunning = runtimeState.reviewActive;
+  const hasActivePipelineStep = pipelineSteps.some(
+    (step) => step.status === "launching" || step.status === "running",
+  );
+  const coordinatorPlanActionsLocked =
+    isRunning ||
+    isReviewRunning ||
+    pipelineActionLoading ||
+    coordinatorPlanExecuting ||
+    hasActivePipelineStep;
   const isReviewTask = task.status === "review" || isReviewRunning;
   const hasActiveSession = isRunning || isReviewRunning;
   const isActionLoading =
@@ -435,17 +456,17 @@ function TaskCardComponent({
   }, [contextMenu]);
 
   useEffect(() => {
-    if (
-      task.automation_mode === "review_fix_loop_v1" &&
-      typeof persistedAutomationState === "undefined"
-    ) {
+    if (typeof persistedAutomationState === "undefined") {
       void fetchTaskAutomationState(task.id);
     }
-  }, [fetchTaskAutomationState, persistedAutomationState, task.automation_mode, task.id]);
+  }, [fetchTaskAutomationState, persistedAutomationState, task.id]);
 
   const handleRun = async (e?: React.MouseEvent) => {
     e?.stopPropagation();
     setContextMenu(null);
+    if (isRunning || isReviewRunning) {
+      return;
+    }
     if (task.coordinator_id) {
       await openCoordinatorPlanFlow();
       return;
@@ -558,6 +579,19 @@ function TaskCardComponent({
     await executionActions.continueTask(prompt);
   };
 
+  const refreshPipelineSteps = async () => {
+    setPipelineLoading(true);
+    setPipelineError(null);
+    try {
+      const steps = await listTaskPipelineSteps(task.id);
+      setPipelineSteps(steps);
+    } catch (error) {
+      setPipelineError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setPipelineLoading(false);
+    }
+  };
+
   const generateCoordinatorPlan = async () => {
     setCoordinatorPlanTerminalVisible(true);
     if (!task.coordinator_id) {
@@ -590,6 +624,8 @@ function TaskCardComponent({
       }
       setCoordinatorPlanDraft(trimmedPlan);
       appendCoordinatorPlanLog(`[计划] 已收到协调员计划，共 ${trimmedPlan.length} 字。`);
+      appendCoordinatorPlanLog("[计划] 结构化工作包已落库，可在本弹窗「按计划编排」。");
+      await refreshPipelineSteps();
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       appendCoordinatorPlanLog(`[ERROR] ${message}`);
@@ -599,15 +635,95 @@ function TaskCardComponent({
     }
   };
 
+  const handleStartPipeline = async () => {
+    setPipelineActionLoading(true);
+    setPipelineError(null);
+    setPipelineNotice(null);
+    setCoordinatorPlanTerminalVisible(true);
+    appendCoordinatorPlanLog("[编排] 准备按计划编排...");
+    try {
+      let steps = pipelineSteps;
+      if (steps.length === 0) {
+        if (!task.coordinator_id) {
+          throw new Error("请先指定协调员并生成结构化计划。");
+        }
+        await generateCoordinatorPlan();
+        steps = await listTaskPipelineSteps(task.id);
+        setPipelineSteps(steps);
+        if (steps.length === 0) {
+          throw new Error("生成计划后仍无工作包，请检查协调员输出后重试。");
+        }
+      }
+      await startTaskPipeline(task.id);
+      setPipelineNotice("已启动按计划编排。");
+      appendCoordinatorPlanLog("[编排] 已启动按计划编排，步骤将串行执行。");
+      await refreshPipelineSteps();
+      await fetchTaskAutomationState(task.id);
+      await useTaskStore.getState().fetchTasks(useTaskStore.getState().activeProjectId);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setPipelineError(message);
+      appendCoordinatorPlanLog(`[ERROR] ${message}`);
+    } finally {
+      setPipelineActionLoading(false);
+    }
+  };
+
+  const handleRetryPipeline = async () => {
+    setPipelineActionLoading(true);
+    setPipelineError(null);
+    setPipelineNotice(null);
+    try {
+      await retryTaskPipelineStep(task.id);
+      setPipelineNotice("已重试当前编排步骤。");
+      await refreshPipelineSteps();
+    } catch (error) {
+      setPipelineError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setPipelineActionLoading(false);
+    }
+  };
+
+  const handleAbortPipeline = async () => {
+    setPipelineActionLoading(true);
+    setPipelineError(null);
+    setPipelineNotice(null);
+    try {
+      await abortTaskPipeline(task.id);
+      setPipelineNotice("编排已转人工。");
+      await refreshPipelineSteps();
+    } catch (error) {
+      setPipelineError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setPipelineActionLoading(false);
+    }
+  };
+
+  const handlePipelineEmployeeChange = async (stepId: string, employeeId: string) => {
+    setPipelineError(null);
+    try {
+      const updated = await updateTaskPipelineStep({
+        step_id: stepId,
+        employee_id: employeeId ? employeeId : null,
+      });
+      setPipelineSteps((current) => current.map((step) => (step.id === stepId ? updated : step)));
+    } catch (error) {
+      setPipelineError(error instanceof Error ? error.message : String(error));
+    }
+  };
+
   const openCoordinatorPlanFlow = async () => {
     const existingPlan = task.plan_content?.trim() ?? "";
     setCoordinatorPlanError(null);
+    setPipelineError(null);
+    setPipelineNotice(null);
     setCoordinatorPlanDraft(existingPlan);
     setCoordinatorPlanLogs(
       existingPlan ? [`[计划] 已加载任务中保存的协调员计划，共 ${existingPlan.length} 字。`] : [],
     );
     setCoordinatorPlanTerminalVisible(!existingPlan);
     setCoordinatorPlanDialogOpen(true);
+    await refreshPipelineSteps();
     if (!existingPlan) {
       await generateCoordinatorPlan();
     }
@@ -1399,14 +1515,33 @@ function TaskCardComponent({
           saving={coordinatorPlanSaving}
           executing={coordinatorPlanExecuting}
           error={
-            coordinatorPlanError ?? (!task.assignee_id ? "请先指定执行员工，再执行计划。" : null)
+            coordinatorPlanError ??
+            pipelineError ??
+            (!task.assignee_id ? "请先指定执行员工，再执行计划。" : null)
           }
           canExecute={Boolean(task.assignee_id)}
+          canStartPipeline={task.status !== "archived"}
+          actionsLocked={coordinatorPlanActionsLocked}
+          taskTitle={task.title}
           terminalLogs={coordinatorPlanLogs}
           terminalVisible={coordinatorPlanTerminalVisible}
+          pipelineSteps={pipelineSteps}
+          pipelineLoading={pipelineLoading}
+          pipelineActionLoading={pipelineActionLoading}
+          pipelineError={pipelineError}
+          pipelineNotice={pipelineNotice}
+          employees={employees}
+          projectId={task.project_id}
           onOpenChange={setCoordinatorPlanDialogOpen}
           onPlanChange={setCoordinatorPlanDraft}
           onExecute={() => void handleExecuteCoordinatorPlan()}
+          onStartPipeline={() => void handleStartPipeline()}
+          onRetryPipeline={() => void handleRetryPipeline()}
+          onAbortPipeline={() => void handleAbortPipeline()}
+          onRefreshPipeline={() => void refreshPipelineSteps()}
+          onPipelineEmployeeChange={(stepId, employeeId) =>
+            void handlePipelineEmployeeChange(stepId, employeeId)
+          }
           onRegenerate={() => void generateCoordinatorPlan()}
           onSave={() => void handleSaveCoordinatorPlan()}
           onToggleTerminal={() => setCoordinatorPlanTerminalVisible((visible) => !visible)}

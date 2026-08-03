@@ -52,30 +52,102 @@ pub async fn resume_pending_automation(app: &AppHandle) -> Result<(), String> {
     let pool = sqlite_pool(app).await?;
     recover_orphaned_running_sessions(&pool).await?;
     replay_unconsumed_terminal_automation_exits(app, &pool).await?;
+    replay_unconsumed_pipeline_exits(app, &pool).await?;
 
     let pending_task_ids = fetch_pending_automation_task_ids(&pool).await?;
+    let mut resumed_task_ids = HashSet::new();
 
-    for task_id in pending_task_ids {
-        let Some(state_record) = fetch_task_automation_state_record(&pool, &task_id).await? else {
+    for task_id in &pending_task_ids {
+        let Some(state_record) = fetch_task_automation_state_record(&pool, task_id).await? else {
             continue;
         };
 
         match state_record.phase.as_str() {
             PHASE_LAUNCHING_REVIEW | PHASE_REVIEW_LAUNCH_FAILED => {
-                retry_pending_review(app, &pool, &task_id, &state_record).await?;
+                retry_pending_review(app, &pool, task_id, &state_record).await?;
             }
             PHASE_LAUNCHING_FIX | PHASE_FIX_LAUNCH_FAILED => {
-                retry_pending_fix(app, &pool, &task_id, &state_record).await?;
+                retry_pending_fix(app, &pool, task_id, &state_record).await?;
             }
             PHASE_COMMITTING_CODE | PHASE_COMMIT_FAILED => {
-                let task = fetch_task_by_id(&pool, &task_id).await?;
+                let task = fetch_task_by_id(&pool, task_id).await?;
                 retry_pending_commit(app, &pool, &task, None).await?;
+            }
+            PHASE_PIPELINE_LAUNCHING_STEP | PHASE_PIPELINE_STEP_FAILED => {
+                retry_pending_pipeline(app, &pool, task_id, &state_record).await?;
             }
             _ => {}
         }
+        resumed_task_ids.insert(task_id.clone());
+    }
+
+    // Resume pipeline launches even when automation_mode is off.
+    let pipeline_pending = sqlx::query_scalar::<_, String>(
+        r#"
+        SELECT tas.task_id
+        FROM task_automation_state tas
+        INNER JOIN tasks t ON t.id = tas.task_id
+        WHERE t.status != $1
+          AND tas.pipeline_active = 1
+          AND tas.phase IN ($2, $3)
+        "#,
+    )
+    .bind(TASK_STATUS_ARCHIVED)
+    .bind(PHASE_PIPELINE_LAUNCHING_STEP)
+    .bind(PHASE_PIPELINE_STEP_FAILED)
+    .fetch_all(&pool)
+    .await
+    .map_err(|error| format!("Failed to list pending pipeline tasks: {}", error))?;
+
+    for task_id in pipeline_pending {
+        if resumed_task_ids.contains(&task_id) {
+            continue;
+        }
+        let Some(state_record) = fetch_task_automation_state_record(&pool, &task_id).await? else {
+            continue;
+        };
+        retry_pending_pipeline(app, &pool, &task_id, &state_record).await?;
     }
 
     Ok(())
+}
+
+async fn replay_unconsumed_pipeline_exits(
+    app: &AppHandle,
+    pool: &SqlitePool,
+) -> Result<usize, String> {
+    let session_ids = sqlx::query_scalar::<_, String>(
+        r#"
+        SELECT s.id
+        FROM task_automation_state tas
+        INNER JOIN tasks t ON t.id = tas.task_id
+        INNER JOIN codex_sessions s ON s.id = tas.last_trigger_session_id
+        WHERE t.status != $1
+          AND tas.pipeline_active = 1
+          AND tas.phase = $2
+          AND s.status IN ('exited', 'failed')
+          AND (
+            tas.consumed_session_id IS NULL
+            OR tas.consumed_session_id != s.id
+          )
+        ORDER BY s.started_at ASC, s.created_at ASC
+        "#,
+    )
+    .bind(TASK_STATUS_ARCHIVED)
+    .bind(PHASE_PIPELINE_WAITING_STEP)
+    .fetch_all(pool)
+    .await
+    .map_err(|error| format!("Failed to fetch unconsumed pipeline exits: {}", error))?;
+
+    let mut replayed = 0;
+    for session_id in session_ids {
+        handle_session_exit(app, &session_id).await?;
+        replayed += 1;
+    }
+    if replayed > 0 {
+        eprintln!("[task-automation] replayed {replayed} unconsumed pipeline exit(s)");
+    }
+    Ok(replayed)
 }
 
 async fn recover_orphaned_running_sessions(pool: &SqlitePool) -> Result<usize, String> {
@@ -194,15 +266,32 @@ pub async fn handle_session_exit(app: &AppHandle, session_record_id: &str) -> Re
     let task = fetch_task_by_id(&pool, &facts.task_id).await?;
     let state_record = fetch_task_automation_state_record(&pool, &task.id).await?;
 
-    if !task_automation_enabled(&task) {
-        handle_disabled_mode_exit(&pool, &task, state_record.as_ref(), &facts).await?;
-        return Ok(());
-    }
-
     if let Some(state) = state_record.as_ref() {
         if state.consumed_session_id.as_deref() == Some(session_record_id) {
             return Ok(());
         }
+    }
+
+    // Coordinator pipeline takes precedence over review_fix_loop for mid-pipeline executions.
+    if facts.session_kind == "execution"
+        && state_pipeline_active(state_record.as_ref())
+        && state_record
+            .as_ref()
+            .is_some_and(|state| is_pipeline_phase(&state.phase))
+    {
+        return handle_pipeline_execution_exit(
+            app,
+            &pool,
+            &task,
+            state_record.as_ref().expect("pipeline state present"),
+            &facts,
+        )
+        .await;
+    }
+
+    if !task_automation_enabled(&task) {
+        handle_disabled_mode_exit(&pool, &task, state_record.as_ref(), &facts).await?;
+        return Ok(());
     }
 
     match facts.session_kind.as_str() {

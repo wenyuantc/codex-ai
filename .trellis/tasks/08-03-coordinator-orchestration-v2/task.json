@@ -1,0 +1,29 @@
+{
+  "id": "coordinator-orchestration-v2",
+  "name": "coordinator-orchestration-v2",
+  "title": "协调员编排 v2：多员工流水线",
+  "description": "",
+  "status": "in_progress",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "P2",
+  "creator": "wenyuantc",
+  "assignee": "wenyuantc",
+  "createdAt": "2026-08-03",
+  "completedAt": null,
+  "branch": null,
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {
+    "architecture=extend-coordinator-task-automation": "priority_note=product-mvp",
+    "architecture": "extend-coordinator-task-automation"
+  }
+}

@@ -798,7 +798,9 @@ mod automation_guard_tests {
                 pending_round_count: None,
                 last_error: Some("审核结果结构化输出无效".to_string()),
                 last_verdict_json: None,
-                updated_at: "2026-04-21 00:00:02".to_string(),
+                pipeline_active: false,
+            pipeline_step_index: None,
+            updated_at: "2026-04-21 00:00:02".to_string(),
             };
 
             let target = resolve_restart_target(&pool, &state)
@@ -834,7 +836,9 @@ mod automation_guard_tests {
                 pending_round_count: None,
                 last_error: Some("审核结果结构化输出无效".to_string()),
                 last_verdict_json: None,
-                updated_at: "2026-04-21 00:00:02".to_string(),
+                pipeline_active: false,
+            pipeline_step_index: None,
+            updated_at: "2026-04-21 00:00:02".to_string(),
             };
 
             let target = resolve_restart_target(&pool, &state)
@@ -873,6 +877,8 @@ mod automation_guard_tests {
                     r#"{"passed":false,"needs_human":false,"blocking_issue_count":1,"summary":"发现 1 个阻断问题。"}"#
                         .to_string(),
                 ),
+                pipeline_active: false,
+                pipeline_step_index: None,
                 updated_at: "2026-04-21 00:00:02".to_string(),
             };
 
@@ -919,6 +925,8 @@ mod tests {
             pending_round_count: Some(4),
             last_error: Some("blocked".to_string()),
             last_verdict_json: None,
+            pipeline_active: false,
+            pipeline_step_index: None,
             updated_at: "2026-04-22 00:00:00".to_string(),
         };
 
@@ -937,6 +945,8 @@ mod tests {
             pending_round_count: Some(4),
             last_error: Some("manual".to_string()),
             last_verdict_json: None,
+            pipeline_active: false,
+            pipeline_step_index: None,
             updated_at: "2026-04-22 00:00:00".to_string(),
         };
 
@@ -955,6 +965,8 @@ mod tests {
             pending_round_count: Some(4),
             last_error: Some("launching".to_string()),
             last_verdict_json: None,
+            pipeline_active: false,
+            pipeline_step_index: None,
             updated_at: "2026-04-22 00:00:00".to_string(),
         };
 

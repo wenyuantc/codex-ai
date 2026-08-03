@@ -251,6 +251,8 @@ export interface TaskAutomationState {
   last_error: string | null;
   last_verdict: ReviewVerdict | null;
   updated_at: string;
+  pipeline_active: boolean;
+  pipeline_step_index: number | null;
 }
 
 export interface CodexSessionFileChangeDetail {
@@ -815,8 +817,37 @@ export type TaskAutomationPhase =
   | "commit_failed"
   | "manual_control"
   | "blocked"
-  | "completed";
+  | "completed"
+  | "pipeline_launching_step"
+  | "pipeline_waiting_step"
+  | "pipeline_step_failed";
 export type TaskAutomationPendingAction = "start_review" | "start_fix";
+export type TaskPipelineStepStatus =
+  | "pending"
+  | "launching"
+  | "running"
+  | "succeeded"
+  | "failed"
+  | "cancelled"
+  | "skipped";
+
+export interface TaskPipelineStep {
+  id: string;
+  task_id: string;
+  step_index: number;
+  title: string;
+  goal: string | null;
+  success_criteria: string | null;
+  employee_id: string | null;
+  status: TaskPipelineStepStatus | string;
+  session_id: string | null;
+  handoff_summary: string | null;
+  last_error: string | null;
+  started_at: string | null;
+  ended_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
 export type TaskAutomationFailureStrategy = "blocked" | "manual_control";
 export type WorktreeLocationMode = "repo_sibling_hidden" | "repo_child_hidden" | "custom_root";
 export type AiCommitMessageLength = "title_only" | "title_with_body";

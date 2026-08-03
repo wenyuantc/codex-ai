@@ -492,6 +492,8 @@ fn builds_plan_prompt_with_required_sections_and_context() {
         None,
     );
 
+    assert!(prompt.contains("markdown"));
+    assert!(prompt.contains("steps"));
     assert!(prompt.contains("# 标题"));
     assert!(prompt.contains("## 目标与范围"));
     assert!(prompt.contains("## 实施步骤"));
@@ -503,8 +505,8 @@ fn builds_plan_prompt_with_required_sections_and_context() {
     assert!(prompt.contains("当前优先级：high"));
     assert!(prompt.contains("1. 补后端命令"));
     assert!(prompt.contains("2. 补前端预览"));
-    assert!(prompt.contains("不要假装你已经读取仓库"));
-    assert!(prompt.contains("如果本次输入附带任务图片"));
+    assert!(prompt.contains("不要假装已读取仓库"));
+    assert!(prompt.contains("employee_id"));
 }
 
 #[test]
@@ -549,7 +551,7 @@ fn builds_plan_prompt_with_attachment_metadata() {
     assert!(prompt.contains("附件列表："));
     assert!(prompt.contains("1. 接口说明.md（类型：text/markdown；大小：1024 bytes）"));
     assert!(prompt.contains("2. design.png（类型：image/png；大小：2048 bytes）"));
-    assert!(prompt.contains("非图片附件仅能依赖其名称和元信息"));
+    assert!(prompt.contains("若有任务图片/附件"));
 }
 
 #[test]

@@ -54,6 +54,7 @@ import type {
   Task,
   TaskAutomationMode,
   TaskAutomationState,
+  TaskPipelineStep,
   TaskAttachment,
   TaskDependency,
   TaskGitContext,
@@ -1426,6 +1427,41 @@ export async function aiGenerateCoordinatorTaskPlan(
   input: GenerateCoordinatorTaskPlanInput,
 ): Promise<string> {
   return invoke("ai_generate_coordinator_task_plan", { payload: input });
+}
+
+export async function listTaskPipelineSteps(taskId: string): Promise<TaskPipelineStep[]> {
+  return invoke("list_task_pipeline_steps", { taskId });
+}
+
+export async function updateTaskPipelineStep(input: {
+  step_id: string;
+  employee_id?: string | null;
+  title?: string;
+  goal?: string | null;
+  success_criteria?: string | null;
+}): Promise<TaskPipelineStep> {
+  return invoke("update_task_pipeline_step", {
+    payload: {
+      step_id: input.step_id,
+      employee_id: input.employee_id === undefined ? undefined : input.employee_id,
+      title: input.title,
+      goal: input.goal === undefined ? undefined : input.goal,
+      success_criteria:
+        input.success_criteria === undefined ? undefined : input.success_criteria,
+    },
+  });
+}
+
+export async function startTaskPipeline(taskId: string): Promise<void> {
+  return invoke("start_task_pipeline", { payload: { task_id: taskId } });
+}
+
+export async function retryTaskPipelineStep(taskId: string): Promise<void> {
+  return invoke("retry_task_pipeline_step", { payload: { task_id: taskId } });
+}
+
+export async function abortTaskPipeline(taskId: string): Promise<void> {
+  return invoke("abort_task_pipeline", { payload: { task_id: taskId } });
 }
 
 export async function aiGenerateTesterAcceptance(
