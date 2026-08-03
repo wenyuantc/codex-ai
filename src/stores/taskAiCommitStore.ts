@@ -1,11 +1,7 @@
 import { create } from "zustand";
 
 /** Client-visible AI commit progress on kanban task cards. */
-export type TaskAiCommitPhase =
-  | "committing"
-  | "resolving_conflicts"
-  | "success"
-  | "error";
+export type TaskAiCommitPhase = "committing" | "resolving_conflicts" | "success" | "error";
 
 export interface TaskAiCommitEntry {
   phase: TaskAiCommitPhase;
@@ -33,10 +29,7 @@ export const useTaskAiCommitStore = create<TaskAiCommitStore>((set) => ({
         [taskId]: {
           phase,
           detail: options?.detail,
-          error:
-            phase === "error"
-              ? (options?.error ?? state.byTaskId[taskId]?.error)
-              : undefined,
+          error: phase === "error" ? (options?.error ?? state.byTaskId[taskId]?.error) : undefined,
           updatedAt: Date.now(),
         },
       },

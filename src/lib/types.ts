@@ -823,13 +823,7 @@ export type TaskAutomationPhase =
   | "pipeline_step_failed";
 export type TaskAutomationPendingAction = "start_review" | "start_fix";
 export type TaskPipelineStepStatus =
-  | "pending"
-  | "launching"
-  | "running"
-  | "succeeded"
-  | "failed"
-  | "cancelled"
-  | "skipped";
+  "pending" | "launching" | "running" | "succeeded" | "failed" | "cancelled" | "skipped";
 
 export interface TaskPipelineStep {
   id: string;

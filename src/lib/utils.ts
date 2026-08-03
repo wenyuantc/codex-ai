@@ -364,10 +364,7 @@ const ACTIVE_EXECUTION_AUTOMATION_PHASES = new Set([
   "committing_code",
 ]);
 
-const ACTIVE_PIPELINE_PHASES = new Set([
-  "pipeline_launching_step",
-  "pipeline_waiting_step",
-]);
+const ACTIVE_PIPELINE_PHASES = new Set(["pipeline_launching_step", "pipeline_waiting_step"]);
 
 export function isTaskAutomationReviewActive(
   automationState?: Pick<TaskAutomationDisplayState, "enabled" | "status"> | null,

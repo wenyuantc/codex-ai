@@ -1,10 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 
-import {
-  commitTaskChanges,
-  getTaskCommitOverview,
-  stageAllTaskCommitFiles,
-} from "@/lib/backend";
+import { commitTaskChanges, getTaskCommitOverview, stageAllTaskCommitFiles } from "@/lib/backend";
 import { aiGenerateCommitMessage } from "@/lib/codex";
 import {
   buildGitCommitChangePrompts,
@@ -76,7 +72,10 @@ export function TaskGitCommitDialog({
     if (countStagedGitFiles(currentOverview.working_tree_changes) > 0) {
       return currentOverview;
     }
-    if (!currentOverview.working_tree_summary && currentOverview.working_tree_changes.length === 0) {
+    if (
+      !currentOverview.working_tree_summary &&
+      currentOverview.working_tree_changes.length === 0
+    ) {
       setError(
         isProjectRepoMode
           ? "当前项目主仓库没有可提交的改动。"
@@ -188,9 +187,7 @@ export function TaskGitCommitDialog({
           },
           { label: "已暂存文件", value: stagedFileCount },
           { label: "待暂存文件", value: stageableFileCount },
-          ...(overview?.warning
-            ? [{ label: "提示", value: overview.warning }]
-            : []),
+          ...(overview?.warning ? [{ label: "提示", value: overview.warning }] : []),
         ]}
         commitMessage={commitMessage}
         busy={busy}

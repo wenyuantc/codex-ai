@@ -315,7 +315,9 @@ function TaskCardComponent({
   const canMarkCompleted = task.status !== "completed" && task.status !== "archived";
   const shouldShowTaskActionBar = shouldShowActionBar;
   const gitContextBadge = getGitContextBadge(gitContext);
-  const backendCanCommit = Boolean(commitActionState?.can_commit || commitActionState?.can_ai_commit);
+  const backendCanCommit = Boolean(
+    commitActionState?.can_commit || commitActionState?.can_ai_commit,
+  );
   const backendCanMerge = Boolean(commitActionState?.can_merge);
   const canTriggerMergeAction = Boolean(
     !hasActiveSession &&
@@ -1417,10 +1419,7 @@ function TaskCardComponent({
                 </button>
               )}
               {aiCommitEntry?.phase === "error" && aiCommitEntry.error && (
-                <div
-                  className="px-2 py-1 text-[11px] text-destructive"
-                  title={aiCommitEntry.error}
-                >
+                <div className="px-2 py-1 text-[11px] text-destructive" title={aiCommitEntry.error}>
                   {aiCommitEntry.error}
                 </div>
               )}

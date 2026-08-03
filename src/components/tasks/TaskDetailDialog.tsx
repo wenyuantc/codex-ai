@@ -751,9 +751,7 @@ export function TaskDetailDialog({
         step_id: stepId,
         employee_id: employeeId ? employeeId : null,
       });
-      setPipelineSteps((current) =>
-        current.map((step) => (step.id === stepId ? updated : step)),
-      );
+      setPipelineSteps((current) => current.map((step) => (step.id === stepId ? updated : step)));
     } catch (error) {
       setPipelineError(error instanceof Error ? error.message : String(error));
     }

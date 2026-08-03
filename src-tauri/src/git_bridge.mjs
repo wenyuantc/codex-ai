@@ -612,7 +612,9 @@ function isUnmergedStatus(statusX, statusY) {
   }
   // Other unmerged index states from git status porcelain.
   const key = `${statusX}${statusY}`;
-  return key === "DD" || key === "AA" || key === "AU" || key === "UA" || key === "DU" || key === "UD";
+  return (
+    key === "DD" || key === "AA" || key === "AU" || key === "UA" || key === "DU" || key === "UD"
+  );
 }
 
 function deriveStageStatus(entry) {

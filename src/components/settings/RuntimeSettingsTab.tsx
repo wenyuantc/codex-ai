@@ -231,9 +231,7 @@ export function RuntimeSettingsTab({
     : Boolean(grokHealth?.cli_available);
   const grokInstallButtonLabel = grokCliInstalled ? "重装 CLI" : "安装 CLI";
   const grokInstallDisabled =
-    healthLoading ||
-    grokActionLoading !== null ||
-    (isRemoteMode && !hasSelectedSshConfig);
+    healthLoading || grokActionLoading !== null || (isRemoteMode && !hasSelectedSshConfig);
   const saveDisabled =
     healthLoading || actionLoading !== null || (isRemoteMode && !hasSelectedSshConfig);
   const installDisabled =

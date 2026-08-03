@@ -1259,9 +1259,7 @@ export async function installGrokCli(): Promise<GrokCliInstallResult> {
   return invoke("install_grok_cli");
 }
 
-export async function installRemoteGrokCli(
-  sshConfigId: string,
-): Promise<GrokCliInstallResult> {
+export async function installRemoteGrokCli(sshConfigId: string): Promise<GrokCliInstallResult> {
   return invoke("install_remote_grok_cli", { sshConfigId });
 }
 
@@ -1446,8 +1444,7 @@ export async function updateTaskPipelineStep(input: {
       employee_id: input.employee_id === undefined ? undefined : input.employee_id,
       title: input.title,
       goal: input.goal === undefined ? undefined : input.goal,
-      success_criteria:
-        input.success_criteria === undefined ? undefined : input.success_criteria,
+      success_criteria: input.success_criteria === undefined ? undefined : input.success_criteria,
     },
   });
 }
