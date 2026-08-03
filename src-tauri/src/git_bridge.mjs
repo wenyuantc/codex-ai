@@ -637,6 +637,21 @@ function deriveStageStatus(entry) {
   return "unstaged";
 }
 
+async function collectWorkingTreeChanges(repoPath) {
+  const statusOutput = await gitRaw(repoPath, [
+    "status",
+    "--porcelain=v1",
+    "-z",
+    "--untracked-files=all",
+  ]);
+  return parseStatusEntries(statusOutput).map((entry) => ({
+    path: entry.path,
+    previous_path: entry.previous_path,
+    change_type: classifyStatusEntry(entry),
+    stage_status: deriveStageStatus(entry),
+  }));
+}
+
 function normalizeGitPathArg(repoPath, candidatePath) {
   const resolved = resolveTargetPath(repoPath, candidatePath);
   const relative = path.relative(repoPath, resolved);
@@ -1258,6 +1273,7 @@ async function executeCommand(input) {
   switch (input.command) {
     case "overview": {
       const statusOutput = await gitRaw(repoPath, ["status", "--short"]);
+      const workingTreeChanges = await collectWorkingTreeChanges(repoPath);
       const branchName = await currentBranch(repoPath);
       const syncCounts = await branchSyncCounts(repoPath, branchName);
       const recentCommitHistory = await listCommitHistory(
@@ -1271,6 +1287,7 @@ async function executeCommand(input) {
         project_branches: await listBranches(repoPath),
         head_commit_sha: await headCommit(repoPath, "HEAD"),
         working_tree_summary: summarizeWorkingTreeFromStatus(statusOutput),
+        working_tree_changes: workingTreeChanges,
         ahead_commits: syncCounts.ahead_commits,
         behind_commits: syncCounts.behind_commits,
         recent_commits: recentCommitHistory.commits,
@@ -1399,19 +1416,8 @@ async function executeCommand(input) {
     case "collect_review_context":
       return { context: await collectReviewContext(repoPath) };
     case "status_changes": {
-      const statusOutput = await gitRaw(repoPath, [
-        "status",
-        "--porcelain=v1",
-        "-z",
-        "--untracked-files=all",
-      ]);
       return {
-        changes: parseStatusEntries(statusOutput).map((entry) => ({
-          path: entry.path,
-          previous_path: entry.previous_path,
-          change_type: classifyStatusEntry(entry),
-          stage_status: deriveStageStatus(entry),
-        })),
+        changes: await collectWorkingTreeChanges(repoPath),
       };
     }
     case "collect_snapshot":
