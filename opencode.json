@@ -1,0 +1,19 @@
+{
+  "provider": {
+    "opencode-go": {
+      "models": {
+        "qwen3.7-plus": {
+          "options": {
+            "chunkTimeout": 1800000,
+            "reasoning_effort": "high",
+            "timeout": false
+          }
+        }
+      },
+      "options": {
+        "chunkTimeout": 1800000,
+        "timeout": false
+      }
+    }
+  }
+}
