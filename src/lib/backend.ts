@@ -8,6 +8,7 @@ import type {
   ClaudeHealthCheck,
   ClaudeSettings,
   ClaudeSdkInstallResult,
+  GrokCliInstallResult,
   GrokHealthCheck,
   GrokModelInfo,
   GrokSettings,
@@ -1251,6 +1252,16 @@ export async function updateGrokSettings(updates: Partial<GrokSettings>): Promis
 
 export async function checkGrokHealth(): Promise<GrokHealthCheck> {
   return invoke("check_grok_health");
+}
+
+export async function installGrokCli(): Promise<GrokCliInstallResult> {
+  return invoke("install_grok_cli");
+}
+
+export async function installRemoteGrokCli(
+  sshConfigId: string,
+): Promise<GrokCliInstallResult> {
+  return invoke("install_remote_grok_cli", { sshConfigId });
 }
 
 export async function validateRemoteGrokHealth(

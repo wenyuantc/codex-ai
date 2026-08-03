@@ -910,6 +910,7 @@ const GLOBAL_ACTIVITY_ACTIONS: &[&str] = &[
     "employee_project_membership_conflict_migrated",
     "git_runtime_installed",
     "git_runtime_install_failed",
+    "grok_cli_installed",
 ];
 
 fn escape_sql_like(value: &str) -> String {

@@ -35,7 +35,9 @@ import {
   healthCheck,
   installClaudeSdk,
   installCodexSdk,
+  installGrokCli,
   installRemoteCodexSdk,
+  installRemoteGrokCli,
   openDatabaseFolder,
   restoreDatabase,
   syncSystemNotifications,
@@ -245,7 +247,7 @@ export function SettingsPage() {
   const [grokDefaultModel, setGrokDefaultModel] = useState("grok-4.5");
   const [grokDefaultEffort, setGrokDefaultEffort] = useState("high");
   const [grokCliPathOverride, setGrokCliPathOverride] = useState("");
-  const [grokActionLoading, setGrokActionLoading] = useState<"save" | null>(null);
+  const [grokActionLoading, setGrokActionLoading] = useState<"save" | "install" | null>(null);
   const [grokActionMessage, setGrokActionMessage] = useState<string | null>(null);
   const [grokActionError, setGrokActionError] = useState<string | null>(null);
   const [grokModelList, setGrokModelList] = useState<GrokModelInfo[]>([]);
@@ -462,6 +464,36 @@ export function SettingsPage() {
       setGrokActionError(error instanceof Error ? error.message : "加载 Grok 设置失败");
     } finally {
       setGrokModelListLoading(false);
+    }
+  }
+
+  async function handleInstallGrokCli() {
+    if (isRemoteMode && !selectedSshConfigId) {
+      setGrokActionError("请先选择 SSH 配置后再安装远程 Grok CLI。");
+      setGrokActionMessage(null);
+      return;
+    }
+
+    setGrokActionLoading("install");
+    setGrokActionError(null);
+    setGrokActionMessage(null);
+
+    try {
+      const result =
+        isRemoteMode && selectedSshConfigId
+          ? await installRemoteGrokCli(selectedSshConfigId)
+          : await installGrokCli();
+      setGrokActionMessage(
+        result.cli_version
+          ? `${isRemoteMode ? "远程" : "本地"} Grok CLI 安装完成，版本 ${result.cli_version}`
+          : result.message,
+      );
+      await loadGrokState();
+    } catch (error) {
+      console.error("Failed to install grok cli:", error);
+      setGrokActionError(error instanceof Error ? error.message : "安装 Grok CLI 失败");
+    } finally {
+      setGrokActionLoading(null);
     }
   }
 
@@ -1090,6 +1122,7 @@ export function SettingsPage() {
             onGrokDefaultEffortChange={setGrokDefaultEffort}
             onGrokCliPathOverrideChange={setGrokCliPathOverride}
             onGrokSave={() => void handleSaveGrokSettings()}
+            onGrokInstall={() => void handleInstallGrokCli()}
             onGrokRefresh={() => void loadGrokState()}
           />
         </TabsContent>

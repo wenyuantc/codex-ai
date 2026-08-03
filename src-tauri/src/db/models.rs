@@ -1361,6 +1361,17 @@ pub struct GrokHealthCheck {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GrokCliInstallResult {
+    pub execution_target: String,
+    pub ssh_config_id: Option<String>,
+    pub target_host_label: Option<String>,
+    pub cli_available: bool,
+    pub cli_version: Option<String>,
+    pub cli_path: Option<String>,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RemoteGrokHealthCheck {
     pub available: bool,
     pub version: Option<String>,

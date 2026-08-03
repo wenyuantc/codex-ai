@@ -6,7 +6,10 @@ use std::process::Stdio;
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager, Runtime};
 
-use crate::db::models::{GrokHealthCheck, GrokModelInfo, GrokSettings, UpdateGrokSettings};
+use crate::app::{insert_activity_log, sqlite_pool, EXECUTION_TARGET_LOCAL};
+use crate::db::models::{
+    GrokCliInstallResult, GrokHealthCheck, GrokModelInfo, GrokSettings, UpdateGrokSettings,
+};
 
 const SETTINGS_FILE_NAME: &str = "grok-settings.json";
 const DEFAULT_MODEL: &str = "grok-4.5";
@@ -529,6 +532,152 @@ pub async fn inspect_grok_runtime<R: Runtime>(
             checked_at: now,
         },
     }
+}
+
+async fn run_official_grok_cli_install() -> Result<(), String> {
+    let output = if cfg!(target_os = "windows") {
+        tokio::process::Command::new("powershell")
+            .args([
+                "-NoProfile",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-Command",
+                "irm https://x.ai/cli/install.ps1 | iex",
+            ])
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .output()
+            .await
+            .map_err(|error| format!("启动 Grok CLI 安装失败: {error}"))?
+    } else {
+        tokio::process::Command::new("/bin/bash")
+            .args(["-lc", "curl -fsSL https://x.ai/cli/install.sh | bash"])
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .output()
+            .await
+            .map_err(|error| format!("启动 Grok CLI 安装失败: {error}"))?
+    };
+
+    if output.status.success() {
+        return Ok(());
+    }
+
+    let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+    let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    let detail = [stderr.as_str(), stdout.as_str()]
+        .into_iter()
+        .find(|value| !value.is_empty())
+        .unwrap_or("安装脚本执行失败");
+    Err(format!("安装 Grok CLI 失败：{detail}"))
+}
+
+/// 在忽略 `cli_path_override` 的前提下解析官方默认路径（用于 override 冲突时的提示）。
+async fn resolve_grok_default_executable_path() -> Option<PathBuf> {
+    if let Some(path) = resolve_from_env_override(GROK_PATH_ENV_VARS) {
+        return Some(path);
+    }
+    if let Some(path) = resolve_from_known_paths("grok") {
+        return Some(path);
+    }
+    resolve_from_shell("grok").await
+}
+
+pub async fn install_grok_cli_runtime<R: Runtime>(
+    app: &AppHandle<R>,
+) -> Result<GrokCliInstallResult, String> {
+    let settings = load_grok_settings(app)?;
+    run_official_grok_cli_install().await?;
+
+    let override_invalid = settings
+        .cli_path_override
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| !is_executable_file(Path::new(value)))
+        .unwrap_or(false);
+
+    let (cli_path, cli_version, cli_available, message) =
+        match resolve_grok_executable_path(&settings).await {
+            Ok(path) => match read_grok_cli_version(&path).await {
+                Ok(version) => (
+                    Some(path.to_string_lossy().to_string()),
+                    Some(version.clone()),
+                    true,
+                    format!("Grok CLI 安装完成，版本 {version}"),
+                ),
+                Err(error) => (
+                    Some(path.to_string_lossy().to_string()),
+                    None,
+                    false,
+                    format!("Grok CLI 安装完成，但版本检测失败：{error}"),
+                ),
+            },
+            Err(resolve_error) if override_invalid => {
+                match resolve_grok_default_executable_path().await {
+                    Some(default_path) => {
+                        let version = read_grok_cli_version(&default_path).await.ok();
+                        let version_text = version
+                            .as_deref()
+                            .map(|value| format!("，默认路径版本 {value}"))
+                            .unwrap_or_default();
+                        (
+                            Some(default_path.to_string_lossy().to_string()),
+                            version,
+                            true,
+                            format!(
+                                "Grok CLI 已安装到默认位置{version_text}，但当前覆盖路径不可用，请清空或修正 CLI 路径覆盖。原始错误：{resolve_error}"
+                            ),
+                        )
+                    }
+                    None => (
+                        None,
+                        None,
+                        false,
+                        format!(
+                            "Grok CLI 安装脚本已完成，但未能解析可执行文件。请检查 PATH 或 CLI 路径覆盖。{resolve_error}"
+                        ),
+                    ),
+                }
+            }
+            Err(error) => (
+                None,
+                None,
+                false,
+                format!("Grok CLI 安装脚本已完成，但未能解析可执行文件：{error}"),
+            ),
+        };
+
+    if cli_available {
+        if let Ok(pool) = sqlite_pool(app).await {
+            let detail = cli_path
+                .as_deref()
+                .or(cli_version.as_deref())
+                .unwrap_or("local");
+            let _ = insert_activity_log(&pool, "grok_cli_installed", detail, None, None, None).await;
+        }
+    }
+
+    if !cli_available {
+        return Err(message);
+    }
+
+    Ok(GrokCliInstallResult {
+        execution_target: EXECUTION_TARGET_LOCAL.to_string(),
+        ssh_config_id: None,
+        target_host_label: None,
+        cli_available: true,
+        cli_version,
+        cli_path,
+        message,
+    })
+}
+
+#[tauri::command]
+pub async fn install_grok_cli<R: Runtime>(
+    app: AppHandle<R>,
+) -> Result<GrokCliInstallResult, String> {
+    install_grok_cli_runtime(&app).await
 }
 
 #[tauri::command]

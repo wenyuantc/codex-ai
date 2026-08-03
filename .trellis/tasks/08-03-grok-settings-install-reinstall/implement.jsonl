@@ -1,0 +1,7 @@
+{"file": ".trellis/spec/backend/ai-engines.md", "reason": "Grok CLI engine boundaries; local vs SSH; no SDK bridge for Grok"}
+{"file": ".trellis/spec/backend/command-guidelines.md", "reason": "Tauri command shape, Result<T,String>, registration patterns"}
+{"file": ".trellis/spec/backend/ssh-remote.md", "reason": "SSH execute helpers, remote install parity with Codex"}
+{"file": ".trellis/spec/backend/error-handling.md", "reason": "Chinese errors, activity log, secret redaction on remote failures"}
+{"file": ".trellis/spec/frontend/data-access.md", "reason": "backend.ts wrappers only; no component invoke"}
+{"file": ".trellis/spec/frontend/component-guidelines.md", "reason": "Settings RuntimeSettingsTab button/loading UX patterns"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "UI↔IPC↔Rust activity keys and install result fields"}

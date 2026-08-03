@@ -1168,6 +1168,16 @@ export interface GrokHealthCheck {
   checked_at: string;
 }
 
+export interface GrokCliInstallResult {
+  execution_target: string;
+  ssh_config_id: string | null;
+  target_host_label: string | null;
+  cli_available: boolean;
+  cli_version: string | null;
+  cli_path: string | null;
+  message: string;
+}
+
 export interface RemoteGrokHealthCheck {
   available: boolean;
   version: string | null;

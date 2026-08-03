@@ -102,7 +102,7 @@ interface RuntimeSettingsTabProps {
   grokDefaultModel: string;
   grokDefaultEffort: string;
   grokCliPathOverride: string;
-  grokActionLoading: "save" | null;
+  grokActionLoading: "save" | "install" | null;
   grokActionMessage: string | null;
   grokActionError: string | null;
   grokModelList: GrokModelInfo[];
@@ -111,6 +111,7 @@ interface RuntimeSettingsTabProps {
   onGrokDefaultEffortChange: (effort: string) => void;
   onGrokCliPathOverrideChange: (path: string) => void;
   onGrokSave: () => void;
+  onGrokInstall: () => void;
   onGrokRefresh: () => void;
 }
 
@@ -204,6 +205,7 @@ export function RuntimeSettingsTab({
   onGrokDefaultEffortChange,
   onGrokCliPathOverrideChange,
   onGrokSave,
+  onGrokInstall,
   onGrokRefresh,
 }: RuntimeSettingsTabProps) {
   const taskProviderLabel =
@@ -224,6 +226,14 @@ export function RuntimeSettingsTab({
     return "不可用";
   })();
   const installButtonLabel = codexHealth?.sdk_installed ? "重装 SDK" : "安装 SDK";
+  const grokCliInstalled = isRemoteMode
+    ? Boolean(remoteGrokHealth?.available)
+    : Boolean(grokHealth?.cli_available);
+  const grokInstallButtonLabel = grokCliInstalled ? "重装 CLI" : "安装 CLI";
+  const grokInstallDisabled =
+    healthLoading ||
+    grokActionLoading !== null ||
+    (isRemoteMode && !hasSelectedSshConfig);
   const saveDisabled =
     healthLoading || actionLoading !== null || (isRemoteMode && !hasSelectedSshConfig);
   const installDisabled =
@@ -1210,7 +1220,24 @@ export function RuntimeSettingsTab({
           </div>
         )}
 
-        <div className="flex justify-end">
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          <Button
+            variant="outline"
+            onClick={onGrokInstall}
+            disabled={grokInstallDisabled}
+            title={
+              isRemoteMode && !hasSelectedSshConfig
+                ? "请先选择 SSH 配置后再安装远程 Grok CLI"
+                : isRemoteMode
+                  ? "在当前 SSH 目标安装或重装 Grok CLI；安装后仍需远端 `grok login`"
+                  : "安装或重装本地 Grok CLI；安装后仍需执行 `grok login`"
+            }
+          >
+            {grokActionLoading === "install" ? (
+              <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+            ) : null}
+            {grokInstallButtonLabel}
+          </Button>
           <Button onClick={onGrokSave} disabled={healthLoading || grokActionLoading !== null}>
             {grokActionLoading === "save" ? (
               <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />

@@ -1803,6 +1803,88 @@ printf 'SDK_VERSION=%s\\nNODE_VERSION=%s\\n' \"$sdk_version\" \"$node_version\""
 }
 
 #[tauri::command]
+pub async fn install_remote_grok_cli<R: Runtime>(
+    app: AppHandle<R>,
+    ssh_config_id: String,
+) -> Result<crate::db::models::GrokCliInstallResult, String> {
+    let pool = sqlite_pool(&app).await?;
+    let ssh_config = fetch_ssh_config_record_by_id(&pool, &ssh_config_id).await?;
+    let host_label = ssh_config_target_host_label(&ssh_config);
+    let remote_script = "set -e; \
+curl -fsSL https://x.ai/cli/install.sh | bash; \
+if command -v grok >/dev/null 2>&1; then \
+  printf 'CLI_VERSION=%s\\n' \"$(grok --version 2>/dev/null | head -n 1)\"; \
+  printf 'CLI_PATH=%s\\n' \"$(command -v grok)\"; \
+  exit 0; \
+fi; \
+for p in \"$HOME/.grok/bin/grok\" /usr/local/bin/grok; do \
+  if [ -x \"$p\" ]; then \
+    printf 'CLI_VERSION=%s\\n' \"$(\"$p\" --version 2>/dev/null | head -n 1)\"; \
+    printf 'CLI_PATH=%s\\n' \"$p\"; \
+    exit 0; \
+  fi; \
+done; \
+echo 'CLI_MISSING=1'; exit 1";
+    let output = execute_ssh_command(
+        &app,
+        &ssh_config,
+        &build_remote_shell_command(remote_script, None),
+        true,
+    )
+    .await?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        let detail = [stderr.as_str(), stdout.as_str()]
+            .into_iter()
+            .find(|value| !value.is_empty())
+            .unwrap_or("远程安装脚本执行失败");
+        return Err(format!(
+            "远程安装 Grok CLI 失败：{}",
+            redact_secret_text(detail)
+        ));
+    }
+
+    let values = parse_remote_key_value_output(&String::from_utf8_lossy(&output.stdout));
+    if values.get("CLI_MISSING").is_some_and(|value| value == "1") {
+        return Err("远程安装 Grok CLI 完成，但未找到 grok 可执行文件".to_string());
+    }
+
+    let cli_version = values
+        .get("CLI_VERSION")
+        .cloned()
+        .filter(|value| !value.is_empty());
+    let cli_path = values
+        .get("CLI_PATH")
+        .cloned()
+        .filter(|value| !value.is_empty());
+    let message = match cli_version.as_deref() {
+        Some(version) => format!("远程 Grok CLI 安装完成，版本 {version}"),
+        None => "远程 Grok CLI 安装完成".to_string(),
+    };
+
+    let _ = insert_activity_log(
+        &pool,
+        "remote_grok_cli_installed",
+        &host_label,
+        None,
+        None,
+        None,
+    )
+    .await;
+
+    Ok(crate::db::models::GrokCliInstallResult {
+        execution_target: EXECUTION_TARGET_SSH.to_string(),
+        ssh_config_id: Some(ssh_config_id),
+        target_host_label: Some(host_label),
+        cli_available: true,
+        cli_version,
+        cli_path,
+        message,
+    })
+}
+
+#[tauri::command]
 pub async fn validate_remote_grok_health<R: Runtime>(
     app: AppHandle<R>,
     ssh_config_id: String,

@@ -1,0 +1,6 @@
+{"file": ".trellis/spec/backend/ai-engines.md", "reason": "Verify Grok remains CLI-only; no accidental SDK-path redesign"}
+{"file": ".trellis/spec/backend/command-guidelines.md", "reason": "Verify new commands registered and validated"}
+{"file": ".trellis/spec/backend/ssh-remote.md", "reason": "Verify remote install uses shared SSH helpers"}
+{"file": ".trellis/spec/frontend/data-access.md", "reason": "Verify frontend only uses backend.ts wrappers"}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "build/clippy and smoke expectations"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "Activity labels, types, and install result parity across layers"}
