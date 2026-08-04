@@ -235,11 +235,9 @@ pub(super) fn parse_cli_json_event_line(
                         parsed.lines.push(format!("[MCP] {server}/{tool}"));
                     }
                 }
-                "web_search" => {
-                    if item_event == "item.started" {
-                        if let Some(query) = json_first_string_field(item, &["query"]) {
-                            parsed.lines.push(format!("[搜索] {query}"));
-                        }
+                "web_search" if item_event == "item.started" => {
+                    if let Some(query) = json_first_string_field(item, &["query"]) {
+                        parsed.lines.push(format!("[搜索] {query}"));
                     }
                 }
                 _ => {}
