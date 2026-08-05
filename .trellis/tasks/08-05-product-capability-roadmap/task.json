@@ -1,0 +1,38 @@
+{
+  "id": "product-capability-roadmap",
+  "name": "product-capability-roadmap",
+  "title": "产品能力补齐路线图（全量）",
+  "description": "",
+  "status": "planning",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "P2",
+  "creator": "codex-ai",
+  "assignee": "codex-ai",
+  "createdAt": "2026-08-05",
+  "completedAt": null,
+  "branch": null,
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [
+    "08-05-tester-automation-loop",
+    "08-05-kanban-delivery-ux",
+    "08-05-engine-capability-parity",
+    "08-05-opencode-ssh-bridge",
+    "08-05-ux-trust-hardening",
+    "08-05-insights-export",
+    "08-05-coordinator-pipeline-viz",
+    "08-05-mcp-task-binding",
+    "08-05-frontend-test-net"
+  ],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {
+    "description": "全量产品能力补齐：测试员闭环、看板交付UX、引擎/SSH、洞察导出、编排可视化、MCP绑定、前端测试网"
+  }
+}
