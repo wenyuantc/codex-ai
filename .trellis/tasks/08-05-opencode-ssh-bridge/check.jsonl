@@ -1,1 +1,7 @@
 {"_example": "Fill with {\"file\": \"<path>\", \"reason\": \"<why>\"}. Put spec/research files only — no code paths. Run `python3 .trellis/scripts/get_context.py --mode packages` to list available specs. Delete this line once real entries are added."}
+{"file": ".trellis/spec/backend/ai-engines.md", "reason": "Verify OpenCode stays within engine contracts"}
+{"file": ".trellis/spec/backend/ssh-remote.md", "reason": "Verify SSH launch uses build_ssh_command only"}
+{"file": ".trellis/spec/backend/testing.md", "reason": "Test coverage expectations"}
+{"file": ".trellis/spec/backend/error-handling.md", "reason": "Failure cleanup and Chinese user errors"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "Cross-layer regression checklist"}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "Frontend smoke and quality gates if UI touched"}
