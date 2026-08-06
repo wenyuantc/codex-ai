@@ -26,3 +26,24 @@
 ### Status
 
 [OK] **Completed**
+
+
+## Session 2: 看板交付UX与可发现性
+
+**Date**: 2026-08-06
+**Task**: 看板交付UX与可发现性
+**Branch**: `feat/kanban-delivery-ux`
+
+### Summary
+
+实现看板交付筛选/中文批量/里程碑卡片/归档可编辑；共用 kanbanFilters；tsc/lint/build 通过并提交归档
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `aae2774` | (see git log) |
+
+### Status
+
+[OK] **Completed**
