@@ -26,3 +26,24 @@
 ### Status
 
 [OK] **Completed**
+
+
+## Session 2: 引擎能力对齐与会话日志体验
+
+**Date**: 2026-08-06
+**Task**: 引擎能力对齐与会话日志体验
+**Branch**: `feat/engine-capability-parity`
+
+### Summary
+
+完成 engine-capability-parity：诚实能力矩阵、四引擎 restart、设置页对照、终端虚拟化与日志过滤；build/clippy/矩阵单测通过并归档任务。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `a1bcc62` | (see git log) |
+
+### Status
+
+[OK] **Completed**
