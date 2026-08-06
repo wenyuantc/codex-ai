@@ -1083,6 +1083,14 @@ pub fn get_all_migrations() -> Vec<Migration> {
             "#,
             kind: tauri_plugin_sql::MigrationKind::Up,
         },
+        Migration {
+            version: 43,
+            description: "task mcp server binding (three-state JSON ids)",
+            sql: r#"
+                ALTER TABLE tasks ADD COLUMN mcp_server_ids TEXT;
+            "#,
+            kind: tauri_plugin_sql::MigrationKind::Up,
+        },
     ]
 }
 

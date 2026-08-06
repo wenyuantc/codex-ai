@@ -130,6 +130,7 @@ mod tests {
             due_date: None,
             blocked_reason: None,
             milestone_id: None,
+            mcp_server_ids: None,
             created_at: "2026-04-16 10:00:00".to_string(),
             updated_at: "2026-04-16 10:00:00".to_string(),
         }

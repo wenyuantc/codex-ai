@@ -67,6 +67,7 @@ mod automation_working_dir_tests {
             due_date: None,
             blocked_reason: None,
             milestone_id: None,
+            mcp_server_ids: None,
             created_at: "2026-04-17 00:00:00".to_string(),
             updated_at: "2026-04-17 00:00:00".to_string(),
         }
@@ -410,6 +411,7 @@ mod automation_guard_tests {
             due_date: None,
             blocked_reason: None,
             milestone_id: None,
+            mcp_server_ids: None,
             created_at: "2026-04-21 00:00:00".to_string(),
             updated_at: "2026-04-21 00:00:00".to_string(),
         }

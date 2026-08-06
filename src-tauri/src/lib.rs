@@ -231,6 +231,8 @@ pub fn run() {
             codex::update_mcp_servers,
             codex::reset_mcp_servers,
             codex::export_mcp_servers_snippet,
+            codex::get_task_mcp_binding,
+            codex::set_task_mcp_binding,
             codex::install_codex_sdk,
             codex::start_codex,
             codex::stop_codex_session,

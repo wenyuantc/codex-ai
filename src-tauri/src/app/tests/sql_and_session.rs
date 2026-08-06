@@ -320,6 +320,7 @@ fn list_tasks_applies_global_limit_and_project_scope() {
                 due_date: None,
                 blocked_reason: None,
                 milestone_id: None,
+                mcp_server_ids: None,
                 created_at: format!("2026-04-21 00:00:0{index}"),
                 updated_at: format!("2026-04-21 00:00:0{index}"),
             };

@@ -1,1 +1,9 @@
-{"_example": "Fill with {\"file\": \"<path>\", \"reason\": \"<why>\"}. Put spec/research files only — no code paths. Run `python3 .trellis/scripts/get_context.py --mode packages` to list available specs. Delete this line once real entries are added."}
+{"file": ".trellis/spec/backend/index.md", "reason": "Backend hard rules: Rust commands, migrations, activity logs, SSH dual-mode"}
+{"file": ".trellis/spec/backend/database-migrations.md", "reason": "tasks.mcp_server_ids migration and model patterns"}
+{"file": ".trellis/spec/backend/command-guidelines.md", "reason": "get/set_task_mcp_binding command shape and validation"}
+{"file": ".trellis/spec/backend/ai-engines.md", "reason": "Session launch injection points for Codex CLI/SDK"}
+{"file": ".trellis/spec/frontend/index.md", "reason": "Frontend hard rules: no direct SQL, backend.ts wrappers, Chinese activity labels"}
+{"file": ".trellis/spec/frontend/data-access.md", "reason": "IPC wrappers and nullable update payload patterns"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "Trace UI ↔ IPC ↔ SQLite ↔ session launch for MCP binding field"}
+{"file": ".trellis/tasks/08-05-mcp-task-binding/design.md", "reason": "Authoritative technical design for resolve + inject"}
+{"file": ".trellis/tasks/08-05-mcp-task-binding/prd.md", "reason": "Acceptance criteria and three-state binding semantics"}

@@ -676,6 +676,33 @@ export async function exportMcpServersSnippet(): Promise<string> {
   return invoke("export_mcp_servers_snippet");
 }
 
+export type TaskMcpBindingMode = "inherit" | "override";
+
+export interface TaskMcpBindingView {
+  task_id: string;
+  mode: TaskMcpBindingMode;
+  server_ids: string[];
+  effective: McpServerConfig[];
+}
+
+export async function getTaskMcpBinding(taskId: string): Promise<TaskMcpBindingView> {
+  return invoke("get_task_mcp_binding", { taskId });
+}
+
+export async function setTaskMcpBinding(payload: {
+  taskId: string;
+  mode: TaskMcpBindingMode;
+  serverIds?: string[];
+}): Promise<TaskMcpBindingView> {
+  return invoke("set_task_mcp_binding", {
+    payload: {
+      task_id: payload.taskId,
+      mode: payload.mode,
+      server_ids: payload.serverIds ?? [],
+    },
+  });
+}
+
 export async function showMainWindow(): Promise<void> {
   return invoke("show_main_window");
 }

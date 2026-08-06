@@ -24,6 +24,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { TaskDeliverySection } from "./TaskDeliverySection";
+import { TaskMcpBindingSection } from "./TaskMcpBindingSection";
 
 const UNASSIGNED_VALUE = "__unassigned__";
 const MonacoMarkdownEditor = lazy(() =>
@@ -402,6 +403,8 @@ export function TaskOverviewPanel({
         onMilestoneChange={onMilestoneChange}
         onError={onDeliveryError}
       />
+
+      <TaskMcpBindingSection taskId={task.id} />
 
       {coordinatorId && onOpenCoordinatorPlan && (
         <section className="rounded-md border border-border bg-muted/20 p-3">

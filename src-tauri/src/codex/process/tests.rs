@@ -61,6 +61,7 @@ fn session_exec_args_pipe_prompt_via_stdin() {
         &["D:\\repo\\demo\\ui.png".to_string()],
         Some("session-123"),
         Some(CliJsonOutputFlag::Json),
+        &[],
     );
 
     assert_eq!(
@@ -73,6 +74,7 @@ fn session_exec_args_pipe_prompt_via_stdin() {
             "model_reasoning_effort=\"high\"".to_string(),
             "-C".to_string(),
             r"D:\repo\demo".to_string(),
+            "--ignore-user-config".to_string(),
             "--json".to_string(),
             "resume".to_string(),
             "session-123".to_string(),
@@ -381,6 +383,7 @@ fn remote_codex_session_command_includes_image_args() {
         Some("session-123"),
         Some(CliJsonOutputFlag::Json),
         None,
+        &[],
     );
 
     assert!(command.contains("exec codex"));

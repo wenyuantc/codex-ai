@@ -815,6 +815,7 @@ pub async fn create_task<R: Runtime>(
         due_date,
         blocked_reason: None,
         milestone_id,
+        mcp_server_ids: None,
         created_at: now_sqlite(),
         updated_at: now_sqlite(),
     };

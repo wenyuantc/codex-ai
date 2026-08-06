@@ -253,6 +253,7 @@ export function getActivityActionLabel(action: string): string {
     tasks_batch_updated: "批量更新任务",
     mcp_servers_updated: "更新 MCP 配置",
     mcp_servers_reset: "重置 MCP 配置",
+    task_mcp_binding_updated: "更新任务 MCP 绑定",
     notification_created: "创建通知提醒",
     notification_resolved: "通知已恢复",
     session_events_purged: "清理会话事件",

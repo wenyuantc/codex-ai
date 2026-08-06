@@ -963,6 +963,30 @@ pub async fn start_codex_with_manager(
                 return Err(error);
             }
         };
+    let (resolved_mcp, mcp_resolve_error) =
+        match crate::codex::mcp::resolve_effective_mcp_for_task(
+            &app,
+            &pool,
+            task_id.as_deref(),
+        )
+        .await
+        {
+            Ok(resolved) => (resolved, None),
+            Err(error) => {
+                // Fail closed: do not invent a global enabled set when resolve failed.
+                eprintln!("[mcp] 解析任务 MCP 绑定失败，本会话回退为空集: {error}");
+                (
+                    crate::codex::mcp::ResolvedMcp {
+                        mode: crate::db::models::TaskMcpBindingMode::Override,
+                        server_ids: Vec::new(),
+                        servers: Vec::new(),
+                    },
+                    Some(error),
+                )
+            }
+        };
+    let mcp_servers = resolved_mcp.servers.clone();
+
     let session_launch = match prepare_session_launch(
         &app,
         &pool,
@@ -976,6 +1000,7 @@ pub async fn start_codex_with_manager(
         &run_cwd,
         &image_paths,
         resume_session_id.as_deref(),
+        &mcp_servers,
     )
     .await
     {
@@ -1025,18 +1050,76 @@ pub async fn start_codex_with_manager(
     configure_process_group(&mut command);
 
     if provider == CodexExecutionProvider::Cli {
-        command
-            .args(build_session_exec_args(
+        // Remote CLI already embeds full `codex exec ...` (incl. MCP) in the SSH remote script.
+        // Local CLI starts as bare `codex` and needs argv here.
+        if execution_context.execution_target != EXECUTION_TARGET_SSH {
+            command.args(build_session_exec_args(
                 model,
                 reasoning_effort,
                 &run_cwd,
                 &image_paths,
                 resume_session_id.as_deref(),
                 cli_json_output_flag,
-            ))
+                &mcp_servers,
+            ));
+        }
+        command
             .stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped());
+    }
+
+    if let Some(error) = mcp_resolve_error.as_deref() {
+        emit_session_terminal_line(
+            &app,
+            &pool,
+            &session_record.id,
+            &employee_id,
+            task_id.as_deref(),
+            session_kind,
+            format!("[MCP] 解析绑定失败，本会话按空集处理：{error}"),
+        )
+        .await;
+    }
+    emit_session_terminal_line(
+        &app,
+        &pool,
+        &session_record.id,
+        &employee_id,
+        task_id.as_deref(),
+        session_kind,
+        crate::codex::mcp::mcp_summary_line(&resolved_mcp),
+    )
+    .await;
+    if provider == CodexExecutionProvider::Sdk {
+        emit_session_terminal_line(
+            &app,
+            &pool,
+            &session_record.id,
+            &employee_id,
+            task_id.as_deref(),
+            session_kind,
+            format!(
+                "[MCP] 当前使用 SDK 启动，应用 MCP 绑定无法通过 CLI 配置注入（解析到 {} 个服务器）。",
+                mcp_servers.len()
+            ),
+        )
+        .await;
+    }
+    if execution_context.execution_target == EXECUTION_TARGET_SSH
+        && provider == CodexExecutionProvider::Cli
+    {
+        emit_session_terminal_line(
+            &app,
+            &pool,
+            &session_record.id,
+            &employee_id,
+            task_id.as_deref(),
+            session_kind,
+            "[MCP] 远程会话将按绑定注入 MCP；MCP 进程在远程主机执行，请确认远程已安装对应 command。"
+                .to_string(),
+        )
+        .await;
     }
 
     emit_session_launch_diagnostics(

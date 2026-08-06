@@ -146,6 +146,8 @@ pub struct Task {
     pub due_date: Option<String>,
     pub blocked_reason: Option<String>,
     pub milestone_id: Option<String>,
+    /// NULL = inherit global enabled; JSON array string e.g. `[]` or `["id"]` = override.
+    pub mcp_server_ids: Option<String>,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -979,6 +981,30 @@ pub struct McpServersDocument {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UpdateMcpServersPayload {
     pub servers: Vec<McpServerConfig>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TaskMcpBindingMode {
+    Inherit,
+    Override,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SetTaskMcpBindingPayload {
+    pub task_id: String,
+    pub mode: TaskMcpBindingMode,
+    /// Required when mode is Override (may be empty for explicit empty set).
+    #[serde(default)]
+    pub server_ids: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TaskMcpBindingView {
+    pub task_id: String,
+    pub mode: TaskMcpBindingMode,
+    pub server_ids: Vec<String>,
+    pub effective: Vec<McpServerConfig>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
