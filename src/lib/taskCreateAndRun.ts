@@ -18,6 +18,7 @@ export interface CreateTaskPayload {
   reviewer_id?: string;
   coordinator_id?: string;
   due_date?: string | null;
+  milestone_id?: string | null;
   attachment_source_paths?: string[];
 }
 

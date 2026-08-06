@@ -27,7 +27,11 @@ import {
   type RemoteCodexHealthCheck,
   type RemoteGrokHealthCheck,
 } from "@/lib/types";
-import type { OpenCodeHealthCheck, OpenCodeModelInfo } from "@/lib/opencode";
+import type {
+  OpenCodeHealthCheck,
+  OpenCodeModelInfo,
+  RemoteOpenCodeHealthCheck,
+} from "@/lib/opencode";
 import { type ThemeMode } from "@/lib/theme";
 import { formatDate } from "@/lib/utils";
 
@@ -78,6 +82,7 @@ interface RuntimeSettingsTabProps {
   onClaudeInstall: () => void;
   onClaudeRefresh: () => void;
   opencodeHealth: OpenCodeHealthCheck | null;
+  remoteOpenCodeHealth: RemoteOpenCodeHealthCheck | null;
   opencodeSdkEnabled: boolean;
   opencodeDefaultModel: string;
   opencodeHost: string;
@@ -172,6 +177,7 @@ export function RuntimeSettingsTab({
   onClaudeInstall,
   onClaudeRefresh,
   opencodeHealth,
+  remoteOpenCodeHealth,
   opencodeSdkEnabled,
   opencodeDefaultModel,
   opencodeHost,
@@ -238,9 +244,7 @@ export function RuntimeSettingsTab({
     healthLoading ||
     actionLoading !== null ||
     (isRemoteMode && (!hasSelectedSshConfig || passwordAuthBlocked));
-  const availableOneShotProviders = AI_PROVIDER_OPTIONS.filter(
-    (option) => !(isRemoteMode && option.value === "opencode"),
-  );
+  const availableOneShotProviders = AI_PROVIDER_OPTIONS;
   const isOneShotCodexProvider = oneShotPreferredProvider === "codex";
   const isOneShotClaudeProvider = oneShotPreferredProvider === "claude";
   const isOneShotOpenCodeProvider = oneShotPreferredProvider === "opencode";
@@ -900,28 +904,92 @@ export function RuntimeSettingsTab({
         <div className="flex items-start justify-between gap-4">
           <div className="space-y-1">
             <h3 className="text-sm font-medium">
-              {isRemoteMode ? "OpenCode（仅本地配置）" : "OpenCode SDK 配置"}
+              {isRemoteMode ? "OpenCode 远程 SDK" : "OpenCode SDK 配置"}
             </h3>
             <p className="text-xs text-muted-foreground">
               {isRemoteMode
-                ? "SSH 模式下 OpenCode SDK 仅支持本地执行，远程支持将在后续版本添加。"
+                ? "SSH 模式下通过远端 Node + @opencode-ai/sdk + bridge 运行 OpenCode 会话与一次性 AI。"
                 : "OpenCode SDK 用于运行开源 AI 编码代理的任务。"}
             </p>
           </div>
           <span
             className={`rounded px-2 py-1 text-xs ${
-              !isRemoteMode && opencodeHealth?.sdk_installed
-                ? "bg-green-100 text-green-700"
-                : "bg-slate-100 text-slate-700"
+              isRemoteMode
+                ? remoteOpenCodeHealth?.available
+                  ? "bg-green-100 text-green-700"
+                  : "bg-slate-100 text-slate-700"
+                : opencodeHealth?.sdk_installed
+                  ? "bg-green-100 text-green-700"
+                  : "bg-slate-100 text-slate-700"
             }`}
           >
-            {isRemoteMode ? "本地设置已禁用" : opencodeHealth?.sdk_installed ? "已安装" : "未安装"}
+            {isRemoteMode
+              ? remoteOpenCodeHealth?.available
+                ? "远程可用"
+                : "未就绪"
+              : opencodeHealth?.sdk_installed
+                ? "已安装"
+                : "未安装"}
           </span>
         </div>
 
         {isRemoteMode ? (
-          <div className="rounded-md border border-dashed border-border px-3 py-3 text-sm text-muted-foreground">
-            当前 SSH 配置不会读取本机 OpenCode SDK 设置。请在本地模式下使用 OpenCode 员工。
+          <div className="space-y-3">
+            <div className="rounded-md border border-dashed border-border px-3 py-3 text-sm text-muted-foreground space-y-1">
+              <p>远程状态：{remoteOpenCodeHealth?.message ?? "尚未检测当前 SSH 目标"}</p>
+              {remoteOpenCodeHealth?.node_version ? (
+                <p>远程 Node：{remoteOpenCodeHealth.node_version}</p>
+              ) : null}
+              {remoteOpenCodeHealth?.sdk_version ? (
+                <p>远程 SDK 版本：{remoteOpenCodeHealth.sdk_version}</p>
+              ) : null}
+              {remoteOpenCodeHealth?.sdk_install_dir ? (
+                <p>安装目录：{remoteOpenCodeHealth.sdk_install_dir}</p>
+              ) : null}
+              {remoteOpenCodeHealth?.checked_at ? (
+                <p>检查时间：{formatDate(remoteOpenCodeHealth.checked_at)}</p>
+              ) : null}
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={onOpenCodeRefresh}
+                disabled={
+                  healthLoading ||
+                  opencodeActionLoading !== null ||
+                  !hasSelectedSshConfig
+                }
+              >
+                {opencodeActionLoading !== null ? (
+                  <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <RefreshCw className="mr-1.5 h-3.5 w-3.5" />
+                )}
+                重新检测
+              </Button>
+              <Button
+                size="sm"
+                onClick={onOpenCodeInstall}
+                disabled={
+                  healthLoading ||
+                  opencodeActionLoading !== null ||
+                  !hasSelectedSshConfig ||
+                  passwordAuthBlocked
+                }
+              >
+                {opencodeActionLoading === "install" ? (
+                  <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                ) : null}
+                {remoteOpenCodeHealth?.sdk_installed ? "重装远程 SDK" : "安装远程 SDK"}
+              </Button>
+            </div>
+            {opencodeActionMessage && (
+              <p className="text-xs text-green-700">{opencodeActionMessage}</p>
+            )}
+            {opencodeActionError && (
+              <p className="text-xs text-destructive">{opencodeActionError}</p>
+            )}
           </div>
         ) : (
           <div className="mt-4 space-y-4">

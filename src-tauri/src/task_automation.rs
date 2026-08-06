@@ -9,9 +9,10 @@ use tauri::{AppHandle, Emitter, Manager, Runtime};
 use crate::app::{
     build_task_completion_timer_update, fetch_employee_by_id, fetch_project_by_id,
     fetch_task_automation_state_record, fetch_task_by_id, insert_activity_log,
-    insert_codex_session_event, now_sqlite, parse_review_verdict_json, record_completion_metric,
-    sqlite_pool, start_task_code_review_internal, start_task_timer_internal,
-    stop_task_timer_internal, TASK_STATUS_ARCHIVED,
+    insert_codex_session_event, new_id, normalize_optional_text, now_sqlite,
+    parse_review_verdict_json, record_completion_metric, sqlite_pool,
+    start_task_code_review_internal, start_task_timer_internal, stop_task_timer_internal,
+    TASK_STATUS_ARCHIVED,
 };
 use crate::claude::{start_claude_with_manager, stop_claude_for_automation_restart, ClaudeManager};
 use crate::codex::{
@@ -19,9 +20,10 @@ use crate::codex::{
     stop_codex_for_automation_restart, CodexManager,
 };
 use crate::db::models::{
-    AbortTaskPipelinePayload, CodexSessionRecord, Project, ReviewVerdict, StartTaskPipelinePayload,
-    Subtask, Task, TaskAttachment, TaskAutomationStateRecord, TaskPipelineStep,
-    RetryTaskPipelineStepPayload, UpdateTaskPipelineStepPayload,
+    AbortTaskPipelinePayload, CodexSessionRecord, Project, ReviewVerdict, RunTaskAcceptancePayload,
+    StartTaskPipelinePayload, Subtask, Task, TaskAcceptanceRun, TaskAttachment,
+    TaskAutomationStateRecord, TaskPipelineStep, RetryTaskPipelineStepPayload,
+    UpdateTaskAcceptanceChecklistPayload, UpdateTaskPipelineStepPayload,
 };
 use crate::git_workflow::{
     auto_commit_task_worktree, mark_task_git_context_session_finished, TaskGitAutoCommitOutcome,
@@ -38,6 +40,7 @@ include!("task_automation/fix_loop.rs");
 include!("task_automation/restart.rs");
 include!("task_automation/review_data.rs");
 include!("task_automation/pipeline.rs");
+include!("task_automation/acceptance.rs");
 
 #[cfg(test)]
 include!("task_automation/tests_modules.rs");

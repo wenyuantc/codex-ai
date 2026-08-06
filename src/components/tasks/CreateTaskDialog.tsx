@@ -8,12 +8,13 @@ import { useEmployeeStore } from "@/stores/employeeStore";
 import { useAiOptimizePrompt } from "@/hooks/useAiOptimizePrompt";
 import { getEmployeeRoleLabel } from "@/lib/utils";
 import { dedupePaths, isTauriRuntime, normalizeDialogSelection } from "@/lib/taskAttachments";
-import type { CodexSessionKind, Tag, Task } from "@/lib/types";
+import type { CodexSessionKind, Milestone, Tag, Task } from "@/lib/types";
 import { PRIORITIES } from "@/lib/types";
 import {
   addTaskDependency,
   getCodexSettings,
   getRemoteCodexSettings,
+  listMilestones,
   listTags,
   setTaskTags,
 } from "@/lib/backend";
@@ -41,6 +42,8 @@ interface CreateTaskDialogProps {
   onOpenChange: (open: boolean) => void;
   projectId?: string;
   onOpenLog?: (taskId: string, sessionKind?: CodexSessionKind) => void;
+  /** Fired after a successful create (and tags/deps attach) so boards can refresh maps. */
+  onCreated?: (task: Task) => void;
 }
 
 export function CreateTaskDialog({
@@ -48,6 +51,7 @@ export function CreateTaskDialog({
   onOpenChange,
   projectId,
   onOpenLog,
+  onCreated,
 }: CreateTaskDialogProps) {
   const { createTask, tasks, fetchTasks } = useTaskStore();
   const { projects, fetchProjects } = useProjectStore();
@@ -62,6 +66,8 @@ export function CreateTaskDialog({
   const [reviewerId, setReviewerId] = useState("");
   const [coordinatorId, setCoordinatorId] = useState("");
   const [dueDate, setDueDate] = useState("");
+  const [milestoneId, setMilestoneId] = useState("");
+  const [projectMilestones, setProjectMilestones] = useState<Milestone[]>([]);
   const [projectTags, setProjectTags] = useState<Tag[]>([]);
   const [selectedTagIds, setSelectedTagIds] = useState<string[]>([]);
   const [dependencyTaskIds, setDependencyTaskIds] = useState<string[]>([]);
@@ -138,6 +144,7 @@ export function CreateTaskDialog({
   useEffect(() => {
     if (!open || !selectedProjectId) {
       setProjectTags([]);
+      setProjectMilestones([]);
       return;
     }
 
@@ -152,6 +159,18 @@ export function CreateTaskDialog({
         console.error("Failed to load project tags:", error);
         if (!cancelled) {
           setProjectTags([]);
+        }
+      });
+    void listMilestones(selectedProjectId)
+      .then((items) => {
+        if (!cancelled) {
+          setProjectMilestones(items);
+        }
+      })
+      .catch((error) => {
+        console.error("Failed to load project milestones:", error);
+        if (!cancelled) {
+          setProjectMilestones([]);
         }
       });
     void fetchTasks(selectedProjectId);
@@ -179,6 +198,7 @@ export function CreateTaskDialog({
       setReviewerId("");
       setCoordinatorId("");
       setDueDate("");
+      setMilestoneId("");
       setSelectedTagIds([]);
       setDependencyTaskIds([]);
       setAttachmentPaths([]);
@@ -203,6 +223,7 @@ export function CreateTaskDialog({
     reviewer_id: reviewerId || undefined,
     coordinator_id: coordinatorId || undefined,
     due_date: dueDate || null,
+    milestone_id: milestoneId || null,
     attachment_source_paths: attachmentPaths,
   });
 
@@ -313,6 +334,7 @@ export function CreateTaskDialog({
           depends_on_task_id: dependsOnTaskId,
         });
       }
+      onCreated?.(created);
       closeAfterSuccess();
     } catch (error) {
       setCreateError(error instanceof Error ? error.message : String(error));
@@ -354,6 +376,7 @@ export function CreateTaskDialog({
 
       // 2) Seed kanban badge immediately, close dialog, run plan+execute in background.
       setBackgroundPhase(task.id, payload.coordinator_id ? "planning" : "starting");
+      onCreated?.(task);
       closeAfterSuccess();
 
       void continueCreatedTaskRun({
@@ -457,6 +480,7 @@ export function CreateTaskDialog({
                   setSelectedProjectId(nextProjectId);
                   setSelectedTagIds([]);
                   setDependencyTaskIds([]);
+                  setMilestoneId("");
                   setCreateError(null);
                 }}
               >
@@ -537,15 +561,51 @@ export function CreateTaskDialog({
               </div>
             </div>
 
-            <div>
-              <label className="text-xs font-medium text-muted-foreground">截止日期（可选）</label>
-              <Input
-                type="date"
-                value={dueDate}
-                onChange={(e) => setDueDate(e.target.value)}
-                className="mt-1"
-                disabled={busy}
-              />
+            <div className="grid gap-3 md:grid-cols-2">
+              <div>
+                <label className="text-xs font-medium text-muted-foreground">
+                  截止日期（可选）
+                </label>
+                <Input
+                  type="date"
+                  value={dueDate}
+                  onChange={(e) => setDueDate(e.target.value)}
+                  className="mt-1"
+                  disabled={busy}
+                />
+              </div>
+
+              <div>
+                <label className="text-xs font-medium text-muted-foreground">里程碑（可选）</label>
+                <Select
+                  value={milestoneId || NONE_VALUE}
+                  onValueChange={(value) =>
+                    setMilestoneId(!value || value === NONE_VALUE ? "" : value)
+                  }
+                  disabled={busy || !selectedProjectId}
+                >
+                  <SelectTrigger className="mt-1 bg-background">
+                    <SelectValue placeholder="无里程碑">
+                      {(value) => {
+                        if (!value || value === NONE_VALUE) {
+                          return "无里程碑";
+                        }
+                        return (
+                          projectMilestones.find((item) => item.id === value)?.name ?? "无里程碑"
+                        );
+                      }}
+                    </SelectValue>
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={NONE_VALUE}>无里程碑</SelectItem>
+                    {projectMilestones.map((item) => (
+                      <SelectItem key={item.id} value={item.id}>
+                        {item.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
 
             <div className="space-y-2">

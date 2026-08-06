@@ -1,0 +1,17 @@
+{"file": ".trellis/spec/backend/index.md", "reason": "Backend hard rules: commands-only writes, migrations, SSH, activity logs"}
+{"file": ".trellis/spec/backend/database-migrations.md", "reason": "New task_acceptance_runs table and project test_command columns"}
+{"file": ".trellis/spec/backend/command-guidelines.md", "reason": "Tauri command shape for run_task_acceptance and settings APIs"}
+{"file": ".trellis/spec/backend/error-handling.md", "reason": "Chinese Result errors and cleanup on command failure"}
+{"file": ".trellis/spec/backend/ssh-remote.md", "reason": "Execute test_command on SSH projects"}
+{"file": ".trellis/spec/backend/ai-engines.md", "reason": "Optional tester AI verdict session lifecycle"}
+{"file": ".trellis/spec/backend/testing.md", "reason": "Phase transition and hard-fail unit tests"}
+{"file": ".trellis/spec/frontend/index.md", "reason": "Frontend hard rules: backend wrappers, formatDate, Chinese labels"}
+{"file": ".trellis/spec/frontend/data-access.md", "reason": "IPC wrappers in backend.ts only"}
+{"file": ".trellis/spec/frontend/state-management.md", "reason": "Task/settings store updates for acceptance state"}
+{"file": ".trellis/spec/frontend/component-guidelines.md", "reason": "Task detail, settings, kanban badge UI"}
+{"file": ".trellis/spec/frontend/type-safety.md", "reason": "snake_case types mirroring Rust payloads"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "UI↔IPC↔Rust↔SQLite↔SSH boundary for new fields/actions"}
+{"file": ".trellis/spec/guides/code-reuse-thinking-guide.md", "reason": "Reuse process_spawn, task_automation, activity labels"}
+{"file": ".trellis/tasks/08-05-tester-automation-loop/prd.md", "reason": "Requirements and acceptance criteria"}
+{"file": ".trellis/tasks/08-05-tester-automation-loop/design.md", "reason": "Phase names, data model, verification kernel"}
+{"file": ".trellis/tasks/08-05-tester-automation-loop/implement.md", "reason": "Ordered checklist and validation commands"}

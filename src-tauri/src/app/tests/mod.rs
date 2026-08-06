@@ -10,15 +10,16 @@ pub(super) use super::{
     build_task_review_prompt, clear_task_automation_state_for_disabled_mode,
     collect_local_task_review_context_for_task, compare_global_search_items,
     disable_task_automation_for_archived_task, ensure_statement_terminated,
-    fetch_execution_change_history_item_by_session_id, fetch_task_automation_state_record,
-    fetch_task_by_id, filter_image_attachments, insert_task_record, list_tasks_with_pool,
-    is_task_automation_active_for_archival, normalize_global_search_types,
-    normalize_runtime_path_string, record_completion_metric, record_task_review_requested_activity,
-    remote_shell_path_expression, remote_task_attachment_dir, remote_task_attachment_path,
-    resolve_project_task_default_settings, resolve_running_conflict_message,
-    resolve_session_resume_state, rewrite_file_change_diff_labels, sanitize_sql_backup_script,
-    sdk_notification_unavailable, should_clear_task_completed_at, start_task_timer_internal,
-    stop_task_timer_internal, task_attachment_is_image, validate_project_repo_path,
+    export_tasks_json_with_pool, fetch_execution_change_history_item_by_session_id,
+    fetch_task_automation_state_record, fetch_task_by_id, filter_image_attachments,
+    import_tasks_json_with_pool, insert_task_record, is_task_automation_active_for_archival,
+    list_tasks_with_pool, normalize_global_search_types, normalize_runtime_path_string,
+    record_completion_metric, record_task_review_requested_activity, remote_shell_path_expression,
+    remote_task_attachment_dir, remote_task_attachment_path, resolve_project_task_default_settings,
+    resolve_running_conflict_message, resolve_session_resume_state,
+    rewrite_file_change_diff_labels, sanitize_sql_backup_script, sdk_notification_unavailable,
+    should_clear_task_completed_at, start_task_timer_internal, stop_task_timer_internal,
+    task_attachment_is_image, tasks_json_payload_is_field_safe, validate_project_repo_path,
     validate_runtime_working_dir, validate_task_archival_guard,
     validate_task_automation_mode_change, CodexSettings, GlobalSearchItem, Project, Task,
     TaskAttachment, PROJECT_TYPE_LOCAL, PROJECT_TYPE_SSH, TASK_AUTOMATION_MODE_REVIEW_FIX_LOOP_V1,
@@ -32,6 +33,7 @@ mod review_and_attachments;
 mod runtime_and_paths;
 mod sql_and_session;
 mod task_lifecycle;
+mod tasks_json;
 
 pub(super) async fn setup_test_pool() -> SqlitePool {
     let pool = SqlitePool::connect("sqlite::memory:")
