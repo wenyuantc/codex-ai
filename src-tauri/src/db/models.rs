@@ -25,6 +25,7 @@ pub struct Project {
     pub project_type: String,
     pub ssh_config_id: Option<String>,
     pub remote_repo_path: Option<String>,
+    pub test_command: Option<String>,
     pub deleted_at: Option<String>,
     pub created_at: String,
     pub updated_at: String,
@@ -146,6 +147,8 @@ pub struct Task {
     pub due_date: Option<String>,
     pub blocked_reason: Option<String>,
     pub milestone_id: Option<String>,
+    pub acceptance_checklist: Option<String>,
+    pub last_acceptance_status: Option<String>,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -457,6 +460,9 @@ pub struct CodexSettings {
     pub task_automation_default_enabled: bool,
     pub task_automation_max_fix_rounds: i32,
     pub task_automation_failure_strategy: String,
+    pub tester_automation_enabled: bool,
+    pub tester_allow_ai_only: bool,
+    pub default_test_command: Option<String>,
     pub git_preferences: GitPreferences,
     pub node_path_override: Option<String>,
     pub sdk_install_dir: String,
@@ -707,6 +713,7 @@ pub struct CreateProject {
     pub repo_path: Option<String>,
     pub ssh_config_id: Option<String>,
     pub remote_repo_path: Option<String>,
+    pub test_command: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -722,6 +729,8 @@ pub struct UpdateProject {
     pub ssh_config_id: Option<Option<String>>,
     #[serde(default, deserialize_with = "deserialize_explicit_nullable")]
     pub remote_repo_path: Option<Option<String>>,
+    #[serde(default, deserialize_with = "deserialize_explicit_nullable")]
+    pub test_command: Option<Option<String>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -826,6 +835,37 @@ pub struct UpdateTask {
     pub blocked_reason: Option<Option<String>>,
     #[serde(default, deserialize_with = "deserialize_explicit_nullable")]
     pub milestone_id: Option<Option<String>>,
+    #[serde(default, deserialize_with = "deserialize_explicit_nullable")]
+    pub acceptance_checklist: Option<Option<String>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+pub struct TaskAcceptanceRun {
+    pub id: String,
+    pub task_id: String,
+    pub status: String,
+    pub trigger: String,
+    pub acceptance_checklist: Option<String>,
+    pub command: Option<String>,
+    pub command_exit_code: Option<i32>,
+    pub command_output_excerpt: Option<String>,
+    pub ai_verdict: Option<String>,
+    pub summary: Option<String>,
+    pub created_at: String,
+    pub finished_at: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RunTaskAcceptancePayload {
+    pub task_id: String,
+    #[serde(default)]
+    pub trigger: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UpdateTaskAcceptanceChecklistPayload {
+    pub task_id: String,
+    pub acceptance_checklist: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1213,6 +1253,10 @@ pub struct UpdateCodexSettings {
     pub task_automation_default_enabled: Option<bool>,
     pub task_automation_max_fix_rounds: Option<i32>,
     pub task_automation_failure_strategy: Option<String>,
+    pub tester_automation_enabled: Option<bool>,
+    pub tester_allow_ai_only: Option<bool>,
+    #[serde(default, deserialize_with = "deserialize_explicit_nullable")]
+    pub default_test_command: Option<Option<String>>,
     pub git_preferences: Option<UpdateGitPreferences>,
     #[serde(default, deserialize_with = "deserialize_explicit_nullable")]
     pub node_path_override: Option<Option<String>>,
@@ -1567,6 +1611,30 @@ pub struct OpenCodeHealthCheck {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OpenCodeSdkInstallResult {
+    pub sdk_installed: bool,
+    pub sdk_version: Option<String>,
+    pub install_dir: String,
+    pub node_version: Option<String>,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RemoteOpenCodeHealthCheck {
+    pub available: bool,
+    pub node_available: bool,
+    pub node_version: Option<String>,
+    pub sdk_installed: bool,
+    pub sdk_version: Option<String>,
+    pub sdk_install_dir: String,
+    pub message: String,
+    pub checked_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RemoteOpenCodeSdkInstallResult {
+    pub execution_target: String,
+    pub ssh_config_id: Option<String>,
+    pub target_host_label: Option<String>,
     pub sdk_installed: bool,
     pub sdk_version: Option<String>,
     pub install_dir: String,

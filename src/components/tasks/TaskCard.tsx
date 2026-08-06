@@ -29,6 +29,8 @@ import {
 } from "@/lib/backend";
 import {
   formatDate,
+  getAcceptanceStatusClassName,
+  getAcceptanceStatusLabel,
   getPriorityColor,
   getPriorityLabel,
   getTaskActionRuntimeState,
@@ -36,9 +38,11 @@ import {
   getTaskAutomationStatusLabel,
   isTaskOverdue,
 } from "@/lib/utils";
+import { resolveTaskPrimaryCta } from "@/lib/taskPrimaryCta";
 import { countStageableGitFiles } from "@/lib/gitWorkingTree";
 import { buildTaskExecutionInput } from "@/lib/taskPrompt";
 import {
+  AlertTriangle,
   Archive,
   Calendar,
   CircleCheckBig,
@@ -301,9 +305,8 @@ function TaskCardComponent({
     automationRestarting ||
     openingCommitDialog ||
     aiCommitting ||
-    isBackgroundRunBusy;
-  const shouldShowActionBar = !isOverlay && (isRunning || isReviewTask || !hideRunAction);
-  const shouldShowPrimaryMenuAction = isRunning || isReviewTask || !hideRunAction;
+    isBackgroundRunBusy ||
+    testerAcceptanceLoading;
   const isWorktreeModeEnabled = task.use_worktree;
   const isWorktreeReady = Boolean(gitContext?.worktree_path) && !gitContext?.worktree_missing;
   const complexityScore =
@@ -313,7 +316,6 @@ function TaskCardComponent({
   const canDeleteWorktree = Boolean(isWorktreeModeEnabled && isWorktreeReady && !hasActiveSession);
   const canArchiveTask = !hasActiveSession && task.status !== "archived";
   const canMarkCompleted = task.status !== "completed" && task.status !== "archived";
-  const shouldShowTaskActionBar = shouldShowActionBar;
   const gitContextBadge = getGitContextBadge(gitContext);
   const backendCanCommit = Boolean(
     commitActionState?.can_commit || commitActionState?.can_ai_commit,
@@ -350,6 +352,26 @@ function TaskCardComponent({
   const canAiCommitTaskCode = Boolean(
     !hasActiveSession && (commitActionState?.can_ai_commit || canCommitTaskCode),
   );
+  const primaryCta = resolveTaskPrimaryCta({
+    status: task.status,
+    executionActive: isRunning,
+    reviewActive: isReviewRunning,
+    canStopProcess: executionActions.isRunning,
+    backgroundPlanning: isBackgroundPlanning,
+    backgroundStarting: isBackgroundStarting,
+    hasAssignee: Boolean(task.assignee_id),
+    hasReviewer: Boolean(task.reviewer_id),
+    canCommit: canCommitTaskCode,
+    canGenerateAcceptance: canGenerateTesterAcceptance,
+    automationStatus: automationState.status,
+    pipelineActive: Boolean(persistedAutomationState?.pipeline_active),
+  });
+  // Show primary bar for stop/review/locked always; for run respect hideRunAction (completed column).
+  const shouldShowPrimaryCta =
+    primaryCta.kind !== "none" && (primaryCta.kind !== "run" || !hideRunAction);
+  const shouldShowActionBar = !isOverlay && shouldShowPrimaryCta;
+  const shouldShowTaskActionBar = shouldShowActionBar;
+  const shouldShowPrimaryMenuAction = shouldShowPrimaryCta;
   const hasPreLogActions =
     shouldShowPrimaryMenuAction ||
     Boolean(task.last_codex_session_id) ||
@@ -507,6 +529,87 @@ function TaskCardComponent({
     onOpenLog?.(task.id, "review");
     await reviewActions.startReview();
   };
+
+  const handlePrimaryCtaClick = async (e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    if (primaryCta.disabled || isActionLoading) {
+      return;
+    }
+    switch (primaryCta.kind) {
+      case "stop":
+        await handleStop(e);
+        return;
+      case "review":
+        await handleReviewCode(e);
+        return;
+      case "run":
+        await handleRun(e);
+        return;
+      case "commit":
+        await openCommitDialog();
+        return;
+      case "acceptance":
+        await handleGenerateTesterAcceptance();
+        return;
+      case "blocked":
+        setContextMenu(null);
+        setShowDetail(true);
+        return;
+      default:
+        return;
+    }
+  };
+
+  const primaryCtaButtonClass = (() => {
+    switch (primaryCta.tone) {
+      case "danger":
+        return "flex items-center gap-1 px-2 py-0.5 text-xs bg-red-600 text-white rounded hover:bg-red-700 transition-colors disabled:opacity-50";
+      case "warning":
+        return "flex items-center gap-1 px-2 py-0.5 text-xs bg-amber-500 text-black rounded hover:bg-amber-400 transition-colors disabled:opacity-50";
+      case "muted":
+        return "flex items-center gap-1 px-2 py-0.5 text-xs bg-green-600 text-white rounded opacity-50";
+      case "primary":
+      default:
+        return "flex items-center gap-1 px-2 py-0.5 text-xs bg-green-600 text-white rounded hover:bg-green-700 transition-colors disabled:opacity-50";
+    }
+  })();
+
+  const primaryCtaIcon = (() => {
+    switch (primaryCta.kind) {
+      case "stop":
+        return executionActions.loading === "stop" ? (
+          <Square className="h-3 w-3" />
+        ) : (
+          <span className="inline-block w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
+        );
+      case "starting":
+      case "running_locked":
+        return <Loader2 className="h-3 w-3 animate-spin" />;
+      case "review":
+        return reviewActions.loading || isReviewRunning ? (
+          <Loader2 className="h-3 w-3 animate-spin" />
+        ) : (
+          <ScrollText className="h-3 w-3" />
+        );
+      case "blocked":
+        return <AlertTriangle className="h-3 w-3" />;
+      case "commit":
+        return openingCommitDialog ? (
+          <Loader2 className="h-3 w-3 animate-spin" />
+        ) : (
+          <GitBranch className="h-3 w-3" />
+        );
+      case "acceptance":
+        return testerAcceptanceLoading ? (
+          <Loader2 className="h-3 w-3 animate-spin" />
+        ) : (
+          <ClipboardCheck className="h-3 w-3" />
+        );
+      case "run":
+      default:
+        return <Play className="h-3 w-3" />;
+    }
+  })();
 
   const handleContextMenu = (e: React.MouseEvent<HTMLDivElement>) => {
     if (isOverlay) return;
@@ -972,6 +1075,12 @@ function TaskCardComponent({
                 <Bot className="h-3 w-3" />
                 自动质控·{getTaskAutomationStatusLabel(automationState.status)}
               </span>
+              <span
+                className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] ${getAcceptanceStatusClassName(task.last_acceptance_status)}`}
+                title="最近一次测试验收状态"
+              >
+                验收·{getAcceptanceStatusLabel(task.last_acceptance_status)}
+              </span>
               {isWorktreeModeEnabled && (
                 <span
                   className="inline-flex items-center gap-1 rounded-full bg-sky-500/10 px-2 py-0.5 text-[11px] text-sky-700 dark:text-sky-200"
@@ -1131,79 +1240,45 @@ function TaskCardComponent({
             </div>
           </div>
         </div>
-        {/* Run/Stop Codex */}
+        {/* Primary CTA — driven by resolveTaskPrimaryCta */}
         {shouldShowTaskActionBar && (
           <div className="flex items-center gap-1 mt-2 pt-2 border-t border-border/50">
-            {shouldShowActionBar &&
-              (isRunning ? (
-                executionActions.isRunning ? (
-                  <button
-                    onClick={handleStop}
-                    disabled={isActionLoading}
-                    className="flex items-center gap-1 px-2 py-0.5 text-xs bg-red-600 text-white rounded hover:bg-red-700 transition-colors disabled:opacity-50"
-                  >
-                    {executionActions.loading === "stop" ? (
-                      <Square className="h-3 w-3" />
-                    ) : (
-                      <span className="inline-block w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
-                    )}
-                    停止
-                  </button>
-                ) : isBackgroundRunBusy ? (
-                  <button
-                    disabled
-                    className="flex items-center gap-1 px-2 py-0.5 text-xs bg-violet-600 text-white rounded opacity-90"
-                    title={backgroundRunLabel ?? "后台启动中"}
-                  >
-                    <Loader2 className="h-3 w-3 animate-spin" />
-                    {isBackgroundPlanning ? "生成计划中" : "启动中"}
-                  </button>
-                ) : (
-                  <button
-                    disabled
-                    className="flex items-center gap-1 px-2 py-0.5 text-xs bg-green-600 text-white rounded opacity-50"
-                    title="自动修复正在启动或运行中"
-                  >
-                    <Loader2 className="h-3 w-3 animate-spin" />
-                    运行中
-                  </button>
-                )
-              ) : isReviewTask ? (
-                task.reviewer_id ? (
-                  <button
-                    onClick={(e) => void handleReviewCode(e)}
-                    disabled={isActionLoading || isReviewRunning}
-                    title={`由 ${reviewer?.name ?? "审查员"} 发起代码审核`}
-                    className="flex items-center gap-1 px-2 py-0.5 text-xs bg-amber-500 text-black rounded hover:bg-amber-400 transition-colors disabled:opacity-50"
-                  >
-                    {reviewActions.loading || isReviewRunning ? (
-                      <Loader2 className="h-3 w-3 animate-spin" />
-                    ) : (
-                      <ScrollText className="h-3 w-3" />
-                    )}
-                    {isReviewRunning ? "审核中" : "审核"}
-                  </button>
-                ) : (
-                  <span className="text-xs text-muted-foreground/50" title="请先指定审查员">
-                    <ScrollText className="h-3 w-3 inline mr-0.5" />
-                    未指定审查员
-                  </span>
-                )
-              ) : task.assignee_id ? (
-                <button
-                  onClick={handleRun}
-                  disabled={isActionLoading}
-                  className="flex items-center gap-1 px-2 py-0.5 text-xs bg-green-600 text-white rounded hover:bg-green-700 transition-colors disabled:opacity-50"
-                >
-                  <Play className="h-3 w-3" />
-                  运行
-                </button>
-              ) : (
-                <span className="text-xs text-muted-foreground/50" title="请先指派员工">
-                  <Play className="h-3 w-3 inline mr-0.5" />
-                  未指派
-                </span>
-              ))}
+            {primaryCta.kind === "run" && !task.assignee_id ? (
+              <span className="text-xs text-muted-foreground/50" title={primaryCta.reason ?? "请先指派员工"}>
+                <Play className="h-3 w-3 inline mr-0.5" />
+                未指派
+              </span>
+            ) : primaryCta.kind === "review" && !task.reviewer_id ? (
+              <span className="text-xs text-muted-foreground/50" title={primaryCta.reason ?? "请先指定审查员"}>
+                <ScrollText className="h-3 w-3 inline mr-0.5" />
+                未指定审查员
+              </span>
+            ) : primaryCta.kind === "starting" ? (
+              <button
+                type="button"
+                disabled
+                className="flex items-center gap-1 px-2 py-0.5 text-xs bg-violet-600 text-white rounded opacity-90"
+                title={backgroundRunLabel ?? primaryCta.reason ?? "后台启动中"}
+              >
+                <Loader2 className="h-3 w-3 animate-spin" />
+                {primaryCta.label}
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={(e) => void handlePrimaryCtaClick(e)}
+                disabled={primaryCta.disabled || isActionLoading}
+                title={
+                  primaryCta.kind === "review" && task.reviewer_id
+                    ? `由 ${reviewer?.name ?? "审查员"} 发起代码审核`
+                    : (primaryCta.reason ?? primaryCta.label)
+                }
+                className={primaryCtaButtonClass}
+              >
+                {primaryCtaIcon}
+                {primaryCta.label}
+              </button>
+            )}
           </div>
         )}
       </div>
@@ -1233,59 +1308,41 @@ function TaskCardComponent({
               onMouseDown={(e) => e.stopPropagation()}
               onClick={(e) => e.stopPropagation()}
             >
-              {shouldShowPrimaryMenuAction &&
-                (isRunning ? (
-                  executionActions.isRunning ? (
-                    <button
-                      type="button"
-                      role="menuitem"
-                      onClick={() => void handleStop()}
-                      disabled={isActionLoading}
-                      className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-left hover:bg-accent hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-50"
-                    >
-                      <Square className="h-4 w-4" />
-                      停止
-                    </button>
-                  ) : (
-                    <button
-                      type="button"
-                      role="menuitem"
-                      disabled
-                      className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-left disabled:pointer-events-none disabled:opacity-50"
-                      title="自动修复正在启动或运行中"
-                    >
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                      运行中
-                    </button>
-                  )
-                ) : isReviewTask ? (
-                  <button
-                    type="button"
-                    role="menuitem"
-                    onClick={() => void handleReviewCode()}
-                    disabled={!task.reviewer_id || isActionLoading || isReviewRunning}
-                    title={
-                      task.reviewer_id
+              {shouldShowPrimaryMenuAction && (
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => void handlePrimaryCtaClick()}
+                  disabled={primaryCta.disabled || isActionLoading}
+                  title={
+                    primaryCta.kind === "review"
+                      ? task.reviewer_id
                         ? `由 ${reviewer?.name ?? "审查员"} 发起代码审核`
                         : "请先指定审查员"
-                    }
-                    className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-left hover:bg-accent hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-50"
-                  >
+                      : (primaryCta.reason ?? primaryCta.label)
+                  }
+                  className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-left hover:bg-accent hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-50"
+                >
+                  {primaryCta.kind === "stop" ? (
+                    <Square className="h-4 w-4" />
+                  ) : primaryCta.kind === "starting" || primaryCta.kind === "running_locked" ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : primaryCta.kind === "review" ? (
                     <ScrollText className="h-4 w-4" />
-                    {isReviewRunning ? "审核中" : "审核代码"}
-                  </button>
-                ) : (
-                  <button
-                    type="button"
-                    role="menuitem"
-                    onClick={() => void handleRun()}
-                    disabled={!task.assignee_id || isActionLoading}
-                    className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-left hover:bg-accent hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-50"
-                  >
+                  ) : primaryCta.kind === "blocked" ? (
+                    <AlertTriangle className="h-4 w-4" />
+                  ) : primaryCta.kind === "commit" ? (
+                    <GitBranch className="h-4 w-4" />
+                  ) : primaryCta.kind === "acceptance" ? (
+                    <ClipboardCheck className="h-4 w-4" />
+                  ) : (
                     <Play className="h-4 w-4" />
-                    运行
-                  </button>
-                ))}
+                  )}
+                  {primaryCta.kind === "review" && !isReviewRunning
+                    ? "审核代码"
+                    : primaryCta.label}
+                </button>
+              )}
               {canMarkCompleted && (
                 <>
                   {shouldShowPrimaryMenuAction && <div className="my-1 h-px bg-border" />}
@@ -1337,7 +1394,7 @@ function TaskCardComponent({
                   协调员计划
                 </button>
               )}
-              {canGenerateTesterAcceptance && (
+              {canGenerateTesterAcceptance && primaryCta.kind !== "acceptance" && (
                 <button
                   type="button"
                   role="menuitem"
@@ -1380,7 +1437,7 @@ function TaskCardComponent({
                   合并到目标分支
                 </button>
               )}
-              {canCommitTaskCode && (
+              {canCommitTaskCode && primaryCta.kind !== "commit" && (
                 <button
                   type="button"
                   role="menuitem"

@@ -804,14 +804,6 @@ pub async fn ai_generate_coordinator_task_plan(
         ));
     }
 
-    let project = fetch_project_by_id(&pool, &task.project_id).await?;
-    if project.project_type == PROJECT_TYPE_SSH && coordinator.ai_provider == "opencode" {
-        return Err(format!(
-            "协调员 {} 配置为 OpenCode，但 SSH 项目暂不支持 OpenCode 一次性 AI，请改用 Codex、Claude 或 Grok",
-            coordinator.name
-        ));
-    }
-
     let project_employees = sqlx::query_as::<_, Employee>(
         r#"
         SELECT *
@@ -970,14 +962,6 @@ pub async fn ai_generate_tester_acceptance(
     )
     .await?;
 
-    let project = fetch_project_by_id(&pool, &task.project_id).await?;
-    if project.project_type == PROJECT_TYPE_SSH && tester.ai_provider == "opencode" {
-        return Err(format!(
-            "测试员 {} 配置为 OpenCode，但 SSH 项目暂不支持 OpenCode 一次性 AI，请改用 Codex、Claude 或 Grok",
-            tester.name
-        ));
-    }
-
     let subtasks = fetch_task_subtasks(&pool, &task.id).await?;
     let subtask_titles = subtasks
         .iter()
@@ -1026,6 +1010,16 @@ pub async fn ai_generate_tester_acceptance(
     .execute(&pool)
     .await
     .map_err(|error| format!("Failed to save tester acceptance comment: {}", error))?;
+
+    sqlx::query(
+        "UPDATE tasks SET acceptance_checklist = $2, updated_at = $3 WHERE id = $1 AND deleted_at IS NULL",
+    )
+    .bind(&task.id)
+    .bind(&result)
+    .bind(now_sqlite())
+    .execute(&pool)
+    .await
+    .map_err(|error| format!("Failed to save task acceptance checklist: {}", error))?;
 
     let generated_at = now_sqlite();
     let details = format_tester_acceptance_generated_activity_details(
@@ -1257,6 +1251,9 @@ mod tests {
             task_automation_default_enabled: false,
             task_automation_max_fix_rounds: 3,
             task_automation_failure_strategy: "blocked".to_string(),
+            tester_automation_enabled: false,
+            tester_allow_ai_only: false,
+            default_test_command: None,
             git_preferences: GitPreferences {
                 default_task_use_worktree: false,
                 worktree_location_mode: "repo_sibling_hidden".to_string(),

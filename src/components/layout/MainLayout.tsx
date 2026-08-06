@@ -1,6 +1,7 @@
 import { Outlet, useNavigate } from "react-router-dom";
 import { Sidebar } from "./Sidebar";
 import { Header } from "./Header";
+import { SshTrustBanner } from "./SshTrustBanner";
 import { useEmployeeStore } from "@/stores/employeeStore";
 import { useProjectStore } from "@/stores/projectStore";
 import { useNotificationStore } from "@/stores/notificationStore";
@@ -75,16 +76,7 @@ export function MainLayout() {
       <Sidebar />
       <div className="flex flex-col flex-1 overflow-hidden bg-background">
         <Header />
-        {environmentMode === "ssh" && (
-          <div
-            className="border-b border-amber-500/30 bg-amber-500/10 px-6 py-2 text-xs text-amber-950 dark:text-amber-100"
-            role="status"
-          >
-            <span className="font-medium">SSH 模式：</span>
-            远程执行产物（diff/快照）可能不完整，审查与变更明细请结合远程主机 git
-            状态判断。可在会话变更对话框查看受限说明。
-          </div>
-        )}
+        {environmentMode === "ssh" && <SshTrustBanner />}
         <main className="flex-1 overflow-auto bg-background p-6">
           <Outlet />
         </main>

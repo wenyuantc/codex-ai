@@ -73,12 +73,14 @@ pub(crate) use employees::fetch_employee_by_id;
 pub(crate) use projects::{ensure_project_exists, fetch_any_project_by_id, fetch_project_by_id};
 #[allow(unused_imports)]
 pub(crate) use remote::{
-    build_remote_codex_runtime_health, build_remote_shell_command, build_ssh_command,
-    cleanup_ssh_mux_masters, ensure_remote_sdk_runtime_layout, ensure_ssh_config_exists,
-    execute_ssh_command, execute_ssh_command_with_input, fetch_ssh_config_record_by_id,
-    inspect_remote_codex_runtime, normalize_ssh_auth_type, redact_secret_text, remote_path_join,
-    remote_sdk_bridge_path, remote_shell_path_expression, sdk_notification_unavailable,
-    shell_escape_single_quoted, ssh_config_target_host_label,
+    build_remote_codex_runtime_health, build_remote_opencode_sdk_bridge_command,
+    build_remote_shell_command, build_ssh_command, cleanup_ssh_mux_masters,
+    default_remote_opencode_sdk_install_dir, ensure_remote_opencode_sdk_runtime_layout,
+    ensure_remote_sdk_runtime_layout, ensure_ssh_config_exists, execute_ssh_command,
+    execute_ssh_command_with_input, fetch_ssh_config_record_by_id, inspect_remote_codex_runtime,
+    inspect_remote_opencode_runtime, normalize_ssh_auth_type, redact_secret_text, remote_path_join,
+    remote_opencode_sdk_bridge_path, remote_sdk_bridge_path, remote_shell_path_expression,
+    sdk_notification_unavailable, shell_escape_single_quoted, ssh_config_target_host_label,
 };
 #[allow(unused_imports)]
 pub(crate) use review::{

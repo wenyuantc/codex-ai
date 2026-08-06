@@ -167,6 +167,9 @@ export interface UpdateCodexSettingsInput {
   task_automation_default_enabled?: boolean;
   task_automation_max_fix_rounds?: number;
   task_automation_failure_strategy?: "blocked" | "manual_control";
+  tester_automation_enabled?: boolean;
+  tester_allow_ai_only?: boolean;
+  default_test_command?: string | null;
   git_preferences?: Partial<CodexSettings["git_preferences"]>;
   node_path_override?: string | null;
 }
@@ -178,6 +181,7 @@ export interface CreateProjectInput {
   repo_path?: string | null;
   ssh_config_id?: string | null;
   remote_repo_path?: string | null;
+  test_command?: string | null;
 }
 
 export interface UpdateProjectInput {
@@ -188,6 +192,7 @@ export interface UpdateProjectInput {
   repo_path?: string | null;
   ssh_config_id?: string | null;
   remote_repo_path?: string | null;
+  test_command?: string | null;
 }
 
 export interface CreateSshConfigInput {
@@ -268,6 +273,7 @@ export interface UpdateTaskInput {
   due_date?: string | null;
   blocked_reason?: string | null;
   milestone_id?: string | null;
+  acceptance_checklist?: string | null;
 }
 
 export interface CreateMilestoneInput {
@@ -1525,6 +1531,22 @@ export async function aiGenerateTesterAcceptance(
   input: GenerateTesterAcceptanceInput,
 ): Promise<string> {
   return invoke("ai_generate_tester_acceptance", { payload: input });
+}
+
+export async function runTaskAcceptance(taskId: string, trigger: "manual" | "auto" = "manual") {
+  return invoke<import("./types").TaskAcceptanceRun>("run_task_acceptance", {
+    payload: { task_id: taskId, trigger },
+  });
+}
+
+export async function getTaskAcceptanceRuns(taskId: string) {
+  return invoke<import("./types").TaskAcceptanceRun[]>("get_task_acceptance_runs", { taskId });
+}
+
+export async function updateTaskAcceptanceChecklist(taskId: string, acceptanceChecklist: string) {
+  return invoke<Task>("update_task_acceptance_checklist", {
+    payload: { task_id: taskId, acceptance_checklist: acceptanceChecklist },
+  });
 }
 
 export async function deleteTask(id: string): Promise<void> {

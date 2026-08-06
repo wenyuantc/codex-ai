@@ -815,6 +815,8 @@ pub async fn create_task<R: Runtime>(
         due_date,
         blocked_reason: None,
         milestone_id,
+        acceptance_checklist: None,
+        last_acceptance_status: None,
         created_at: now_sqlite(),
         updated_at: now_sqlite(),
     };
@@ -1379,6 +1381,12 @@ pub async fn update_task<R: Runtime>(
             .push_bind_unseparated(milestone_id);
         touched = true;
     }
+    if let Some(acceptance_checklist) = updates.acceptance_checklist {
+        separated.push("acceptance_checklist = ").push_bind_unseparated(
+            acceptance_checklist.and_then(|value| normalize_optional_text(Some(&value))),
+        );
+        touched = true;
+    }
     if let Some((completed_at, time_spent_seconds)) = completion_time_update.clone() {
         separated
             .push("time_spent_seconds = ")
@@ -1574,6 +1582,7 @@ pub async fn update_task_status<R: Runtime>(
             due_date: None,
             blocked_reason: None,
             milestone_id: None,
+            acceptance_checklist: None,
         },
     )
     .await
@@ -1639,6 +1648,7 @@ pub async fn batch_update_tasks<R: Runtime>(
             due_date: None,
             blocked_reason: None,
             milestone_id: None,
+            acceptance_checklist: None,
         };
 
         if payload.clear_assignee == Some(true) {

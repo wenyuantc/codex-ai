@@ -1,0 +1,12 @@
+{"file": ".trellis/spec/backend/index.md", "reason": "Verify backend hard rules and SSH compatibility"}
+{"file": ".trellis/spec/backend/database-migrations.md", "reason": "Verify migration versioning and models alignment"}
+{"file": ".trellis/spec/backend/command-guidelines.md", "reason": "Verify command registration and validation"}
+{"file": ".trellis/spec/backend/testing.md", "reason": "Verify phase and hard-fail tests exist"}
+{"file": ".trellis/spec/backend/error-handling.md", "reason": "Verify Chinese errors and failure paths"}
+{"file": ".trellis/spec/frontend/index.md", "reason": "Verify no frontend SQL writes and label rules"}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "Build/lint/smoke quality gates"}
+{"file": ".trellis/spec/frontend/type-safety.md", "reason": "Types match Rust payloads"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "Cross-layer field/action consistency check"}
+{"file": ".trellis/tasks/08-05-tester-automation-loop/prd.md", "reason": "Acceptance criteria checklist"}
+{"file": ".trellis/tasks/08-05-tester-automation-loop/design.md", "reason": "Design contract verification"}
+{"file": ".trellis/tasks/08-05-tester-automation-loop/implement.md", "reason": "Implement checklist completion"}

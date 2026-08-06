@@ -65,11 +65,11 @@ fn normalize_one_shot_reasoning_for_provider(provider: &str, value: Option<&str>
     }
 }
 
-fn normalize_one_shot_provider_for_target(value: Option<&str>, execution_target: &str) -> String {
+fn normalize_one_shot_provider_for_target(value: Option<&str>, _execution_target: &str) -> String {
     match value.map(str::trim) {
         Some("claude") => "claude".to_string(),
         Some("grok") => "grok".to_string(),
-        Some("opencode") if execution_target != EXECUTION_TARGET_SSH => "opencode".to_string(),
+        Some("opencode") => "opencode".to_string(),
         Some("codex") => "codex".to_string(),
         _ => "codex".to_string(),
     }
@@ -758,6 +758,137 @@ async fn run_opencode_one_shot_via_sdk<R: Runtime>(
     parse_result
 }
 
+async fn run_opencode_one_shot_via_remote_sdk<R: Runtime>(
+    app: &AppHandle<R>,
+    ssh_config_id: &str,
+    prompt: &str,
+    model: &str,
+    reasoning_effort: &str,
+    working_dir: Option<&str>,
+    image_paths: &[String],
+) -> Result<String, String> {
+    let pool = sqlite_pool(app).await?;
+    let ssh_config = fetch_ssh_config_record_by_id(&pool, ssh_config_id).await?;
+    let install_dir = default_remote_opencode_sdk_install_dir(ssh_config_id);
+
+    let mut runtime =
+        inspect_remote_opencode_runtime(app, &ssh_config, &install_dir, None).await?;
+    if !runtime.available {
+        if runtime.node_available && !runtime.sdk_installed {
+            crate::app::remote::install_remote_opencode_sdk(app.clone(), ssh_config_id.to_string())
+                .await?;
+            runtime =
+                inspect_remote_opencode_runtime(app, &ssh_config, &install_dir, None).await?;
+        }
+        if !runtime.available {
+            return Err(runtime.message);
+        }
+    }
+
+    let install_dir =
+        ensure_remote_opencode_sdk_runtime_layout(app, ssh_config_id).await?;
+
+    let runtime_config_backup =
+        if let Some(run_cwd) = working_dir.map(str::trim).filter(|value| !value.is_empty()) {
+            let provider_id = model
+                .split_once('/')
+                .map(|(provider_id, _)| provider_id)
+                .unwrap_or("opencode-go");
+            let model_id = model
+                .split_once('/')
+                .map(|(_, model_id)| model_id)
+                .unwrap_or(model);
+            let effort_to_write = reasoning_effort.trim();
+            let effort_to_write = (!effort_to_write.is_empty() && effort_to_write != "default")
+                .then_some(effort_to_write);
+            Some(
+                crate::opencode::write_remote_opencode_runtime_config_file(
+                    app,
+                    &ssh_config,
+                    run_cwd,
+                    provider_id,
+                    model_id,
+                    effort_to_write,
+                )
+                .await?,
+            )
+        } else {
+            None
+        };
+
+    let remote_command = build_remote_opencode_sdk_bridge_command(&install_dir, None);
+    let (mut command, askpass_path) =
+        build_ssh_command(app, &ssh_config, Some(&remote_command), true, false).await?;
+    command
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped());
+
+    let mut child = command.spawn().map_err(|error| {
+        if let Some(path) = askpass_path.as_ref() {
+            let _ = fs::remove_file(path);
+        }
+        format!("启动远程 OpenCode SDK bridge 失败: {error}")
+    })?;
+
+    if let Some(mut stdin) = child.stdin.take() {
+        let payload = serde_json::to_vec(&serde_json::json!({
+            "mode": "one_shot",
+            "prompt": prompt,
+            "model": model,
+            "reasoningEffort": reasoning_effort,
+            "host": "127.0.0.1",
+            "port": 4096,
+            "workingDirectory": working_dir,
+            "imagePaths": image_paths,
+        }))
+        .map_err(|error| format!("序列化远程 OpenCode SDK 请求失败: {error}"))?;
+        if let Err(error) = stdin.write_all(&payload).await {
+            if let Some(path) = askpass_path.as_ref() {
+                let _ = fs::remove_file(path);
+            }
+            if let Some(ref backup) = runtime_config_backup {
+                let _ = backup.restore_async(app).await;
+            }
+            return Err(format!("写入远程 OpenCode SDK 请求失败: {error}"));
+        }
+        if let Err(error) = stdin.shutdown().await {
+            if let Some(path) = askpass_path.as_ref() {
+                let _ = fs::remove_file(path);
+            }
+            if let Some(ref backup) = runtime_config_backup {
+                let _ = backup.restore_async(app).await;
+            }
+            return Err(format!("关闭远程 OpenCode SDK stdin 失败: {error}"));
+        }
+    }
+
+    let wait_result = child.wait_with_output().await;
+    if let Some(path) = askpass_path {
+        let _ = fs::remove_file(path);
+    }
+    let output = match wait_result {
+        Ok(output) => output,
+        Err(error) => {
+            if let Some(ref backup) = runtime_config_backup {
+                let _ = backup.restore_async(app).await;
+            }
+            return Err(format!("等待远程 OpenCode SDK bridge 完成失败: {error}"));
+        }
+    };
+
+    let parse_result = parse_opencode_one_shot_output(&output.stdout, &output.stderr);
+    if let Some(backup) = runtime_config_backup {
+        if let Err(error) = backup.restore_async(app).await {
+            return match parse_result {
+                Ok(_) => Err(error),
+                Err(parse_error) => Err(format!("{parse_error}；同时{error}")),
+            };
+        }
+    }
+    parse_result
+}
+
 pub(crate) async fn run_ai_command<R: Runtime>(
     app: &AppHandle<R>,
     prompt: String,
@@ -955,7 +1086,23 @@ pub(crate) async fn run_ai_command<R: Runtime>(
             .await
         }
         (EXECUTION_TARGET_SSH, "opencode") => {
-            Err("SSH 模式下暂不支持 OpenCode 一次性 AI".to_string())
+            if !one_shot_sdk_enabled {
+                return Err("一次性 AI 未启用 OpenCode SDK，当前不可用".to_string());
+            }
+            let ssh_config_id = execution_context
+                .ssh_config_id
+                .as_deref()
+                .ok_or_else(|| "SSH 一次性 AI 缺少 ssh_config_id".to_string())?;
+            run_opencode_one_shot_via_remote_sdk(
+                app,
+                ssh_config_id,
+                &prompt,
+                &one_shot_model,
+                &one_shot_reasoning_effort,
+                working_dir.as_deref(),
+                &image_paths,
+            )
+            .await
         }
         (EXECUTION_TARGET_SSH, _) => {
             let ssh_config_id = execution_context
