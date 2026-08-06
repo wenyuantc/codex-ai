@@ -1,0 +1,9 @@
+{"file": ".trellis/spec/backend/index.md", "reason": "Rust command/DB hard rules and module ownership for new export-import commands"}
+{"file": ".trellis/spec/backend/command-guidelines.md", "reason": "Tauri command shape, validation, transactions"}
+{"file": ".trellis/spec/backend/database-migrations.md", "reason": "Confirm no migration needed; SQL style if queries added"}
+{"file": ".trellis/spec/backend/error-handling.md", "reason": "Chinese Result errors for import validation failures"}
+{"file": ".trellis/spec/frontend/index.md", "reason": "IPC via backend.ts, no frontend SQL writes"}
+{"file": ".trellis/spec/frontend/data-access.md", "reason": "invoke wrappers and payload normalization"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "UI↔IPC↔Rust↔SQLite field parity for report/export payloads and activity keys"}
+{"file": ".trellis/tasks/08-05-insights-export/design.md", "reason": "Authoritative contracts for envelope, conflict strategy, report DTO"}
+{"file": ".trellis/tasks/08-05-insights-export/prd.md", "reason": "Acceptance criteria and scope boundaries"}
