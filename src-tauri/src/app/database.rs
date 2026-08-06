@@ -820,41 +820,86 @@ pub fn get_ai_provider_capabilities() -> Vec<crate::db::models::AiProviderCapabi
             start: true,
             stop: true,
             restart: true,
-            send_input: true,
+            send_input: false,
             resume: true,
-            notes: "完整支持启动/停止/重启/发送输入/续聊。".to_string(),
+            notes: "支持启动/停止/续聊；重启=停止当前运行后重新启动（非 CLI resume 旧会话）。会话为非交互批处理，不支持会话中发送输入。".to_string(),
         },
         crate::db::models::AiProviderCapabilities {
             provider: "claude".to_string(),
             label: "Claude".to_string(),
             start: true,
             stop: true,
-            restart: false,
+            restart: true,
             send_input: false,
             resume: true,
-            notes: "支持启动/停止/续聊；不支持独立 restart 与会话中 send_input。".to_string(),
+            notes: "支持启动/停止/续聊；重启=停止当前运行后重新启动（非 CLI resume 旧会话）。会话为非交互批处理，不支持会话中发送输入。".to_string(),
         },
         crate::db::models::AiProviderCapabilities {
             provider: "opencode".to_string(),
             label: "OpenCode".to_string(),
             start: true,
             stop: true,
-            restart: false,
+            restart: true,
             send_input: false,
             resume: true,
-            notes: "支持启动/停止/续聊；不支持独立 restart 与会话中 send_input。".to_string(),
+            notes: "支持启动/停止/续聊；重启=停止当前运行后重新启动（非 CLI resume 旧会话）。会话为非交互批处理，不支持会话中发送输入。".to_string(),
         },
         crate::db::models::AiProviderCapabilities {
             provider: "grok".to_string(),
             label: "Grok".to_string(),
             start: true,
             stop: true,
-            restart: false,
+            restart: true,
             send_input: false,
             resume: true,
-            notes: "支持启动/停止/续聊；不支持独立 restart 与会话中 send_input。".to_string(),
+            notes: "支持启动/停止/续聊；重启=停止当前运行后重新启动（非 CLI resume 旧会话）。会话为非交互批处理，不支持会话中发送输入。".to_string(),
         },
     ]
+}
+
+#[cfg(test)]
+mod ai_provider_capabilities_tests {
+    use super::get_ai_provider_capabilities;
+
+    #[test]
+    fn capability_matrix_is_honest_and_complete() {
+        let caps = get_ai_provider_capabilities();
+        assert_eq!(caps.len(), 4, "expected four providers");
+
+        let providers: Vec<&str> = caps.iter().map(|c| c.provider.as_str()).collect();
+        for expected in ["codex", "claude", "opencode", "grok"] {
+            assert!(
+                providers.contains(&expected),
+                "missing provider {expected} in {providers:?}"
+            );
+        }
+
+        for item in &caps {
+            assert!(item.start, "{} should support start", item.provider);
+            assert!(item.stop, "{} should support stop", item.provider);
+            assert!(
+                item.restart,
+                "{} should support restart (stop live + start)",
+                item.provider
+            );
+            assert!(
+                !item.send_input,
+                "{} must not claim send_input (non-interactive)",
+                item.provider
+            );
+            assert!(item.resume, "{} should support resume", item.provider);
+            assert!(
+                !item.notes.trim().is_empty(),
+                "{} notes must be non-empty",
+                item.provider
+            );
+            assert!(
+                item.notes.contains("非交互") || item.notes.contains("不支持会话中发送输入"),
+                "{} notes should explain non-interactive / no mid-session input",
+                item.provider
+            );
+        }
+    }
 }
 
 async fn count_tasks_with_scope(

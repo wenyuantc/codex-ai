@@ -82,10 +82,12 @@ Four engines, each with the same internal shape — `manager.rs` + `settings.rs`
 
 | Engine | LOC | Capabilities (`app/database.rs::get_ai_provider_capabilities`) |
 |---|---|---|
-| `codex/` | 12.3k | start / stop / restart / send_input / resume — the only fully-featured engine |
-| `grok/` | 3.4k | start / stop / resume |
-| `claude/` | 3.3k | start / stop / resume |
-| `opencode/` | 3.2k | start / stop / resume (SDK server spawned at startup from `lib.rs`) |
+| `codex/` | 12.3k | start / stop / restart / resume; **no** mid-session `send_input` (non-interactive) |
+| `grok/` | 3.4k | start / stop / restart / resume; no mid-session `send_input` |
+| `claude/` | 3.3k | start / stop / restart / resume; no mid-session `send_input` |
+| `opencode/` | 3.2k | start / stop / restart / resume; no mid-session `send_input` (SDK server spawned at startup from `lib.rs`) |
+
+Capability matrix is the single UI truth source. `restart_*` = stop live processes then `start_*` (not CLI session resume). Do not advertise `send_input` until a real interactive stdin path exists.
 
 **Shared process kernel** lives in `src-tauri/src/engine/` (`ExecutionContext`, `EngineChild` + `EngineProcessHandle`, `ProcessManager` + `EngineProcessRegistry`, `resolve_final_session_status`). Each engine re-exports/wraps that kernel; **keep `process/stream.rs` and launch/CLI args per engine**. When fixing a session-lifecycle / working-dir bug, prefer fixing the shared kernel first, then check engine-specific stream/launch paths. Codex-only extras: `cli.rs`, `mcp.rs`, `prompt_templates.rs`, `secret_store.rs`, `process/{ai_commands,changes,one_shot}.rs`, and `CodexProcessExtra` on managed processes.
 

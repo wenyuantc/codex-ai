@@ -1309,10 +1309,10 @@ pub async fn send_codex_input(
 ) -> Result<(), String> {
     let manager = state.lock().map_err(|e| e.to_string())?;
     if manager.has_employee_processes(&employee_id) {
-        Err("Cannot write to stdin in non-interactive mode".to_string())
+        Err("当前引擎为非交互批处理模式，不支持会话中发送输入。请停止后重新启动任务。".to_string())
     } else {
         Err(format!(
-            "No running codex instance for employee {}",
+            "员工 {} 当前没有运行中的 Codex 会话，且不支持会话中发送输入。",
             employee_id
         ))
     }

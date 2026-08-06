@@ -1,1 +1,9 @@
-{"_example": "Fill with {\"file\": \"<path>\", \"reason\": \"<why>\"}. Put spec/research files only — no code paths. Run `python3 .trellis/scripts/get_context.py --mode packages` to list available specs. Delete this line once real entries are added."}
+{"file": ".trellis/spec/backend/index.md", "reason": "Verify no FE SQL, migrations only if needed (none expected), SSH considered"}
+{"file": ".trellis/spec/backend/ai-engines.md", "reason": "Verify restart uses per-engine commands and shared kernel, not dyn dispatcher"}
+{"file": ".trellis/spec/backend/testing.md", "reason": "Capability matrix tests and clippy gate"}
+{"file": ".trellis/spec/frontend/index.md", "reason": "backend.ts wrappers, Chinese labels if activity keys added"}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "build/lint smoke and UI quality expectations"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "Matrix booleans/notes consistent Rust ↔ TS ↔ Settings"}
+{"file": ".trellis/tasks/08-05-engine-capability-parity/prd.md", "reason": "Acceptance criteria checklist"}
+{"file": ".trellis/tasks/08-05-engine-capability-parity/design.md", "reason": "Design contracts: send_input false, restart true, virtualization"}
+{"file": ".trellis/tasks/08-05-engine-capability-parity/implement.md", "reason": "Checklist completeness and validation commands"}

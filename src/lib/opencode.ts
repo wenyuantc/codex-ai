@@ -123,6 +123,18 @@ export function stopOpenCode(employeeId: string): Promise<void> {
   return invoke<void>("stop_opencode", { employeeId });
 }
 
+export function restartOpenCode(params: {
+  employeeId: string;
+  taskDescription: string;
+  model?: string;
+  workingDir?: string;
+  taskId?: string;
+  taskGitContextId?: string;
+  imagePaths?: string[];
+}): Promise<void> {
+  return invoke<void>("restart_opencode", params);
+}
+
 // ---- Event Listeners ----
 
 export function onOpenCodeOutput(
