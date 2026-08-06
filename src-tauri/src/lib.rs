@@ -205,6 +205,8 @@ pub fn run() {
             app::tasks::create_comment,
             app::tasks::batch_update_tasks,
             app::tasks::export_tasks_csv,
+            app::tasks::export_tasks_json,
+            app::tasks::import_tasks_json,
             app::delivery::list_milestones,
             app::delivery::create_milestone,
             app::delivery::update_milestone,

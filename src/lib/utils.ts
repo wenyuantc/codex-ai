@@ -251,6 +251,8 @@ export function getActivityActionLabel(action: string): string {
     remote_artifact_capture_limited: "远程会话变更明细受限",
     global_search_navigated: "使用全局搜索跳转",
     tasks_batch_updated: "批量更新任务",
+    tasks_json_exported: "导出任务 JSON",
+    tasks_json_imported: "导入任务 JSON",
     mcp_servers_updated: "更新 MCP 配置",
     mcp_servers_reset: "重置 MCP 配置",
     notification_created: "创建通知提醒",

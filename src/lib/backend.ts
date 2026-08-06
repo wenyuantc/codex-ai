@@ -451,17 +451,28 @@ export interface DashboardReportSummary {
   blocked_tasks: number;
   in_progress_tasks: number;
   completion_rate: number;
+  /** Last 7 days (daily). Field name is historical. */
   weekly_completed: DashboardTrendPoint[];
   employee_workload: DashboardWorkloadItem[];
+  /** Last 8 weeks (true weekly series). */
+  weekly_completed_series: DashboardTrendPoint[];
+  aging_in_progress: number;
+  aging_days: number;
 }
 
 export async function getDashboardReportSummary(input?: {
   projectId?: string | null;
   environmentMode?: string | null;
+  selectedSshConfigId?: string | null;
+  agingDays?: number | null;
 }): Promise<DashboardReportSummary> {
   return invoke("get_dashboard_report_summary", {
-    projectId: input?.projectId ?? null,
-    environmentMode: input?.environmentMode ?? null,
+    payload: {
+      project_id: input?.projectId ?? null,
+      environment_mode: input?.environmentMode ?? null,
+      selected_ssh_config_id: input?.selectedSshConfigId ?? null,
+      aging_days: input?.agingDays ?? null,
+    },
   });
 }
 
@@ -637,6 +648,55 @@ export async function exportTasksCsv(input?: {
     payload: {
       project_id: input?.projectId ?? null,
       environment_mode: input?.environmentMode ?? null,
+    },
+  });
+}
+
+export interface ExportTasksJsonResult {
+  json: string;
+  task_count: number;
+  truncated: boolean;
+}
+
+export async function exportTasksJson(input?: {
+  projectId?: string | null;
+  environmentMode?: string | null;
+  selectedSshConfigId?: string | null;
+  limit?: number | null;
+}): Promise<ExportTasksJsonResult> {
+  return invoke("export_tasks_json", {
+    payload: {
+      project_id: input?.projectId ?? null,
+      environment_mode: input?.environmentMode ?? null,
+      selected_ssh_config_id: input?.selectedSshConfigId ?? null,
+      limit: input?.limit ?? null,
+    },
+  });
+}
+
+export interface ImportTaskError {
+  index: number;
+  message: string;
+}
+
+export interface ImportTasksJsonResult {
+  created: number;
+  skipped: number;
+  failed: number;
+  errors: ImportTaskError[];
+  task_ids: string[];
+}
+
+export async function importTasksJson(input: {
+  projectId: string;
+  json: string;
+  conflictStrategy?: "create_new" | "skip_existing" | null;
+}): Promise<ImportTasksJsonResult> {
+  return invoke("import_tasks_json", {
+    payload: {
+      project_id: input.projectId,
+      json: input.json,
+      conflict_strategy: input.conflictStrategy ?? "create_new",
     },
   });
 }

@@ -981,6 +981,19 @@ pub struct UpdateMcpServersPayload {
     pub servers: Vec<McpServerConfig>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct GetDashboardReportPayload {
+    #[serde(default)]
+    pub project_id: Option<String>,
+    #[serde(default)]
+    pub environment_mode: Option<String>,
+    #[serde(default)]
+    pub selected_ssh_config_id: Option<String>,
+    /// Aging threshold in days for in-progress tasks (default 7).
+    #[serde(default)]
+    pub aging_days: Option<i64>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DashboardReportSummary {
     pub total_tasks: i64,
@@ -989,8 +1002,14 @@ pub struct DashboardReportSummary {
     pub blocked_tasks: i64,
     pub in_progress_tasks: i64,
     pub completion_rate: f64,
+    /// Historical field name: last 7 days (daily buckets), not weekly.
     pub weekly_completed: Vec<DashboardTrendPoint>,
     pub employee_workload: Vec<DashboardWorkloadItem>,
+    /// Last 8 calendar weeks of completions (true weekly series).
+    pub weekly_completed_series: Vec<DashboardTrendPoint>,
+    /// In-progress tasks older than `aging_days`.
+    pub aging_in_progress: i64,
+    pub aging_days: i64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1119,6 +1138,49 @@ pub struct ExportTasksCsvPayload {
 pub struct ExportTasksCsvResult {
     pub csv: String,
     pub row_count: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct ExportTasksJsonPayload {
+    #[serde(default)]
+    pub project_id: Option<String>,
+    #[serde(default)]
+    pub environment_mode: Option<String>,
+    #[serde(default)]
+    pub selected_ssh_config_id: Option<String>,
+    #[serde(default)]
+    pub limit: Option<i64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExportTasksJsonResult {
+    pub json: String,
+    pub task_count: i64,
+    pub truncated: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ImportTasksJsonPayload {
+    pub project_id: String,
+    pub json: String,
+    /// `create_new` (default) | `skip_existing`
+    #[serde(default)]
+    pub conflict_strategy: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ImportTaskError {
+    pub index: i64,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ImportTasksJsonResult {
+    pub created: i64,
+    pub skipped: i64,
+    pub failed: i64,
+    pub errors: Vec<ImportTaskError>,
+    pub task_ids: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
