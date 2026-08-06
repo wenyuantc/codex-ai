@@ -26,3 +26,24 @@
 ### Status
 
 [OK] **Completed**
+
+
+## Session 2: MCP 任务级深度绑定
+
+**Date**: 2026-08-06
+**Task**: MCP 任务级深度绑定
+**Branch**: `feat/mcp-task-binding`
+
+### Summary
+
+实现任务三态 MCP 绑定（继承全局/空集/指定集）、migration v43、get/set_task_mcp_binding、Codex CLI/SSH 会话注入与任务详情 UI；clippy/tsc 与相关单测通过。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `3f81008` | (see git log) |
+
+### Status
+
+[OK] **Completed**
