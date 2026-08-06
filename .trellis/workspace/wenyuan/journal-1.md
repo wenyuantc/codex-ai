@@ -26,3 +26,24 @@
 ### Status
 
 [OK] **Completed**
+
+
+## Session 2: 协调员编排可视化
+
+**Date**: 2026-08-06
+**Task**: 协调员编排可视化
+**Branch**: `feat/coordinator-pipeline-viz`
+
+### Summary
+
+实现任务详情编排阶段条/时间线、看板轻提示与弹窗共享进度组件；事件驱动刷新；tsc/eslint 质检通过并归档子任务。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `8d89575` | (see git log) |
+
+### Status
+
+[OK] **Completed**
