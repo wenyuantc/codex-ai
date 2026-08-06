@@ -1,0 +1,7 @@
+{"file": ".trellis/spec/frontend/index.md", "reason": "Frontend layer hard rules and guideline index"}
+{"file": ".trellis/spec/frontend/component-guidelines.md", "reason": "Kanban/Archive/TaskCard/Dialog component patterns"}
+{"file": ".trellis/spec/frontend/data-access.md", "reason": "backend.ts IPC wrappers; no direct SQL writes"}
+{"file": ".trellis/spec/frontend/state-management.md", "reason": "taskStore/projectStore/employeeStore usage for filters and refresh"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "UI to command to SQLite activity label path"}
+{"file": ".trellis/spec/guides/code-reuse-thinking-guide.md", "reason": "Reuse status/priority labels and formatDate"}
+{"file": ".trellis/spec/backend/command-guidelines.md", "reason": "Only if batch/delivery commands need touch"}
