@@ -114,7 +114,12 @@ Cross-cutting integration tests live in `src-tauri/src/app/tests/`:
 - `runtime_and_paths.rs` — app runtime setup
 - `sql_and_session.rs` — DB + session logic
 - `task_lifecycle.rs` — task state transitions
-- `review_and_attachments.rs` — review + file attachments
+- `review_and_attachments.rs` — review + file attachments.
+
+## 每次写完代码都要运行检查命令
+
+- `clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings`
+- ` npm run format:check`
 
 ### Pre-execution validation (all engines)
 
