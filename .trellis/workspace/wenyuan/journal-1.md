@@ -28,6 +28,15 @@
 [OK] **Completed**
 
 
+## Session 2: 报表洞察与任务 JSON 导入导出
+
+**Date**: 2026-08-06
+**Task**: 报表洞察与任务 JSON 导入导出
+**Branch**: `feat/insights-export`
+
+### Summary
+
+完成 insights-export：仪表盘报表 SSH/项目作用域对齐，近 7 日+近 8 周趋势与进行中老化；新增任务域 JSON 导出/导入（create_new/skip_existing）、中文 activity 标签与 7 个单测；npm build + clippy 通过。
 ## Session 2: 测试员自动化闭环
 
 **Date**: 2026-08-06
@@ -51,6 +60,7 @@
 
 | Hash | Message |
 |------|---------|
+| `ed1972b` | (see git log) |
 | `9d18068` | (see git log) |
 | `0b4f762` | (see git log) |
 
