@@ -26,3 +26,24 @@
 ### Status
 
 [OK] **Completed**
+
+
+## Session 2: UX 信任加固：主路径 CTA 与 SSH 提示
+
+**Date**: 2026-08-06
+**Task**: UX 信任加固：主路径 CTA 与 SSH 提示
+**Branch**: `feat/ux-trust-hardening`
+
+### Summary
+
+完成任务详情/卡片同源主 CTA（resolveTaskPrimaryCta + sticky 主路径条），SSH 顶栏 SshTrustBanner 强调审查依据可能不完整；tsc 与 vite build 通过；写入 frontend component 规范；提交 0b4f762。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `0b4f762` | (see git log) |
+
+### Status
+
+[OK] **Completed**
