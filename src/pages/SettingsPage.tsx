@@ -53,9 +53,12 @@ import {
   getOpenCodeModels,
   getOpenCodeSettings,
   installOpenCodeSdk,
+  installRemoteOpenCodeSdk,
   updateOpenCodeSettings,
+  validateRemoteOpenCodeHealth,
   type OpenCodeHealthCheck,
   type OpenCodeModelInfo,
+  type RemoteOpenCodeHealthCheck,
 } from "@/lib/opencode";
 import { getEnvironmentModeLabel } from "@/lib/projects";
 import {
@@ -230,6 +233,8 @@ export function SettingsPage() {
   const [claudeActionMessage, setClaudeActionMessage] = useState<string | null>(null);
   const [claudeActionError, setClaudeActionError] = useState<string | null>(null);
   const [opencodeHealth, setOpenCodeHealth] = useState<OpenCodeHealthCheck | null>(null);
+  const [remoteOpenCodeHealth, setRemoteOpenCodeHealth] =
+    useState<RemoteOpenCodeHealthCheck | null>(null);
   const [opencodeSdkEnabled, setOpenCodeSdkEnabled] = useState(false);
   const [opencodeDefaultModel, setOpenCodeDefaultModel] = useState("openai/gpt-4o");
   const [opencodeHost, setOpenCodeHost] = useState("127.0.0.1");
@@ -374,6 +379,7 @@ export function SettingsPage() {
   }
 
   async function loadOpenCodeState() {
+    setOpenCodeActionError(null);
     if (isRemoteMode) {
       setOpenCodeHealth(null);
       setOpenCodeSdkEnabled(false);
@@ -381,11 +387,28 @@ export function SettingsPage() {
       setOpenCodeHost("127.0.0.1");
       setOpenCodePort(4096);
       setOpenCodeNodePathOverride("");
-      setOpenCodeActionError(null);
-      setOpenCodeActionMessage(null);
+      if (!selectedSshConfigId) {
+        setRemoteOpenCodeHealth(null);
+        return;
+      }
+      try {
+        setRemoteOpenCodeHealth(await validateRemoteOpenCodeHealth(selectedSshConfigId));
+      } catch (error) {
+        setRemoteOpenCodeHealth({
+          available: false,
+          node_available: false,
+          node_version: null,
+          sdk_installed: false,
+          sdk_version: null,
+          sdk_install_dir: "",
+          message: error instanceof Error ? error.message : "远程 OpenCode 健康检查失败",
+          checked_at: new Date().toISOString().slice(0, 19).replace("T", " "),
+        });
+      }
       return;
     }
 
+    setRemoteOpenCodeHealth(null);
     try {
       const [health, settings] = await Promise.all([
         checkOpenCodeSdkHealth(),
@@ -721,8 +744,8 @@ export function SettingsPage() {
   }
 
   async function handleInstallOpenCodeSdk() {
-    if (isRemoteMode) {
-      setOpenCodeActionError("OpenCode SDK 安装仅适用于本地执行目标。");
+    if (isRemoteMode && !selectedSshConfigId) {
+      setOpenCodeActionError("请先选择 SSH 配置后再安装远程 OpenCode SDK。");
       setOpenCodeActionMessage(null);
       return;
     }
@@ -731,13 +754,23 @@ export function SettingsPage() {
     setOpenCodeActionError(null);
     setOpenCodeActionMessage(null);
     try {
-      const result = await installOpenCodeSdk();
-      setOpenCodeActionMessage(
-        result.sdk_version ? `OpenCode SDK 安装完成，版本 ${result.sdk_version}` : result.message,
-      );
-      await loadOpenCodeState();
-      // SDK newly installed, auto-fetch models
-      await handleFetchOpenCodeModels();
+      if (isRemoteMode && selectedSshConfigId) {
+        const result = await installRemoteOpenCodeSdk(selectedSshConfigId);
+        setOpenCodeActionMessage(
+          result.sdk_version
+            ? `远程 OpenCode SDK 安装完成，版本 ${result.sdk_version}`
+            : result.message,
+        );
+        await loadOpenCodeState();
+      } else {
+        const result = await installOpenCodeSdk();
+        setOpenCodeActionMessage(
+          result.sdk_version ? `OpenCode SDK 安装完成，版本 ${result.sdk_version}` : result.message,
+        );
+        await loadOpenCodeState();
+        // SDK newly installed, auto-fetch models
+        await handleFetchOpenCodeModels();
+      }
     } catch (error) {
       setOpenCodeActionError(error instanceof Error ? error.message : "安装 OpenCode SDK 失败");
     } finally {
@@ -1089,6 +1122,7 @@ export function SettingsPage() {
             onClaudeInstall={() => void handleInstallClaudeSdk()}
             onClaudeRefresh={() => void loadClaudeState()}
             opencodeHealth={opencodeHealth}
+            remoteOpenCodeHealth={remoteOpenCodeHealth}
             opencodeSdkEnabled={opencodeSdkEnabled}
             opencodeDefaultModel={opencodeDefaultModel}
             opencodeHost={opencodeHost}

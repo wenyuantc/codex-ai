@@ -1513,6 +1513,30 @@ pub struct OpenCodeSdkInstallResult {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RemoteOpenCodeHealthCheck {
+    pub available: bool,
+    pub node_available: bool,
+    pub node_version: Option<String>,
+    pub sdk_installed: bool,
+    pub sdk_version: Option<String>,
+    pub sdk_install_dir: String,
+    pub message: String,
+    pub checked_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RemoteOpenCodeSdkInstallResult {
+    pub execution_target: String,
+    pub ssh_config_id: Option<String>,
+    pub target_host_label: Option<String>,
+    pub sdk_installed: bool,
+    pub sdk_version: Option<String>,
+    pub install_dir: String,
+    pub node_version: Option<String>,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OpenCodeOutput {
     pub employee_id: String,
     pub task_id: Option<String>,

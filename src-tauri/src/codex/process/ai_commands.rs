@@ -804,14 +804,6 @@ pub async fn ai_generate_coordinator_task_plan(
         ));
     }
 
-    let project = fetch_project_by_id(&pool, &task.project_id).await?;
-    if project.project_type == PROJECT_TYPE_SSH && coordinator.ai_provider == "opencode" {
-        return Err(format!(
-            "协调员 {} 配置为 OpenCode，但 SSH 项目暂不支持 OpenCode 一次性 AI，请改用 Codex、Claude 或 Grok",
-            coordinator.name
-        ));
-    }
-
     let project_employees = sqlx::query_as::<_, Employee>(
         r#"
         SELECT *
@@ -969,14 +961,6 @@ pub async fn ai_generate_tester_acceptance(
         payload.tester_id.as_deref(),
     )
     .await?;
-
-    let project = fetch_project_by_id(&pool, &task.project_id).await?;
-    if project.project_type == PROJECT_TYPE_SSH && tester.ai_provider == "opencode" {
-        return Err(format!(
-            "测试员 {} 配置为 OpenCode，但 SSH 项目暂不支持 OpenCode 一次性 AI，请改用 Codex、Claude 或 Grok",
-            tester.name
-        ));
-    }
 
     let subtasks = fetch_task_subtasks(&pool, &task.id).await?;
     let subtask_titles = subtasks

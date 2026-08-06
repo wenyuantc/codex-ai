@@ -131,15 +131,13 @@ struct RawCodexSettingsDocument {
     remote_profiles: HashMap<String, RawCodexSettings>,
 }
 
-fn normalize_one_shot_provider(value: Option<&str>, is_remote: bool) -> String {
+fn normalize_one_shot_provider(value: Option<&str>, _is_remote: bool) -> String {
     match value.map(str::trim) {
         Some("claude") => "claude".to_string(),
         Some("grok") => "grok".to_string(),
-        Some("opencode") if !is_remote => "opencode".to_string(),
+        Some("opencode") => "opencode".to_string(),
         Some("codex") => "codex".to_string(),
-        Some(value) if SUPPORTED_ONE_SHOT_PROVIDERS.contains(&value) && !is_remote => {
-            value.to_string()
-        }
+        Some(value) if SUPPORTED_ONE_SHOT_PROVIDERS.contains(&value) => value.to_string(),
         _ => DEFAULT_ONE_SHOT_PROVIDER.to_string(),
     }
 }
@@ -1492,6 +1490,18 @@ mod tests {
         assert_eq!(
             normalize_one_shot_reasoning_effort("grok", Some("auto")),
             "high"
+        );
+    }
+
+    #[test]
+    fn opencode_one_shot_provider_is_allowed_for_remote() {
+        assert_eq!(
+            normalize_one_shot_provider(Some("opencode"), false),
+            "opencode"
+        );
+        assert_eq!(
+            normalize_one_shot_provider(Some("opencode"), true),
+            "opencode"
         );
     }
 
