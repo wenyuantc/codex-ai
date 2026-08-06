@@ -37,12 +37,22 @@
 ### Summary
 
 实现先测后审 MVP：migration 43、验收内核 local/SSH 硬失败、session_exit 挂钩、设置与任务详情/看板 UI；trellis-check 修复 create_project test_command、Monaco 清单、验收后刷新任务列表。tsc/clippy/acceptance 单测通过。
+## Session 2: UX 信任加固：主路径 CTA 与 SSH 提示
+
+**Date**: 2026-08-06
+**Task**: UX 信任加固：主路径 CTA 与 SSH 提示
+**Branch**: `feat/ux-trust-hardening`
+
+### Summary
+
+完成任务详情/卡片同源主 CTA（resolveTaskPrimaryCta + sticky 主路径条），SSH 顶栏 SshTrustBanner 强调审查依据可能不完整；tsc 与 vite build 通过；写入 frontend component 规范；提交 0b4f762。
 
 ### Git Commits
 
 | Hash | Message |
 |------|---------|
 | `9d18068` | (see git log) |
+| `0b4f762` | (see git log) |
 
 ### Status
 

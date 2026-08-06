@@ -1538,8 +1538,8 @@ fn resolve_remote_one_shot_runtime(
             }
         }
         "opencode" => (
-            "unavailable".to_string(),
-            "SSH 模式下暂不支持 OpenCode 一次性 AI".to_string(),
+            "sdk".to_string(),
+            "SSH 模式下 OpenCode 一次性 AI 使用远端 Node + OpenCode SDK bridge".to_string(),
         ),
         "grok" => (
             "cli".to_string(),
@@ -1989,9 +1989,289 @@ pub async fn validate_remote_grok_health<R: Runtime>(
     }
 }
 
+// ========== Remote OpenCode SDK runtime ==========
+
+const OPENCODE_SDK_RUNTIME_DIR_NAME: &str = "opencode-sdk-runtime";
+const OPENCODE_SDK_BRIDGE_FILE_NAME: &str = "opencode_sdk_bridge.mjs";
+const OPENCODE_SDK_PACKAGE_NAME: &str = "@opencode-ai/sdk";
+const OPENCODE_SDK_RUNTIME_PACKAGE_JSON: &str =
+    "{\"name\":\"codex-ai-opencode-sdk-runtime\",\"private\":true,\"type\":\"module\"}";
+const OPENCODE_MINIMUM_NODE_MAJOR: u32 = 18;
+
+pub(crate) fn default_remote_opencode_sdk_install_dir(ssh_config_id: &str) -> String {
+    format!("~/.codex-ai/{OPENCODE_SDK_RUNTIME_DIR_NAME}/{ssh_config_id}")
+}
+
+pub(crate) fn remote_opencode_sdk_bridge_path(install_dir: &str) -> String {
+    remote_path_join(install_dir, OPENCODE_SDK_BRIDGE_FILE_NAME)
+}
+
+pub(crate) fn build_remote_opencode_sdk_bridge_command(
+    install_dir: &str,
+    node_path_override: Option<&str>,
+) -> String {
+    let bridge_path = remote_opencode_sdk_bridge_path(install_dir);
+    build_remote_shell_command(
+        &format!(
+            "install_dir={}; bridge_path={}; cd \"$install_dir\" && exec node \"$bridge_path\"",
+            remote_shell_path_expression(install_dir),
+            remote_shell_path_expression(&bridge_path),
+        ),
+        node_path_override,
+    )
+}
+
+fn parse_node_major_version_for_remote(version: &str) -> Option<u32> {
+    let normalized = version.trim().trim_start_matches('v');
+    normalized
+        .split('.')
+        .next()
+        .and_then(|segment| segment.parse::<u32>().ok())
+}
+
+pub(crate) async fn ensure_remote_opencode_sdk_runtime_layout<R: Runtime>(
+    app: &AppHandle<R>,
+    ssh_config_id: &str,
+) -> Result<String, String> {
+    let pool = sqlite_pool(app).await?;
+    let ssh_config = fetch_ssh_config_record_by_id(&pool, ssh_config_id).await?;
+    let install_dir = default_remote_opencode_sdk_install_dir(ssh_config_id);
+    let bridge_path = remote_opencode_sdk_bridge_path(&install_dir);
+    let init_script = format!(
+        "install_dir={}; mkdir -p \"$install_dir\"; if [ ! -f \"$install_dir/package.json\" ]; then printf '%s' {} > \"$install_dir/package.json\"; fi",
+        remote_shell_path_expression(&install_dir),
+        shell_escape_single_quoted(OPENCODE_SDK_RUNTIME_PACKAGE_JSON),
+    );
+    let init_output =
+        execute_ssh_command(app, &ssh_config, &build_remote_shell_command(&init_script, None), true)
+            .await?;
+    if !init_output.status.success() {
+        let stderr = String::from_utf8_lossy(&init_output.stderr)
+            .trim()
+            .to_string();
+        return Err(if stderr.is_empty() {
+            "初始化远程 OpenCode SDK 运行目录失败".to_string()
+        } else {
+            format!(
+                "初始化远程 OpenCode SDK 运行目录失败：{}",
+                redact_secret_text(&stderr)
+            )
+        });
+    }
+
+    let bridge_output = execute_ssh_command_with_input(
+        app,
+        &ssh_config,
+        &build_remote_shell_command(
+            &format!("cat > {}", remote_shell_path_expression(&bridge_path)),
+            None,
+        ),
+        include_str!("../opencode/opencode_sdk_bridge.mjs").as_bytes(),
+        true,
+    )
+    .await?;
+    if !bridge_output.status.success() {
+        let stderr = String::from_utf8_lossy(&bridge_output.stderr)
+            .trim()
+            .to_string();
+        return Err(if stderr.is_empty() {
+            "写入远程 OpenCode SDK bridge 脚本失败".to_string()
+        } else {
+            format!(
+                "写入远程 OpenCode SDK bridge 脚本失败：{}",
+                redact_secret_text(&stderr)
+            )
+        });
+    }
+
+    Ok(install_dir)
+}
+
+pub(crate) async fn inspect_remote_opencode_runtime<R: Runtime>(
+    app: &AppHandle<R>,
+    ssh_config: &SshConfigRecord,
+    install_dir: &str,
+    node_path_override: Option<&str>,
+) -> Result<crate::db::models::RemoteOpenCodeHealthCheck, String> {
+    let sdk_install_dir_expr = remote_shell_path_expression(install_dir);
+    let bridge_path = remote_opencode_sdk_bridge_path(install_dir);
+    let bridge_path_expr = remote_shell_path_expression(&bridge_path);
+    let remote_script = format!(
+        "sdk_install_dir={sdk_install_dir_expr}; \
+bridge_path={bridge_path_expr}; \
+node_output=$(node --version 2>/dev/null); node_status=$?; \
+sdk_pkg=\"$sdk_install_dir\"/node_modules/{OPENCODE_SDK_PACKAGE_NAME}/package.json; \
+if [ -f \"$sdk_pkg\" ] && [ -f \"$bridge_path\" ]; then \
+  sdk_installed=1; \
+  sdk_version=$(sed -n 's/.*\"version\"[[:space:]]*:[[:space:]]*\"\\([^\"]*\\)\".*/\\1/p' \"$sdk_pkg\" | head -n 1); \
+else \
+  sdk_installed=0; sdk_version=''; \
+fi; \
+printf 'NODE_STATUS=%s\\nNODE_VERSION=%s\\nSDK_INSTALLED=%s\\nSDK_VERSION=%s\\n' \"$node_status\" \"$node_output\" \"$sdk_installed\" \"$sdk_version\""
+    );
+    let output = execute_ssh_command(
+        app,
+        ssh_config,
+        &build_remote_shell_command(&remote_script, node_path_override),
+        true,
+    )
+    .await?;
+    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+    let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+    let redacted_stderr = redact_secret_text(&stderr);
+    let values = parse_remote_key_value_output(&stdout);
+
+    let node_available = values
+        .get("NODE_STATUS")
+        .map(|value| value == "0")
+        .unwrap_or(false);
+    let node_version = values
+        .get("NODE_VERSION")
+        .cloned()
+        .filter(|value| !value.trim().is_empty());
+    let sdk_installed = values
+        .get("SDK_INSTALLED")
+        .map(|value| value == "1")
+        .unwrap_or(false);
+    let sdk_version = values
+        .get("SDK_VERSION")
+        .cloned()
+        .filter(|value| !value.trim().is_empty());
+    let node_supported = node_version
+        .as_deref()
+        .and_then(parse_node_major_version_for_remote)
+        .map(|major| major >= OPENCODE_MINIMUM_NODE_MAJOR)
+        .unwrap_or(false);
+    let available = node_available && node_supported && sdk_installed;
+
+    let message = if !node_available {
+        if redacted_stderr.is_empty() {
+            "远程 Node 不可用，请先在远端安装 Node.js 18+".to_string()
+        } else {
+            format!("远程 Node 不可用：{redacted_stderr}")
+        }
+    } else if let Some(version) = node_version.as_deref() {
+        match parse_node_major_version_for_remote(version) {
+            Some(major) if major < OPENCODE_MINIMUM_NODE_MAJOR => format!(
+                "远程 Node 版本过低（当前 {major}），OpenCode SDK 需要 Node.js {OPENCODE_MINIMUM_NODE_MAJOR}+"
+            ),
+            _ if !sdk_installed => {
+                "远程 OpenCode SDK 未安装，请先安装远程 OpenCode SDK".to_string()
+            }
+            _ => format!("远程 OpenCode SDK 已就绪（Node {version}）"),
+        }
+    } else {
+        "远程 OpenCode SDK 状态未知".to_string()
+    };
+
+    Ok(crate::db::models::RemoteOpenCodeHealthCheck {
+        available,
+        node_available,
+        node_version,
+        sdk_installed,
+        sdk_version,
+        sdk_install_dir: install_dir.to_string(),
+        message,
+        checked_at: now_sqlite(),
+    })
+}
+
+#[tauri::command]
+pub async fn validate_remote_opencode_health<R: Runtime>(
+    app: AppHandle<R>,
+    ssh_config_id: String,
+) -> Result<crate::db::models::RemoteOpenCodeHealthCheck, String> {
+    let pool = sqlite_pool(&app).await?;
+    let ssh_config = fetch_ssh_config_record_by_id(&pool, &ssh_config_id).await?;
+    let install_dir = default_remote_opencode_sdk_install_dir(&ssh_config_id);
+    let health =
+        inspect_remote_opencode_runtime(&app, &ssh_config, &install_dir, None).await?;
+    let _ = insert_activity_log(
+        &pool,
+        "remote_opencode_validated",
+        &ssh_config_target_host_label(&ssh_config),
+        None,
+        None,
+        None,
+    )
+    .await;
+    Ok(health)
+}
+
+#[tauri::command]
+pub async fn install_remote_opencode_sdk<R: Runtime>(
+    app: AppHandle<R>,
+    ssh_config_id: String,
+) -> Result<crate::db::models::RemoteOpenCodeSdkInstallResult, String> {
+    let pool = sqlite_pool(&app).await?;
+    let ssh_config = fetch_ssh_config_record_by_id(&pool, &ssh_config_id).await?;
+    let install_dir = ensure_remote_opencode_sdk_runtime_layout(&app, &ssh_config_id).await?;
+    let install_dir_expr = remote_shell_path_expression(&install_dir);
+    let package_json = shell_escape_single_quoted(OPENCODE_SDK_RUNTIME_PACKAGE_JSON);
+    let remote_script = format!(
+        "install_dir={install_dir_expr}; mkdir -p \"$install_dir\" && cd \"$install_dir\" && \
+if [ ! -f package.json ]; then printf '%s' {package_json} > package.json; fi && \
+npm install --no-audit --no-fund {OPENCODE_SDK_PACKAGE_NAME}@latest && \
+sdk_pkg=\"$install_dir\"/node_modules/{OPENCODE_SDK_PACKAGE_NAME}/package.json && \
+sdk_version=$(sed -n 's/.*\"version\"[[:space:]]*:[[:space:]]*\"\\([^\"]*\\)\".*/\\1/p' \"$sdk_pkg\" | head -n 1) && \
+node_version=$(node --version 2>/dev/null || true) && \
+printf 'SDK_VERSION=%s\\nNODE_VERSION=%s\\n' \"$sdk_version\" \"$node_version\""
+    );
+    let output = execute_ssh_command(
+        &app,
+        &ssh_config,
+        &build_remote_shell_command(&remote_script, None),
+        true,
+    )
+    .await?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        return Err(if stderr.is_empty() {
+            "远程安装 OpenCode SDK 失败".to_string()
+        } else {
+            format!(
+                "远程安装 OpenCode SDK 失败：{}",
+                redact_secret_text(&stderr)
+            )
+        });
+    }
+
+    let values = parse_remote_key_value_output(&String::from_utf8_lossy(&output.stdout));
+    let result = crate::db::models::RemoteOpenCodeSdkInstallResult {
+        execution_target: EXECUTION_TARGET_SSH.to_string(),
+        ssh_config_id: Some(ssh_config_id.clone()),
+        target_host_label: Some(ssh_config_target_host_label(&ssh_config)),
+        sdk_installed: true,
+        sdk_version: values
+            .get("SDK_VERSION")
+            .cloned()
+            .filter(|value| !value.is_empty()),
+        install_dir,
+        node_version: values
+            .get("NODE_VERSION")
+            .cloned()
+            .filter(|value| !value.is_empty()),
+        message: "远程 OpenCode SDK 安装完成".to_string(),
+    };
+    let _ = insert_activity_log(
+        &pool,
+        "remote_opencode_sdk_installed",
+        &ssh_config_target_host_label(&ssh_config),
+        None,
+        None,
+        None,
+    )
+    .await;
+    Ok(result)
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{multiplex_args_impl, sanitize_mux_mode, ssh_mux_dir, SSH_MUX_CONTROL_PERSIST};
+    use super::{
+        build_remote_opencode_sdk_bridge_command, default_remote_opencode_sdk_install_dir,
+        multiplex_args_impl, remote_opencode_sdk_bridge_path, remote_shell_path_expression,
+        sanitize_mux_mode, ssh_mux_dir, SSH_MUX_CONTROL_PERSIST,
+    };
 
     #[test]
     fn sanitize_mux_mode_keeps_known_values() {
@@ -2136,5 +2416,45 @@ mod tests {
             "ControlPath too long for macOS sockets ({}): {expanded}",
             expanded.len()
         );
+    }
+
+    #[test]
+    fn remote_opencode_install_dir_is_independent_of_codex() {
+        let install_dir = default_remote_opencode_sdk_install_dir("ssh-1");
+        assert_eq!(
+            install_dir,
+            "~/.codex-ai/opencode-sdk-runtime/ssh-1"
+        );
+        assert!(!install_dir.contains("codex-sdk-runtime"));
+        assert_eq!(
+            remote_opencode_sdk_bridge_path(&install_dir),
+            "~/.codex-ai/opencode-sdk-runtime/ssh-1/opencode_sdk_bridge.mjs"
+        );
+    }
+
+    #[test]
+    fn remote_opencode_sdk_bridge_command_expands_home_and_spaces() {
+        let with_home = build_remote_opencode_sdk_bridge_command(
+            "~/.codex-ai/opencode-sdk-runtime/ssh-1",
+            Some("~/.nvm/versions/node/v22.0.0/bin/node"),
+        );
+        assert!(with_home.contains(
+            "install_dir=\"$HOME/.codex-ai/opencode-sdk-runtime/ssh-1\""
+        ));
+        assert!(with_home.contains(
+            "bridge_path=\"$HOME/.codex-ai/opencode-sdk-runtime/ssh-1/opencode_sdk_bridge.mjs\""
+        ));
+        assert!(with_home.contains("cd \"$install_dir\" && exec node \"$bridge_path\""));
+
+        let with_spaces = build_remote_opencode_sdk_bridge_command(
+            "~/Open Code Runtime/ssh id",
+            None,
+        );
+        assert!(with_spaces.contains(remote_shell_path_expression("~/Open Code Runtime/ssh id").as_str()));
+        assert!(with_spaces.contains(
+            remote_shell_path_expression("~/Open Code Runtime/ssh id/opencode_sdk_bridge.mjs")
+                .as_str()
+        ));
+        assert!(with_spaces.contains("cd \"$install_dir\" && exec node \"$bridge_path\""));
     }
 }

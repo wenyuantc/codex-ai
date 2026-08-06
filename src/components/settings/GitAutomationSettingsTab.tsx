@@ -132,9 +132,7 @@ export function GitAutomationSettingsTab({
   const isGitClaudeProvider = gitAiProvider === "claude";
   const isGitOpenCodeProvider = gitAiProvider === "opencode";
   const isGitGrokProvider = gitAiProvider === "grok";
-  const availableGitProviders = AI_PROVIDER_OPTIONS.filter(
-    (option) => !(isRemoteMode && option.value === "opencode"),
-  );
+  const availableGitProviders = AI_PROVIDER_OPTIONS;
   const gitOpenCodeModelOptions =
     opencodeModelList.length > 0
       ? opencodeModelList

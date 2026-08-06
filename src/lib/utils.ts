@@ -241,6 +241,8 @@ export function getActivityActionLabel(action: string): string {
     git_runtime_install_failed: "本地 Git 运行时安装失败",
     grok_cli_installed: "安装 Grok CLI",
     remote_sdk_installed: "远程安装SDK",
+    remote_opencode_sdk_installed: "远程安装 OpenCode SDK",
+    remote_opencode_validated: "远程校验 OpenCode",
     remote_grok_cli_installed: "远程安装 Grok CLI",
     remote_git_runtime_installed: "远程 Git 运行时已安装",
     remote_git_runtime_install_failed: "远程 Git 运行时安装失败",

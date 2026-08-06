@@ -4,10 +4,18 @@
 
 消除 OpenCode 在 SSH 项目上的硬缺口：远程可启动/管理会话（在技术约束内），或提供与本地等价的明确降级路径且不静默失败。目标是 **SSH 模式下 OpenCode 可真实干活**，而不是仅本地可用。
 
+## Key Decisions
+
+| 决策 | 结论 | 日期 |
+|------|------|------|
+| 远程通道 | 对齐 Codex：**远程 Node + OpenCode SDK bridge**（非 Claude/Grok 式远程 CLI） | 2026-08-05 |
+| 失败语义 | 成功可干活；失败必须中文受控原因，禁止「尚未实现」裸错 | 2026-08-05 |
+| one-shot | SSH OpenCode 一并打通远程 bridge `one_shot` | 2026-08-05 |
+
 ## Background
 
 - 代码证据：`opencode/process/mod.rs` 对 SDK bridge 远程返回「尚未实现」。
-- 其它引擎（Codex/Claude/Grok）已有不同程度 SSH 支持。
+- 其它引擎（Codex/Claude/Grok）已有不同程度 SSH 支持；Codex 已有远程 SDK layout 可作镜像基线。
 
 ## Requirements
 
