@@ -51,9 +51,7 @@ export function TaskMcpBindingSection({ taskId }: TaskMcpBindingSectionProps) {
       return;
     }
     setEffectiveNames(
-      catalog
-        .filter((server) => selectedIds.includes(server.id))
-        .map((server) => server.name),
+      catalog.filter((server) => selectedIds.includes(server.id)).map((server) => server.name),
     );
   }, [mode, selectedIds, catalog]);
 
@@ -110,11 +108,16 @@ export function TaskMcpBindingSection({ taskId }: TaskMcpBindingSectionProps) {
             MCP 工具绑定
           </div>
           <p className="text-[11px] text-muted-foreground">
-            控制本任务会话启用的 MCP 服务器。默认继承设置页中全局已启用的服务器；关闭继承后可多选或全不选（显式空集）。
+            控制本任务会话启用的 MCP
+            服务器。默认继承设置页中全局已启用的服务器；关闭继承后可多选或全不选（显式空集）。
           </p>
         </div>
         <Button size="sm" variant="outline" onClick={() => void handleSave()} disabled={saving}>
-          {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
+          {saving ? (
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          ) : (
+            <Save className="h-3.5 w-3.5" />
+          )}
           保存绑定
         </Button>
       </div>
@@ -144,10 +147,7 @@ export function TaskMcpBindingSection({ taskId }: TaskMcpBindingSectionProps) {
             </p>
           ) : (
             catalog.map((server) => (
-              <label
-                key={server.id}
-                className="flex items-start gap-2 text-xs text-foreground"
-              >
+              <label key={server.id} className="flex items-start gap-2 text-xs text-foreground">
                 <input
                   type="checkbox"
                   className="mt-0.5 h-3.5 w-3.5 rounded border-input"
@@ -157,7 +157,9 @@ export function TaskMcpBindingSection({ taskId }: TaskMcpBindingSectionProps) {
                 <span className="min-w-0">
                   <span className="font-medium">{server.name}</span>
                   {!server.enabled && (
-                    <span className="ml-1 text-[10px] text-muted-foreground">（全局未默认启用）</span>
+                    <span className="ml-1 text-[10px] text-muted-foreground">
+                      （全局未默认启用）
+                    </span>
                   )}
                   <span className="block truncate text-[10px] text-muted-foreground">
                     {server.command} {server.args.join(" ")}

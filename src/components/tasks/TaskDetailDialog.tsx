@@ -329,8 +329,7 @@ export function TaskDetailDialog({
   const isExecutionProcessRunning = executionActions.isRunning;
   const hasActiveSession = isRunning || isReviewRunning;
   const canCommitTaskCode = Boolean(
-    !hasActiveSession &&
-    (commitActionState?.can_commit || commitActionState?.can_ai_commit),
+    !hasActiveSession && (commitActionState?.can_commit || commitActionState?.can_ai_commit),
   );
   const primaryCta = resolveTaskPrimaryCta({
     status,
@@ -1430,319 +1429,319 @@ export function TaskDetailDialog({
       <Dialog open={open} onOpenChange={onOpenChange}>
         <DialogContent className="flex max-h-[min(92vh,calc(100vh-2rem))] w-[min(96vw,80rem)] max-w-[min(96vw,80rem)] flex-col gap-0 overflow-hidden p-0 sm:max-w-[min(96vw,80rem)]">
           <div className="flex-1 space-y-4 overflow-y-auto p-4">
-          <DialogHeader>
-            <DialogTitle className="sr-only">任务详情</DialogTitle>
-            <DialogDescription className="sr-only">查看和编辑任务详情</DialogDescription>
-          </DialogHeader>
+            <DialogHeader>
+              <DialogTitle className="sr-only">任务详情</DialogTitle>
+              <DialogDescription className="sr-only">查看和编辑任务详情</DialogDescription>
+            </DialogHeader>
 
-          {(primaryActionNotice ||
-            (primaryCta.kind === "starting" && backgroundRunLabel) ||
-            testerAcceptanceNotice ||
-            testerAcceptanceError) && (
-            <div className="rounded-lg border border-border/70 bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
-              {primaryActionNotice && <p className="text-foreground/90">{primaryActionNotice}</p>}
-              {primaryCta.kind === "starting" && backgroundRunLabel && (
-                <p>{backgroundRunLabel}</p>
-              )}
-              {testerAcceptanceNotice && (
-                <p className="text-emerald-700 dark:text-emerald-300">{testerAcceptanceNotice}</p>
-              )}
-              {testerAcceptanceError && (
-                <p className="text-destructive">{testerAcceptanceError}</p>
-              )}
-            </div>
-          )}
-
-          <div className="mb-4 flex flex-wrap items-center gap-2 rounded-lg border border-border/70 bg-background/80 px-4 py-3">
-            <span className="text-xs font-medium text-muted-foreground">任务 ID</span>
-            <button
-              type="button"
-              onClick={() => void handleCopyTaskId()}
-              className="inline-flex items-center gap-1.5 rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-              title={taskIdCopied ? "已复制任务 ID" : "点击复制任务 ID"}
-              aria-label={taskIdCopied ? "已复制任务 ID" : "点击复制任务 ID"}
-            >
-              <Badge
-                variant="outline"
-                className="h-6 cursor-pointer rounded-md px-2.5 font-mono text-[11px] transition-colors hover:border-primary/40 hover:bg-primary/5"
-              >
-                {task.id}
-                {taskIdCopied ? (
-                  <Check className="h-3.5 w-3.5" />
-                ) : (
-                  <Copy className="h-3.5 w-3.5" />
+            {(primaryActionNotice ||
+              (primaryCta.kind === "starting" && backgroundRunLabel) ||
+              testerAcceptanceNotice ||
+              testerAcceptanceError) && (
+              <div className="rounded-lg border border-border/70 bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+                {primaryActionNotice && <p className="text-foreground/90">{primaryActionNotice}</p>}
+                {primaryCta.kind === "starting" && backgroundRunLabel && (
+                  <p>{backgroundRunLabel}</p>
                 )}
-              </Badge>
-            </button>
-          </div>
+                {testerAcceptanceNotice && (
+                  <p className="text-emerald-700 dark:text-emerald-300">{testerAcceptanceNotice}</p>
+                )}
+                {testerAcceptanceError && (
+                  <p className="text-destructive">{testerAcceptanceError}</p>
+                )}
+              </div>
+            )}
 
-          <Tabs value={detailTab} onValueChange={setDetailTab} className="gap-4">
-            <section className="space-y-3 rounded-lg border border-border/70 bg-muted/20 p-4">
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div className="space-y-1">
-                  <div className="flex items-center gap-2">
-                    <Bot className="h-4 w-4 text-primary" />
-                    <p className="text-sm font-medium">自动质控</p>
-                  </div>
-                  <p className="text-[11px] text-muted-foreground">
-                    这里展示原任务内的自动审核与自动修复闭环状态；开关入口在任务卡片右键菜单。
-                  </p>
-                </div>
-                <div
-                  className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium ${
-                    resolvedAutomationState.enabled
-                      ? "bg-emerald-500/10 text-emerald-700"
-                      : "bg-muted text-muted-foreground"
-                  }`}
+            <div className="mb-4 flex flex-wrap items-center gap-2 rounded-lg border border-border/70 bg-background/80 px-4 py-3">
+              <span className="text-xs font-medium text-muted-foreground">任务 ID</span>
+              <button
+                type="button"
+                onClick={() => void handleCopyTaskId()}
+                className="inline-flex items-center gap-1.5 rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                title={taskIdCopied ? "已复制任务 ID" : "点击复制任务 ID"}
+                aria-label={taskIdCopied ? "已复制任务 ID" : "点击复制任务 ID"}
+              >
+                <Badge
+                  variant="outline"
+                  className="h-6 cursor-pointer rounded-md px-2.5 font-mono text-[11px] transition-colors hover:border-primary/40 hover:bg-primary/5"
                 >
-                  {resolvedAutomationState.enabled ? "已开启" : "未开启"}
-                </div>
-              </div>
-
-              <div className="grid gap-2 text-xs text-muted-foreground md:grid-cols-4">
-                <div className="rounded-md border border-border bg-background/70 px-3 py-2">
-                  <span className="font-medium text-foreground">闭环阶段：</span>
-                  {getTaskAutomationStatusLabel(resolvedAutomationState.status)}
-                </div>
-                <div className="rounded-md border border-border bg-background/70 px-3 py-2">
-                  <span className="font-medium text-foreground">自动修复轮次：</span>
-                  {resolvedAutomationState.roundCount ?? 0}
-                </div>
-                <div className="rounded-md border border-border bg-background/70 px-3 py-2">
-                  <span className="font-medium text-foreground">最近更新时间：</span>
-                  {resolvedAutomationState.updatedAt
-                    ? formatDate(resolvedAutomationState.updatedAt)
-                    : "暂无"}
-                </div>
-                <div className="rounded-md border border-border bg-background/70 px-3 py-2">
-                  <span className="font-medium text-foreground">状态来源：</span>
-                  {resolvedAutomationState.source === "automation_state"
-                    ? "自动化状态"
-                    : "任务配置"}
-                </div>
-              </div>
-
-              <div className="rounded-md border border-dashed border-border bg-background/70 px-3 py-2 text-xs text-muted-foreground">
-                自动质控不会替代现有“审核结果 →
-                修复”手动路径。手动修复仍然通过创建新任务推进；自动质控接线后则在原任务内完成审核与修复闭环。
-              </div>
-
-              {resolvedAutomationState.note && (
-                <div className="flex items-start gap-2 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-800">
-                  <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-                  <span>{resolvedAutomationState.note}</span>
-                </div>
-              )}
-            </section>
-
-            <div className="overflow-x-auto overflow-y-hidden pb-[5px]">
-              <TabsList variant="line" className="w-full min-w-max justify-start">
-                <TabsTrigger value="overview">概览</TabsTrigger>
-                <TabsTrigger value="execution">执行</TabsTrigger>
-                <TabsTrigger value="chain">执行链路</TabsTrigger>
-                <TabsTrigger value="review">审核</TabsTrigger>
-                <TabsTrigger value="ai">AI 助手</TabsTrigger>
-                <TabsTrigger value="collaboration">协作</TabsTrigger>
-              </TabsList>
+                  {task.id}
+                  {taskIdCopied ? (
+                    <Check className="h-3.5 w-3.5" />
+                  ) : (
+                    <Copy className="h-3.5 w-3.5" />
+                  )}
+                </Badge>
+              </button>
             </div>
 
-            <TabsContent value="overview">
-              <TaskOverviewPanel
-                task={task}
-                projectTasks={projectTasks}
-                title={title}
-                description={description}
-                status={status}
-                priority={priority}
-                assigneeId={assigneeId}
-                reviewerId={reviewerId}
-                coordinatorId={coordinatorId}
-                coordinatorName={coordinator?.name}
-                dueDate={dueDate}
-                milestoneId={milestoneId}
-                blockedReason={blockedReason}
-                createdAt={task.created_at}
-                timeStartedAt={task.time_started_at}
-                timeSpentSeconds={task.time_spent_seconds}
-                completedAt={task.completed_at}
-                planContent={planContent}
-                planContentDraft={planContentDraft}
-                planEditing={planContentEditing}
-                planSaving={planContentSaving}
-                planHasChanges={planContentHasChanges}
-                employees={employees}
-                reviewerCandidates={reviewerCandidates}
-                coordinatorCandidates={coordinatorCandidates}
-                saveError={saveError}
-                isRunning={isRunning || isReviewRunning}
-                deletingTask={deletingTask}
-                canGenerateTesterAcceptance={canGenerateTesterAcceptance}
-                testerAcceptanceLoading={testerAcceptanceLoading}
-                testerAcceptanceError={testerAcceptanceError}
-                testerAcceptanceNotice={testerAcceptanceNotice}
-                pipelineSteps={pipelineSteps}
-                pipelineAutomation={persistedAutomationState ?? null}
-                pipelineLoading={pipelineLoading}
-                pipelineError={pipelineError}
-                onRefreshPipeline={() => void refreshPipelineSteps()}
-                onOpenPipelineStepSession={(step) => {
-                  if (!step.session_id) {
-                    return;
-                  }
-                  const stepEmployee = employees.find((item) => item.id === step.employee_id);
-                  setPipelineStepLogTarget({
-                    sessionRecordId: step.session_id,
-                    stepTitle: step.title,
-                    employeeName: stepEmployee?.name ?? null,
-                  });
-                }}
-                acceptanceChecklist={acceptanceChecklist}
-                lastAcceptanceStatus={lastAcceptanceStatus}
-                lastAcceptanceSummary={lastAcceptanceSummary}
-                acceptanceRunning={acceptanceRunning}
-                onAcceptanceChecklistChange={setAcceptanceChecklist}
-                onAcceptanceChecklistBlur={() => void handleSaveAcceptanceChecklist()}
-                onRunAcceptance={() => void handleRunAcceptance()}
-                onTitleChange={setTitle}
-                onTitleBlur={() => void handleSave("title", title)}
-                onDescriptionChange={setDescription}
-                onDescriptionBlur={() => void handleSave("description", description)}
-                onStatusChange={(value) => {
-                  if (value === "blocked") {
-                    setPendingBlockedReason(blockedReason);
-                    setBlockReasonDialogOpen(true);
-                    return;
-                  }
-                  setStatus(value);
-                  void handleSave("status", value);
-                }}
-                onPriorityChange={(value) => {
-                  setPriority(value);
-                  void handleSave("priority", value);
-                }}
-                onAssigneeChange={(value) => {
-                  setAssigneeId(value);
-                  void handleSave("assignee_id", value);
-                }}
-                onReviewerChange={(value) => {
-                  setReviewerId(value);
-                  void handleSave("reviewer_id", value);
-                }}
-                onCoordinatorChange={(value) => {
-                  setCoordinatorId(value);
-                  void handleSave("coordinator_id", value);
-                }}
-                onDueDateChange={setDueDate}
-                onDueDateBlur={() => void handleSave("due_date", dueDate)}
-                onMilestoneChange={(value) => {
-                  setMilestoneId(value);
-                  void handleSave("milestone_id", value);
-                }}
-                onBlockedReasonChange={setBlockedReason}
-                onBlockedReasonBlur={() => {
-                  if (status === "blocked") {
-                    void handleSave("blocked_reason", blockedReason);
-                  }
-                }}
-                onOpenCoordinatorPlan={() => void openCoordinatorPlanFlow()}
-                onGenerateTesterAcceptance={() => void handleGenerateTesterAcceptance()}
-                onPlanEditStart={handleStartPlanContentEdit}
-                onPlanEditCancel={handleCancelPlanContentEdit}
-                onPlanDraftChange={setPlanContentDraft}
-                onPlanSave={() => void handleSavePlanContent()}
-                onDeleteRequest={() => setDeleteDialogOpen(true)}
-                onDeliveryError={setSaveError}
-              />
-            </TabsContent>
+            <Tabs value={detailTab} onValueChange={setDetailTab} className="gap-4">
+              <section className="space-y-3 rounded-lg border border-border/70 bg-muted/20 p-4">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2">
+                      <Bot className="h-4 w-4 text-primary" />
+                      <p className="text-sm font-medium">自动质控</p>
+                    </div>
+                    <p className="text-[11px] text-muted-foreground">
+                      这里展示原任务内的自动审核与自动修复闭环状态；开关入口在任务卡片右键菜单。
+                    </p>
+                  </div>
+                  <div
+                    className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium ${
+                      resolvedAutomationState.enabled
+                        ? "bg-emerald-500/10 text-emerald-700"
+                        : "bg-muted text-muted-foreground"
+                    }`}
+                  >
+                    {resolvedAutomationState.enabled ? "已开启" : "未开启"}
+                  </div>
+                </div>
 
-            <TabsContent value="execution">
-              <TaskExecutionPanel
-                taskStatus={status}
-                assigneeId={assigneeId}
-                isRunning={isExecutionProcessRunning}
-                isExecutionActive={isRunning}
-                codexLoading={codexLoading}
-                output={output}
-                terminalRef={terminalRef}
-                executionChangeHistory={executionChangeHistory}
-                executionChangeHistoryLoading={executionChangeHistoryLoading}
-                executionChangeHistoryError={executionChangeHistoryError}
-                onRun={() => void handleRunCodex()}
-                onStop={() => void handleStopCodex()}
-                onClearOutput={() => clearTaskCodexOutput(task.id)}
-                onRefreshHistory={() => void loadExecutionChangeHistory()}
-                onOpenChangeDetail={(change) => void handleOpenExecutionChangeDetail(change)}
-              />
-            </TabsContent>
+                <div className="grid gap-2 text-xs text-muted-foreground md:grid-cols-4">
+                  <div className="rounded-md border border-border bg-background/70 px-3 py-2">
+                    <span className="font-medium text-foreground">闭环阶段：</span>
+                    {getTaskAutomationStatusLabel(resolvedAutomationState.status)}
+                  </div>
+                  <div className="rounded-md border border-border bg-background/70 px-3 py-2">
+                    <span className="font-medium text-foreground">自动修复轮次：</span>
+                    {resolvedAutomationState.roundCount ?? 0}
+                  </div>
+                  <div className="rounded-md border border-border bg-background/70 px-3 py-2">
+                    <span className="font-medium text-foreground">最近更新时间：</span>
+                    {resolvedAutomationState.updatedAt
+                      ? formatDate(resolvedAutomationState.updatedAt)
+                      : "暂无"}
+                  </div>
+                  <div className="rounded-md border border-border bg-background/70 px-3 py-2">
+                    <span className="font-medium text-foreground">状态来源：</span>
+                    {resolvedAutomationState.source === "automation_state"
+                      ? "自动化状态"
+                      : "任务配置"}
+                  </div>
+                </div>
 
-            <TabsContent value="chain">
-              <TaskSessionChainPanel taskId={task.id} active={open && detailTab === "chain"} />
-            </TabsContent>
+                <div className="rounded-md border border-dashed border-border bg-background/70 px-3 py-2 text-xs text-muted-foreground">
+                  自动质控不会替代现有“审核结果 →
+                  修复”手动路径。手动修复仍然通过创建新任务推进；自动质控接线后则在原任务内完成审核与修复闭环。
+                </div>
 
-            <TabsContent value="review">
-              <TaskReviewPanel
-                taskId={task.id}
-                status={status}
-                reviewerId={reviewerId}
-                reviewerName={reviewer?.name}
-                isReviewActive={isReviewRunning}
-                reviewLoading={reviewLoading}
-                reviewError={reviewError}
-                reviewNotice={reviewNotice}
-                latestReview={latestReview}
-                latestReviewLoading={latestReviewLoading}
-                hasReviewOutput={reviewOutput.length > 0}
-                assigneeId={assigneeId}
-                reviewFixSubmitting={reviewFixSubmitting}
-                onStartReview={() => void handleStartCodeReview()}
-                onRefreshReview={() => void loadLatestReview()}
-                onCopyReview={() => void handleCopyReviewReport()}
-                onOpenReviewFix={() => setReviewFixDialogOpen(true)}
-                executionChangeHistory={executionChangeHistory}
-                executionChangeHistoryLoading={executionChangeHistoryLoading}
-                executionChangeHistoryError={executionChangeHistoryError}
-                onRefreshHistory={() => void loadExecutionChangeHistory()}
-                onOpenChangeDetail={(change) => void handleOpenExecutionChangeDetail(change)}
-              />
-            </TabsContent>
+                {resolvedAutomationState.note && (
+                  <div className="flex items-start gap-2 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-800">
+                    <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                    <span>{resolvedAutomationState.note}</span>
+                  </div>
+                )}
+              </section>
 
-            <TabsContent value="ai">
-              <TaskAiPanel
-                aiActionDisabled={aiActions.aiActionDisabled}
-                aiLoading={aiActions.aiLoading}
-                planLoading={aiActions.planLoading}
-                aiLogs={aiActions.aiLogs}
-                aiLogRef={aiLogRef}
-                aiResult={aiActions.aiResult}
-                taskAiSuggestion={task.ai_suggestion}
-                planError={aiActions.planError}
-                planNotice={aiActions.planNotice}
-                generatedPlan={aiActions.generatedPlan}
-                insertSubmitting={aiActions.insertSubmitting}
-                onSuggest={() => void aiActions.handleAiSuggest()}
-                onComplexity={() => void aiActions.handleAiComplexity()}
-                onSplitSubtasks={() => void aiActions.handleAiSplitSubtasks()}
-                onGeneratePlan={() => void aiActions.handleAiGeneratePlan()}
-                onGenerateComment={() => void aiActions.handleAiComment()}
-                onClearLogs={aiActions.clearAiLogs}
-                onInsertPlan={() => void aiActions.handleInsertPlan()}
-              />
-            </TabsContent>
+              <div className="overflow-x-auto overflow-y-hidden pb-[5px]">
+                <TabsList variant="line" className="w-full min-w-max justify-start">
+                  <TabsTrigger value="overview">概览</TabsTrigger>
+                  <TabsTrigger value="execution">执行</TabsTrigger>
+                  <TabsTrigger value="chain">执行链路</TabsTrigger>
+                  <TabsTrigger value="review">审核</TabsTrigger>
+                  <TabsTrigger value="ai">AI 助手</TabsTrigger>
+                  <TabsTrigger value="collaboration">协作</TabsTrigger>
+                </TabsList>
+              </div>
 
-            <TabsContent value="collaboration">
-              <TaskCollaborationPanel
-                taskId={task.id}
-                attachments={attachments}
-                deletingAttachmentId={deletingAttachmentId}
-                attachmentLoading={attachmentLoading}
-                attachmentError={attachmentError}
-                isTauriRuntime={isTauriRuntime()}
-                onSelectAttachments={() => void handleSelectAttachments()}
-                onOpenAttachment={(path) => void handleOpenAttachment(path)}
-                onDeleteAttachment={(attachmentId) => void handleDeleteAttachment(attachmentId)}
-              />
-            </TabsContent>
-          </Tabs>
+              <TabsContent value="overview">
+                <TaskOverviewPanel
+                  task={task}
+                  projectTasks={projectTasks}
+                  title={title}
+                  description={description}
+                  status={status}
+                  priority={priority}
+                  assigneeId={assigneeId}
+                  reviewerId={reviewerId}
+                  coordinatorId={coordinatorId}
+                  coordinatorName={coordinator?.name}
+                  dueDate={dueDate}
+                  milestoneId={milestoneId}
+                  blockedReason={blockedReason}
+                  createdAt={task.created_at}
+                  timeStartedAt={task.time_started_at}
+                  timeSpentSeconds={task.time_spent_seconds}
+                  completedAt={task.completed_at}
+                  planContent={planContent}
+                  planContentDraft={planContentDraft}
+                  planEditing={planContentEditing}
+                  planSaving={planContentSaving}
+                  planHasChanges={planContentHasChanges}
+                  employees={employees}
+                  reviewerCandidates={reviewerCandidates}
+                  coordinatorCandidates={coordinatorCandidates}
+                  saveError={saveError}
+                  isRunning={isRunning || isReviewRunning}
+                  deletingTask={deletingTask}
+                  canGenerateTesterAcceptance={canGenerateTesterAcceptance}
+                  testerAcceptanceLoading={testerAcceptanceLoading}
+                  testerAcceptanceError={testerAcceptanceError}
+                  testerAcceptanceNotice={testerAcceptanceNotice}
+                  pipelineSteps={pipelineSteps}
+                  pipelineAutomation={persistedAutomationState ?? null}
+                  pipelineLoading={pipelineLoading}
+                  pipelineError={pipelineError}
+                  onRefreshPipeline={() => void refreshPipelineSteps()}
+                  onOpenPipelineStepSession={(step) => {
+                    if (!step.session_id) {
+                      return;
+                    }
+                    const stepEmployee = employees.find((item) => item.id === step.employee_id);
+                    setPipelineStepLogTarget({
+                      sessionRecordId: step.session_id,
+                      stepTitle: step.title,
+                      employeeName: stepEmployee?.name ?? null,
+                    });
+                  }}
+                  acceptanceChecklist={acceptanceChecklist}
+                  lastAcceptanceStatus={lastAcceptanceStatus}
+                  lastAcceptanceSummary={lastAcceptanceSummary}
+                  acceptanceRunning={acceptanceRunning}
+                  onAcceptanceChecklistChange={setAcceptanceChecklist}
+                  onAcceptanceChecklistBlur={() => void handleSaveAcceptanceChecklist()}
+                  onRunAcceptance={() => void handleRunAcceptance()}
+                  onTitleChange={setTitle}
+                  onTitleBlur={() => void handleSave("title", title)}
+                  onDescriptionChange={setDescription}
+                  onDescriptionBlur={() => void handleSave("description", description)}
+                  onStatusChange={(value) => {
+                    if (value === "blocked") {
+                      setPendingBlockedReason(blockedReason);
+                      setBlockReasonDialogOpen(true);
+                      return;
+                    }
+                    setStatus(value);
+                    void handleSave("status", value);
+                  }}
+                  onPriorityChange={(value) => {
+                    setPriority(value);
+                    void handleSave("priority", value);
+                  }}
+                  onAssigneeChange={(value) => {
+                    setAssigneeId(value);
+                    void handleSave("assignee_id", value);
+                  }}
+                  onReviewerChange={(value) => {
+                    setReviewerId(value);
+                    void handleSave("reviewer_id", value);
+                  }}
+                  onCoordinatorChange={(value) => {
+                    setCoordinatorId(value);
+                    void handleSave("coordinator_id", value);
+                  }}
+                  onDueDateChange={setDueDate}
+                  onDueDateBlur={() => void handleSave("due_date", dueDate)}
+                  onMilestoneChange={(value) => {
+                    setMilestoneId(value);
+                    void handleSave("milestone_id", value);
+                  }}
+                  onBlockedReasonChange={setBlockedReason}
+                  onBlockedReasonBlur={() => {
+                    if (status === "blocked") {
+                      void handleSave("blocked_reason", blockedReason);
+                    }
+                  }}
+                  onOpenCoordinatorPlan={() => void openCoordinatorPlanFlow()}
+                  onGenerateTesterAcceptance={() => void handleGenerateTesterAcceptance()}
+                  onPlanEditStart={handleStartPlanContentEdit}
+                  onPlanEditCancel={handleCancelPlanContentEdit}
+                  onPlanDraftChange={setPlanContentDraft}
+                  onPlanSave={() => void handleSavePlanContent()}
+                  onDeleteRequest={() => setDeleteDialogOpen(true)}
+                  onDeliveryError={setSaveError}
+                />
+              </TabsContent>
+
+              <TabsContent value="execution">
+                <TaskExecutionPanel
+                  taskStatus={status}
+                  assigneeId={assigneeId}
+                  isRunning={isExecutionProcessRunning}
+                  isExecutionActive={isRunning}
+                  codexLoading={codexLoading}
+                  output={output}
+                  terminalRef={terminalRef}
+                  executionChangeHistory={executionChangeHistory}
+                  executionChangeHistoryLoading={executionChangeHistoryLoading}
+                  executionChangeHistoryError={executionChangeHistoryError}
+                  onRun={() => void handleRunCodex()}
+                  onStop={() => void handleStopCodex()}
+                  onClearOutput={() => clearTaskCodexOutput(task.id)}
+                  onRefreshHistory={() => void loadExecutionChangeHistory()}
+                  onOpenChangeDetail={(change) => void handleOpenExecutionChangeDetail(change)}
+                />
+              </TabsContent>
+
+              <TabsContent value="chain">
+                <TaskSessionChainPanel taskId={task.id} active={open && detailTab === "chain"} />
+              </TabsContent>
+
+              <TabsContent value="review">
+                <TaskReviewPanel
+                  taskId={task.id}
+                  status={status}
+                  reviewerId={reviewerId}
+                  reviewerName={reviewer?.name}
+                  isReviewActive={isReviewRunning}
+                  reviewLoading={reviewLoading}
+                  reviewError={reviewError}
+                  reviewNotice={reviewNotice}
+                  latestReview={latestReview}
+                  latestReviewLoading={latestReviewLoading}
+                  hasReviewOutput={reviewOutput.length > 0}
+                  assigneeId={assigneeId}
+                  reviewFixSubmitting={reviewFixSubmitting}
+                  onStartReview={() => void handleStartCodeReview()}
+                  onRefreshReview={() => void loadLatestReview()}
+                  onCopyReview={() => void handleCopyReviewReport()}
+                  onOpenReviewFix={() => setReviewFixDialogOpen(true)}
+                  executionChangeHistory={executionChangeHistory}
+                  executionChangeHistoryLoading={executionChangeHistoryLoading}
+                  executionChangeHistoryError={executionChangeHistoryError}
+                  onRefreshHistory={() => void loadExecutionChangeHistory()}
+                  onOpenChangeDetail={(change) => void handleOpenExecutionChangeDetail(change)}
+                />
+              </TabsContent>
+
+              <TabsContent value="ai">
+                <TaskAiPanel
+                  aiActionDisabled={aiActions.aiActionDisabled}
+                  aiLoading={aiActions.aiLoading}
+                  planLoading={aiActions.planLoading}
+                  aiLogs={aiActions.aiLogs}
+                  aiLogRef={aiLogRef}
+                  aiResult={aiActions.aiResult}
+                  taskAiSuggestion={task.ai_suggestion}
+                  planError={aiActions.planError}
+                  planNotice={aiActions.planNotice}
+                  generatedPlan={aiActions.generatedPlan}
+                  insertSubmitting={aiActions.insertSubmitting}
+                  onSuggest={() => void aiActions.handleAiSuggest()}
+                  onComplexity={() => void aiActions.handleAiComplexity()}
+                  onSplitSubtasks={() => void aiActions.handleAiSplitSubtasks()}
+                  onGeneratePlan={() => void aiActions.handleAiGeneratePlan()}
+                  onGenerateComment={() => void aiActions.handleAiComment()}
+                  onClearLogs={aiActions.clearAiLogs}
+                  onInsertPlan={() => void aiActions.handleInsertPlan()}
+                />
+              </TabsContent>
+
+              <TabsContent value="collaboration">
+                <TaskCollaborationPanel
+                  taskId={task.id}
+                  attachments={attachments}
+                  deletingAttachmentId={deletingAttachmentId}
+                  attachmentLoading={attachmentLoading}
+                  attachmentError={attachmentError}
+                  isTauriRuntime={isTauriRuntime()}
+                  onSelectAttachments={() => void handleSelectAttachments()}
+                  onOpenAttachment={(path) => void handleOpenAttachment(path)}
+                  onDeleteAttachment={(attachmentId) => void handleDeleteAttachment(attachmentId)}
+                />
+              </TabsContent>
+            </Tabs>
           </div>
 
           {primaryCta.kind !== "none" && (

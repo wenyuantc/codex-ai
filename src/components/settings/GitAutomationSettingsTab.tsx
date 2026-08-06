@@ -268,8 +268,8 @@ export function GitAutomationSettingsTab({
         <div className="space-y-1">
           <h3 className="text-sm font-medium">测试员自动化（先测后审）</h3>
           <p className="text-xs text-muted-foreground">
-            开发会话成功结束后先跑测试验收，通过后再进入自动 code review。命令失败为硬失败，不可被 AI
-            单独改判。
+            开发会话成功结束后先跑测试验收，通过后再进入自动 code review。命令失败为硬失败，不可被
+            AI 单独改判。
           </p>
         </div>
 

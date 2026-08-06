@@ -27,8 +27,8 @@ export function SshTrustBanner({ className }: SshTrustBannerProps) {
         <div className="min-w-0 flex-1 space-y-0.5">
           <p>
             <span className="font-medium">SSH 模式 · 审查依据可能不完整：</span>
-            远程执行时，本地通常只保留会话元数据；完整 diff / 文件快照可能未回传。审核与变更判断请结合远程主机
-            git 状态，勿将本地明细视为完整证据。
+            远程执行时，本地通常只保留会话元数据；完整 diff /
+            文件快照可能未回传。审核与变更判断请结合远程主机 git 状态，勿将本地明细视为完整证据。
           </p>
           <p className="text-amber-900/85 dark:text-amber-100/85">
             可在会话变更对话框查看受限说明；升级远程 Codex SDK（ssh_full）可改善采集。

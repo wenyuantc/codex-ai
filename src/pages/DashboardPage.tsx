@@ -110,11 +110,11 @@ export function DashboardPage() {
       });
       if (result.failed > 0) {
         const firstError = result.errors[0]?.message ?? "校验失败";
-        setIoMessage(`导入失败：${firstError}${result.failed > 1 ? ` 等 ${result.failed} 条错误` : ""}`);
-      } else {
         setIoMessage(
-          `导入完成：新建 ${result.created} 条，跳过 ${result.skipped} 条。`,
+          `导入失败：${firstError}${result.failed > 1 ? ` 等 ${result.failed} 条错误` : ""}`,
         );
+      } else {
+        setIoMessage(`导入完成：新建 ${result.created} 条，跳过 ${result.skipped} 条。`);
         void fetchStats(environmentMode, selectedSshConfigId, currentProjectId);
         void getDashboardReportSummary({
           projectId: currentProjectId,
@@ -206,8 +206,7 @@ export function DashboardPage() {
               <p className="mb-2 text-xs font-medium text-muted-foreground">近 8 周完成趋势</p>
               <div className="flex h-28 items-end gap-1.5">
                 {(report.weekly_completed_series ?? []).map((point) => {
-                  const height =
-                    maxWeeklySeries > 0 ? (point.count / maxWeeklySeries) * 100 : 0;
+                  const height = maxWeeklySeries > 0 ? (point.count / maxWeeklySeries) * 100 : 0;
                   const shortLabel = point.label.includes("-W")
                     ? point.label.split("-W")[1]
                     : point.label;

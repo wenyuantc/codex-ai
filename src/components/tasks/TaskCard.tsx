@@ -1347,12 +1347,18 @@ function TaskCardComponent({
         {shouldShowTaskActionBar && (
           <div className="flex items-center gap-1 mt-2 pt-2 border-t border-border/50">
             {primaryCta.kind === "run" && !task.assignee_id ? (
-              <span className="text-xs text-muted-foreground/50" title={primaryCta.reason ?? "请先指派员工"}>
+              <span
+                className="text-xs text-muted-foreground/50"
+                title={primaryCta.reason ?? "请先指派员工"}
+              >
                 <Play className="h-3 w-3 inline mr-0.5" />
                 未指派
               </span>
             ) : primaryCta.kind === "review" && !task.reviewer_id ? (
-              <span className="text-xs text-muted-foreground/50" title={primaryCta.reason ?? "请先指定审查员"}>
+              <span
+                className="text-xs text-muted-foreground/50"
+                title={primaryCta.reason ?? "请先指定审查员"}
+              >
                 <ScrollText className="h-3 w-3 inline mr-0.5" />
                 未指定审查员
               </span>
@@ -1446,9 +1452,7 @@ function TaskCardComponent({
                   ) : (
                     <Play className="h-4 w-4" />
                   )}
-                  {primaryCta.kind === "review" && !isReviewRunning
-                    ? "审核代码"
-                    : primaryCta.label}
+                  {primaryCta.kind === "review" && !isReviewRunning ? "审核代码" : primaryCta.label}
                 </button>
               )}
               {canMarkCompleted && (
