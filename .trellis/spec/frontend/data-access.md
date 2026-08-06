@@ -84,10 +84,13 @@ If the dashboard would show a raw snake_case key, the label map is incomplete.
 Besides `backend.ts`, engine-specific helpers live in:
 - `src/lib/codex.ts` — listen helpers (`onCodexOutput`, `onCodexSession`, ...)
 - `src/lib/claude.ts`
-- `src/lib/opencode.ts`
+- `src/lib/opencode.ts` — includes remote runtime wrappers (`validateRemoteOpenCodeHealth`, `installRemoteOpenCodeSdk`)
+- `src/lib/grok.ts`
 - `src/lib/ai.ts` — higher-level AI helpers
 
 Use these for event subscription and engine-facing UX; keep DB mutations on command wrappers.
+
+A new engine health/install command belongs in its engine client, **not** `backend.ts`, and its result type belongs next to the wrapper (e.g. `RemoteOpenCodeHealthCheck`). The settings page imports from the engine client so the runtime tab stays one screen per engine.
 
 ## Attachments / Files
 

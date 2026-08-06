@@ -183,3 +183,132 @@ Internal: `SecretBackend` trait; production `KeyringBackend`; tests use `MemoryB
 // keyring errors → Chinese Err, never plaintext fallback
 // ensure_migrated before every public API entry
 ```
+
+---
+
+## Scenario: Remote OpenCode SDK bridge runtime
+
+### 1. Scope / Trigger
+
+- Trigger: any change to remote Node/SDK runtime layout, remote engine health/install commands, or the OpenCode SSH launch path.
+- Owner: `src-tauri/src/app/remote.rs` (`*_remote_opencode_*`), `opencode/process/{mod,session_runtime}.rs`, `codex/process/one_shot.rs`.
+- Pattern: **mirrors the Codex remote SDK runtime** (`ensure_remote_sdk_runtime_layout` / `install_remote_codex_sdk` / `inspect_remote_codex_runtime`). A new SDK-based engine should copy this shape, not invent a third one.
+
+### 2. Signatures
+
+```rust
+// app/remote.rs
+pub(crate) fn default_remote_opencode_sdk_install_dir(ssh_config_id: &str) -> String
+pub(crate) fn remote_opencode_sdk_bridge_path(install_dir: &str) -> String
+pub(crate) fn build_remote_opencode_sdk_bridge_command(
+    install_dir: &str,
+    node_path_override: Option<&str>,
+) -> String
+pub(crate) async fn ensure_remote_opencode_sdk_runtime_layout<R>(app, ssh_config_id) -> Result<String, String>  // → install_dir
+pub(crate) async fn inspect_remote_opencode_runtime<R>(app, ssh_config, install_dir, node_path_override)
+    -> Result<RemoteOpenCodeHealthCheck, String>
+
+#[tauri::command] pub async fn validate_remote_opencode_health<R>(app, ssh_config_id: String)
+    -> Result<RemoteOpenCodeHealthCheck, String>
+#[tauri::command] pub async fn install_remote_opencode_sdk<R>(app, ssh_config_id: String)
+    -> Result<RemoteOpenCodeSdkInstallResult, String>
+
+// opencode/process/session_runtime.rs
+pub async fn launch_opencode_bridge_via_ssh<R>(
+    app, ssh_config, install_dir: &str, node_path_override: Option<&str>, config: &OpenCodeBridgeConfig,
+) -> Result<(OpenCodeChild, Vec<PathBuf>), String>   // .1 = askpass paths the caller must clean up
+```
+
+No DB migration: SSH sessions reuse `codex_sessions` (`execution_target='ssh'`, `ssh_config_id`, `ai_provider='opencode'`).
+
+### 3. Contracts
+
+**Remote layout** — one directory per SSH config, isolated from the Codex runtime:
+
+| Item | Value |
+|------|-------|
+| Install dir | `~/.codex-ai/opencode-sdk-runtime/<ssh_config_id>` |
+| Bridge file | `<install_dir>/opencode_sdk_bridge.mjs`, uploaded via `cat >` from `include_str!` |
+| Package marker | `<install_dir>/package.json` = `{"name":"codex-ai-opencode-sdk-runtime","private":true,"type":"module"}` |
+| npm package | `@opencode-ai/sdk@latest`, `npm install --no-audit --no-fund` |
+| Min Node | major `>= 18` (`OPENCODE_MINIMUM_NODE_MAJOR`) |
+| Launch command | `install_dir=<expr>; bridge_path=<expr>; cd "$install_dir" && exec node "$bridge_path"` |
+
+`RemoteOpenCodeHealthCheck`: `available`, `node_available`, `node_version`, `sdk_installed`, `sdk_version`, `sdk_install_dir`, `message` (Chinese), `checked_at`.
+`available == node_available && node_major >= 18 && sdk_installed` — never just `sdk_installed`.
+
+**SSH invariants** (all inherited from the C1 scenario above, restated because they are easy to lose in a new engine):
+
+- Every remote call goes through `build_ssh_command` / `execute_ssh_command(_with_input)`. No parallel arg builder.
+- Long session + one-shot use `allocate_tty = true` → `ControlMaster=no`, so a dying mux master cannot kill a live AI session.
+- Bridge stdin JSON is produced by `serialize_opencode_bridge_config` — the same serializer as local. `workingDirectory` is the **remote** `run_cwd`.
+- Remote `<run_cwd>/opencode.json` is written through `write_remote_opencode_runtime_config_file`, which returns a backup handle; every failure path and the exit path must `restore_async`.
+- `build_ssh_command` may return an askpass script path; every early return must `remove_file` it.
+- All remote stderr surfaced to the user passes through `redact_secret_text`.
+
+**Auto-install policy**: on launch, `inspect` first; if `node_available && !sdk_installed`, call `install_remote_opencode_sdk` once, then re-inspect. Never loop. The settings page keeps an explicit install button for the manual path.
+
+### 4. Validation & Error Matrix
+
+| Condition | Behavior |
+|-----------|----------|
+| `execution_target == ssh` but no `ssh_config_id` | `finalize_launch_failure("runtime_prepare_failed")` + `Err("SSH 会话缺少 ssh_config_id")` |
+| SSH config row missing | `finalize_launch_failure("runtime_prepare_failed")` + fetch error |
+| Inspect command fails | `finalize_launch_failure("remote_runtime_inspect_failed")` |
+| Node missing | `Err("远程 Node 不可用，请先在远端安装 Node.js 18+")` |
+| Node major `< 18` | `Err("远程 Node 版本过低（当前 N），OpenCode SDK 需要 Node.js 18+")` |
+| SDK missing, auto-install fails | `finalize_launch_failure("remote_sdk_install_failed")` + npm stderr (redacted) |
+| Still unavailable after install | `finalize_launch_failure("remote_runtime_unavailable")` + `runtime.message` |
+| Remote `opencode.json` unparseable | Do **not** overwrite; same rule as local |
+| Any launch failure | Restore remote config backup + delete askpass + finalize session as failed |
+
+Failures are always a specific Chinese reason. 「尚未实现」 is not an acceptable terminal error for a supported execution target.
+
+### 5. Good / Base / Bad Cases
+
+- **Good**: SSH project + OpenCode employee, remote has Node 20 and the SDK → terminal prints `[SSH] 运行通道: 远程 SDK`, session row lands with `execution_target='ssh'` / `ai_provider='opencode'`, stop marks it non-running.
+- **Base**: remote has Node but no SDK → one automatic `npm install`, then the session starts; explicit install button in settings does the same thing.
+- **Bad**: remote install dir shared with the Codex runtime (bridge filename collision); baseline capture called with `ssh_config = None` on the SSH path; a launch failure that leaves the user's remote `opencode.json` overwritten.
+
+### 6. Tests Required
+
+- `remote_opencode_install_dir_is_independent_of_codex` — asserts the OpenCode install dir never equals the Codex one for the same `ssh_config_id`.
+- `remote_opencode_sdk_bridge_command_expands_home_and_spaces` — `~` expansion + quoting via `remote_shell_path_expression` for dirs containing spaces.
+- `opencode_one_shot_provider_is_allowed_for_remote` — `normalize_one_shot_provider(Some("opencode"), is_remote)` returns `"opencode"` for **both** `false` and `true`.
+- Existing local OpenCode runtime-config tests (backup/restore, invalid-JSON no-overwrite) must keep passing — they now cover a contract shared with the remote path.
+- No real SSH/network in unit tests: assert on constructed command strings only.
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```rust
+// SSH target rejected outright
+if execution_target == EXECUTION_TARGET_SSH {
+    return Err("SSH 模式下暂不支持 OpenCode，尚未实现".into());
+}
+
+// remote provider silently rewritten instead of reported
+if !is_remote && provider == "opencode" { "opencode" } else { "codex" }
+
+// health = package presence only
+let available = sdk_installed;
+
+// SSH path passes None
+capture_execution_change_baseline(&app, /* ssh_config */ None, run_cwd).await;
+```
+
+#### Correct
+
+```rust
+// inspect → auto-install once → re-inspect → controlled Chinese failure
+let mut runtime = inspect_remote_opencode_runtime(&app, ssh_config, &install_dir, None).await?;
+if !runtime.available && runtime.node_available && !runtime.sdk_installed {
+    install_remote_opencode_sdk(app.clone(), ssh_config_id.to_string()).await?;
+    runtime = inspect_remote_opencode_runtime(&app, ssh_config, &install_dir, None).await?;
+}
+if !runtime.available { return Err(runtime.message); }
+
+let available = node_available && node_supported && sdk_installed;
+capture_execution_change_baseline(&app, Some(&ssh_config), run_cwd).await;
+```

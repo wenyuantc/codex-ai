@@ -36,8 +36,8 @@
 | [Command Guidelines](./command-guidelines.md) | Tauri command shape, validation, transactions |
 | [Database & Migrations](./database-migrations.md) | Models, SQL style, migration rules |
 | [Error Handling](./error-handling.md) | `Result<T, String>`, notifications, cleanup |
-| [AI Engines](./ai-engines.md) | Codex/Claude/OpenCode process lifecycle |
-| [SSH Remote](./ssh-remote.md) | `build_ssh_command` multiplexing, askpass env, quit cleanup |
+| [AI Engines](./ai-engines.md) | Codex/Claude/OpenCode/Grok process lifecycle and per-engine contracts |
+| [SSH Remote](./ssh-remote.md) | `build_ssh_command` multiplexing, askpass env, quit cleanup, remote SDK runtimes |
 | [Testing](./testing.md) | Integration/unit test patterns |
 
 ## Data Flow

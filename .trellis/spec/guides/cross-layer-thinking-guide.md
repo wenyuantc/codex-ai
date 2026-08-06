@@ -74,6 +74,18 @@ Do not ship a local-only happy path for a domain that already has remote executi
 
 When touching `ai_provider` branches, search the whole tree for `claude`/`opencode` ternaries and `SUPPORTED_ONE_SHOT_PROVIDERS` — “else Codex” silently breaks new providers like Grok.
 
+**Lifting an execution-target restriction** (e.g. “engine X does not support SSH”) is never a one-file change. The gate is usually mirrored in 5+ places — grep the engine name and audit each before declaring done:
+
+- session launch early-return in `<engine>/process/mod.rs`
+- one-shot dispatch in `codex/process/one_shot.rs`
+- `normalize_one_shot_provider` `is_remote` gate in `codex/settings.rs`
+- `resolve_remote_one_shot_runtime` status branch in `app/remote.rs`
+- coordinator/tester refusals in `codex/process/ai_commands.rs`
+- frontend settings/runtime entry + any `getActivityActionLabel()` key
+- the spec sentence that documented the restriction (`ai-engines.md` / `ssh-remote.md`)
+
+A stale “not supported” left in any one of them re-blocks the feature or lies to the next session.
+
 ---
 
 ## Step 4: Failure & Cleanup

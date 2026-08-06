@@ -27,7 +27,7 @@ Rules:
 |--------|------|------------------|
 | Codex | `src-tauri/src/codex/` | Primary OpenAI Codex CLI/SDK integration, secrets, MCP config, prompt templates, one-shot routing |
 | Claude | `src-tauri/src/claude/` | Anthropic Claude SDK bridge + process lifecycle (local + SSH CLI) |
-| OpenCode | `src-tauri/src/opencode/` | OpenCode SDK server/process integration (SSH sessions limited) |
+| OpenCode | `src-tauri/src/opencode/` | OpenCode SDK server/process integration; local Node bridge + **remote SDK bridge over SSH** |
 | Grok | `src-tauri/src/grok/` | xAI Grok Build CLI (`grok`) headless sessions + settings/health (local + SSH) |
 
 Common internal layout per engine:
@@ -86,7 +86,7 @@ Constants in `app/shared.rs`:
 SSH realities encoded in product behavior:
 - Password auth may be probed and gated (`password_execution_allowed`)
 - Artifact capture can be limited; UI shows SSH mode banner
-- Remote health commands live under `app/remote.rs` (Codex SDK install/health, Grok lightweight `grok --version`)
+- Remote health commands live under `app/remote.rs` (Codex SDK install/health, OpenCode SDK install/health, Grok lightweight `grok --version`)
 
 New engine features must not assume local filesystem diffs always exist.
 
@@ -114,10 +114,27 @@ New engine features must not assume local filesystem diffs always exist.
 | Local health | `check_grok_health` — version + `grok models` 登录态轻探测（`auth_ok`） |
 | Remote health | `validate_remote_grok_health` — version + models 登录态；no remote install |
 | Models | `list_grok_models` 解析 `grok models`，失败回落静态 `grok-4.5` |
-| One-shot | Local + SSH supported via `codex/process/one_shot.rs`；固定 `--output-format json`（unlike OpenCode SSH one-shot which stays disabled） |
+| One-shot | Local + SSH supported via `codex/process/one_shot.rs`；固定 `--output-format json` |
 | Settings file | `app_config_dir/grok-settings.json` |
 | Frontend wrapper | `src/lib/grok.ts` (not only `backend.ts`) |
 | Events | `grok-stdout`, `grok-stderr`, `grok-exit`, `grok-session` |
+
+### OpenCode-specific contracts
+
+| Item | Contract |
+|------|----------|
+| Provider id | `"opencode"` (label `OpenCode`) |
+| Session mode | Node bridge only (no headless CLI): `node opencode_sdk_bridge.mjs`, config pushed as one JSON blob on **stdin** |
+| Bridge modes | `session` / `resume_session` / `one_shot` (`mode` field of the stdin JSON) |
+| Local channel | `launch_opencode_bridge` — local Node, `current_dir = settings.sdk_install_dir` |
+| SSH channel | `launch_opencode_bridge_via_ssh` — remote Node + remote copy of the same `.mjs`; see [SSH Remote](./ssh-remote.md) “Remote OpenCode SDK bridge runtime” |
+| Runtime model/effort | Written into `<run_cwd>/opencode.json` before launch, restored from backup on exit/failure (local: FS; SSH: over SSH) |
+| Remote health / install | `validate_remote_opencode_health` / `install_remote_opencode_sdk`; local stays `check_opencode_sdk_health` |
+| One-shot | Local `run_opencode_one_shot_via_sdk`; SSH `run_opencode_one_shot_via_remote_sdk` |
+| Frontend wrapper | `src/lib/opencode.ts` |
+| Events | `opencode-stdout`, `opencode-stderr`, `opencode-exit`, `opencode-session` |
+
+Both channels must share `serialize_opencode_bridge_config` — the bridge protocol has exactly one serializer. Adding a field for local only silently desyncs SSH.
 
 When adding another CLI engine, prefer **Claude/Grok process shape** over Codex SDK unless SDK is required.
 
@@ -187,7 +204,7 @@ When changing session exit semantics, verify automation still observes the event
 - Normalize provider/model/effort unit tests (`codex/settings.rs` style)
 - Remote shell command construction escaping
 - Stream parser lenient samples (unknown JSON → raw line)
-- Regression: OpenCode SSH one-shot remains disabled; Grok SSH one-shot enabled
+- Regression: Grok SSH one-shot enabled; OpenCode SSH one-shot enabled via remote SDK bridge (`normalize_one_shot_provider("opencode", is_remote=true) == "opencode"`)
 
 ### 7. Wrong vs Correct
 #### Wrong
@@ -217,3 +234,6 @@ match one_shot_provider.as_str() {
 - Treating “not claude/opencode” as Codex in UI/backend branches (breaks Grok).
 - Injecting third-party API keys over SSH when the product convention is remote self-auth (Grok/Claude CLI pattern).
 - Forgetting one-shot normalize + health + settings UI when adding a provider to `SUPPORTED_ONE_SHOT_PROVIDERS`.
+- Gating a provider on `if !is_remote` inside `normalize_one_shot_provider` — that silently rewrites the user's choice to `codex` instead of surfacing a reason. Gate on runtime availability and report it, don't rewrite the provider.
+- Passing `None` for `ssh_config` into `capture_execution_change_baseline` on an SSH path — baseline capture then fails at runtime with a generic error while the code looks correct.
+- Hard-failing an execution target with 「尚未实现」. Either implement the channel or return a specific Chinese reason the user can act on (missing Node, SDK not installed, missing `ssh_config_id`).
