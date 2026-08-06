@@ -1011,6 +1011,16 @@ pub async fn ai_generate_tester_acceptance(
     .await
     .map_err(|error| format!("Failed to save tester acceptance comment: {}", error))?;
 
+    sqlx::query(
+        "UPDATE tasks SET acceptance_checklist = $2, updated_at = $3 WHERE id = $1 AND deleted_at IS NULL",
+    )
+    .bind(&task.id)
+    .bind(&result)
+    .bind(now_sqlite())
+    .execute(&pool)
+    .await
+    .map_err(|error| format!("Failed to save task acceptance checklist: {}", error))?;
+
     let generated_at = now_sqlite();
     let details = format_tester_acceptance_generated_activity_details(
         &task.title,
@@ -1241,6 +1251,9 @@ mod tests {
             task_automation_default_enabled: false,
             task_automation_max_fix_rounds: 3,
             task_automation_failure_strategy: "blocked".to_string(),
+            tester_automation_enabled: false,
+            tester_allow_ai_only: false,
+            default_test_command: None,
             git_preferences: GitPreferences {
                 default_task_use_worktree: false,
                 worktree_location_mode: "repo_sibling_hidden".to_string(),

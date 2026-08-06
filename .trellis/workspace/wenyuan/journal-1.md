@@ -28,6 +28,15 @@
 [OK] **Completed**
 
 
+## Session 2: 测试员自动化闭环
+
+**Date**: 2026-08-06
+**Task**: 测试员自动化闭环
+**Branch**: `feat/tester-automation-loop`
+
+### Summary
+
+实现先测后审 MVP：migration 43、验收内核 local/SSH 硬失败、session_exit 挂钩、设置与任务详情/看板 UI；trellis-check 修复 create_project test_command、Monaco 清单、验收后刷新任务列表。tsc/clippy/acceptance 单测通过。
 ## Session 2: UX 信任加固：主路径 CTA 与 SSH 提示
 
 **Date**: 2026-08-06
@@ -42,6 +51,7 @@
 
 | Hash | Message |
 |------|---------|
+| `9d18068` | (see git log) |
 | `0b4f762` | (see git log) |
 
 ### Status

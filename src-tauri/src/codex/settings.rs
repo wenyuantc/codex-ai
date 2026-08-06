@@ -114,6 +114,12 @@ struct RawCodexSettings {
     #[serde(default)]
     task_automation_failure_strategy: Option<String>,
     #[serde(default)]
+    tester_automation_enabled: Option<bool>,
+    #[serde(default)]
+    tester_allow_ai_only: Option<bool>,
+    #[serde(default)]
+    default_test_command: Option<String>,
+    #[serde(default)]
     git_preferences: Option<RawGitPreferences>,
     #[serde(default)]
     node_path_override: Option<String>,
@@ -400,6 +406,9 @@ fn default_codex_settings_with_install_dir(install_dir: String) -> CodexSettings
         task_automation_default_enabled: false,
         task_automation_max_fix_rounds: DEFAULT_TASK_AUTOMATION_MAX_FIX_ROUNDS,
         task_automation_failure_strategy: DEFAULT_TASK_AUTOMATION_FAILURE_STRATEGY.to_string(),
+        tester_automation_enabled: false,
+        tester_allow_ai_only: false,
+        default_test_command: None,
         git_preferences: default_git_preferences(),
         node_path_override: None,
         sdk_install_dir: install_dir,
@@ -490,6 +499,9 @@ fn normalize_settings_with_scope(
         task_automation_failure_strategy: normalize_task_automation_failure_strategy(Some(
             &settings.task_automation_failure_strategy,
         )),
+        tester_automation_enabled: settings.tester_automation_enabled,
+        tester_allow_ai_only: settings.tester_allow_ai_only,
+        default_test_command: normalize_optional_text(settings.default_test_command.as_deref()),
         git_preferences: normalize_git_preferences(
             settings.git_preferences,
             is_remote,
@@ -533,6 +545,9 @@ fn normalize_raw_settings_with_scope(
         task_automation_failure_strategy: normalize_task_automation_failure_strategy(
             raw.task_automation_failure_strategy.as_deref(),
         ),
+        tester_automation_enabled: raw.tester_automation_enabled.unwrap_or(false),
+        tester_allow_ai_only: raw.tester_allow_ai_only.unwrap_or(false),
+        default_test_command: normalize_optional_text(raw.default_test_command.as_deref()),
         git_preferences: normalize_raw_git_preferences(
             raw.git_preferences.unwrap_or_default(),
             is_remote,
@@ -803,6 +818,18 @@ pub fn merge_codex_settings<R: Runtime>(
             normalize_task_automation_failure_strategy(Some(&task_automation_failure_strategy));
     }
 
+    if let Some(tester_automation_enabled) = updates.tester_automation_enabled {
+        settings.tester_automation_enabled = tester_automation_enabled;
+    }
+
+    if let Some(tester_allow_ai_only) = updates.tester_allow_ai_only {
+        settings.tester_allow_ai_only = tester_allow_ai_only;
+    }
+
+    if let Some(default_test_command) = updates.default_test_command {
+        settings.default_test_command = normalize_optional_text(default_test_command.as_deref());
+    }
+
     if let Some(git_preferences) = updates.git_preferences {
         merge_git_preferences(&mut settings.git_preferences, git_preferences, false)?;
     }
@@ -865,6 +892,15 @@ pub fn merge_remote_codex_settings<R: Runtime>(
     if let Some(task_automation_failure_strategy) = updates.task_automation_failure_strategy {
         settings.task_automation_failure_strategy =
             normalize_task_automation_failure_strategy(Some(&task_automation_failure_strategy));
+    }
+    if let Some(tester_automation_enabled) = updates.tester_automation_enabled {
+        settings.tester_automation_enabled = tester_automation_enabled;
+    }
+    if let Some(tester_allow_ai_only) = updates.tester_allow_ai_only {
+        settings.tester_allow_ai_only = tester_allow_ai_only;
+    }
+    if let Some(default_test_command) = updates.default_test_command {
+        settings.default_test_command = normalize_optional_text(default_test_command.as_deref());
     }
     if let Some(git_preferences) = updates.git_preferences {
         merge_git_preferences(&mut settings.git_preferences, git_preferences, true)?;

@@ -165,6 +165,12 @@ export function getActivityActionLabel(action: string): string {
     task_pipeline_completed: "编排全部完成",
     task_pipeline_aborted: "编排转人工",
     task_tester_acceptance_generated: "测试员生成验收清单",
+    task_tester_acceptance_started: "开始测试验收",
+    task_tester_acceptance_passed: "测试验收通过",
+    task_tester_acceptance_failed: "测试验收失败",
+    task_tester_command_failed: "测试命令失败",
+    task_tester_skipped: "跳过测试员阶段",
+    task_tester_checklist_updated: "更新验收清单",
     task_plan_saved: "保存任务计划",
     task_worktree_enabled: "开启任务 Worktree 模式",
     task_git_context_ready: "任务代码等待自动提交",
@@ -331,6 +337,32 @@ export interface TaskAutomationDisplayState {
   roundCount: number | null;
 }
 
+export function getAcceptanceStatusLabel(status: string | null | undefined): string {
+  if (!status) return "未跑";
+  const labels: Record<string, string> = {
+    running: "运行中",
+    passed: "通过",
+    failed: "失败",
+    skipped: "已跳过",
+  };
+  return labels[status] || status;
+}
+
+export function getAcceptanceStatusClassName(status: string | null | undefined): string {
+  switch (status) {
+    case "passed":
+      return "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300";
+    case "failed":
+      return "bg-destructive/15 text-destructive";
+    case "running":
+      return "bg-amber-500/15 text-amber-700 dark:text-amber-300";
+    case "skipped":
+      return "bg-muted text-muted-foreground";
+    default:
+      return "bg-muted text-muted-foreground";
+  }
+}
+
 export function getTaskAutomationStatusLabel(status: string): string {
   const labels: Record<string, string> = {
     disabled: "未开启",
@@ -346,6 +378,10 @@ export function getTaskAutomationStatusLabel(status: string): string {
     commit_failed: "提交失败",
     review_started: "自动审核中",
     fix_started: "自动修复中",
+    launching_tester: "启动测试验收中",
+    waiting_tester: "测试验收中",
+    tester_failed: "测试验收失败",
+    tester_launch_failed: "测试验收启动失败",
     completed: "闭环完成",
     blocked: "已阻塞",
     manual_control: "转人工处理",

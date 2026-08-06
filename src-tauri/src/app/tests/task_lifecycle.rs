@@ -26,6 +26,8 @@ fn archived_task_rejects_enabling_automation() {
         due_date: None,
         blocked_reason: None,
         milestone_id: None,
+            acceptance_checklist: None,
+            last_acceptance_status: None,
         created_at: "2026-04-21 00:00:00".to_string(),
         updated_at: "2026-04-21 00:00:00".to_string(),
     };
@@ -116,6 +118,8 @@ fn archiving_task_clears_pending_automation_state_and_logs_disable_activity() {
             due_date: None,
             blocked_reason: None,
             milestone_id: None,
+            acceptance_checklist: None,
+            last_acceptance_status: None,
             created_at: "2026-04-21 00:00:00".to_string(),
             updated_at: "2026-04-21 00:00:00".to_string(),
         };
@@ -230,6 +234,8 @@ fn insert_task_record_persists_reviewer_id() {
             due_date: None,
             blocked_reason: None,
             milestone_id: None,
+            acceptance_checklist: None,
+            last_acceptance_status: None,
             created_at: "2026-04-16 10:00:00".to_string(),
             updated_at: "2026-04-16 10:00:00".to_string(),
         };
@@ -290,6 +296,8 @@ fn start_task_timer_is_idempotent_and_logs_once() {
             due_date: None,
             blocked_reason: None,
             milestone_id: None,
+            acceptance_checklist: None,
+            last_acceptance_status: None,
             created_at: "2026-04-16 10:00:00".to_string(),
             updated_at: "2026-04-16 10:00:00".to_string(),
         };
@@ -358,6 +366,8 @@ fn stop_task_timer_accumulates_without_marking_completed() {
             due_date: None,
             blocked_reason: None,
             milestone_id: None,
+            acceptance_checklist: None,
+            last_acceptance_status: None,
             created_at: "2026-04-16 09:00:00".to_string(),
             updated_at: "2026-04-16 10:00:00".to_string(),
         };
@@ -415,6 +425,8 @@ fn completion_timer_update_accumulates_elapsed_time_and_reopen_clears_completion
         due_date: None,
         blocked_reason: None,
         milestone_id: None,
+            acceptance_checklist: None,
+            last_acceptance_status: None,
         created_at: "2026-04-16 09:00:00".to_string(),
         updated_at: "2026-04-16 10:00:00".to_string(),
     };
@@ -472,6 +484,8 @@ fn completion_metric_uses_tracked_task_time_when_available() {
             due_date: None,
             blocked_reason: None,
             milestone_id: None,
+            acceptance_checklist: None,
+            last_acceptance_status: None,
             created_at: "2026-04-16 10:00:00".to_string(),
             updated_at: "2026-04-16 11:01:01".to_string(),
         };

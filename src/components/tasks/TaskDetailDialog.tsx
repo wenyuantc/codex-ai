@@ -14,6 +14,7 @@ import {
   abortTaskPipeline,
   aiGenerateCoordinatorTaskPlan,
   aiGenerateTesterAcceptance,
+  getTaskAcceptanceRuns,
   getTaskCommitActionState,
   getTaskCommitOverview,
   listTaskPipelineSteps,
@@ -23,8 +24,10 @@ import {
   getTaskLatestReview,
   openTaskAttachment,
   retryTaskPipelineStep,
+  runTaskAcceptance,
   stageAllTaskCommitFiles,
   startTaskPipeline,
+  updateTaskAcceptanceChecklist,
   updateTaskPipelineStep,
 } from "@/lib/backend";
 import { useTaskStore } from "@/stores/taskStore";
@@ -183,6 +186,12 @@ export function TaskDetailDialog({
   const [testerAcceptanceLoading, setTesterAcceptanceLoading] = useState(false);
   const [testerAcceptanceError, setTesterAcceptanceError] = useState<string | null>(null);
   const [testerAcceptanceNotice, setTesterAcceptanceNotice] = useState<string | null>(null);
+  const [acceptanceChecklist, setAcceptanceChecklist] = useState(task.acceptance_checklist ?? "");
+  const [lastAcceptanceStatus, setLastAcceptanceStatus] = useState<string | null>(
+    task.last_acceptance_status ?? null,
+  );
+  const [lastAcceptanceSummary, setLastAcceptanceSummary] = useState<string | null>(null);
+  const [acceptanceRunning, setAcceptanceRunning] = useState(false);
   const [detailTab, setDetailTab] = useState("overview");
   const [commitActionState, setCommitActionState] = useState<TaskCommitActionState | null>(null);
   const [showCommitDialog, setShowCommitDialog] = useState(false);
@@ -441,9 +450,35 @@ export function TaskDetailDialog({
     setTesterAcceptanceLoading(false);
     setTesterAcceptanceError(null);
     setTesterAcceptanceNotice(null);
+    setAcceptanceChecklist(task.acceptance_checklist ?? "");
+    setLastAcceptanceStatus(task.last_acceptance_status ?? null);
+    setLastAcceptanceSummary(null);
+    setAcceptanceRunning(false);
     setPlanContentDraft(task.plan_content ?? "");
     setPlanContentEditing(false);
     setPlanContentSaving(false);
+  }, [open, task.id]);
+
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const runs = await getTaskAcceptanceRuns(task.id);
+        if (cancelled || runs.length === 0) return;
+        const latest = runs[0];
+        setLastAcceptanceStatus(latest.status);
+        setLastAcceptanceSummary(latest.summary);
+        if (!acceptanceChecklist.trim() && latest.acceptance_checklist) {
+          setAcceptanceChecklist(latest.acceptance_checklist);
+        }
+      } catch {
+        // 历史加载失败不阻断主流程
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, [open, task.id]);
 
   useEffect(() => {
@@ -847,6 +882,10 @@ export function TaskDetailDialog({
     }
   };
 
+  const refreshTasksAfterAcceptanceChange = async () => {
+    await useTaskStore.getState().fetchTasks(useTaskStore.getState().activeProjectId);
+  };
+
   const handleGenerateTesterAcceptance = async () => {
     const testerId = resolveTesterIdForAcceptance();
     if (!testerId) {
@@ -865,13 +904,64 @@ export function TaskDetailDialog({
         working_dir: projectRepoPath ?? null,
       });
       await fetchComments(task.id);
+      // 后端同时写入 tasks.acceptance_checklist（原始正文）与评论（带前缀）
+      const plain = checklist.replace(/^\[验收清单\]\s*/m, "").trim();
+      setAcceptanceChecklist(plain || checklist);
+      await refreshTasksAfterAcceptanceChange();
       setTesterAcceptanceNotice(
-        `验收清单已生成并写入评论（共 ${checklist.trim().length} 字）。可在「协作」页查看。`,
+        `验收清单已生成（共 ${checklist.trim().length} 字），并写入任务字段与评论。`,
       );
     } catch (error) {
       setTesterAcceptanceError(error instanceof Error ? error.message : String(error));
     } finally {
       setTesterAcceptanceLoading(false);
+    }
+  };
+
+  const handleSaveAcceptanceChecklist = async () => {
+    const next = acceptanceChecklist.trim();
+    const current = (task.acceptance_checklist ?? "").trim();
+    if (next === current) {
+      return;
+    }
+    try {
+      const updated = await updateTaskAcceptanceChecklist(task.id, acceptanceChecklist);
+      setAcceptanceChecklist(updated.acceptance_checklist ?? "");
+      setLastAcceptanceStatus(updated.last_acceptance_status ?? lastAcceptanceStatus);
+      await refreshTasksAfterAcceptanceChange();
+      setTesterAcceptanceNotice("验收清单已保存。");
+      setTesterAcceptanceError(null);
+    } catch (error) {
+      setTesterAcceptanceError(error instanceof Error ? error.message : String(error));
+    }
+  };
+
+  const handleRunAcceptance = async () => {
+    setAcceptanceRunning(true);
+    setTesterAcceptanceError(null);
+    setTesterAcceptanceNotice(null);
+    try {
+      if (
+        acceptanceChecklist.trim() &&
+        acceptanceChecklist.trim() !== (task.acceptance_checklist ?? "").trim()
+      ) {
+        await updateTaskAcceptanceChecklist(task.id, acceptanceChecklist);
+      }
+      const run = await runTaskAcceptance(task.id, "manual");
+      setLastAcceptanceStatus(run.status);
+      setLastAcceptanceSummary(run.summary);
+      await refreshTasksAfterAcceptanceChange();
+      if (run.status === "passed") {
+        setTesterAcceptanceNotice(run.summary ?? "验收通过");
+      } else if (run.status === "skipped") {
+        setTesterAcceptanceNotice(run.summary ?? "验收已跳过");
+      } else {
+        setTesterAcceptanceError(run.summary ?? "验收失败");
+      }
+    } catch (error) {
+      setTesterAcceptanceError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setAcceptanceRunning(false);
     }
   };
 
@@ -1415,6 +1505,13 @@ export function TaskDetailDialog({
                 testerAcceptanceLoading={testerAcceptanceLoading}
                 testerAcceptanceError={testerAcceptanceError}
                 testerAcceptanceNotice={testerAcceptanceNotice}
+                acceptanceChecklist={acceptanceChecklist}
+                lastAcceptanceStatus={lastAcceptanceStatus}
+                lastAcceptanceSummary={lastAcceptanceSummary}
+                acceptanceRunning={acceptanceRunning}
+                onAcceptanceChecklistChange={setAcceptanceChecklist}
+                onAcceptanceChecklistBlur={() => void handleSaveAcceptanceChecklist()}
+                onRunAcceptance={() => void handleRunAcceptance()}
                 onTitleChange={setTitle}
                 onTitleBlur={() => void handleSave("title", title)}
                 onDescriptionChange={setDescription}

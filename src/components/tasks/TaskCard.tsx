@@ -29,6 +29,8 @@ import {
 } from "@/lib/backend";
 import {
   formatDate,
+  getAcceptanceStatusClassName,
+  getAcceptanceStatusLabel,
   getPriorityColor,
   getPriorityLabel,
   getTaskActionRuntimeState,
@@ -1072,6 +1074,12 @@ function TaskCardComponent({
               >
                 <Bot className="h-3 w-3" />
                 自动质控·{getTaskAutomationStatusLabel(automationState.status)}
+              </span>
+              <span
+                className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] ${getAcceptanceStatusClassName(task.last_acceptance_status)}`}
+                title="最近一次测试验收状态"
+              >
+                验收·{getAcceptanceStatusLabel(task.last_acceptance_status)}
               </span>
               {isWorktreeModeEnabled && (
                 <span
