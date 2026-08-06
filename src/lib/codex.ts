@@ -113,6 +113,7 @@ export async function restartCodex(
     reasoningEffort: options.reasoningEffort ?? null,
     systemPrompt: options.systemPrompt ?? null,
     workingDir: options.workingDir ?? null,
+    taskGitContextId: options.taskGitContextId ?? null,
   });
 }
 

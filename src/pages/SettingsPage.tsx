@@ -1168,6 +1168,16 @@ export function SettingsPage() {
             onGrokInstall={() => void handleInstallGrokCli()}
             onGrokRefresh={() => void loadGrokState()}
           />
+
+          <div className="mt-6 rounded-lg border border-border bg-card p-4 space-y-2">
+            <h3 className="text-sm font-medium">四引擎能力对照</h3>
+            <p className="text-xs text-muted-foreground">
+              Codex / Claude / Grok / OpenCode
+              均支持启动、停止、重启与续聊。重启语义为「停止当前运行后重新启动」，并非恢复旧 CLI
+              会话。四引擎均为非交互批处理，不支持会话中发送输入。
+            </p>
+            <EngineCapabilityBadges />
+          </div>
         </TabsContent>
 
         <TabsContent value="git">
@@ -1246,17 +1256,7 @@ export function SettingsPage() {
         </TabsContent>
 
         <TabsContent value="mcp">
-          <div className="space-y-4">
-            <McpSettingsTab />
-            <div className="rounded-lg border border-border bg-card p-4 space-y-2">
-              <h3 className="text-sm font-medium">三引擎能力对照</h3>
-              <p className="text-xs text-muted-foreground">
-                Codex / Claude / OpenCode 能力并不完全对称。重启与会话中发送输入目前仅 Codex
-                完整支持。
-              </p>
-              <EngineCapabilityBadges />
-            </div>
-          </div>
+          <McpSettingsTab />
         </TabsContent>
 
         <TabsContent value="database">

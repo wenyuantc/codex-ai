@@ -260,6 +260,7 @@ pub fn run() {
             claude::start_claude,
             claude::stop_claude_session,
             claude::stop_claude,
+            claude::restart_claude,
             grok::get_grok_settings,
             grok::update_grok_settings,
             grok::check_grok_health,
@@ -268,6 +269,7 @@ pub fn run() {
             grok::start_grok,
             grok::stop_grok_session,
             grok::stop_grok,
+            grok::restart_grok,
             opencode::get_opencode_settings,
             opencode::update_opencode_settings,
             opencode::check_opencode_sdk_health,
@@ -275,6 +277,7 @@ pub fn run() {
             opencode::start_opencode,
             opencode::stop_opencode_session,
             opencode::stop_opencode,
+            opencode::restart_opencode,
             opencode::get_opencode_models,
         ])
         .run(tauri::generate_context!())

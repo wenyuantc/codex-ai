@@ -47,6 +47,18 @@ Despite the historical `codex_` table prefix, sessions for engines are stored in
 
 Employees choose `ai_provider` and model/reasoning settings. Runtime status helpers resolve the correct manager (`get_employee_runtime_status`, `get_codex_session_status`).
 
+## Provider Capability Matrix
+
+Single source of truth: `app/database.rs::get_ai_provider_capabilities` (frontend: `getAiProviderCapabilities` / `src/lib/aiCapabilities.ts`).
+
+| Capability | Meaning |
+|------------|---------|
+| `start` / `stop` / `resume` | Per-engine session lifecycle (all four engines) |
+| `restart` | Stop live managed processes for the employee, then call that engine's `start_*` (**not** CLI resume of the old session id) |
+| `send_input` | Mid-session stdin. **Currently false for all engines** — sessions are non-interactive batch runs. Do not set `true` until a real writable stdin path exists; never advertise a capability that always fails. |
+
+UI rules: Settings shows the four-engine comparison; any control for restart/send_input must gate on the matrix (`can(provider, cap)`) with Chinese disabled reasons. Prefer fail-closed when the matrix fails to load.
+
 ## Lifecycle Expectations
 
 Before launch:

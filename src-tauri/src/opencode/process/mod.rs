@@ -2268,6 +2268,50 @@ pub async fn stop_opencode(
     Ok(())
 }
 
+#[tauri::command]
+pub async fn restart_opencode(
+    app: AppHandle,
+    state: State<'_, Arc<Mutex<OpenCodeManager>>>,
+    employee_id: String,
+    task_description: String,
+    model: Option<String>,
+    working_dir: Option<String>,
+    task_id: Option<String>,
+    task_git_context_id: Option<String>,
+    image_paths: Option<Vec<String>>,
+) -> Result<(), String> {
+    let processes = {
+        let manager = state.lock().await;
+        manager.get_employee_processes(&employee_id)
+    };
+
+    // Restart = stop live processes (if any) then start; no live is OK (re-run).
+    for process in processes {
+        stop_opencode_process_with_manager(
+            &app,
+            state.inner(),
+            &process.session_record_id,
+            "restart_requested",
+            "收到重启请求",
+        )
+        .await?;
+    }
+
+    start_opencode(
+        app,
+        state,
+        employee_id,
+        task_description,
+        model,
+        working_dir,
+        task_id,
+        task_git_context_id,
+        None,
+        image_paths,
+    )
+    .await
+}
+
 use tokio::io::AsyncReadExt;
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]

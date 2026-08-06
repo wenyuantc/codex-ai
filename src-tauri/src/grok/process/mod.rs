@@ -1356,6 +1356,55 @@ pub async fn stop_grok(
     Ok(())
 }
 
+#[tauri::command]
+pub async fn restart_grok(
+    app: AppHandle,
+    state: State<'_, Arc<tokio::sync::Mutex<GrokManager>>>,
+    employee_id: String,
+    task_description: String,
+    model: Option<String>,
+    reasoning_effort: Option<String>,
+    system_prompt: Option<String>,
+    working_dir: Option<String>,
+    task_id: Option<String>,
+    task_git_context_id: Option<String>,
+    image_paths: Option<Vec<String>>,
+    session_kind: Option<String>,
+) -> Result<(), String> {
+    let processes = {
+        let manager = state.lock().await;
+        manager.get_employee_processes(&employee_id)
+    };
+
+    for process in processes {
+        stop_grok_process_with_manager(
+            &app,
+            state.inner(),
+            &process.session_record_id,
+            "restart_requested",
+            "收到重启请求",
+        )
+        .await?;
+    }
+
+    start_grok(
+        app,
+        state,
+        employee_id,
+        task_description,
+        model,
+        reasoning_effort,
+        system_prompt,
+        working_dir,
+        task_id,
+        task_git_context_id,
+        None,
+        image_paths,
+        session_kind,
+    )
+    .await
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

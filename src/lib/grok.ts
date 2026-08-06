@@ -70,6 +70,25 @@ export async function stopGrokSession(sessionRecordId: string): Promise<void> {
   await invoke("stop_grok_session", { sessionRecordId });
 }
 
+export async function restartGrok(
+  employeeId: string,
+  taskDescription: string,
+  options: StartGrokOptions = {},
+): Promise<void> {
+  await invoke("restart_grok", {
+    employeeId,
+    taskDescription,
+    model: options.model ?? null,
+    reasoningEffort: options.reasoningEffort ?? null,
+    systemPrompt: options.systemPrompt ?? null,
+    workingDir: options.workingDir ?? null,
+    taskId: options.taskId ?? null,
+    taskGitContextId: options.taskGitContextId ?? null,
+    imagePaths: options.imagePaths ?? null,
+    sessionKind: options.sessionKind ?? null,
+  });
+}
+
 export function onGrokOutput(callback: (output: GrokOutput) => void): Promise<() => void> {
   return listen<GrokOutput>("grok-stdout", (event) => {
     callback(event.payload);
