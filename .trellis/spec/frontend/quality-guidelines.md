@@ -13,6 +13,9 @@ Minimum checks before considering a frontend change done:
 npm run lint
 npm run format:check
 
+# Unit tests (CI enforces this on PR/push to main)
+npm run test:ci
+
 # Typecheck + production bundle
 npm run build
 
@@ -31,7 +34,8 @@ cargo test --manifest-path src-tauri/Cargo.toml
 ```
 
 Tooling notes:
-- ESLint flat config: `eslint.config.js` (scope: `src/**`, `vite.config.ts`)
+- ESLint flat config: `eslint.config.js` (scope: `src/**`, `vite.config.ts`, `vitest.config.ts`)
+- Vitest config: `vitest.config.ts` (separate from `vite.config.ts` on purpose — the production build config stays untouched)
 - Prettier: `.prettierrc` / `.prettierignore`
 - React Hooks: enforce `rules-of-hooks`; `exhaustive-deps` is warn-only to avoid cascading false positives on existing effects
 - CI: `.github/workflows/lint.yml`
@@ -77,9 +81,47 @@ These come from project docs (`AGENTS.md`) and current code.
 
 ## Testing Expectations
 
-- No established frontend unit test runner yet.
-- New automation, if added, should live near the feature or under `src/__tests__` and must not require rewriting the architecture.
+Runner: **Vitest**, `environment: "node"`, config in `vitest.config.ts`. `npm test` watches, `npm run test:ci` runs once and is a CI hard gate.
+
+Scope rules:
+
+- Tests are colocated: `src/lib/utils.test.ts`, `src/stores/taskStore.test.ts`. `include` is `src/**/*.test.ts` (`.ts` only — there are no component tests).
+- **Pure functions only.** No mocks, no jsdom, no `@tauri-apps/api` imports in a test file. If testing something requires stubbing `invoke`, extract the logic into an exported pure function instead and test that (see below).
 - Prefer backend Rust tests for business invariants; use UI smoke for wiring.
+
+### Test files live inside `tsconfig`'s `include`
+
+`tsconfig.json` has `include: ["src"]`, so `npm run build` (`tsc && vite build`) typechecks test files too. That is intentional — a broken test type fails the build gate rather than rotting silently. Two consequences:
+
+- Test files must satisfy `strict` / `noUnusedLocals` / `noUnusedParameters`.
+- Use **explicit imports** (`import { describe, it, expect } from "vitest"`), not `globals: true`. Globals would require adding `"types": ["vitest/globals"]` to `tsconfig.json` and would leak test types into app code; explicit imports need no tsconfig change at all.
+
+### Making store logic testable
+
+Store actions are `async` and call `invoke` through `@/lib/backend`, so they are not directly testable under these rules. When a store holds logic worth locking down, extract it as an exported pure function and have the action call it:
+
+```ts
+// src/stores/taskStore.ts
+export function filterTasksByVisibleProjects<T extends { project_id: string }>(
+  rows: T[],
+  visibleProjectIds: Set<string>,
+): T[] {
+  return rows.filter((row) => visibleProjectIds.has(row.project_id));
+}
+```
+
+Rules for such an extraction:
+
+- The action **must** call the extracted function. Leaving the original inline copy in place is the failure mode to check for (`rg` the predicate afterwards).
+- Extraction must be behavior-preserving — no signature widening, no added normalization.
+- A module-private helper that is already pure (e.g. `resolveSelectedSshConfigId` in `projectStore.ts`) only needs `export` added; do not restructure it.
+
+### Assertion quality
+
+- Assert real semantics, not shape. `expect(true).toBe(true)` and snapshot-only tests do not count.
+- Cover the fallback/degenerate branch, not just the happy path — e.g. `getActivityActionLabel` returning the raw key for an unmapped action is the guard for the historical "dashboard shows snake_case" bug.
+- For helpers that take an injectable clock (`isTaskOverdue(task, today)`, `getTaskElapsedSeconds(task, nowMs)`), always pass it so the test is deterministic.
+- Verify the label-vs-key distinction where matching is done on Chinese labels (`getKeywordMatchedActions` matches 新增SSH配置, not `ssh_config_created`).
 
 ## Forbidden Patterns
 
@@ -96,4 +138,5 @@ These come from project docs (`AGENTS.md`) and current code.
 - [ ] `backend.ts` wrapper added/updated for new commands
 - [ ] Store read/write split preserved
 - [ ] Labels/dates/SSH compatibility handled
+- [ ] `npm run test:ci` passes; new pure logic has assertions
 - [ ] `npm run build` passes

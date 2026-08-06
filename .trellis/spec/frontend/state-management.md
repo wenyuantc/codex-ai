@@ -81,6 +81,13 @@ Keep pure display derivation in `src/lib/utils.ts` or small lib modules, not dup
 - `formatDate`, `formatDuration`, `isTaskOverdue`
 - automation/runtime display helpers used by kanban cards
 
+Store-owned scoping/derivation logic belongs in **exported pure functions in the store module**, called by the action — not inlined inside the `async` action body. This is what makes it testable (see [Quality Guidelines](./quality-guidelines.md) → Testing Expectations):
+- `filterTasksByVisibleProjects` (`taskStore.ts`) — project-scope filter shared by `fetchTasks` and `fetchTrashedTasks`
+- `resolveSelectedSshConfigId` (`projectStore.ts`) — SSH host selection precedence
+- `isInvalidDateRange` / `getKeywordMatchedActions` / `buildActivityScopeInput` (`dashboardStore.ts`) — activity feed filtering
+
+When the same scoping rule is applied in two actions, extract once and call it twice; two inline copies of a `visibleProjectIds.has(...)` predicate is exactly how the active list and the trash list drift apart.
+
 ## Anti-Patterns
 
 - Writing SQL `INSERT`/`UPDATE`/`DELETE` from stores.

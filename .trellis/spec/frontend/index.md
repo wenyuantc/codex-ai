@@ -16,6 +16,7 @@
 | IPC | `@tauri-apps/api` via thin wrappers in `src/lib/backend.ts` |
 | SQL reads | `@tauri-apps/plugin-sql` select-only through `src/lib/database.ts` |
 | Editor | Monaco for large text / diffs (`src/lib/monaco.ts`) |
+| Tests | Vitest (`vitest.config.ts`, node env, pure functions only), colocated `*.test.ts` |
 
 ## Hard Rules
 
