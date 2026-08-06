@@ -1,0 +1,8 @@
+{"file": ".trellis/spec/frontend/index.md", "reason": "Frontend hard rules: no SQL writes, backend.ts wrappers, formatDate, Chinese activity labels"}
+{"file": ".trellis/spec/frontend/component-guidelines.md", "reason": "Component placement, composition, TaskDetail panel patterns"}
+{"file": ".trellis/spec/frontend/state-management.md", "reason": "Zustand automationStates and listener lifecycle for pipeline refresh"}
+{"file": ".trellis/spec/frontend/data-access.md", "reason": "IPC via backend.ts; list pipeline steps and automation state"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "UI ↔ IPC ↔ automation events boundary for pipeline progress"}
+{"file": ".trellis/spec/guides/code-reuse-thinking-guide.md", "reason": "Reuse CoordinatorPlanDialog labels/session log patterns; avoid duplicating status maps"}
+{"file": ".trellis/tasks/08-05-coordinator-pipeline-viz/design.md", "reason": "Authoritative UI surfaces, contracts, and data flow for this task"}
+{"file": ".trellis/tasks/08-05-coordinator-pipeline-viz/prd.md", "reason": "Requirements and acceptance criteria"}
