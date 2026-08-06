@@ -79,6 +79,7 @@ pub async fn create_project<R: Runtime>(
         project_type,
         ssh_config_id,
         remote_repo_path,
+        test_command: normalize_optional_text(payload.test_command.as_deref()),
         deleted_at: None,
         created_at: now_sqlite(),
         updated_at: now_sqlite(),
@@ -89,7 +90,7 @@ pub async fn create_project<R: Runtime>(
     }
 
     sqlx::query(
-        "INSERT INTO projects (id, name, description, status, repo_path, project_type, ssh_config_id, remote_repo_path, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)",
+        "INSERT INTO projects (id, name, description, status, repo_path, project_type, ssh_config_id, remote_repo_path, test_command, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)",
     )
     .bind(&project.id)
     .bind(&project.name)
@@ -99,6 +100,7 @@ pub async fn create_project<R: Runtime>(
     .bind(&project.project_type)
     .bind(&project.ssh_config_id)
     .bind(&project.remote_repo_path)
+    .bind(&project.test_command)
     .bind(&project.created_at)
     .bind(&project.updated_at)
     .execute(&pool)
@@ -193,6 +195,12 @@ pub async fn update_project<R: Runtime>(
         separated
             .push("remote_repo_path = ")
             .push_bind_unseparated(validated_remote_repo_path.clone());
+        touched = true;
+    }
+    if let Some(test_command) = updates.test_command {
+        separated.push("test_command = ").push_bind_unseparated(
+            test_command.and_then(|value| normalize_optional_text(Some(&value))),
+        );
         touched = true;
     }
 

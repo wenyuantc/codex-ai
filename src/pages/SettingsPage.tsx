@@ -183,6 +183,9 @@ export function SettingsPage() {
   const [taskAutomationMaxFixRounds, setTaskAutomationMaxFixRounds] = useState(3);
   const [taskAutomationFailureStrategy, setTaskAutomationFailureStrategy] =
     useState<TaskAutomationFailureStrategy>("blocked");
+  const [testerAutomationEnabled, setTesterAutomationEnabled] = useState(false);
+  const [testerAllowAiOnly, setTesterAllowAiOnly] = useState(false);
+  const [defaultTestCommand, setDefaultTestCommand] = useState("");
   const [defaultTaskUseWorktree, setDefaultTaskUseWorktree] = useState(
     DEFAULT_GIT_PREFERENCES.default_task_use_worktree,
   );
@@ -307,6 +310,9 @@ export function SettingsPage() {
     setTaskAutomationFailureStrategy(
       normalizeTaskAutomationFailureStrategy(settings.task_automation_failure_strategy),
     );
+    setTesterAutomationEnabled(settings.tester_automation_enabled ?? false);
+    setTesterAllowAiOnly(settings.tester_allow_ai_only ?? false);
+    setDefaultTestCommand(settings.default_test_command ?? "");
     setDefaultTaskUseWorktree(gitPreferences.default_task_use_worktree);
     setWorktreeLocationMode(normalizeWorktreeLocationMode(gitPreferences.worktree_location_mode));
     setWorktreeCustomRoot(gitPreferences.worktree_custom_root ?? "");
@@ -608,6 +614,9 @@ export function SettingsPage() {
         task_automation_default_enabled: taskAutomationDefaultEnabled,
         task_automation_max_fix_rounds: taskAutomationMaxFixRounds,
         task_automation_failure_strategy: taskAutomationFailureStrategy,
+        tester_automation_enabled: testerAutomationEnabled,
+        tester_allow_ai_only: testerAllowAiOnly,
+        default_test_command: defaultTestCommand.trim() || null,
         git_preferences: {
           default_task_use_worktree: defaultTaskUseWorktree,
           worktree_location_mode: worktreeLocationMode,
@@ -1138,6 +1147,9 @@ export function SettingsPage() {
             taskAutomationDefaultEnabled={taskAutomationDefaultEnabled}
             taskAutomationMaxFixRounds={taskAutomationMaxFixRounds}
             taskAutomationFailureStrategy={taskAutomationFailureStrategy}
+            testerAutomationEnabled={testerAutomationEnabled}
+            testerAllowAiOnly={testerAllowAiOnly}
+            defaultTestCommand={defaultTestCommand}
             defaultTaskUseWorktree={defaultTaskUseWorktree}
             worktreeLocationMode={worktreeLocationMode}
             worktreeCustomRoot={worktreeCustomRoot}
@@ -1151,6 +1163,9 @@ export function SettingsPage() {
             onTaskAutomationDefaultEnabledChange={setTaskAutomationDefaultEnabled}
             onTaskAutomationMaxFixRoundsChange={setTaskAutomationMaxFixRounds}
             onTaskAutomationFailureStrategyChange={setTaskAutomationFailureStrategy}
+            onTesterAutomationEnabledChange={setTesterAutomationEnabled}
+            onTesterAllowAiOnlyChange={setTesterAllowAiOnly}
+            onDefaultTestCommandChange={setDefaultTestCommand}
             onDefaultTaskUseWorktreeChange={setDefaultTaskUseWorktree}
             onWorktreeLocationModeChange={setWorktreeLocationMode}
             onWorktreeCustomRootChange={setWorktreeCustomRoot}
