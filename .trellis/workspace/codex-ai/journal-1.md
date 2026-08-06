@@ -285,3 +285,24 @@ Claude CLI -p+stream-json 补齐 --verbose，修复运行/审核任务退出码1
 ### Status
 
 [OK] **Completed**
+
+
+## Session 14: OpenCode SSH 远程补齐收尾
+
+**Date**: 2026-08-06
+**Task**: OpenCode SSH 远程补齐收尾
+**Branch**: `main`
+
+### Summary
+
+验收 OpenCode SSH 远程 SDK 实现（a5f5019）并跑全量门禁：clippy -D warnings、cargo test 334 passed、npm run build、format:check 全绿。补 .trellis/spec：ssh-remote 新增七段式远程 OpenCode SDK bridge 契约（install dir 隔离、Node 18+ 健康判定、自动安装一次、askpass/备份清理、错误矩阵），ai-engines 修正 4 处失效的「OpenCode SSH 受限 / one-shot 禁用」陈述并补 OpenCode 专属契约表与反模式，guides 增加解除执行目标限制的跨层清单。归档任务。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `8e5496b` | (see git log) |
+
+### Status
+
+[OK] **Completed**
