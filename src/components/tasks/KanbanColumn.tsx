@@ -2,7 +2,14 @@ import { memo, useRef } from "react";
 import { useDroppable } from "@dnd-kit/core";
 import { SortableContext, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import type { CodexSessionKind, Task, TaskGitContext, TaskStatus } from "@/lib/types";
+import type {
+  CodexSessionKind,
+  Milestone,
+  Tag,
+  Task,
+  TaskGitContext,
+  TaskStatus,
+} from "@/lib/types";
 import { TaskCard } from "./TaskCard";
 
 /** Columns at or above this size use virtualization. */
@@ -21,6 +28,9 @@ interface KanbanColumnProps {
   onToggleTaskSelection?: (taskId: string) => void;
   taskGitContextMap: Record<string, TaskGitContext | null>;
   projectGitBranchMap: Record<string, string[]>;
+  taskTagsByTaskId?: Map<string, Tag[]>;
+  milestonesById?: Map<string, Milestone>;
+  onTaskTagsChange?: (taskId: string, tagIds: string[]) => void;
   onOpenLog: (taskId: string, sessionKind?: CodexSessionKind) => void;
   onGitActionCompleted: (projectId: string, message: string) => Promise<void> | void;
 }
@@ -35,6 +45,9 @@ export const KanbanColumn = memo(function KanbanColumn({
   onToggleTaskSelection,
   taskGitContextMap,
   projectGitBranchMap,
+  taskTagsByTaskId,
+  milestonesById,
+  onTaskTagsChange,
   onOpenLog,
   onGitActionCompleted,
 }: KanbanColumnProps) {
@@ -54,6 +67,10 @@ export const KanbanColumn = memo(function KanbanColumn({
 
   const renderTaskCard = (task: Task) => {
     const selected = selectedTaskIds.includes(task.id);
+    const boardTags = taskTagsByTaskId?.get(task.id);
+    const milestoneName = task.milestone_id
+      ? (milestonesById?.get(task.milestone_id)?.name ?? null)
+      : null;
     return (
       <TaskCard
         key={task.id}
@@ -64,6 +81,9 @@ export const KanbanColumn = memo(function KanbanColumn({
         onToggleSelected={onToggleTaskSelection}
         gitContext={taskGitContextMap[task.id] ?? null}
         projectBranches={projectGitBranchMap[task.project_id] ?? []}
+        tags={boardTags}
+        milestoneName={milestoneName}
+        onTaskTagsChange={onTaskTagsChange}
         onOpenLog={onOpenLog}
         onGitActionCompleted={onGitActionCompleted}
       />

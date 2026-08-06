@@ -70,10 +70,17 @@ Reference implementations:
 - Feature hooks live beside the feature (`src/components/tasks/hooks/*`) when they encapsulate multi-step actions.
 - Use portals only when needed (e.g. drag overlay / menus in `TaskCard`).
 
+## Task primary path (trust UX)
+
+- **One primary CTA per task surface**: resolve with pure `resolveTaskPrimaryCta` in `src/lib/taskPrimaryCta.ts` — do not fork if/else tables in `TaskCard` vs `TaskDetailDialog`.
+- Inputs must share automation/runtime sources: `getTaskAutomationDisplayState` + `getTaskActionRuntimeState` (never a second phase map in JSX).
+- Detail dialog sticky bar: `TaskPrimaryActionBar`; secondary actions go in overflow, not competing primary color.
+- **SSH trust**: global mode uses `SshTrustBanner` in `MainLayout`; session artifact limits still use `SshArtifactLimitedNotice` — keep both messages consistent (审查依据可能不完整).
+
 ## Accessibility Baseline
 
 - Use semantic controls from shadcn (`Button`, `Dialog`, `Select`) rather than clickable `div`s.
-- Banner/status regions use roles where already established (SSH mode banner in `MainLayout` uses `role="status"`).
+- Banner/status regions use roles where already established (`SshTrustBanner` / SSH mode banner uses `role="status"`).
 - Icon-only buttons should include accessible text (`aria-label` / visually hidden label) when adding new ones.
 - Keep keyboard shortcuts out of text inputs; global shortcuts are coordinated via existing shortcut helpers (`src/lib/shortcuts.ts`).
 

@@ -29,6 +29,7 @@ export function EditProjectDialog({ open, onOpenChange, project }: EditProjectDi
   const [repoPath, setRepoPath] = useState("");
   const [sshConfigId, setSshConfigId] = useState("");
   const [remoteRepoPath, setRemoteRepoPath] = useState("");
+  const [testCommand, setTestCommand] = useState("");
   const [status, setStatus] = useState("active");
   const [saving, setSaving] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -42,6 +43,7 @@ export function EditProjectDialog({ open, onOpenChange, project }: EditProjectDi
       setRepoPath(project.repo_path ?? "");
       setSshConfigId(project.ssh_config_id ?? "");
       setRemoteRepoPath(project.remote_repo_path ?? "");
+      setTestCommand(project.test_command ?? "");
       setStatus(project.status);
       setErrorMessage(null);
     }
@@ -68,6 +70,7 @@ export function EditProjectDialog({ open, onOpenChange, project }: EditProjectDi
         repo_path: projectType === "local" ? repoPath.trim() || null : null,
         ssh_config_id: projectType === "ssh" ? sshConfigId : null,
         remote_repo_path: projectType === "ssh" ? remoteRepoPath.trim() || null : null,
+        test_command: testCommand.trim() || null,
         status,
       });
       onOpenChange(false);
@@ -172,6 +175,19 @@ export function EditProjectDialog({ open, onOpenChange, project }: EditProjectDi
               </div>
             </>
           )}
+
+          <div>
+            <label className="text-xs font-medium text-muted-foreground">测试命令（验收）</label>
+            <Input
+              value={testCommand}
+              onChange={(e) => setTestCommand(e.target.value)}
+              placeholder="例如 npm test / cargo test（可空，继承全局默认）"
+              className="mt-1 font-mono text-sm"
+            />
+            <p className="mt-1 text-[11px] text-muted-foreground">
+              用于测试员自动化与「运行验收」；local 在本地仓库执行，SSH 在远程目录执行。
+            </p>
+          </div>
 
           <div>
             <label className="text-xs font-medium text-muted-foreground">状态</label>

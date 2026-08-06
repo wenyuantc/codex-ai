@@ -12,11 +12,13 @@ use tokio::io::AsyncWriteExt;
 use tokio::time::sleep;
 
 use crate::app::{
-    build_remote_shell_command, build_ssh_command, ensure_remote_sdk_runtime_layout,
-    execute_ssh_command, fetch_codex_session_by_id, fetch_ssh_config_record_by_id,
-    insert_activity_log, insert_codex_session_event, insert_codex_session_event_with_id,
-    insert_codex_session_record, inspect_remote_codex_runtime, normalize_runtime_path_string,
-    now_sqlite, parse_review_verdict_json, path_to_runtime_string, remote_sdk_bridge_path,
+    build_remote_opencode_sdk_bridge_command, build_remote_shell_command, build_ssh_command,
+    default_remote_opencode_sdk_install_dir, ensure_remote_opencode_sdk_runtime_layout,
+    ensure_remote_sdk_runtime_layout, execute_ssh_command, fetch_codex_session_by_id,
+    fetch_ssh_config_record_by_id, insert_activity_log, insert_codex_session_event,
+    insert_codex_session_event_with_id, insert_codex_session_record, inspect_remote_codex_runtime,
+    inspect_remote_opencode_runtime, normalize_runtime_path_string, now_sqlite,
+    parse_review_verdict_json, path_to_runtime_string, remote_sdk_bridge_path,
     remote_shell_path_expression, replace_codex_session_file_changes, sqlite_pool,
     sync_task_image_attachments_to_remote, update_codex_session_record,
     validate_runtime_working_dir, ARTIFACT_CAPTURE_MODE_LOCAL_FULL, ARTIFACT_CAPTURE_MODE_SSH_FULL,

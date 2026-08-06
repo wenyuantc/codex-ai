@@ -1,0 +1,5 @@
+{"file": ".trellis/spec/frontend/index.md", "reason": "Verify no frontend SQL writes and IPC wrapper discipline"}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "Verify build/lint gates and smoke matrix"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "If any activity action or SSH label changes, check all layers"}
+{"file": ".trellis/spec/guides/code-reuse-thinking-guide.md", "reason": "Ensure CTA resolver is shared; no duplicated phase maps"}
+{"file": ".trellis/tasks/08-05-ux-trust-hardening/design.md", "reason": "Check implementation against CTA priority table and SSH banner contract"}

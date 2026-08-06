@@ -1,0 +1,8 @@
+{"file": ".trellis/spec/frontend/index.md", "reason": "Frontend hard rules and primary references for quality gate"}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "Build, a11y, smoke expectations"}
+{"file": ".trellis/spec/frontend/component-guidelines.md", "reason": "Shared component extraction and dialog composition checks"}
+{"file": ".trellis/spec/frontend/state-management.md", "reason": "Listener cleanup and store update correctness"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "Verify event→refresh→UI path and no frontend SQL"}
+{"file": ".trellis/spec/guides/code-reuse-thinking-guide.md", "reason": "Detect duplicated pipeline status labels or N+1 step fetches"}
+{"file": ".trellis/tasks/08-05-coordinator-pipeline-viz/prd.md", "reason": "Acceptance criteria checklist"}
+{"file": ".trellis/tasks/08-05-coordinator-pipeline-viz/design.md", "reason": "Design compliance: visibility rules, kanban light badge, no runtime rewrite"}

@@ -13,15 +13,17 @@ import {
 } from "@dnd-kit/core";
 import { getProjectGitOverview, listTaskGitContexts } from "@/lib/backend";
 import { onCodexExit, onTaskAutomationStateChanged } from "@/lib/codex";
+import { filterKanbanTasks, type TaskTagMap } from "@/lib/kanbanFilters";
 import {
   ACTIVE_TASK_STATUSES,
   type CodexSessionKind,
+  type Milestone,
   type ProjectGitOverview,
+  type Tag,
   type Task,
   type TaskGitContext,
   type TaskStatus,
 } from "@/lib/types";
-import { isTaskOverdue } from "@/lib/utils";
 import { useTaskStore } from "@/stores/taskStore";
 import { useEmployeeStore } from "@/stores/employeeStore";
 import { useProjectStore } from "@/stores/projectStore";
@@ -39,9 +41,16 @@ interface KanbanBoardProps {
   blockedOnly?: boolean;
   milestoneId?: string | null;
   tagId?: string | null;
+  priority?: string | null;
+  assigneeId?: string | null;
   keyword?: string;
+  taskTagMap?: TaskTagMap;
+  milestones?: Milestone[];
+  tags?: Tag[];
   selectedTaskIds?: string[];
   onToggleTaskSelection?: (taskId: string) => void;
+  /** Keep board-level tag filter map in sync after card detail edits. */
+  onTaskTagsChange?: (taskId: string, tagIds: string[]) => void;
   /** Open task log from outside the board (e.g. create-and-run). */
   pendingLogRequest?: { taskId: string; sessionKind?: CodexSessionKind } | null;
   onPendingLogRequestConsumed?: () => void;
@@ -54,10 +63,16 @@ export function KanbanBoard({
   overdueOnly = false,
   blockedOnly = false,
   milestoneId = null,
-  tagId: _tagId = null,
+  tagId = null,
+  priority = null,
+  assigneeId = null,
   keyword = "",
+  taskTagMap,
+  milestones = [],
+  tags = [],
   selectedTaskIds = [],
   onToggleTaskSelection,
+  onTaskTagsChange,
   pendingLogRequest = null,
   onPendingLogRequestConsumed,
 }: KanbanBoardProps) {
@@ -78,21 +93,53 @@ export function KanbanBoard({
     sessionKind?: CodexSessionKind;
   } | null>(null);
   const targetTask = targetTaskId ? (tasks.find((task) => task.id === targetTaskId) ?? null) : null;
-  const activeTasks = useMemo(() => {
-    const normalized = keyword.trim().toLowerCase();
-    return tasks
-      .filter((task) => task.status !== "archived")
-      .filter((task) => (overdueOnly ? isTaskOverdue(task) : true))
-      .filter((task) => (blockedOnly ? task.status === "blocked" : true))
-      .filter((task) => (milestoneId ? task.milestone_id === milestoneId : true))
-      .filter((task) =>
-        !normalized
-          ? true
-          : task.title.toLowerCase().includes(normalized) ||
-            (task.description ?? "").toLowerCase().includes(normalized),
+  const activeTasks = useMemo(
+    () =>
+      filterKanbanTasks(
+        tasks,
+        {
+          keyword,
+          overdueOnly,
+          blockedOnly,
+          milestoneId,
+          tagId,
+          priority,
+          assigneeId,
+        },
+        taskTagMap,
+      ),
+    [
+      tasks,
+      keyword,
+      overdueOnly,
+      blockedOnly,
+      milestoneId,
+      tagId,
+      priority,
+      assigneeId,
+      taskTagMap,
+    ],
+  );
+  const milestonesById = useMemo(
+    () => new Map(milestones.map((item) => [item.id, item])),
+    [milestones],
+  );
+  const tagsById = useMemo(() => new Map(tags.map((item) => [item.id, item])), [tags]);
+  const taskTagsByTaskId = useMemo(() => {
+    const map = new Map<string, Tag[]>();
+    if (!taskTagMap) {
+      return map;
+    }
+    taskTagMap.forEach((tagIds, taskId) => {
+      map.set(
+        taskId,
+        tagIds
+          .map((tagIdValue) => tagsById.get(tagIdValue))
+          .filter((tag): tag is Tag => Boolean(tag)),
       );
-    // tagId 需要 task_tags 异步映射；当前先保留入口，后续可在卡片徽章层过滤
-  }, [tasks, overdueOnly, blockedOnly, milestoneId, keyword]);
+    });
+    return map;
+  }, [taskTagMap, tagsById]);
   const projectMap = useMemo(
     () => new Map(projects.map((project) => [project.id, project])),
     [projects],
@@ -514,6 +561,9 @@ export function KanbanBoard({
               onToggleTaskSelection={onToggleTaskSelection}
               taskGitContextMap={taskGitContextMap}
               projectGitBranchMap={projectGitBranchMap}
+              taskTagsByTaskId={taskTagsByTaskId}
+              milestonesById={milestonesById}
+              onTaskTagsChange={onTaskTagsChange}
               onOpenLog={handleOpenLog}
               onGitActionCompleted={handleGitActionCompleted}
             />
@@ -527,6 +577,12 @@ export function KanbanBoard({
                 isOverlay
                 gitContext={taskGitContextMap[activeTask.id] ?? null}
                 projectBranches={projectGitBranchMap[activeTask.project_id] ?? []}
+                tags={taskTagsByTaskId.get(activeTask.id)}
+                milestoneName={
+                  activeTask.milestone_id
+                    ? (milestonesById.get(activeTask.milestone_id)?.name ?? null)
+                    : null
+                }
               />
             </div>
           ) : null}

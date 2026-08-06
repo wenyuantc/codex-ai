@@ -9,6 +9,9 @@ fn sample_codex_settings() -> CodexSettings {
         task_automation_default_enabled: false,
         task_automation_max_fix_rounds: 3,
         task_automation_failure_strategy: "blocked".to_string(),
+        tester_automation_enabled: false,
+        tester_allow_ai_only: false,
+        default_test_command: None,
         git_preferences: GitPreferences {
             default_task_use_worktree: false,
             worktree_location_mode: "repo_sibling_hidden".to_string(),

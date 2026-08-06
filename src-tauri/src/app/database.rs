@@ -902,30 +902,26 @@ mod ai_provider_capabilities_tests {
     }
 }
 
-async fn count_tasks_with_scope(
+/// Count tasks limited to an explicit project-id set (SSH-host-safe scoping).
+async fn count_tasks_in_project_ids(
     pool: &SqlitePool,
-    project_id: Option<&str>,
-    environment_mode: Option<&str>,
+    scoped_ids: &[String],
     extra_predicate: &str,
 ) -> Result<i64, String> {
+    if scoped_ids.is_empty() {
+        return Ok(0);
+    }
     let mut builder = QueryBuilder::<Sqlite>::new(
-        "SELECT COUNT(*) FROM tasks t INNER JOIN projects p ON p.id = t.project_id WHERE t.deleted_at IS NULL AND p.deleted_at IS NULL",
+        "SELECT COUNT(*) FROM tasks t INNER JOIN projects p ON p.id = t.project_id \
+         WHERE t.deleted_at IS NULL AND p.deleted_at IS NULL AND t.project_id IN (",
     );
-    if let Some(pid) = project_id.map(str::trim).filter(|v| !v.is_empty()) {
-        builder.push(" AND t.project_id = ");
-        builder.push_bind(pid);
-    }
-    match environment_mode {
-        Some("ssh") => {
-            builder.push(" AND p.project_type = ");
-            builder.push_bind("ssh");
+    {
+        let mut separated = builder.separated(", ");
+        for id in scoped_ids {
+            separated.push_bind(id);
         }
-        Some("local") => {
-            builder.push(" AND p.project_type = ");
-            builder.push_bind("local");
-        }
-        _ => {}
     }
+    builder.push(")");
     if !extra_predicate.is_empty() {
         builder.push(" ");
         builder.push(extra_predicate);
@@ -1367,7 +1363,9 @@ pub async fn list_activity_logs<R: Runtime>(
     list_activity_logs_with_pool(&pool, &payload).await
 }
 
-async fn resolve_scoped_project_ids_for_stats(
+/// Resolve project IDs visible under environment mode + optional SSH host + optional single project.
+/// Shared by dashboard stats, report summary, and task JSON export.
+pub(crate) async fn resolve_scoped_project_ids_for_stats(
     pool: &SqlitePool,
     environment_mode: Option<&str>,
     selected_ssh_config_id: Option<&str>,
@@ -1574,48 +1572,58 @@ pub async fn get_dashboard_stats<R: Runtime>(
     get_dashboard_stats_with_pool(&pool, &payload).await
 }
 
-#[tauri::command]
-pub async fn get_dashboard_report_summary<R: Runtime>(
-    app: AppHandle<R>,
-    project_id: Option<String>,
-    environment_mode: Option<String>,
+pub(crate) async fn get_dashboard_report_summary_with_pool(
+    pool: &SqlitePool,
+    payload: &crate::db::models::GetDashboardReportPayload,
 ) -> Result<crate::db::models::DashboardReportSummary, String> {
     use crate::db::models::{
         DashboardReportSummary, DashboardTrendPoint, DashboardWorkloadItem,
     };
 
-    let pool = sqlite_pool(&app).await?;
-    let project_id = project_id.as_deref();
-    let environment_mode = environment_mode.as_deref();
+    let environment_mode = payload
+        .environment_mode
+        .as_deref()
+        .map(str::trim)
+        .filter(|v| !v.is_empty());
+    let selected_ssh = payload
+        .selected_ssh_config_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|v| !v.is_empty());
+    let project_id = payload
+        .project_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|v| !v.is_empty());
+    let aging_days = payload
+        .aging_days
+        .filter(|v| *v > 0)
+        .unwrap_or(7)
+        .clamp(1, 365);
 
-    let total_tasks =
-        count_tasks_with_scope(&pool, project_id, environment_mode, "").await?;
-    let completed_tasks = count_tasks_with_scope(
-        &pool,
-        project_id,
-        environment_mode,
-        "AND t.status = 'completed'",
-    )
-    .await?;
-    let blocked_tasks = count_tasks_with_scope(
-        &pool,
-        project_id,
-        environment_mode,
-        "AND t.status = 'blocked'",
-    )
-    .await?;
-    let in_progress_tasks = count_tasks_with_scope(
-        &pool,
-        project_id,
-        environment_mode,
-        "AND t.status = 'in_progress'",
-    )
-    .await?;
-    let overdue_tasks = count_tasks_with_scope(
-        &pool,
-        project_id,
-        environment_mode,
+    let scoped_ids =
+        resolve_scoped_project_ids_for_stats(pool, environment_mode, selected_ssh, project_id)
+            .await?;
+
+    let total_tasks = count_tasks_in_project_ids(pool, &scoped_ids, "").await?;
+    let completed_tasks =
+        count_tasks_in_project_ids(pool, &scoped_ids, "AND t.status = 'completed'").await?;
+    let blocked_tasks =
+        count_tasks_in_project_ids(pool, &scoped_ids, "AND t.status = 'blocked'").await?;
+    let in_progress_tasks =
+        count_tasks_in_project_ids(pool, &scoped_ids, "AND t.status = 'in_progress'").await?;
+    let overdue_tasks = count_tasks_in_project_ids(
+        pool,
+        &scoped_ids,
         "AND t.due_date IS NOT NULL AND t.due_date < date('now') AND t.status NOT IN ('completed', 'archived')",
+    )
+    .await?;
+    let aging_in_progress = count_tasks_in_project_ids(
+        pool,
+        &scoped_ids,
+        &format!(
+            "AND t.status = 'in_progress' AND date(COALESCE(t.time_started_at, t.updated_at)) <= date('now', '-{aging_days} day')"
+        ),
     )
     .await?;
 
@@ -1625,16 +1633,16 @@ pub async fn get_dashboard_report_summary<R: Runtime>(
         0.0
     };
 
+    // Keep `weekly_completed` as last-7-days daily series for frontend compatibility.
     let mut weekly_completed = Vec::new();
     for days_ago in (0..7).rev() {
         let label: String = sqlx::query_scalar(&format!("SELECT date('now', '-{days_ago} day')"))
-            .fetch_one(&pool)
+            .fetch_one(pool)
             .await
             .unwrap_or_else(|_| format!("d-{days_ago}"));
-        let count = count_tasks_with_scope(
-            &pool,
-            project_id,
-            environment_mode,
+        let count = count_tasks_in_project_ids(
+            pool,
+            &scoped_ids,
             &format!(
                 "AND t.completed_at IS NOT NULL AND date(t.completed_at) = date('now', '-{days_ago} day')"
             ),
@@ -1647,32 +1655,85 @@ pub async fn get_dashboard_report_summary<R: Runtime>(
         });
     }
 
-    let workload_rows = sqlx::query_as::<_, (String, String, i64, i64)>(
-        r#"
-        SELECT e.id, e.name,
-          COALESCE(SUM(CASE WHEN t.status IN ('todo','in_progress','review','blocked') THEN 1 ELSE 0 END), 0) AS active_tasks,
-          COALESCE(SUM(CASE WHEN t.status = 'completed' THEN 1 ELSE 0 END), 0) AS completed_tasks
-        FROM employees e
-        LEFT JOIN tasks t ON t.assignee_id = e.id AND t.deleted_at IS NULL
-        LEFT JOIN projects p ON p.id = t.project_id AND p.deleted_at IS NULL
-        GROUP BY e.id, e.name
-        ORDER BY active_tasks DESC, completed_tasks DESC
-        LIMIT 12
-        "#,
-    )
-    .fetch_all(&pool)
-    .await
-    .map_err(|e| format!("统计员工负载失败: {e}"))?;
+    // True weekly series: last 8 calendar weeks (SQLite %W, Monday-based week number).
+    let mut weekly_completed_series = Vec::new();
+    for weeks_ago in (0..8).rev() {
+        let days_offset = weeks_ago * 7;
+        let label: String = sqlx::query_scalar(&format!(
+            "SELECT strftime('%Y', date('now', '-{days_offset} day')) || '-W' || strftime('%W', date('now', '-{days_offset} day'))"
+        ))
+        .fetch_one(pool)
+        .await
+        .unwrap_or_else(|_| format!("W-{weeks_ago}"));
+        let count = count_tasks_in_project_ids(
+            pool,
+            &scoped_ids,
+            &format!(
+                "AND t.completed_at IS NOT NULL AND (strftime('%Y', t.completed_at) || '-W' || strftime('%W', t.completed_at)) = '{label}'"
+            ),
+        )
+        .await
+        .unwrap_or(0);
+        weekly_completed_series.push(DashboardTrendPoint { label, count });
+    }
 
-    let employee_workload = workload_rows
-        .into_iter()
-        .map(|(employee_id, employee_name, active_tasks, completed_tasks)| DashboardWorkloadItem {
-            employee_id,
-            employee_name,
-            active_tasks,
-            completed_tasks,
-        })
-        .collect();
+    let employee_workload = if scoped_ids.is_empty() {
+        Vec::new()
+    } else {
+        let mut workload_builder = QueryBuilder::<Sqlite>::new(
+            r#"
+            SELECT e.id, e.name,
+              COALESCE(SUM(CASE WHEN t.status IN ('todo','in_progress','review','blocked') THEN 1 ELSE 0 END), 0) AS active_tasks,
+              COALESCE(SUM(CASE WHEN t.status = 'completed' THEN 1 ELSE 0 END), 0) AS completed_tasks
+            FROM employees e
+            LEFT JOIN tasks t ON t.assignee_id = e.id AND t.deleted_at IS NULL AND t.project_id IN (
+            "#,
+        );
+        {
+            let mut separated = workload_builder.separated(", ");
+            for id in &scoped_ids {
+                separated.push_bind(id);
+            }
+        }
+        workload_builder.push(
+            r#"
+            )
+            WHERE e.project_id IN (
+            "#,
+        );
+        {
+            let mut separated = workload_builder.separated(", ");
+            for id in &scoped_ids {
+                separated.push_bind(id);
+            }
+        }
+        if project_id.is_none() {
+            workload_builder.push(") OR e.project_id IS NULL");
+        } else {
+            workload_builder.push(")");
+        }
+        workload_builder.push(
+            " GROUP BY e.id, e.name ORDER BY active_tasks DESC, completed_tasks DESC LIMIT 12",
+        );
+
+        let workload_rows = workload_builder
+            .build_query_as::<(String, String, i64, i64)>()
+            .fetch_all(pool)
+            .await
+            .map_err(|e| format!("统计员工负载失败: {e}"))?;
+
+        workload_rows
+            .into_iter()
+            .map(|(employee_id, employee_name, active_tasks, completed_tasks)| {
+                DashboardWorkloadItem {
+                    employee_id,
+                    employee_name,
+                    active_tasks,
+                    completed_tasks,
+                }
+            })
+            .collect()
+    };
 
     Ok(DashboardReportSummary {
         total_tasks,
@@ -1683,7 +1744,20 @@ pub async fn get_dashboard_report_summary<R: Runtime>(
         completion_rate,
         weekly_completed,
         employee_workload,
+        weekly_completed_series,
+        aging_in_progress,
+        aging_days,
     })
+}
+
+#[tauri::command]
+pub async fn get_dashboard_report_summary<R: Runtime>(
+    app: AppHandle<R>,
+    payload: Option<crate::db::models::GetDashboardReportPayload>,
+) -> Result<crate::db::models::DashboardReportSummary, String> {
+    let pool = sqlite_pool(&app).await?;
+    let payload = payload.unwrap_or_default();
+    get_dashboard_report_summary_with_pool(&pool, &payload).await
 }
 
 #[tauri::command]
