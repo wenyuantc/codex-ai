@@ -32,6 +32,7 @@ TypeScript 使用 2 空格缩进，Rust 使用默认 `rustfmt` 格式化。React
 ## 每次写完代码都要运行检查命令
 
 - `clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings`
+- ` npm run format:check`
 
 ## 版本号修改
 
