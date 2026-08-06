@@ -14,6 +14,8 @@ import {
   abortTaskPipeline,
   aiGenerateCoordinatorTaskPlan,
   aiGenerateTesterAcceptance,
+  getTaskCommitActionState,
+  getTaskCommitOverview,
   listTaskPipelineSteps,
   prepareTaskGitExecution,
   getCodexSessionFileChangeDetail,
@@ -21,12 +23,17 @@ import {
   getTaskLatestReview,
   openTaskAttachment,
   retryTaskPipelineStep,
+  stageAllTaskCommitFiles,
   startTaskPipeline,
   updateTaskPipelineStep,
 } from "@/lib/backend";
 import { useTaskStore } from "@/stores/taskStore";
 import { useEmployeeStore } from "@/stores/employeeStore";
 import { useProjectStore } from "@/stores/projectStore";
+import {
+  getTaskBackgroundRunLabel,
+  useTaskBackgroundRunStore,
+} from "@/stores/taskBackgroundRunStore";
 import {
   Dialog,
   DialogContent,
@@ -44,6 +51,8 @@ import { startClaude } from "@/lib/claude";
 import { startGrok } from "@/lib/grok";
 import { startOpenCode } from "@/lib/opencode";
 import { getProjectWorkingDir } from "@/lib/projects";
+import { countStageableGitFiles } from "@/lib/gitWorkingTree";
+import { resolveTaskPrimaryCta } from "@/lib/taskPrimaryCta";
 import type { TaskAutomationDisplayState } from "@/lib/utils";
 import {
   formatDate,
@@ -51,10 +60,13 @@ import {
   getTaskAutomationDisplayState,
   getTaskAutomationStatusLabel,
 } from "@/lib/utils";
+import type { TaskCommitActionState, TaskCommitOverview } from "@/lib/types";
 import { DeleteTaskDialog } from "./DeleteTaskDialog";
 import { InsertPlanConfirmDialog } from "./InsertPlanConfirmDialog";
 import { ReviewFixConfirmDialog } from "./ReviewFixConfirmDialog";
 import { CoordinatorPlanDialog } from "./CoordinatorPlanDialog";
+import { TaskGitCommitDialog } from "./TaskGitCommitDialog";
+import { TaskPrimaryActionBar } from "./TaskPrimaryActionBar";
 import { useTaskExecutionActions } from "./hooks/useTaskExecutionActions";
 import { useTaskReviewActions } from "./hooks/useTaskReviewActions";
 import { useTaskAiActions } from "./hooks/useTaskAiActions";
@@ -172,6 +184,14 @@ export function TaskDetailDialog({
   const [testerAcceptanceError, setTesterAcceptanceError] = useState<string | null>(null);
   const [testerAcceptanceNotice, setTesterAcceptanceNotice] = useState<string | null>(null);
   const [detailTab, setDetailTab] = useState("overview");
+  const [commitActionState, setCommitActionState] = useState<TaskCommitActionState | null>(null);
+  const [showCommitDialog, setShowCommitDialog] = useState(false);
+  const [openingCommitDialog, setOpeningCommitDialog] = useState(false);
+  const [initialCommitOverview, setInitialCommitOverview] = useState<TaskCommitOverview | null>(
+    null,
+  );
+  const [initialCommitError, setInitialCommitError] = useState<string | null>(null);
+  const [primaryActionNotice, setPrimaryActionNotice] = useState<string | null>(null);
   const latestReviewRequestIdRef = useRef(0);
   const executionChangeDetailRequestIdRef = useRef(0);
   const taskIdCopyResetTimerRef = useRef<number | null>(null);
@@ -259,11 +279,16 @@ export function TaskDetailDialog({
       setReviewError(message);
     },
   });
+  const backgroundRun = useTaskBackgroundRunStore((state) => state.byTaskId[task.id]);
+  const isBackgroundPlanning = backgroundRun?.phase === "planning";
+  const isBackgroundStarting = backgroundRun?.phase === "starting";
+  const isBackgroundRunBusy = isBackgroundPlanning || isBackgroundStarting;
+  const backgroundRunLabel = getTaskBackgroundRunLabel(backgroundRun);
   const resolvedAutomationState =
     automationState ?? getTaskAutomationDisplayState(task, persistedAutomationState ?? null);
   const runtimeState = getTaskActionRuntimeState({
     automationState: resolvedAutomationState,
-    isExecutionRunning: executionActions.isRunning,
+    isExecutionRunning: executionActions.isRunning || isBackgroundRunBusy,
     isReviewRunning: reviewActions.isRunning,
     pipelineState: persistedAutomationState ?? null,
   });
@@ -286,6 +311,31 @@ export function TaskDetailDialog({
   const isRunning = runtimeState.executionActive;
   const isReviewRunning = runtimeState.reviewActive;
   const isExecutionProcessRunning = executionActions.isRunning;
+  const hasActiveSession = isRunning || isReviewRunning;
+  const canCommitTaskCode = Boolean(
+    !hasActiveSession &&
+    (commitActionState?.can_commit || commitActionState?.can_ai_commit),
+  );
+  const primaryCta = resolveTaskPrimaryCta({
+    status,
+    executionActive: isRunning,
+    reviewActive: isReviewRunning,
+    canStopProcess: executionActions.isRunning,
+    backgroundPlanning: isBackgroundPlanning,
+    backgroundStarting: isBackgroundStarting,
+    hasAssignee: Boolean(assigneeId),
+    hasReviewer: Boolean(reviewerId),
+    canCommit: canCommitTaskCode,
+    canGenerateAcceptance: canGenerateTesterAcceptance,
+    automationStatus: resolvedAutomationState.status,
+    pipelineActive: Boolean(persistedAutomationState?.pipeline_active),
+  });
+  const primaryActionLoading =
+    executionActions.loading !== null ||
+    reviewActions.loading ||
+    testerAcceptanceLoading ||
+    openingCommitDialog ||
+    isBackgroundRunBusy;
   const hasActivePipelineStep = pipelineSteps.some(
     (step) => step.status === "launching" || step.status === "running",
   );
@@ -320,6 +370,7 @@ export function TaskDetailDialog({
       setSaveError(null);
       setReviewError(null);
       setReviewNotice(null);
+      setPrimaryActionNotice(null);
       setDetailTab("overview");
       void loadLatestReview();
       void loadExecutionChangeHistory();
@@ -331,6 +382,28 @@ export function TaskDetailDialog({
       setDeleteDialogOpen(false);
     }
   }, [open]);
+
+  useEffect(() => {
+    if (!open) {
+      setCommitActionState(null);
+      return;
+    }
+    let cancelled = false;
+    void getTaskCommitActionState(task.id)
+      .then((state) => {
+        if (!cancelled) {
+          setCommitActionState(state);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setCommitActionState(null);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, task.id, task.updated_at, task.status, task.use_worktree, hasActiveSession]);
 
   useEffect(() => {
     return () => {
@@ -818,6 +891,71 @@ export function TaskDetailDialog({
     await executionActions.stopTask();
   };
 
+  const openCommitDialog = async () => {
+    if (!canCommitTaskCode) {
+      setPrimaryActionNotice("当前没有可提交的改动，或提交条件尚未满足。");
+      return;
+    }
+    setOpeningCommitDialog(true);
+    setPrimaryActionNotice(null);
+
+    let nextOverview: TaskCommitOverview | null = null;
+    let nextError: string | null = null;
+
+    try {
+      nextOverview = await getTaskCommitOverview(task.id);
+      if (countStageableGitFiles(nextOverview.working_tree_changes) > 0) {
+        await stageAllTaskCommitFiles(task.id);
+        nextOverview = await getTaskCommitOverview(task.id);
+      }
+    } catch (error) {
+      nextError = error instanceof Error ? error.message : String(error);
+    } finally {
+      setInitialCommitOverview(nextOverview);
+      setInitialCommitError(nextError);
+      setShowCommitDialog(true);
+      setOpeningCommitDialog(false);
+    }
+  };
+
+  const handlePrimaryCtaAction = async () => {
+    if (primaryCta.disabled || primaryActionLoading) {
+      return;
+    }
+
+    switch (primaryCta.kind) {
+      case "stop":
+        setDetailTab("execution");
+        await handleStopCodex();
+        return;
+      case "run":
+        setDetailTab("execution");
+        await handleRunCodex();
+        return;
+      case "review":
+        setDetailTab("review");
+        await handleStartCodeReview();
+        return;
+      case "blocked":
+        setDetailTab("overview");
+        setPrimaryActionNotice(
+          blockedReason.trim()
+            ? `阻塞原因：${blockedReason.trim()}`
+            : "任务已阻塞，请在概览中填写阻塞原因或指定协调员。",
+        );
+        return;
+      case "commit":
+        await openCommitDialog();
+        return;
+      case "acceptance":
+        setDetailTab("overview");
+        await handleGenerateTesterAcceptance();
+        return;
+      default:
+        return;
+    }
+  };
+
   const handleSaveCoordinatorPlan = async () => {
     const plan = coordinatorPlanDraft.trim();
     if (!plan) {
@@ -1076,14 +1214,79 @@ export function TaskDetailDialog({
     }
   };
 
+  const primarySecondaryActions = [
+    canCommitTaskCode && primaryCta.kind !== "commit"
+      ? {
+          key: "commit",
+          label: "提交代码",
+          disabled: primaryActionLoading,
+          onSelect: () => {
+            void openCommitDialog();
+          },
+        }
+      : null,
+    canGenerateTesterAcceptance && primaryCta.kind !== "acceptance"
+      ? {
+          key: "acceptance",
+          label: "生成验收清单",
+          disabled: testerAcceptanceLoading,
+          onSelect: () => {
+            setDetailTab("overview");
+            void handleGenerateTesterAcceptance();
+          },
+        }
+      : null,
+    primaryCta.kind !== "run" && Boolean(assigneeId) && !hasActiveSession
+      ? {
+          key: "run",
+          label: "运行",
+          disabled: primaryActionLoading,
+          onSelect: () => {
+            setDetailTab("execution");
+            void handleRunCodex();
+          },
+        }
+      : null,
+    primaryCta.kind !== "review" && Boolean(reviewerId) && status === "review" && !isReviewRunning
+      ? {
+          key: "review",
+          label: "审核代码",
+          disabled: primaryActionLoading,
+          onSelect: () => {
+            setDetailTab("review");
+            void handleStartCodeReview();
+          },
+        }
+      : null,
+  ].filter((item): item is NonNullable<typeof item> => item != null);
+
   return (
     <>
       <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent className="max-h-[min(92vh,calc(100vh-2rem))] w-[min(96vw,80rem)] max-w-[min(96vw,80rem)] overflow-y-auto sm:max-w-[min(96vw,80rem)]">
+        <DialogContent className="flex max-h-[min(92vh,calc(100vh-2rem))] w-[min(96vw,80rem)] max-w-[min(96vw,80rem)] flex-col gap-0 overflow-hidden p-0 sm:max-w-[min(96vw,80rem)]">
+          <div className="flex-1 space-y-4 overflow-y-auto p-4">
           <DialogHeader>
             <DialogTitle className="sr-only">任务详情</DialogTitle>
             <DialogDescription className="sr-only">查看和编辑任务详情</DialogDescription>
           </DialogHeader>
+
+          {(primaryActionNotice ||
+            (primaryCta.kind === "starting" && backgroundRunLabel) ||
+            testerAcceptanceNotice ||
+            testerAcceptanceError) && (
+            <div className="rounded-lg border border-border/70 bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+              {primaryActionNotice && <p className="text-foreground/90">{primaryActionNotice}</p>}
+              {primaryCta.kind === "starting" && backgroundRunLabel && (
+                <p>{backgroundRunLabel}</p>
+              )}
+              {testerAcceptanceNotice && (
+                <p className="text-emerald-700 dark:text-emerald-300">{testerAcceptanceNotice}</p>
+              )}
+              {testerAcceptanceError && (
+                <p className="text-destructive">{testerAcceptanceError}</p>
+              )}
+            </div>
+          )}
 
           <div className="mb-4 flex flex-wrap items-center gap-2 rounded-lg border border-border/70 bg-background/80 px-4 py-3">
             <span className="text-xs font-medium text-muted-foreground">任务 ID</span>
@@ -1352,6 +1555,23 @@ export function TaskDetailDialog({
               />
             </TabsContent>
           </Tabs>
+          </div>
+
+          {primaryCta.kind !== "none" && (
+            <div className="shrink-0 bg-popover px-4">
+              <TaskPrimaryActionBar
+                primaryCta={primaryCta}
+                automationLabel={
+                  resolvedAutomationState.enabled
+                    ? getTaskAutomationStatusLabel(resolvedAutomationState.status)
+                    : null
+                }
+                loading={primaryActionLoading}
+                onPrimaryAction={() => void handlePrimaryCtaAction()}
+                secondaryActions={primarySecondaryActions}
+              />
+            </div>
+          )}
         </DialogContent>
       </Dialog>
       {deleteDialogOpen && (
@@ -1363,6 +1583,27 @@ export function TaskDetailDialog({
           onConfirm={handleDelete}
         />
       )}
+      <TaskGitCommitDialog
+        open={showCommitDialog}
+        onOpenChange={(nextOpen) => {
+          setShowCommitDialog(nextOpen);
+          if (!nextOpen) {
+            setInitialCommitOverview(null);
+            setInitialCommitError(null);
+          }
+        }}
+        task={task}
+        initialOverview={initialCommitOverview}
+        initialError={initialCommitError}
+        onCommitted={async () => {
+          try {
+            const nextState = await getTaskCommitActionState(task.id);
+            setCommitActionState(nextState);
+          } catch {
+            setCommitActionState(null);
+          }
+        }}
+      />
       <TaskExecutionChangeDetailDialog
         open={executionChangeDetailOpen}
         loading={executionChangeDetailLoading}

@@ -1,1 +1,5 @@
-{"_example": "Fill with {\"file\": \"<path>\", \"reason\": \"<why>\"}. Put spec/research files only — no code paths. Run `python3 .trellis/scripts/get_context.py --mode packages` to list available specs. Delete this line once real entries are added."}
+{"file": ".trellis/spec/frontend/index.md", "reason": "Frontend hard rules: no DB writes, backend wrappers, activity Chinese labels"}
+{"file": ".trellis/spec/frontend/component-guidelines.md", "reason": "Component composition for PrimaryActionBar and banner extraction"}
+{"file": ".trellis/spec/frontend/state-management.md", "reason": "taskStore automationStates single source patterns"}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "build/lint and smoke expectations"}
+{"file": ".trellis/spec/guides/code-reuse-thinking-guide.md", "reason": "Reuse getTaskActionRuntimeState / SshArtifactLimitedNotice before inventing parallel helpers"}
