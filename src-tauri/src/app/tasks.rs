@@ -815,6 +815,8 @@ pub async fn create_task<R: Runtime>(
         due_date,
         blocked_reason: None,
         milestone_id,
+        acceptance_checklist: None,
+        last_acceptance_status: None,
         created_at: now_sqlite(),
         updated_at: now_sqlite(),
     };
@@ -1379,6 +1381,12 @@ pub async fn update_task<R: Runtime>(
             .push_bind_unseparated(milestone_id);
         touched = true;
     }
+    if let Some(acceptance_checklist) = updates.acceptance_checklist {
+        separated.push("acceptance_checklist = ").push_bind_unseparated(
+            acceptance_checklist.and_then(|value| normalize_optional_text(Some(&value))),
+        );
+        touched = true;
+    }
     if let Some((completed_at, time_spent_seconds)) = completion_time_update.clone() {
         separated
             .push("time_spent_seconds = ")
@@ -1574,6 +1582,7 @@ pub async fn update_task_status<R: Runtime>(
             due_date: None,
             blocked_reason: None,
             milestone_id: None,
+            acceptance_checklist: None,
         },
     )
     .await
@@ -1639,6 +1648,7 @@ pub async fn batch_update_tasks<R: Runtime>(
             due_date: None,
             blocked_reason: None,
             milestone_id: None,
+            acceptance_checklist: None,
         };
 
         if payload.clear_assignee == Some(true) {
@@ -1751,6 +1761,711 @@ fn escape_csv(value: &str) -> String {
     } else {
         value.to_string()
     }
+}
+
+// ========== Task domain JSON export / import ==========
+
+use serde::{Deserialize, Serialize};
+
+pub(crate) const TASKS_JSON_FORMAT: &str = "codex-ai.tasks";
+pub(crate) const TASKS_JSON_VERSION: i32 = 1;
+pub(crate) const TASKS_JSON_DEFAULT_LIMIT: i64 = 5000;
+pub(crate) const TASKS_JSON_MAX_LIMIT: i64 = 5000;
+
+const IMPORT_ALLOWED_STATUSES: &[&str] = &[
+    "todo",
+    "in_progress",
+    "review",
+    "completed",
+    "blocked",
+    "archived",
+];
+const IMPORT_ALLOWED_PRIORITIES: &[&str] = &["low", "medium", "high", "urgent"];
+const IMPORT_ALLOWED_SUBTASK_STATUSES: &[&str] =
+    &["todo", "in_progress", "completed", "blocked", "review"];
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub(crate) struct TasksJsonEnvelope {
+    pub format: String,
+    pub version: i32,
+    pub exported_at: String,
+    pub source: TasksJsonSource,
+    pub tasks: Vec<TasksJsonTask>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub(crate) struct TasksJsonSource {
+    #[serde(default)]
+    pub project_id: Option<String>,
+    #[serde(default)]
+    pub environment_mode: Option<String>,
+    pub app: String,
+}
+
+/// Whitelist-only task export shape — never serialize full Task / assignee / SSH fields.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub(crate) struct TasksJsonTask {
+    pub source_id: String,
+    pub title: String,
+    pub status: String,
+    pub priority: String,
+    #[serde(default)]
+    pub description: Option<String>,
+    #[serde(default)]
+    pub due_date: Option<String>,
+    #[serde(default)]
+    pub blocked_reason: Option<String>,
+    #[serde(default)]
+    pub completed_at: Option<String>,
+    #[serde(default)]
+    pub tags: Vec<String>,
+    #[serde(default)]
+    pub subtasks: Vec<TasksJsonSubtask>,
+    #[serde(default)]
+    pub depends_on_source_ids: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub(crate) struct TasksJsonSubtask {
+    pub title: String,
+    #[serde(default = "default_subtask_status")]
+    pub status: String,
+    #[serde(default)]
+    pub sort_order: i32,
+}
+
+fn default_subtask_status() -> String {
+    "todo".to_string()
+}
+
+pub(crate) fn parse_tasks_json_envelope(json: &str) -> Result<TasksJsonEnvelope, String> {
+    let envelope: TasksJsonEnvelope = serde_json::from_str(json)
+        .map_err(|error| format!("任务 JSON 解析失败: {error}"))?;
+    if envelope.format != TASKS_JSON_FORMAT {
+        return Err(format!(
+            "不支持的任务 JSON 格式: {}（期望 {}）",
+            envelope.format, TASKS_JSON_FORMAT
+        ));
+    }
+    if envelope.version != TASKS_JSON_VERSION {
+        return Err(format!(
+            "不支持的任务 JSON 版本: {}（当前仅支持 {}）",
+            envelope.version, TASKS_JSON_VERSION
+        ));
+    }
+    Ok(envelope)
+}
+
+fn normalize_import_status(raw: &str) -> Result<String, String> {
+    let status = raw.trim().to_ascii_lowercase();
+    if IMPORT_ALLOWED_STATUSES.contains(&status.as_str()) {
+        Ok(status)
+    } else {
+        Err(format!("非法任务状态: {raw}"))
+    }
+}
+
+fn normalize_import_priority(raw: &str) -> Result<String, String> {
+    let priority = raw.trim().to_ascii_lowercase();
+    if IMPORT_ALLOWED_PRIORITIES.contains(&priority.as_str()) {
+        Ok(priority)
+    } else {
+        Err(format!("非法任务优先级: {raw}"))
+    }
+}
+
+fn normalize_import_subtask_status(raw: &str) -> Result<String, String> {
+    let status = raw.trim().to_ascii_lowercase();
+    if IMPORT_ALLOWED_SUBTASK_STATUSES.contains(&status.as_str()) {
+        Ok(status)
+    } else {
+        Err(format!("非法子任务状态: {raw}"))
+    }
+}
+
+/// Validate one envelope task for import. Pure — no DB access.
+pub(crate) fn validate_tasks_json_task(
+    task: &TasksJsonTask,
+    index: usize,
+) -> Result<(), String> {
+    let source_id = task.source_id.trim();
+    if source_id.is_empty() {
+        return Err(format!("第 {} 条任务缺少 source_id", index + 1));
+    }
+    if task.title.trim().is_empty() {
+        return Err(format!("第 {} 条任务标题不能为空", index + 1));
+    }
+    normalize_import_status(&task.status)
+        .map_err(|e| format!("第 {} 条任务: {e}", index + 1))?;
+    normalize_import_priority(&task.priority)
+        .map_err(|e| format!("第 {} 条任务: {e}", index + 1))?;
+    for (sub_idx, subtask) in task.subtasks.iter().enumerate() {
+        if subtask.title.trim().is_empty() {
+            return Err(format!(
+                "第 {} 条任务的第 {} 个子任务标题不能为空",
+                index + 1,
+                sub_idx + 1
+            ));
+        }
+        normalize_import_subtask_status(&subtask.status).map_err(|e| {
+            format!(
+                "第 {} 条任务的第 {} 个子任务: {e}",
+                index + 1,
+                sub_idx + 1
+            )
+        })?;
+    }
+    Ok(())
+}
+
+/// Ensure serialized envelope never contains disallowed secret/employee fields.
+/// Matches JSON object keys (key + colon) so free text in titles/descriptions is not blocked.
+pub(crate) fn tasks_json_payload_is_field_safe(json: &str) -> bool {
+    let forbidden_keys = [
+        "\"assignee_id\":",
+        "\"reviewer_id\":",
+        "\"coordinator_id\":",
+        "\"ssh_config\":",
+        "\"ssh_config_id\":",
+        "\"password\":",
+        "\"private_key\":",
+        "\"secret\":",
+        "\"attachments\":",
+        "\"stored_path\":",
+    ];
+    !forbidden_keys.iter().any(|key| json.contains(key))
+}
+
+pub(crate) async fn export_tasks_json_with_pool(
+    pool: &SqlitePool,
+    payload: &crate::db::models::ExportTasksJsonPayload,
+) -> Result<crate::db::models::ExportTasksJsonResult, String> {
+    let environment_mode = payload
+        .environment_mode
+        .as_deref()
+        .map(str::trim)
+        .filter(|v| !v.is_empty());
+    let selected_ssh = payload
+        .selected_ssh_config_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|v| !v.is_empty());
+    let project_id = payload
+        .project_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|v| !v.is_empty());
+    let limit = payload
+        .limit
+        .filter(|v| *v > 0)
+        .unwrap_or(TASKS_JSON_DEFAULT_LIMIT)
+        .clamp(1, TASKS_JSON_MAX_LIMIT);
+
+    let scoped_ids = super::database::resolve_scoped_project_ids_for_stats(
+        pool,
+        environment_mode,
+        selected_ssh,
+        project_id,
+    )
+    .await?;
+
+    let mut tasks_out: Vec<TasksJsonTask> = Vec::new();
+    let mut truncated = false;
+
+    if !scoped_ids.is_empty() {
+        let fetch_limit = limit + 1;
+        let mut builder = QueryBuilder::<Sqlite>::new(
+            r#"
+            SELECT t.id, t.title, t.status, t.priority, t.description, t.due_date,
+                   t.blocked_reason, t.completed_at
+            FROM tasks t
+            INNER JOIN projects p ON p.id = t.project_id
+            WHERE t.deleted_at IS NULL AND p.deleted_at IS NULL AND t.project_id IN (
+            "#,
+        );
+        {
+            let mut separated = builder.separated(", ");
+            for id in &scoped_ids {
+                separated.push_bind(id);
+            }
+        }
+        builder.push(") ORDER BY t.updated_at DESC LIMIT ");
+        builder.push_bind(fetch_limit);
+
+        let rows = builder
+            .build_query_as::<(
+                String,
+                String,
+                String,
+                String,
+                Option<String>,
+                Option<String>,
+                Option<String>,
+                Option<String>,
+            )>()
+            .fetch_all(pool)
+            .await
+            .map_err(|error| format!("导出任务失败: {error}"))?;
+
+        truncated = rows.len() as i64 > limit;
+        let rows: Vec<_> = rows.into_iter().take(limit as usize).collect();
+        let task_ids: Vec<String> = rows.iter().map(|r| r.0.clone()).collect();
+        let id_set: std::collections::HashSet<String> =
+            task_ids.iter().cloned().collect();
+
+        // tags by task
+        let mut tags_by_task: std::collections::HashMap<String, Vec<String>> =
+            std::collections::HashMap::new();
+        if !task_ids.is_empty() {
+            let mut tag_builder = QueryBuilder::<Sqlite>::new(
+                r#"
+                SELECT tt.task_id, tags.name
+                FROM task_tags tt
+                INNER JOIN tags ON tags.id = tt.tag_id
+                WHERE tt.task_id IN (
+                "#,
+            );
+            {
+                let mut separated = tag_builder.separated(", ");
+                for id in &task_ids {
+                    separated.push_bind(id);
+                }
+            }
+            tag_builder.push(") ORDER BY tags.name COLLATE NOCASE");
+            let tag_rows = tag_builder
+                .build_query_as::<(String, String)>()
+                .fetch_all(pool)
+                .await
+                .map_err(|error| format!("导出任务标签失败: {error}"))?;
+            for (task_id, name) in tag_rows {
+                tags_by_task.entry(task_id).or_default().push(name);
+            }
+        }
+
+        // subtasks by task
+        let mut subtasks_by_task: std::collections::HashMap<String, Vec<TasksJsonSubtask>> =
+            std::collections::HashMap::new();
+        if !task_ids.is_empty() {
+            let mut st_builder = QueryBuilder::<Sqlite>::new(
+                r#"
+                SELECT task_id, title, status, sort_order
+                FROM subtasks
+                WHERE task_id IN (
+                "#,
+            );
+            {
+                let mut separated = st_builder.separated(", ");
+                for id in &task_ids {
+                    separated.push_bind(id);
+                }
+            }
+            st_builder.push(") ORDER BY sort_order, created_at");
+            let st_rows = st_builder
+                .build_query_as::<(String, String, String, i32)>()
+                .fetch_all(pool)
+                .await
+                .map_err(|error| format!("导出子任务失败: {error}"))?;
+            for (task_id, title, status, sort_order) in st_rows {
+                subtasks_by_task
+                    .entry(task_id)
+                    .or_default()
+                    .push(TasksJsonSubtask {
+                        title,
+                        status,
+                        sort_order,
+                    });
+            }
+        }
+
+        // deps: only edges whose depends_on is also in export set
+        let mut deps_by_task: std::collections::HashMap<String, Vec<String>> =
+            std::collections::HashMap::new();
+        if !task_ids.is_empty() {
+            let mut dep_builder = QueryBuilder::<Sqlite>::new(
+                r#"
+                SELECT task_id, depends_on_task_id
+                FROM task_dependencies
+                WHERE task_id IN (
+                "#,
+            );
+            {
+                let mut separated = dep_builder.separated(", ");
+                for id in &task_ids {
+                    separated.push_bind(id);
+                }
+            }
+            dep_builder.push(")");
+            let dep_rows = dep_builder
+                .build_query_as::<(String, String)>()
+                .fetch_all(pool)
+                .await
+                .map_err(|error| format!("导出任务依赖失败: {error}"))?;
+            for (task_id, depends_on) in dep_rows {
+                if id_set.contains(&depends_on) {
+                    deps_by_task.entry(task_id).or_default().push(depends_on);
+                }
+            }
+        }
+
+        for row in rows {
+            let id = row.0;
+            tasks_out.push(TasksJsonTask {
+                source_id: id.clone(),
+                title: row.1,
+                status: row.2,
+                priority: row.3,
+                description: row.4,
+                due_date: row.5,
+                blocked_reason: row.6,
+                completed_at: row.7,
+                tags: tags_by_task.remove(&id).unwrap_or_default(),
+                subtasks: subtasks_by_task.remove(&id).unwrap_or_default(),
+                depends_on_source_ids: deps_by_task.remove(&id).unwrap_or_default(),
+            });
+        }
+    }
+
+    let envelope = TasksJsonEnvelope {
+        format: TASKS_JSON_FORMAT.to_string(),
+        version: TASKS_JSON_VERSION,
+        exported_at: Utc::now().to_rfc3339(),
+        source: TasksJsonSource {
+            project_id: project_id.map(|s| s.to_string()),
+            environment_mode: environment_mode.map(|s| s.to_string()),
+            app: "codex-ai".to_string(),
+        },
+        tasks: tasks_out,
+    };
+
+    let json = serde_json::to_string_pretty(&envelope)
+        .map_err(|error| format!("序列化任务 JSON 失败: {error}"))?;
+    if !tasks_json_payload_is_field_safe(&json) {
+        return Err("导出内容包含不允许的敏感字段，已中止".to_string());
+    }
+
+    let task_count = envelope.tasks.len() as i64;
+    insert_activity_log(
+        pool,
+        "tasks_json_exported",
+        &format!(
+            "导出任务 JSON {} 条{}",
+            task_count,
+            if truncated { "（已截断）" } else { "" }
+        ),
+        None,
+        None,
+        project_id,
+    )
+    .await?;
+
+    Ok(crate::db::models::ExportTasksJsonResult {
+        json,
+        task_count,
+        truncated,
+    })
+}
+
+#[tauri::command]
+pub async fn export_tasks_json<R: Runtime>(
+    app: AppHandle<R>,
+    payload: crate::db::models::ExportTasksJsonPayload,
+) -> Result<crate::db::models::ExportTasksJsonResult, String> {
+    let pool = sqlite_pool(&app).await?;
+    export_tasks_json_with_pool(&pool, &payload).await
+}
+
+pub(crate) async fn import_tasks_json_with_pool(
+    pool: &SqlitePool,
+    payload: &crate::db::models::ImportTasksJsonPayload,
+) -> Result<crate::db::models::ImportTasksJsonResult, String> {
+    use crate::db::models::{ImportTaskError, ImportTasksJsonResult};
+
+    let project_id = payload.project_id.trim();
+    if project_id.is_empty() {
+        return Err("目标项目 ID 不能为空".to_string());
+    }
+    ensure_project_exists(pool, project_id).await?;
+
+    let strategy = payload
+        .conflict_strategy
+        .as_deref()
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+        .unwrap_or("create_new");
+    if strategy != "create_new" && strategy != "skip_existing" {
+        return Err(format!(
+            "不支持的冲突策略: {strategy}（支持 create_new / skip_existing）"
+        ));
+    }
+
+    let envelope = parse_tasks_json_envelope(&payload.json)?;
+    if envelope.tasks.len() as i64 > TASKS_JSON_MAX_LIMIT {
+        return Err(format!(
+            "导入任务数量超过上限 {} 条",
+            TASKS_JSON_MAX_LIMIT
+        ));
+    }
+
+    let mut errors: Vec<ImportTaskError> = Vec::new();
+    for (index, task) in envelope.tasks.iter().enumerate() {
+        if let Err(message) = validate_tasks_json_task(task, index) {
+            errors.push(ImportTaskError {
+                index: index as i64,
+                message,
+            });
+        }
+    }
+    // Detect duplicate source_ids inside the package
+    {
+        let mut seen = std::collections::HashSet::new();
+        for (index, task) in envelope.tasks.iter().enumerate() {
+            let sid = task.source_id.trim();
+            if !sid.is_empty() && !seen.insert(sid.to_string()) {
+                errors.push(ImportTaskError {
+                    index: index as i64,
+                    message: format!("第 {} 条任务 source_id 在包内重复: {sid}", index + 1),
+                });
+            }
+        }
+    }
+
+    if !errors.is_empty() {
+        return Ok(ImportTasksJsonResult {
+            created: 0,
+            skipped: 0,
+            failed: errors.len() as i64,
+            errors,
+            task_ids: Vec::new(),
+        });
+    }
+
+    // Pre-resolve which source_ids already exist (for skip_existing)
+    let mut existing_ids: std::collections::HashSet<String> = std::collections::HashSet::new();
+    if strategy == "skip_existing" && !envelope.tasks.is_empty() {
+        let source_ids: Vec<String> = envelope
+            .tasks
+            .iter()
+            .map(|t| t.source_id.trim().to_string())
+            .collect();
+        let mut exist_builder = QueryBuilder::<Sqlite>::new(
+            "SELECT id FROM tasks WHERE deleted_at IS NULL AND id IN (",
+        );
+        {
+            let mut separated = exist_builder.separated(", ");
+            for id in &source_ids {
+                separated.push_bind(id);
+            }
+        }
+        exist_builder.push(")");
+        let found = exist_builder
+            .build_query_scalar::<String>()
+            .fetch_all(pool)
+            .await
+            .map_err(|error| format!("检查已有任务失败: {error}"))?;
+        existing_ids.extend(found);
+    }
+
+    let mut tx = pool
+        .begin()
+        .await
+        .map_err(|error| format!("开始导入事务失败: {error}"))?;
+
+    let mut source_to_new: std::collections::HashMap<String, String> =
+        std::collections::HashMap::new();
+    let mut created = 0_i64;
+    let mut skipped = 0_i64;
+    let mut created_task_ids: Vec<String> = Vec::new();
+    let now = now_sqlite();
+
+    // Cache tags by name for this project
+    let mut tag_id_by_name: std::collections::HashMap<String, String> =
+        std::collections::HashMap::new();
+    {
+        let existing_tags = sqlx::query_as::<_, (String, String)>(
+            "SELECT id, name FROM tags WHERE project_id = $1",
+        )
+        .bind(project_id)
+        .fetch_all(&mut *tx)
+        .await
+        .map_err(|error| format!("加载项目标签失败: {error}"))?;
+        for (id, name) in existing_tags {
+            tag_id_by_name.insert(name, id);
+        }
+    }
+
+    for task in &envelope.tasks {
+        let source_id = task.source_id.trim().to_string();
+        if strategy == "skip_existing" && existing_ids.contains(&source_id) {
+            source_to_new.insert(source_id.clone(), source_id);
+            skipped += 1;
+            continue;
+        }
+
+        let created_task_id = new_id();
+        let status = normalize_import_status(&task.status)?;
+        let priority = normalize_import_priority(&task.priority)?;
+        let title = task.title.trim().to_string();
+        let description = normalize_optional_text(task.description.as_deref());
+        let due_date = normalize_optional_text(task.due_date.as_deref());
+        let blocked_reason = normalize_optional_text(task.blocked_reason.as_deref());
+        let completed_at = normalize_optional_text(task.completed_at.as_deref());
+
+        let record = Task {
+            id: created_task_id.clone(),
+            title: title.clone(),
+            description,
+            status,
+            priority,
+            project_id: project_id.to_string(),
+            use_worktree: false,
+            assignee_id: None,
+            reviewer_id: None,
+            coordinator_id: None,
+            complexity: None,
+            ai_suggestion: None,
+            plan_content: None,
+            automation_mode: None,
+            last_codex_session_id: None,
+            last_review_session_id: None,
+            time_started_at: None,
+            time_spent_seconds: 0,
+            completed_at,
+            deleted_at: None,
+            due_date,
+            blocked_reason,
+            milestone_id: None,
+            created_at: now.clone(),
+            updated_at: now.clone(),
+        };
+        insert_task_record(&mut tx, &record).await?;
+
+        // tags
+        let mut seen_tag_names = std::collections::HashSet::new();
+        for tag_name_raw in &task.tags {
+            let tag_name = tag_name_raw.trim();
+            if tag_name.is_empty() || !seen_tag_names.insert(tag_name.to_string()) {
+                continue;
+            }
+            let tag_id = if let Some(existing) = tag_id_by_name.get(tag_name) {
+                existing.clone()
+            } else {
+                let created_tag_id = new_id();
+                sqlx::query(
+                    "INSERT INTO tags (id, project_id, name, color, created_at) VALUES ($1, $2, $3, $4, $5)",
+                )
+                .bind(&created_tag_id)
+                .bind(project_id)
+                .bind(tag_name)
+                .bind(None::<String>)
+                .bind(&now)
+                .execute(&mut *tx)
+                .await
+                .map_err(|error| format!("创建标签失败: {error}"))?;
+                tag_id_by_name.insert(tag_name.to_string(), created_tag_id.clone());
+                created_tag_id
+            };
+            sqlx::query("INSERT INTO task_tags (task_id, tag_id) VALUES ($1, $2)")
+                .bind(&created_task_id)
+                .bind(&tag_id)
+                .execute(&mut *tx)
+                .await
+                .map_err(|error| format!("关联任务标签失败: {error}"))?;
+        }
+
+        // subtasks
+        for subtask in &task.subtasks {
+            let st_title = subtask.title.trim().to_string();
+            let st_status = normalize_import_subtask_status(&subtask.status)?;
+            let st_id = new_id();
+            sqlx::query(
+                "INSERT INTO subtasks (id, task_id, title, status, sort_order, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7)",
+            )
+            .bind(&st_id)
+            .bind(&created_task_id)
+            .bind(&st_title)
+            .bind(&st_status)
+            .bind(subtask.sort_order)
+            .bind(&now)
+            .bind(&now)
+            .execute(&mut *tx)
+            .await
+            .map_err(|error| format!("创建子任务失败: {error}"))?;
+        }
+
+        source_to_new.insert(source_id, created_task_id.clone());
+        created_task_ids.push(created_task_id);
+        created += 1;
+    }
+
+    // Remap dependencies for created tasks (and skipped endpoints already in map)
+    for task in &envelope.tasks {
+        let source_id = task.source_id.trim();
+        let Some(mapped_task_id) = source_to_new.get(source_id) else {
+            continue;
+        };
+        // Only create deps for newly created tasks (not for skipped source rows)
+        if strategy == "skip_existing" && existing_ids.contains(source_id) {
+            continue;
+        }
+        for dep_source in &task.depends_on_source_ids {
+            let dep_source = dep_source.trim();
+            if dep_source.is_empty() {
+                continue;
+            }
+            let Some(depends_on_id) = source_to_new.get(dep_source) else {
+                // dangling edge — warn only, do not fail
+                continue;
+            };
+            if depends_on_id == mapped_task_id {
+                continue;
+            }
+            let dep_row_id = new_id();
+            let result = sqlx::query(
+                "INSERT OR IGNORE INTO task_dependencies (id, task_id, depends_on_task_id, created_at) VALUES ($1, $2, $3, $4)",
+            )
+            .bind(&dep_row_id)
+            .bind(mapped_task_id)
+            .bind(depends_on_id)
+            .bind(&now)
+            .execute(&mut *tx)
+            .await;
+            if let Err(error) = result {
+                // Unique constraint / self-check — treat as soft warning
+                eprintln!("[import_tasks_json] 跳过依赖边 {source_id} -> {dep_source}: {error}");
+            }
+        }
+    }
+
+    insert_activity_log(
+        &mut *tx,
+        "tasks_json_imported",
+        &format!("导入任务 JSON：新建 {created}，跳过 {skipped}"),
+        None,
+        None,
+        Some(project_id),
+    )
+    .await?;
+
+    tx.commit()
+        .await
+        .map_err(|error| format!("提交导入事务失败: {error}"))?;
+
+    Ok(ImportTasksJsonResult {
+        created,
+        skipped,
+        failed: 0,
+        errors: Vec::new(),
+        task_ids: created_task_ids,
+    })
+}
+
+#[tauri::command]
+pub async fn import_tasks_json<R: Runtime>(
+    app: AppHandle<R>,
+    payload: crate::db::models::ImportTasksJsonPayload,
+) -> Result<crate::db::models::ImportTasksJsonResult, String> {
+    let pool = sqlite_pool(&app).await?;
+    import_tasks_json_with_pool(&pool, &payload).await
 }
 
 #[tauri::command]
@@ -2023,6 +2738,98 @@ mod list_tasks_limit_tests {
             resolve_list_tasks_limit(None, None, Some(5000)),
             Some(LIST_TASKS_MAX_LIMIT)
         );
+    }
+}
+
+#[cfg(test)]
+mod tasks_json_tests {
+    use super::{
+        parse_tasks_json_envelope, tasks_json_payload_is_field_safe, validate_tasks_json_task,
+        TasksJsonEnvelope, TasksJsonSource, TasksJsonSubtask, TasksJsonTask, TASKS_JSON_FORMAT,
+        TASKS_JSON_VERSION,
+    };
+
+    fn sample_envelope() -> TasksJsonEnvelope {
+        TasksJsonEnvelope {
+            format: TASKS_JSON_FORMAT.to_string(),
+            version: TASKS_JSON_VERSION,
+            exported_at: "2026-08-05T12:00:00Z".to_string(),
+            source: TasksJsonSource {
+                project_id: Some("proj-1".to_string()),
+                environment_mode: Some("local".to_string()),
+                app: "codex-ai".to_string(),
+            },
+            tasks: vec![
+                TasksJsonTask {
+                    source_id: "task-a".to_string(),
+                    title: "父任务".to_string(),
+                    status: "todo".to_string(),
+                    priority: "high".to_string(),
+                    description: Some("desc".to_string()),
+                    due_date: None,
+                    blocked_reason: None,
+                    completed_at: None,
+                    tags: vec!["bug".to_string()],
+                    subtasks: vec![TasksJsonSubtask {
+                        title: "子任务".to_string(),
+                        status: "todo".to_string(),
+                        sort_order: 0,
+                    }],
+                    depends_on_source_ids: vec![],
+                },
+                TasksJsonTask {
+                    source_id: "task-b".to_string(),
+                    title: "依赖任务".to_string(),
+                    status: "in_progress".to_string(),
+                    priority: "medium".to_string(),
+                    description: None,
+                    due_date: None,
+                    blocked_reason: None,
+                    completed_at: None,
+                    tags: vec![],
+                    subtasks: vec![],
+                    depends_on_source_ids: vec!["task-a".to_string()],
+                },
+            ],
+        }
+    }
+
+    #[test]
+    fn export_envelope_is_field_safe_without_assignee() {
+        let json = serde_json::to_string_pretty(&sample_envelope()).expect("serialize");
+        assert!(tasks_json_payload_is_field_safe(&json));
+        assert!(!json.contains("assignee"));
+        assert!(!json.contains("ssh_config"));
+        assert!(!json.contains("password"));
+        assert!(json.contains("source_id"));
+        assert!(json.contains("depends_on_source_ids"));
+        assert!(json.contains("subtasks"));
+        assert!(json.contains("tags"));
+    }
+
+    #[test]
+    fn parse_rejects_invalid_format_and_version() {
+        let bad_format = r#"{"format":"other","version":1,"exported_at":"t","source":{"app":"x"},"tasks":[]}"#;
+        let err = parse_tasks_json_envelope(bad_format).expect_err("format");
+        assert!(err.contains("不支持的任务 JSON 格式"));
+
+        let bad_version = r#"{"format":"codex-ai.tasks","version":99,"exported_at":"t","source":{"app":"x"},"tasks":[]}"#;
+        let err = parse_tasks_json_envelope(bad_version).expect_err("version");
+        assert!(err.contains("不支持的任务 JSON 版本"));
+    }
+
+    #[test]
+    fn validate_task_rejects_unknown_status() {
+        let mut task = sample_envelope().tasks.remove(0);
+        task.status = "flying".to_string();
+        let err = validate_tasks_json_task(&task, 0).expect_err("status");
+        assert!(err.contains("非法任务状态"));
+    }
+
+    #[test]
+    fn validate_task_accepts_valid_item() {
+        let task = &sample_envelope().tasks[0];
+        validate_tasks_json_task(task, 0).expect("valid");
     }
 }
 

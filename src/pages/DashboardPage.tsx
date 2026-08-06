@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { Download, Loader2 } from "lucide-react";
+import { useEffect, useRef, useState, type ChangeEvent } from "react";
+import { Download, Loader2, Upload } from "lucide-react";
 
 import { useDashboardStore } from "@/stores/dashboardStore";
 import { useProjectStore } from "@/stores/projectStore";
@@ -9,8 +9,9 @@ import { EmployeePerformanceChart } from "@/components/dashboard/EmployeePerform
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import {
-  exportTasksCsv,
+  exportTasksJson,
   getDashboardReportSummary,
+  importTasksJson,
   type DashboardReportSummary,
 } from "@/lib/backend";
 import { TASK_STATUSES } from "@/lib/types";
@@ -23,7 +24,9 @@ export function DashboardPage() {
   const selectedSshConfigId = useProjectStore((state) => state.selectedSshConfigId);
   const [report, setReport] = useState<DashboardReportSummary | null>(null);
   const [exporting, setExporting] = useState(false);
-  const [exportMessage, setExportMessage] = useState<string | null>(null);
+  const [importing, setImporting] = useState(false);
+  const [ioMessage, setIoMessage] = useState<string | null>(null);
+  const importInputRef = useRef<HTMLInputElement>(null);
   const taskDistribution = stats?.tasksByStatus
     ? TASK_STATUSES.map((status) => ({
         status,
@@ -31,7 +34,11 @@ export function DashboardPage() {
       }))
     : [];
   const maxTaskCount = Math.max(...taskDistribution.map((item) => item.count), 0);
-  const maxWeekly = Math.max(...(report?.weekly_completed.map((p) => p.count) ?? [0]), 0);
+  const maxDaily = Math.max(...(report?.weekly_completed.map((p) => p.count) ?? [0]), 0);
+  const maxWeeklySeries = Math.max(
+    ...(report?.weekly_completed_series?.map((p) => p.count) ?? [0]),
+    0,
+  );
 
   useEffect(() => {
     void fetchStats(environmentMode, selectedSshConfigId, currentProjectId);
@@ -41,51 +48,126 @@ export function DashboardPage() {
     void getDashboardReportSummary({
       projectId: currentProjectId,
       environmentMode,
+      selectedSshConfigId,
     })
       .then(setReport)
       .catch(() => setReport(null));
-  }, [currentProjectId, environmentMode]);
+  }, [currentProjectId, environmentMode, selectedSshConfigId]);
 
-  const handleExportCsv = async () => {
+  const handleExportJson = async () => {
     setExporting(true);
-    setExportMessage(null);
+    setIoMessage(null);
     try {
-      const result = await exportTasksCsv({
+      const result = await exportTasksJson({
         projectId: currentProjectId,
         environmentMode,
+        selectedSshConfigId,
       });
-      const blob = new Blob([result.csv], { type: "text/csv;charset=utf-8" });
+      const blob = new Blob([result.json], { type: "application/json;charset=utf-8" });
       const url = URL.createObjectURL(blob);
       const anchor = document.createElement("a");
       anchor.href = url;
-      anchor.download = `tasks-export-${new Date().toISOString().slice(0, 10)}.csv`;
+      anchor.download = `tasks-export-${new Date().toISOString().slice(0, 10)}.json`;
       anchor.click();
       URL.revokeObjectURL(url);
-      setExportMessage(`已导出 ${result.row_count} 条任务。`);
+      setIoMessage(
+        `已导出 ${result.task_count} 条任务 JSON${result.truncated ? "（已截断至上限）" : ""}。`,
+      );
     } catch (error) {
-      setExportMessage(error instanceof Error ? error.message : String(error));
+      setIoMessage(error instanceof Error ? error.message : String(error));
     } finally {
       setExporting(false);
+    }
+  };
+
+  const handleImportClick = () => {
+    if (!currentProjectId) {
+      setIoMessage("请先选择目标项目，再导入任务 JSON。");
+      return;
+    }
+    importInputRef.current?.click();
+  };
+
+  const handleImportFile = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) {
+      return;
+    }
+    if (!currentProjectId) {
+      setIoMessage("请先选择目标项目，再导入任务 JSON。");
+      return;
+    }
+
+    setImporting(true);
+    setIoMessage(null);
+    try {
+      const text = await file.text();
+      const result = await importTasksJson({
+        projectId: currentProjectId,
+        json: text,
+        conflictStrategy: "create_new",
+      });
+      if (result.failed > 0) {
+        const firstError = result.errors[0]?.message ?? "校验失败";
+        setIoMessage(`导入失败：${firstError}${result.failed > 1 ? ` 等 ${result.failed} 条错误` : ""}`);
+      } else {
+        setIoMessage(
+          `导入完成：新建 ${result.created} 条，跳过 ${result.skipped} 条。`,
+        );
+        void fetchStats(environmentMode, selectedSshConfigId, currentProjectId);
+        void getDashboardReportSummary({
+          projectId: currentProjectId,
+          environmentMode,
+          selectedSshConfigId,
+        })
+          .then(setReport)
+          .catch(() => setReport(null));
+      }
+    } catch (error) {
+      setIoMessage(error instanceof Error ? error.message : String(error));
+    } finally {
+      setImporting(false);
     }
   };
 
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-end gap-2">
+        <input
+          ref={importInputRef}
+          type="file"
+          accept="application/json,.json"
+          className="hidden"
+          onChange={(event) => void handleImportFile(event)}
+        />
         <Button
           variant="outline"
           size="sm"
-          onClick={() => void handleExportCsv()}
-          disabled={exporting}
+          onClick={handleImportClick}
+          disabled={importing || exporting}
+        >
+          {importing ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : (
+            <Upload className="h-4 w-4" />
+          )}
+          导入任务 JSON
+        </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => void handleExportJson()}
+          disabled={exporting || importing}
         >
           {exporting ? (
             <Loader2 className="h-4 w-4 animate-spin" />
           ) : (
             <Download className="h-4 w-4" />
           )}
-          导出任务 CSV
+          导出任务 JSON
         </Button>
-        {exportMessage && <p className="text-[11px] text-muted-foreground">{exportMessage}</p>}
+        {ioMessage && <p className="text-[11px] text-muted-foreground">{ioMessage}</p>}
       </div>
       <DashboardStats />
 
@@ -95,7 +177,8 @@ export function DashboardPage() {
             <h3 className="text-sm font-semibold">增强报表</h3>
             <p className="text-xs text-muted-foreground">
               完成率 {report.completion_rate.toFixed(1)}% · 逾期 {report.overdue_tasks} · 阻塞{" "}
-              {report.blocked_tasks}
+              {report.blocked_tasks} · 老化进行中 {report.aging_in_progress ?? 0}（超过{" "}
+              {report.aging_days ?? 7} 天）
             </p>
           </div>
           <div className="grid gap-4 lg:grid-cols-2">
@@ -103,7 +186,7 @@ export function DashboardPage() {
               <p className="mb-2 text-xs font-medium text-muted-foreground">近 7 日完成趋势</p>
               <div className="flex h-28 items-end gap-2">
                 {report.weekly_completed.map((point) => {
-                  const height = maxWeekly > 0 ? (point.count / maxWeekly) * 100 : 0;
+                  const height = maxDaily > 0 ? (point.count / maxDaily) * 100 : 0;
                   return (
                     <div key={point.label} className="flex flex-1 flex-col items-center gap-1">
                       <span className="text-[10px] font-medium">{point.count}</span>
@@ -120,6 +203,33 @@ export function DashboardPage() {
               </div>
             </div>
             <div>
+              <p className="mb-2 text-xs font-medium text-muted-foreground">近 8 周完成趋势</p>
+              <div className="flex h-28 items-end gap-1.5">
+                {(report.weekly_completed_series ?? []).map((point) => {
+                  const height =
+                    maxWeeklySeries > 0 ? (point.count / maxWeeklySeries) * 100 : 0;
+                  const shortLabel = point.label.includes("-W")
+                    ? point.label.split("-W")[1]
+                    : point.label;
+                  return (
+                    <div key={point.label} className="flex flex-1 flex-col items-center gap-1">
+                      <span className="text-[10px] font-medium">{point.count}</span>
+                      <div className="flex h-20 w-full items-end rounded-sm bg-muted/40 px-0.5">
+                        <div
+                          className="w-full rounded-t bg-emerald-500/80 transition-all"
+                          style={{ height: point.count > 0 ? `${Math.max(height, 8)}%` : "0%" }}
+                          title={point.label}
+                        />
+                      </div>
+                      <span className="text-[10px] text-muted-foreground" title={point.label}>
+                        W{shortLabel}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+            <div className="lg:col-span-2">
               <p className="mb-2 text-xs font-medium text-muted-foreground">
                 成员负载（进行中 vs 已完成）
               </p>

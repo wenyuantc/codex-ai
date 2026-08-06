@@ -1,1 +1,9 @@
 {"_example": "Fill with {\"file\": \"<path>\", \"reason\": \"<why>\"}. Put spec/research files only — no code paths. Run `python3 .trellis/scripts/get_context.py --mode packages` to list available specs. Delete this line once real entries are added."}
+{"file": ".trellis/spec/backend/index.md", "reason": "Backend hard rules and module ownership"}
+{"file": ".trellis/spec/backend/ai-engines.md", "reason": "Engine kernel vs per-engine launch/stream boundaries"}
+{"file": ".trellis/spec/backend/ssh-remote.md", "reason": "SSH mux, build_ssh_command contracts, quit cleanup"}
+{"file": ".trellis/spec/backend/command-guidelines.md", "reason": "Tauri command shape, validation, Chinese errors"}
+{"file": ".trellis/spec/backend/error-handling.md", "reason": "Result String cleanup and launch failure paths"}
+{"file": ".trellis/spec/backend/testing.md", "reason": "Rust unit/integration test patterns"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "UI IPC Rust SSH cross-layer checklist"}
+{"file": ".trellis/spec/frontend/data-access.md", "reason": "Engine client wrappers and invoke boundaries"}

@@ -353,6 +353,11 @@ async fn handle_execution_exit(
         .await;
     }
 
+    // 先测后审：若启用测试员自动化，则先跑验收，通过后再进入 review。
+    if maybe_run_tester_then_review(app, pool, task, state_record, facts).await? {
+        return Ok(());
+    }
+
     let mut next_round_count = state_record.map(|item| item.round_count).unwrap_or(0);
     let mut next_last_error = None;
     let mut next_last_verdict_json = None;
