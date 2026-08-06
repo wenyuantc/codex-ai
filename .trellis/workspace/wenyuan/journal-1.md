@@ -91,6 +91,15 @@
 ### Summary
 
 完成任务详情/卡片同源主 CTA（resolveTaskPrimaryCta + sticky 主路径条），SSH 顶栏 SshTrustBanner 强调审查依据可能不完整；tsc 与 vite build 通过；写入 frontend component 规范；提交 0b4f762。
+## Session 2: OpenCode SSH 远程补齐
+
+**Date**: 2026-08-06
+**Task**: OpenCode SSH 远程补齐
+**Branch**: `feat/opencode-ssh-bridge`
+
+### Summary
+
+规划并实现 OpenCode SSH：对齐 Codex 远程 SDK（远端 Node+bridge 启动/停止、健康检查与安装、one-shot、设置页入口），移除「尚未实现」硬失败；通过 cargo test/clippy 与 npm build，提交 feat(opencode) 后归档任务。
 
 ### Git Commits
 
@@ -103,6 +112,7 @@
 | `ed1972b` | (see git log) |
 | `9d18068` | (see git log) |
 | `0b4f762` | (see git log) |
+| `a5f5019` | (see git log) |
 
 ### Status
 

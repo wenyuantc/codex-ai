@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 9 | 2026-08-06 | OpenCode SSH 远程补齐 | `a5f5019` | `feat/opencode-ssh-bridge` |
 | 8 | 2026-08-06 | MCP 任务级深度绑定 | `3f81008` | `feat/mcp-task-binding` |
 | 7 | 2026-08-06 | 引擎能力对齐与会话日志体验 | `a1bcc62` | `feat/engine-capability-parity` |
 | 6 | 2026-08-06 | 协调员编排可视化 | `8d89575` | `feat/coordinator-pipeline-viz` |
@@ -46,3 +47,4 @@
 - Sessions are appended to journal files
 - New journal file created when current exceeds 2000 lines
 - Use `add_session.py` to record sessions
+
