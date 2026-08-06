@@ -1,0 +1,73 @@
+import { describe, it, expect } from "vitest";
+
+import { formatDuration, getActivityActionLabel, isTaskOverdue } from "@/lib/utils";
+
+describe("getActivityActionLabel", () => {
+  it("maps known backend action keys to Chinese labels", () => {
+    // Sampled across eras/domains: task lifecycle, automation, SSH, remote engine runtime.
+    expect(getActivityActionLabel("task_created")).toBe("创建任务");
+    expect(getActivityActionLabel("task_automation_completed")).toBe("自动质控闭环完成");
+    expect(getActivityActionLabel("ssh_config_created")).toBe("新增SSH配置");
+    expect(getActivityActionLabel("remote_opencode_validated")).toBe("远程校验 OpenCode");
+    expect(getActivityActionLabel("session_events_purged")).toBe("清理会话事件");
+  });
+
+  it("falls back to the raw key for unmapped actions", () => {
+    // The dashboard renders this return value directly, so an unmapped key is
+    // visible as snake_case rather than crashing — regression guard for the
+    // historical "missing Chinese label" bug.
+    expect(getActivityActionLabel("brand_new_action_key")).toBe("brand_new_action_key");
+  });
+
+  it("does not treat an empty action as a mapped label", () => {
+    expect(getActivityActionLabel("")).toBe("");
+  });
+});
+
+describe("isTaskOverdue", () => {
+  const today = "2026-08-06";
+
+  it("marks a task past its due date as overdue", () => {
+    expect(isTaskOverdue({ due_date: "2026-08-05", status: "in_progress" }, today)).toBe(true);
+  });
+
+  it("does not mark the due date itself as overdue", () => {
+    expect(isTaskOverdue({ due_date: "2026-08-06", status: "in_progress" }, today)).toBe(false);
+  });
+
+  it("ignores completed and archived tasks regardless of due date", () => {
+    expect(isTaskOverdue({ due_date: "2020-01-01", status: "completed" }, today)).toBe(false);
+    expect(isTaskOverdue({ due_date: "2020-01-01", status: "archived" }, today)).toBe(false);
+  });
+
+  it("treats a missing due date as not overdue", () => {
+    expect(isTaskOverdue({ due_date: null, status: "todo" }, today)).toBe(false);
+  });
+
+  it("accepts a datetime due_date and compares only the date part", () => {
+    expect(isTaskOverdue({ due_date: "2026-08-05 23:59:59", status: "todo" }, today)).toBe(true);
+  });
+});
+
+describe("formatDuration", () => {
+  it("formats sub-minute durations in seconds", () => {
+    expect(formatDuration(0)).toBe("0秒");
+    expect(formatDuration(45)).toBe("45秒");
+  });
+
+  it("drops the seconds part on an exact minute", () => {
+    expect(formatDuration(60)).toBe("1分钟");
+    expect(formatDuration(90)).toBe("1分钟30秒");
+  });
+
+  it("drops the seconds part entirely once hours are present", () => {
+    expect(formatDuration(3600)).toBe("1小时");
+    expect(formatDuration(3661)).toBe("1小时1分钟");
+  });
+
+  it("clamps nullish and negative input to zero", () => {
+    expect(formatDuration(null)).toBe("0秒");
+    expect(formatDuration(undefined)).toBe("0秒");
+    expect(formatDuration(-30)).toBe("0秒");
+  });
+});

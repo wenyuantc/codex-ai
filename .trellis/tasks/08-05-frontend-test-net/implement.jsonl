@@ -1,1 +1,6 @@
-{"_example": "Fill with {\"file\": \"<path>\", \"reason\": \"<why>\"}. Put spec/research files only — no code paths. Run `python3 .trellis/scripts/get_context.py --mode packages` to list available specs. Delete this line once real entries are added."}
+{"file": ".trellis/spec/frontend/index.md", "reason": "Frontend hard rules and module ownership"}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "Verification commands this task must extend and satisfy"}
+{"file": ".trellis/spec/frontend/state-management.md", "reason": "Zustand store conventions — the extraction must not violate them"}
+{"file": ".trellis/spec/frontend/type-safety.md", "reason": "Strict TS rules that test files under src/ must satisfy under tsc"}
+{"file": ".trellis/spec/frontend/data-access.md", "reason": "Boundary rule: tests must not pull invoke/backend wrappers"}
+{"file": ".trellis/spec/guides/code-reuse-thinking-guide.md", "reason": "Extracting shared pure helpers instead of duplicating filter logic"}

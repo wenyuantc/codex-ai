@@ -69,32 +69,32 @@ function normalizeDateToTimestamp(date: string | undefined, endOfDay: boolean) {
   return Number.isNaN(parsed.getTime()) ? null : parsed.getTime();
 }
 
-function isInvalidDateRange(filters: ActivityFilters) {
+export function isInvalidDateRange(filters: ActivityFilters) {
   const startTimestamp = normalizeDateToTimestamp(filters.startDate, false);
   const endTimestamp = normalizeDateToTimestamp(filters.endDate, true);
 
   return startTimestamp !== null && endTimestamp !== null && startTimestamp > endTimestamp;
 }
 
-function getKeywordMatchedActions(keyword: string, availableActions: string[]) {
+export function getKeywordMatchedActions(keyword: string, availableActions: string[]) {
   return availableActions.filter((action) =>
     normalizeSearchText(getActivityActionLabel(action)).includes(keyword),
   );
 }
 
-function getKeywordMatchedStatuses(keyword: string) {
+export function getKeywordMatchedStatuses(keyword: string) {
   return TASK_STATUSES.filter((status) =>
     normalizeSearchText(getStatusLabel(status.value)).includes(keyword),
   ).map((status) => status.value);
 }
 
-function getAvailableActivityActions(actions: string[]) {
+export function getAvailableActivityActions(actions: string[]) {
   return Array.from(new Set(actions)).sort((left, right) =>
     getActivityActionLabel(left).localeCompare(getActivityActionLabel(right), "zh-CN"),
   );
 }
 
-function buildActivityScopeInput(
+export function buildActivityScopeInput(
   environmentMode: EnvironmentMode,
   selectedSshConfigId?: string | null,
   filters: ActivityFilters = {},

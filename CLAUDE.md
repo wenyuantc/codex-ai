@@ -15,7 +15,7 @@ npm run tauri:dev
 npm run build
 
 # Lint / format
-npm run lint              # ESLint (src + vite.config)
+npm run lint              # ESLint (src + vite.config + vitest.config)
 npm run lint:fix         # ESLint auto-fix
 npm run format            # Prettier write
 npm run format:check      # Prettier check
@@ -24,11 +24,16 @@ npm run lint:rust         # cargo clippy -D warnings
 # Bump app version across package.json / Cargo.toml / tauri.conf.json
 npm run bump-version
 
-# Rust backend tests (only test suite in the project)
+# Frontend tests (Vitest, node env, pure functions only)
+npm test                  # watch mode
+npm run test:ci           # single run — required locally before commit
+
+# Rust backend tests
 cargo test --manifest-path src-tauri/Cargo.toml
 
 # Run a single test
 cargo test --manifest-path src-tauri/Cargo.toml <test_name>
+npm run test:ci -- <file-or-name-pattern>
 
 # Desktop packaging
 npm run tauri:dmg:no-sign  # macOS (unsigned)
@@ -36,7 +41,7 @@ npm run tauri:linux        # Linux (AppImage/deb/rpm)
 npm run tauri:windows      # Windows (NSIS/MSI)
 ```
 
-Lint gate: ESLint + Prettier + `cargo clippy --all-targets -- -D warnings` (also CI via `.github/workflows/lint.yml`).
+Lint gate: ESLint + Prettier + `npm run test:ci` + `cargo clippy --all-targets -- -D warnings` (also CI via `.github/workflows/lint.yml`).
 
 ## Architecture
 

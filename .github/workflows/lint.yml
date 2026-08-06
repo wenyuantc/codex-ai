@@ -31,6 +31,9 @@ jobs:
       - name: Prettier check
         run: npm run format:check
 
+      - name: Unit tests
+        run: npm run test:ci
+
       - name: Typecheck + production build
         run: npm run build
 

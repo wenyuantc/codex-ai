@@ -87,7 +87,7 @@ async function recordSshHostSelection(sshConfig: SshConfig) {
   }
 }
 
-function resolveSelectedSshConfigId(
+export function resolveSelectedSshConfigId(
   sshConfigs: SshConfig[],
   selectedSshConfigId: string | null,
   currentProject: Project | null,

@@ -142,6 +142,17 @@ function releaseCodexSessionListeners() {
   codexSessionListenersInitPromise = null;
 }
 
+/**
+ * Keep only rows whose project is currently visible (the project store is already
+ * scoped by environment mode / SSH host). Shared by the active and trashed lists.
+ */
+export function filterTasksByVisibleProjects<T extends { project_id: string }>(
+  rows: T[],
+  visibleProjectIds: Set<string>,
+): T[] {
+  return rows.filter((row) => visibleProjectIds.has(row.project_id));
+}
+
 export const useTaskStore = create<TaskStore>((set, get) => ({
   tasks: [],
   attachments: {},
@@ -159,7 +170,7 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
       const visibleProjectIds = new Set(
         useProjectStore.getState().projects.map((project) => project.id),
       );
-      const tasks = rawTasks.filter((task) => visibleProjectIds.has(task.project_id));
+      const tasks = filterTasksByVisibleProjects(rawTasks, visibleProjectIds);
       // Fetch for all active tasks so pipeline_active is visible even without auto-QC.
       const automationEntries = await Promise.all(
         tasks.map(async (task) => {
@@ -339,7 +350,7 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
       const tasks = await listTrashedTasksCommand();
       const visibleProjectIds = new Set(useProjectStore.getState().projects.map((p) => p.id));
       set({
-        trashedTasks: tasks.filter((task) => visibleProjectIds.has(task.project_id)),
+        trashedTasks: filterTasksByVisibleProjects(tasks, visibleProjectIds),
       });
     } catch (error) {
       console.error("Failed to fetch trashed tasks:", error);
