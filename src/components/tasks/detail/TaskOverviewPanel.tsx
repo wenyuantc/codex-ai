@@ -10,7 +10,13 @@ import {
   X,
 } from "lucide-react";
 
-import type { Employee, Task, TaskStatus } from "@/lib/types";
+import type {
+  Employee,
+  Task,
+  TaskAutomationState,
+  TaskPipelineStep,
+  TaskStatus,
+} from "@/lib/types";
 import { ACTIVE_TASK_STATUSES, PRIORITIES, TASK_STATUSES } from "@/lib/types";
 import { formatDate, formatDuration, getTaskElapsedSeconds } from "@/lib/utils";
 import { useSharedNow } from "@/hooks/useSharedNow";
@@ -24,6 +30,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { TaskDeliverySection } from "./TaskDeliverySection";
+import { TaskPipelineProgress } from "./TaskPipelineProgress";
 
 const UNASSIGNED_VALUE = "__unassigned__";
 const MonacoMarkdownEditor = lazy(() =>
@@ -65,6 +72,15 @@ interface TaskOverviewPanelProps {
   testerAcceptanceLoading?: boolean;
   testerAcceptanceError?: string | null;
   testerAcceptanceNotice?: string | null;
+  pipelineSteps?: TaskPipelineStep[];
+  pipelineAutomation?: Pick<
+    TaskAutomationState,
+    "pipeline_active" | "pipeline_step_index" | "phase"
+  > | null;
+  pipelineLoading?: boolean;
+  pipelineError?: string | null;
+  onRefreshPipeline?: () => void;
+  onOpenPipelineStepSession?: (step: TaskPipelineStep) => void;
   onTitleChange: (value: string) => void;
   onTitleBlur: () => void;
   onDescriptionChange: (value: string) => void;
@@ -132,6 +148,12 @@ export function TaskOverviewPanel({
   testerAcceptanceLoading = false,
   testerAcceptanceError = null,
   testerAcceptanceNotice = null,
+  pipelineSteps = [],
+  pipelineAutomation = null,
+  pipelineLoading = false,
+  pipelineError = null,
+  onRefreshPipeline,
+  onOpenPipelineStepSession,
   onTitleChange,
   onTitleBlur,
   onDescriptionChange,
@@ -403,7 +425,19 @@ export function TaskOverviewPanel({
         onError={onDeliveryError}
       />
 
-      {coordinatorId && onOpenCoordinatorPlan && (
+      {(pipelineSteps.length > 0 || pipelineLoading) && (
+        <TaskPipelineProgress
+          steps={pipelineSteps}
+          automation={pipelineAutomation}
+          employees={employees}
+          loading={pipelineLoading}
+          error={pipelineError}
+          onRefresh={onRefreshPipeline}
+          onOpenStepSession={onOpenPipelineStepSession}
+        />
+      )}
+
+      {(coordinatorId || pipelineSteps.length > 0) && onOpenCoordinatorPlan && (
         <section className="rounded-md border border-border bg-muted/20 p-3">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div className="space-y-1">
@@ -414,10 +448,11 @@ export function TaskOverviewPanel({
               <p className="text-[11px] text-muted-foreground">
                 {coordinatorName
                   ? `由 ${coordinatorName} 生成执行计划，确认后交给指派员工执行。`
-                  : "已指定协调员。可生成或查看协调员执行计划。"}
+                  : "可生成或查看协调员执行计划与编排操作。"}
                 {planContent.trim()
                   ? " 任务中已保存一份计划内容。"
                   : " 当前还没有保存的协调员计划。"}
+                {pipelineSteps.length > 0 ? " 完整重试/转人工/改执行人请在编排面板中操作。" : ""}
               </p>
             </div>
             <button
@@ -426,7 +461,11 @@ export function TaskOverviewPanel({
               className="inline-flex h-8 items-center gap-1.5 rounded-md border border-input bg-background px-3 text-xs font-medium hover:bg-accent"
             >
               <Network className="h-3.5 w-3.5" />
-              {planContent.trim() ? "查看协调员计划" : "生成协调员计划"}
+              {pipelineSteps.length > 0
+                ? "打开编排面板"
+                : planContent.trim()
+                  ? "查看协调员计划"
+                  : "生成协调员计划"}
             </button>
           </div>
         </section>

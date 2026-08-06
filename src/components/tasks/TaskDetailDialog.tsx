@@ -39,7 +39,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { buildTaskExecutionInput } from "@/lib/taskPrompt";
 import { dedupePaths, isTauriRuntime, normalizeDialogSelection } from "@/lib/taskAttachments";
-import { startCodex } from "@/lib/codex";
+import { onTaskAutomationStateChanged, startCodex } from "@/lib/codex";
 import { startClaude } from "@/lib/claude";
 import { startGrok } from "@/lib/grok";
 import { startOpenCode } from "@/lib/opencode";
@@ -51,6 +51,7 @@ import {
   getTaskAutomationDisplayState,
   getTaskAutomationStatusLabel,
 } from "@/lib/utils";
+import { SessionLogDialog } from "@/components/sessions/SessionLogDialog";
 import { DeleteTaskDialog } from "./DeleteTaskDialog";
 import { InsertPlanConfirmDialog } from "./InsertPlanConfirmDialog";
 import { ReviewFixConfirmDialog } from "./ReviewFixConfirmDialog";
@@ -168,12 +169,18 @@ export function TaskDetailDialog({
   const [coordinatorPlanError, setCoordinatorPlanError] = useState<string | null>(null);
   const [coordinatorPlanLogs, setCoordinatorPlanLogs] = useState<string[]>([]);
   const [coordinatorPlanTerminalVisible, setCoordinatorPlanTerminalVisible] = useState(false);
+  const [pipelineStepLogTarget, setPipelineStepLogTarget] = useState<{
+    sessionRecordId: string;
+    stepTitle: string;
+    employeeName: string | null;
+  } | null>(null);
   const [testerAcceptanceLoading, setTesterAcceptanceLoading] = useState(false);
   const [testerAcceptanceError, setTesterAcceptanceError] = useState<string | null>(null);
   const [testerAcceptanceNotice, setTesterAcceptanceNotice] = useState<string | null>(null);
   const [detailTab, setDetailTab] = useState("overview");
   const latestReviewRequestIdRef = useRef(0);
   const executionChangeDetailRequestIdRef = useRef(0);
+  const pipelineStepsRequestIdRef = useRef(0);
   const taskIdCopyResetTimerRef = useRef<number | null>(null);
   const executionStartErrorRef = useRef<string | null>(null);
   const terminalRef = useRef<HTMLDivElement>(null);
@@ -305,6 +312,29 @@ export function TaskDetailDialog({
       fetchEmployees();
       void fetchAttachments(task.id);
       void fetchTaskAutomationState(task.id);
+      setPipelineLoading(true);
+      setPipelineError(null);
+      setPipelineNotice(null);
+      setPipelineSteps([]);
+      const pipelineRequestId = ++pipelineStepsRequestIdRef.current;
+      void listTaskPipelineSteps(task.id)
+        .then((steps) => {
+          if (pipelineStepsRequestIdRef.current !== pipelineRequestId) {
+            return;
+          }
+          setPipelineSteps(steps);
+        })
+        .catch((error) => {
+          if (pipelineStepsRequestIdRef.current !== pipelineRequestId) {
+            return;
+          }
+          setPipelineError(error instanceof Error ? error.message : String(error));
+        })
+        .finally(() => {
+          if (pipelineStepsRequestIdRef.current === pipelineRequestId) {
+            setPipelineLoading(false);
+          }
+        });
       setTitle(task.title);
       setDescription(task.description ?? "");
       setPriority(task.priority);
@@ -324,13 +354,49 @@ export function TaskDetailDialog({
       void loadLatestReview();
       void loadExecutionChangeHistory();
     }
-  }, [fetchAttachments, fetchEmployees, open, task]);
+  }, [fetchAttachments, fetchEmployees, open, task, fetchTaskAutomationState]);
 
   useEffect(() => {
     if (!open) {
       setDeleteDialogOpen(false);
+      setPipelineStepLogTarget(null);
+      return;
     }
-  }, [open]);
+
+    let active = true;
+    let unlisten: (() => void) | null = null;
+    void onTaskAutomationStateChanged((event) => {
+      if (!active || event.task_id !== task.id) {
+        return;
+      }
+      const pipelineRequestId = ++pipelineStepsRequestIdRef.current;
+      void listTaskPipelineSteps(task.id)
+        .then((steps) => {
+          if (!active || pipelineStepsRequestIdRef.current !== pipelineRequestId) {
+            return;
+          }
+          setPipelineSteps(steps);
+        })
+        .catch((error) => {
+          if (!active || pipelineStepsRequestIdRef.current !== pipelineRequestId) {
+            return;
+          }
+          setPipelineError(error instanceof Error ? error.message : String(error));
+        });
+      void fetchTaskAutomationState(task.id);
+    }).then((fn) => {
+      if (!active) {
+        fn();
+        return;
+      }
+      unlisten = fn;
+    });
+
+    return () => {
+      active = false;
+      unlisten?.();
+    };
+  }, [open, task.id, fetchTaskAutomationState]);
 
   useEffect(() => {
     return () => {
@@ -615,15 +681,24 @@ export function TaskDetailDialog({
   };
 
   const refreshPipelineSteps = async () => {
+    const pipelineRequestId = ++pipelineStepsRequestIdRef.current;
     setPipelineLoading(true);
     setPipelineError(null);
     try {
       const steps = await listTaskPipelineSteps(task.id);
+      if (pipelineStepsRequestIdRef.current !== pipelineRequestId) {
+        return;
+      }
       setPipelineSteps(steps);
     } catch (error) {
+      if (pipelineStepsRequestIdRef.current !== pipelineRequestId) {
+        return;
+      }
       setPipelineError(error instanceof Error ? error.message : String(error));
     } finally {
-      setPipelineLoading(false);
+      if (pipelineStepsRequestIdRef.current === pipelineRequestId) {
+        setPipelineLoading(false);
+      }
     }
   };
 
@@ -1212,6 +1287,22 @@ export function TaskDetailDialog({
                 testerAcceptanceLoading={testerAcceptanceLoading}
                 testerAcceptanceError={testerAcceptanceError}
                 testerAcceptanceNotice={testerAcceptanceNotice}
+                pipelineSteps={pipelineSteps}
+                pipelineAutomation={persistedAutomationState ?? null}
+                pipelineLoading={pipelineLoading}
+                pipelineError={pipelineError}
+                onRefreshPipeline={() => void refreshPipelineSteps()}
+                onOpenPipelineStepSession={(step) => {
+                  if (!step.session_id) {
+                    return;
+                  }
+                  const stepEmployee = employees.find((item) => item.id === step.employee_id);
+                  setPipelineStepLogTarget({
+                    sessionRecordId: step.session_id,
+                    stepTitle: step.title,
+                    employeeName: stepEmployee?.name ?? null,
+                  });
+                }}
                 onTitleChange={setTitle}
                 onTitleBlur={() => void handleSave("title", title)}
                 onDescriptionChange={setDescription}
@@ -1419,6 +1510,7 @@ export function TaskDetailDialog({
         terminalLogs={coordinatorPlanLogs}
         terminalVisible={coordinatorPlanTerminalVisible}
         pipelineSteps={pipelineSteps}
+        pipelineAutomation={persistedAutomationState ?? null}
         pipelineLoading={pipelineLoading}
         pipelineActionLoading={pipelineActionLoading}
         pipelineError={pipelineError}
@@ -1439,6 +1531,28 @@ export function TaskDetailDialog({
         onSave={() => void handleSaveCoordinatorPlan()}
         onToggleTerminal={() => setCoordinatorPlanTerminalVisible((visible) => !visible)}
         onClearTerminal={() => setCoordinatorPlanLogs([])}
+      />
+      <SessionLogDialog
+        open={pipelineStepLogTarget !== null}
+        session={
+          pipelineStepLogTarget
+            ? {
+                sessionRecordId: pipelineStepLogTarget.sessionRecordId,
+                sessionId: pipelineStepLogTarget.sessionRecordId,
+                displayName: `步骤：${pipelineStepLogTarget.stepTitle}`,
+                employeeId: null,
+                employeeName: pipelineStepLogTarget.employeeName,
+                taskId: task.id,
+                taskTitle: title.trim() || task.title,
+                sessionKind: "execution",
+              }
+            : null
+        }
+        onOpenChange={(nextOpen) => {
+          if (!nextOpen) {
+            setPipelineStepLogTarget(null);
+          }
+        }}
       />
       {reviewFixDialogOpen && assignee && (
         <ReviewFixConfirmDialog

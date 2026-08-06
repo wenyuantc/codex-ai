@@ -36,6 +36,8 @@ import {
   getTaskAutomationStatusLabel,
   isTaskOverdue,
 } from "@/lib/utils";
+import { getPipelineKanbanBadgeLabel } from "@/lib/pipelineUi";
+import { onTaskAutomationStateChanged } from "@/lib/codex";
 import { countStageableGitFiles } from "@/lib/gitWorkingTree";
 import { buildTaskExecutionInput } from "@/lib/taskPrompt";
 import {
@@ -283,6 +285,7 @@ function TaskCardComponent({
   });
   const isRunning = runtimeState.executionActive;
   const isReviewRunning = runtimeState.reviewActive;
+  const pipelineKanbanBadge = getPipelineKanbanBadgeLabel(persistedAutomationState ?? null);
   const hasActivePipelineStep = pipelineSteps.some(
     (step) => step.status === "launching" || step.status === "running",
   );
@@ -462,6 +465,43 @@ function TaskCardComponent({
       void fetchTaskAutomationState(task.id);
     }
   }, [fetchTaskAutomationState, persistedAutomationState, task.id]);
+
+  useEffect(() => {
+    if (isOverlay || !coordinatorPlanDialogOpen) {
+      return;
+    }
+
+    let active = true;
+    let unlisten: (() => void) | null = null;
+    void onTaskAutomationStateChanged((event) => {
+      if (!active || event.task_id !== task.id) {
+        return;
+      }
+      void listTaskPipelineSteps(task.id)
+        .then((steps) => {
+          if (active) {
+            setPipelineSteps(steps);
+          }
+        })
+        .catch((error) => {
+          if (active) {
+            setPipelineError(error instanceof Error ? error.message : String(error));
+          }
+        });
+      void fetchTaskAutomationState(task.id);
+    }).then((fn) => {
+      if (!active) {
+        fn();
+        return;
+      }
+      unlisten = fn;
+    });
+
+    return () => {
+      active = false;
+      unlisten?.();
+    };
+  }, [isOverlay, coordinatorPlanDialogOpen, task.id, fetchTaskAutomationState]);
 
   const handleRun = async (e?: React.MouseEvent) => {
     e?.stopPropagation();
@@ -1044,7 +1084,25 @@ function TaskCardComponent({
                   <span className="truncate">{aiCommitLabel}</span>
                 </span>
               )}
-              {task.coordinator_id && !isBackgroundPlanning && (
+              {pipelineKanbanBadge && !isBackgroundPlanning && (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    void openCoordinatorPlanFlow();
+                  }}
+                  className={`inline-flex max-w-full items-center gap-1 rounded-full px-2 py-0.5 text-[11px] ${
+                    persistedAutomationState?.phase === "pipeline_step_failed"
+                      ? "bg-destructive/10 text-destructive hover:bg-destructive/15"
+                      : "bg-violet-500/10 text-violet-700 hover:bg-violet-500/15 dark:text-violet-200"
+                  }`}
+                  title="打开编排面板查看阶段进度"
+                >
+                  <GitBranch className="h-3 w-3 shrink-0" />
+                  <span className="truncate">{pipelineKanbanBadge}</span>
+                </button>
+              )}
+              {task.coordinator_id && !isBackgroundPlanning && !pipelineKanbanBadge && (
                 <button
                   type="button"
                   onClick={(e) => {
@@ -1525,6 +1583,7 @@ function TaskCardComponent({
           terminalLogs={coordinatorPlanLogs}
           terminalVisible={coordinatorPlanTerminalVisible}
           pipelineSteps={pipelineSteps}
+          pipelineAutomation={persistedAutomationState ?? null}
           pipelineLoading={pipelineLoading}
           pipelineActionLoading={pipelineActionLoading}
           pipelineError={pipelineError}
