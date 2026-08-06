@@ -192,7 +192,6 @@ export function TaskOverviewPanel({
           <span className="shrink-0 whitespace-nowrap text-xs text-muted-foreground">状态</span>
           <Select
             value={status}
-            disabled={status === "archived"}
             onValueChange={(value) => value && onStatusChange(value as TaskStatus)}
           >
             <SelectTrigger className="h-7 w-[104px] shrink-0 rounded-md px-2 text-xs">
@@ -205,6 +204,13 @@ export function TaskOverviewPanel({
               </SelectValue>
             </SelectTrigger>
             <SelectContent>
+              {/* Archived: allow picking an active status to unarchive. Keep current archived
+                  item so the controlled value stays valid while still showing 已归档. */}
+              {status === "archived" && (
+                <SelectItem value="archived" disabled>
+                  已归档
+                </SelectItem>
+              )}
               {ACTIVE_TASK_STATUSES.map((item) => (
                 <SelectItem key={item.value} value={item.value}>
                   {item.label}

@@ -91,6 +91,12 @@ interface TaskCardProps {
   onToggleSelected?: (taskId: string) => void;
   gitContext?: TaskGitContext | null;
   projectBranches?: string[];
+  /** Board-level tags to avoid per-card listTaskTags N+1. */
+  tags?: Tag[];
+  /** Board-level milestone name for badge display. */
+  milestoneName?: string | null;
+  /** Notify board/page after tags change (detail edit) so filters stay correct. */
+  onTaskTagsChange?: (taskId: string, tagIds: string[]) => void;
   onOpenLog?: (taskId: string, sessionKind?: CodexSessionKind) => void;
   onGitActionCompleted?: (projectId: string, message: string) => Promise<void> | void;
 }
@@ -148,6 +154,9 @@ function TaskCardComponent({
   onToggleSelected,
   gitContext = null,
   projectBranches = [],
+  tags: tagsFromBoard,
+  milestoneName = null,
+  onTaskTagsChange,
   onOpenLog,
   onGitActionCompleted,
 }: TaskCardProps) {
@@ -372,11 +381,20 @@ function TaskCardComponent({
   const overdue = isTaskOverdue(task);
 
   useEffect(() => {
+    if (tagsFromBoard !== undefined) {
+      setTaskTags(tagsFromBoard);
+    }
+  }, [tagsFromBoard]);
+
+  useEffect(() => {
     if (isOverlay) {
       return;
     }
     let cancelled = false;
-    void Promise.all([listTaskTags(task.id), listTaskDependencies(task.id)])
+    // Prefer board-level tags when provided; only fetch tags as fallback.
+    const tagsPromise =
+      tagsFromBoard !== undefined ? Promise.resolve(tagsFromBoard) : listTaskTags(task.id);
+    void Promise.all([tagsPromise, listTaskDependencies(task.id)])
       .then(([tags, deps]: [Tag[], TaskDependency[]]) => {
         if (cancelled) {
           return;
@@ -386,14 +404,33 @@ function TaskCardComponent({
       })
       .catch(() => {
         if (!cancelled) {
-          setTaskTags([]);
+          if (tagsFromBoard === undefined) {
+            setTaskTags([]);
+          }
           setDependencyCount(0);
         }
       });
     return () => {
       cancelled = true;
     };
-  }, [isOverlay, task.id, task.updated_at]);
+  }, [isOverlay, task.id, task.updated_at, tagsFromBoard]);
+
+  const refreshDeliveryBadges = async () => {
+    try {
+      const [nextTags, deps] = await Promise.all([
+        listTaskTags(task.id),
+        listTaskDependencies(task.id),
+      ]);
+      setTaskTags(nextTags);
+      setDependencyCount(deps.length);
+      onTaskTagsChange?.(
+        task.id,
+        nextTags.map((tag) => tag.id),
+      );
+    } catch (error) {
+      console.error("Failed to refresh task delivery badges:", error);
+    }
+  };
 
   useEffect(() => {
     if (isOverlay) {
@@ -1077,6 +1114,14 @@ function TaskCardComponent({
                   {overdue ? "逾期" : "截止"}·{formatDate(task.due_date)}
                 </span>
               )}
+              {task.milestone_id && milestoneName && (
+                <span
+                  className="inline-flex max-w-[120px] items-center gap-1 truncate rounded-full bg-violet-500/10 px-2 py-0.5 text-[11px] text-violet-700 dark:text-violet-200"
+                  title={`里程碑：${milestoneName}`}
+                >
+                  里程碑·{milestoneName}
+                </span>
+              )}
               {taskTags.slice(0, 3).map((tag) => (
                 <span
                   key={tag.id}
@@ -1215,7 +1260,12 @@ function TaskCardComponent({
           <TaskDetailDialog
             task={task}
             open={showDetail}
-            onOpenChange={setShowDetail}
+            onOpenChange={(nextOpen) => {
+              setShowDetail(nextOpen);
+              if (!nextOpen) {
+                void refreshDeliveryBadges();
+              }
+            }}
             automationState={automationState}
           />
         </ErrorBoundary>

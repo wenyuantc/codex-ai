@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -16,10 +16,13 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { ErrorBoundary } from "@/components/ErrorBoundary";
+import { TaskDetailDialog } from "@/components/tasks/TaskDetailDialog";
 import { listTasks } from "@/lib/backend";
 import type { Task } from "@/lib/types";
 import { formatDate, getPriorityLabel, parseDateValue } from "@/lib/utils";
 import { useProjectStore } from "@/stores/projectStore";
+import { useTaskStore } from "@/stores/taskStore";
 
 const ALL_PROJECTS_VALUE = "__all_projects__";
 
@@ -65,12 +68,16 @@ export function ArchiveManagementDialog({
   onOpenChange,
 }: ArchiveManagementDialogProps) {
   const projects = useProjectStore((state) => state.projects);
+  const currentProjectId = useProjectStore((state) => state.currentProject?.id);
+  const fetchTasks = useTaskStore((state) => state.fetchTasks);
   const [archivedTasks, setArchivedTasks] = useState<Task[]>([]);
   const [filters, setFilters] = useState<ArchiveFilterState>(() =>
     buildDefaultFilters(defaultProjectId),
   );
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [selectedTask, setSelectedTask] = useState<Task | null>(null);
+  const [detailOpen, setDetailOpen] = useState(false);
 
   const projectMap = useMemo(
     () => new Map(projects.map((project) => [project.id, project.name])),
@@ -89,6 +96,32 @@ export function ArchiveManagementDialog({
     filters.startDate && filters.endDate && filters.startDate > filters.endDate,
   );
 
+  const reloadArchivedTasks = useCallback(async () => {
+    const visibleProjectIds = projects.map((project) => project.id);
+    if (visibleProjectIds.length === 0) {
+      setArchivedTasks([]);
+      setLoading(false);
+      setError(null);
+      return;
+    }
+
+    setLoading(true);
+    setError(null);
+    try {
+      const rows = await listTasks({
+        status: "archived",
+        projectIds: visibleProjectIds,
+      });
+      setArchivedTasks(rows);
+    } catch (loadError) {
+      console.error("Failed to load archived tasks:", loadError);
+      setArchivedTasks([]);
+      setError(loadError instanceof Error ? loadError.message : String(loadError));
+    } finally {
+      setLoading(false);
+    }
+  }, [projects]);
+
   useEffect(() => {
     if (!open) {
       return;
@@ -103,47 +136,16 @@ export function ArchiveManagementDialog({
     }
 
     let active = true;
-    const visibleProjectIds = projects.map((project) => project.id);
-    if (visibleProjectIds.length === 0) {
-      setArchivedTasks([]);
-      setLoading(false);
-      setError(null);
-      return;
-    }
-
-    setLoading(true);
-    setError(null);
-
-    void listTasks({
-      status: "archived",
-      projectIds: visibleProjectIds,
-    })
-      .then((rows) => {
-        if (!active) {
-          return;
-        }
-
-        setArchivedTasks(rows);
-      })
-      .catch((loadError) => {
-        console.error("Failed to load archived tasks:", loadError);
-        if (!active) {
-          return;
-        }
-
-        setArchivedTasks([]);
-        setError(loadError instanceof Error ? loadError.message : String(loadError));
-      })
-      .finally(() => {
-        if (active) {
-          setLoading(false);
-        }
-      });
+    void reloadArchivedTasks().finally(() => {
+      if (!active) {
+        return;
+      }
+    });
 
     return () => {
       active = false;
     };
-  }, [open, visibleProjectIdsKey, projects]);
+  }, [open, visibleProjectIdsKey, projects, reloadArchivedTasks]);
 
   const filteredTasks = useMemo(() => {
     if (hasInvalidDateRange) {
@@ -202,185 +204,245 @@ export function ArchiveManagementDialog({
       ? "当前没有已归档任务"
       : "没有符合当前筛选条件的归档任务";
 
+  const openTaskDetail = (task: Task) => {
+    setSelectedTask(task);
+    setDetailOpen(true);
+  };
+
+  const handleDetailOpenChange = (nextOpen: boolean) => {
+    setDetailOpen(nextOpen);
+    if (nextOpen) {
+      return;
+    }
+
+    const previous = selectedTask;
+    setSelectedTask(null);
+    // Refresh archive list; if unarchived, also refresh kanban active tasks.
+    void (async () => {
+      await reloadArchivedTasks();
+      if (!previous) {
+        return;
+      }
+      const stillArchived = (
+        await listTasks({ status: "archived", projectIds: [previous.project_id] })
+      ).some((task) => task.id === previous.id);
+      if (!stillArchived) {
+        await fetchTasks(currentProjectId ?? previous.project_id);
+      }
+    })();
+  };
+
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="w-[min(96vw,72rem)] max-w-[min(96vw,72rem)] sm:max-w-[min(96vw,72rem)]">
-        <DialogHeader>
-          <DialogTitle>归档管理</DialogTitle>
-          <DialogDescription>
-            集中查看当前作用域下的已归档任务，并支持按项目、内容和时间范围筛选。
-          </DialogDescription>
-        </DialogHeader>
+    <>
+      <Dialog open={open} onOpenChange={onOpenChange}>
+        <DialogContent className="w-[min(96vw,72rem)] max-w-[min(96vw,72rem)] sm:max-w-[min(96vw,72rem)]">
+          <DialogHeader>
+            <DialogTitle>归档管理</DialogTitle>
+            <DialogDescription>
+              集中查看当前作用域下的已归档任务，支持打开详情编辑与取消归档。
+            </DialogDescription>
+          </DialogHeader>
 
-        <div className="space-y-4">
-          <div className="rounded-xl border border-border/70 p-3">
-            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-              <div className="space-y-1.5">
-                <label className="text-sm font-medium text-foreground">项目</label>
-                <Select<string>
-                  value={filters.projectId}
-                  onValueChange={(value) =>
-                    setFilters((current) => ({
-                      ...current,
-                      projectId: value ?? ALL_PROJECTS_VALUE,
-                    }))
-                  }
-                >
-                  <SelectTrigger className="bg-background">
-                    <SelectValue>
-                      {(value) => {
-                        if (value === ALL_PROJECTS_VALUE) {
+          <div className="space-y-4">
+            <div className="rounded-xl border border-border/70 p-3">
+              <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+                <div className="space-y-1.5">
+                  <label className="text-sm font-medium text-foreground">项目</label>
+                  <Select<string>
+                    value={filters.projectId}
+                    onValueChange={(value) =>
+                      setFilters((current) => ({
+                        ...current,
+                        projectId: value ?? ALL_PROJECTS_VALUE,
+                      }))
+                    }
+                  >
+                    <SelectTrigger className="bg-background">
+                      <SelectValue>
+                        {(value) => {
+                          if (value === ALL_PROJECTS_VALUE) {
+                            return "全部项目";
+                          }
+
+                          if (typeof value === "string") {
+                            return projectMap.get(value) ?? value;
+                          }
+
                           return "全部项目";
-                        }
+                        }}
+                      </SelectValue>
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value={ALL_PROJECTS_VALUE}>全部项目</SelectItem>
+                      {projects.map((project) => (
+                        <SelectItem key={project.id} value={project.id}>
+                          {project.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
 
-                        if (typeof value === "string") {
-                          return projectMap.get(value) ?? value;
-                        }
+                <div className="space-y-1.5">
+                  <label className="text-sm font-medium text-foreground">内容</label>
+                  <Input
+                    value={filters.keyword}
+                    onChange={(event) =>
+                      setFilters((current) => ({
+                        ...current,
+                        keyword: event.target.value,
+                      }))
+                    }
+                    placeholder="搜索标题或描述"
+                  />
+                </div>
 
-                        return "全部项目";
-                      }}
-                    </SelectValue>
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value={ALL_PROJECTS_VALUE}>全部项目</SelectItem>
-                    {projects.map((project) => (
-                      <SelectItem key={project.id} value={project.id}>
-                        {project.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <div className="space-y-1.5">
+                  <label className="text-sm font-medium text-foreground">开始时间</label>
+                  <Input
+                    type="date"
+                    value={filters.startDate}
+                    onChange={(event) =>
+                      setFilters((current) => ({
+                        ...current,
+                        startDate: event.target.value,
+                      }))
+                    }
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-sm font-medium text-foreground">结束时间</label>
+                  <Input
+                    type="date"
+                    value={filters.endDate}
+                    onChange={(event) =>
+                      setFilters((current) => ({
+                        ...current,
+                        endDate: event.target.value,
+                      }))
+                    }
+                  />
+                </div>
               </div>
 
-              <div className="space-y-1.5">
-                <label className="text-sm font-medium text-foreground">内容</label>
-                <Input
-                  value={filters.keyword}
-                  onChange={(event) =>
-                    setFilters((current) => ({
-                      ...current,
-                      keyword: event.target.value,
-                    }))
-                  }
-                  placeholder="搜索标题或描述"
-                />
-              </div>
-
-              <div className="space-y-1.5">
-                <label className="text-sm font-medium text-foreground">开始时间</label>
-                <Input
-                  type="date"
-                  value={filters.startDate}
-                  onChange={(event) =>
-                    setFilters((current) => ({
-                      ...current,
-                      startDate: event.target.value,
-                    }))
-                  }
-                />
-              </div>
-
-              <div className="space-y-1.5">
-                <label className="text-sm font-medium text-foreground">结束时间</label>
-                <Input
-                  type="date"
-                  value={filters.endDate}
-                  onChange={(event) =>
-                    setFilters((current) => ({
-                      ...current,
-                      endDate: event.target.value,
-                    }))
-                  }
-                />
+              <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
+                <span>共 {filteredTasks.length} 条归档任务</span>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  disabled={isResetDisabled}
+                  onClick={() => setFilters(defaultFilters)}
+                >
+                  重置筛选
+                </Button>
               </div>
             </div>
 
-            <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
-              <span>共 {filteredTasks.length} 条归档任务</span>
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                disabled={isResetDisabled}
-                onClick={() => setFilters(defaultFilters)}
-              >
-                重置筛选
-              </Button>
-            </div>
-          </div>
-
-          <div className="overflow-hidden rounded-xl border border-border/70">
-            <div className="max-h-[28rem] overflow-auto">
-              <table className="min-w-full text-sm">
-                <thead className="sticky top-0 bg-muted/40 text-left">
-                  <tr className="border-b border-border">
-                    <th className="px-3 py-2 text-xs font-medium text-muted-foreground">项目</th>
-                    <th className="px-3 py-2 text-xs font-medium text-muted-foreground">内容</th>
-                    <th className="px-3 py-2 text-xs font-medium text-muted-foreground">优先级</th>
-                    <th className="px-3 py-2 text-xs font-medium text-muted-foreground">
-                      更新时间
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {loading ? (
-                    <tr>
-                      <td
-                        colSpan={4}
-                        className="px-3 py-8 text-center text-sm text-muted-foreground"
-                      >
-                        归档任务加载中...
-                      </td>
+            <div className="overflow-hidden rounded-xl border border-border/70">
+              <div className="max-h-[28rem] overflow-auto">
+                <table className="min-w-full text-sm">
+                  <thead className="sticky top-0 bg-muted/40 text-left">
+                    <tr className="border-b border-border">
+                      <th className="px-3 py-2 text-xs font-medium text-muted-foreground">项目</th>
+                      <th className="px-3 py-2 text-xs font-medium text-muted-foreground">内容</th>
+                      <th className="px-3 py-2 text-xs font-medium text-muted-foreground">
+                        优先级
+                      </th>
+                      <th className="px-3 py-2 text-xs font-medium text-muted-foreground">
+                        更新时间
+                      </th>
+                      <th className="px-3 py-2 text-xs font-medium text-muted-foreground">操作</th>
                     </tr>
-                  ) : error ? (
-                    <tr>
-                      <td colSpan={4} className="px-3 py-8 text-center text-sm text-destructive">
-                        {error}
-                      </td>
-                    </tr>
-                  ) : filteredTasks.length === 0 ? (
-                    <tr>
-                      <td
-                        colSpan={4}
-                        className="px-3 py-8 text-center text-sm text-muted-foreground"
-                      >
-                        {emptyStateMessage}
-                      </td>
-                    </tr>
-                  ) : (
-                    filteredTasks.map((task) => (
-                      <tr
-                        key={task.id}
-                        className="border-b border-border/50 align-top last:border-0"
-                      >
-                        <td className="px-3 py-3 text-muted-foreground">
-                          {projectMap.get(task.project_id) ?? task.project_id}
-                        </td>
-                        <td className="px-3 py-3">
-                          <div className="space-y-1">
-                            <div className="font-medium text-foreground">{task.title}</div>
-                            {task.description && (
-                              <div className="line-clamp-2 text-xs text-muted-foreground">
-                                {task.description}
-                              </div>
-                            )}
-                          </div>
-                        </td>
-                        <td className="px-3 py-3 text-muted-foreground">
-                          {getPriorityLabel(task.priority)}
-                        </td>
-                        <td className="px-3 py-3 text-muted-foreground">
-                          {formatDate(task.updated_at)}
+                  </thead>
+                  <tbody>
+                    {loading ? (
+                      <tr>
+                        <td
+                          colSpan={5}
+                          className="px-3 py-8 text-center text-sm text-muted-foreground"
+                        >
+                          归档任务加载中...
                         </td>
                       </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
+                    ) : error ? (
+                      <tr>
+                        <td colSpan={5} className="px-3 py-8 text-center text-sm text-destructive">
+                          {error}
+                        </td>
+                      </tr>
+                    ) : filteredTasks.length === 0 ? (
+                      <tr>
+                        <td
+                          colSpan={5}
+                          className="px-3 py-8 text-center text-sm text-muted-foreground"
+                        >
+                          {emptyStateMessage}
+                        </td>
+                      </tr>
+                    ) : (
+                      filteredTasks.map((task) => (
+                        <tr
+                          key={task.id}
+                          className="border-b border-border/50 align-top last:border-0 cursor-pointer hover:bg-muted/40"
+                          onClick={() => openTaskDetail(task)}
+                        >
+                          <td className="px-3 py-3 text-muted-foreground">
+                            {projectMap.get(task.project_id) ?? task.project_id}
+                          </td>
+                          <td className="px-3 py-3">
+                            <div className="space-y-1">
+                              <div className="font-medium text-foreground">{task.title}</div>
+                              {task.description && (
+                                <div className="line-clamp-2 text-xs text-muted-foreground">
+                                  {task.description}
+                                </div>
+                              )}
+                            </div>
+                          </td>
+                          <td className="px-3 py-3 text-muted-foreground">
+                            {getPriorityLabel(task.priority)}
+                          </td>
+                          <td className="px-3 py-3 text-muted-foreground">
+                            {formatDate(task.updated_at)}
+                          </td>
+                          <td className="px-3 py-3">
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="outline"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                openTaskDetail(task);
+                              }}
+                            >
+                              打开
+                            </Button>
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
             </div>
           </div>
-        </div>
-      </DialogContent>
-    </Dialog>
+        </DialogContent>
+      </Dialog>
+
+      {selectedTask && (
+        <ErrorBoundary
+          fallbackTitle="归档任务详情渲染失败"
+          fallbackDescription="归档管理中打开的任务详情弹窗出现运行时异常。"
+        >
+          <TaskDetailDialog
+            task={selectedTask}
+            open={detailOpen}
+            onOpenChange={handleDetailOpenChange}
+          />
+        </ErrorBoundary>
+      )}
+    </>
   );
 }

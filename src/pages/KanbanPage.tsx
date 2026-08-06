@@ -15,12 +15,17 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { batchUpdateTasks, listMilestones, listTags } from "@/lib/backend";
+import { batchUpdateTasks, listMilestones, listTags, listTaskTags } from "@/lib/backend";
+import { filterKanbanTaskIds, type TaskTagMap } from "@/lib/kanbanFilters";
 import type { CodexSessionKind, Milestone, Tag } from "@/lib/types";
+import { PRIORITIES, TASK_STATUSES } from "@/lib/types";
 import { useTaskStore } from "@/stores/taskStore";
 import { useProjectStore } from "@/stores/projectStore";
 import { useEmployeeStore } from "@/stores/employeeStore";
 import { Archive, CheckSquare, Plus } from "lucide-react";
+
+const FILTER_ALL = "all";
+const FILTER_UNASSIGNED = "__unassigned__";
 
 export function KanbanPage() {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -28,7 +33,7 @@ export function KanbanPage() {
   const currentProjectId = useProjectStore((state) => state.currentProject?.id);
   const projects = useProjectStore((state) => state.projects);
   const environmentMode = useProjectStore((state) => state.environmentMode);
-  const { fetchEmployees } = useEmployeeStore();
+  const { employees, fetchEmployees } = useEmployeeStore();
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [showArchiveDialog, setShowArchiveDialog] = useState(false);
   const [pendingLogRequest, setPendingLogRequest] = useState<{
@@ -43,17 +48,44 @@ export function KanbanPage() {
   }, []);
   const [overdueOnly, setOverdueOnly] = useState(false);
   const [blockedOnly, setBlockedOnly] = useState(false);
-  const [milestoneFilter, setMilestoneFilter] = useState<string>("all");
-  const [tagFilter, setTagFilter] = useState<string>("all");
+  const [milestoneFilter, setMilestoneFilter] = useState<string>(FILTER_ALL);
+  const [tagFilter, setTagFilter] = useState<string>(FILTER_ALL);
+  const [priorityFilter, setPriorityFilter] = useState<string>(FILTER_ALL);
+  const [assigneeFilter, setAssigneeFilter] = useState<string>(FILTER_ALL);
   const [keyword, setKeyword] = useState("");
   const [milestones, setMilestones] = useState<Milestone[]>([]);
   const [tags, setTags] = useState<Tag[]>([]);
+  const [taskTagMap, setTaskTagMap] = useState<TaskTagMap>(() => new Map());
+  /** Bumped after create/tag edits so filter map does not go stale. */
+  const [taskTagMapVersion, setTaskTagMapVersion] = useState(0);
   const [selectedTaskIds, setSelectedTaskIds] = useState<string[]>([]);
   const [batchStatus, setBatchStatus] = useState<string>("");
   const [batchMessage, setBatchMessage] = useState<string | null>(null);
   const [batchLoading, setBatchLoading] = useState(false);
   const visibleProjectIdsKey = projects.map((project) => project.id).join(",");
   const targetTaskId = searchParams.get("taskId");
+
+  const activeTaskIdsKey = useMemo(
+    () =>
+      tasks
+        .filter((task) => task.status !== "archived")
+        .map((task) => task.id)
+        .sort()
+        .join(","),
+    [tasks],
+  );
+
+  const refreshTaskTagMap = useCallback(() => {
+    setTaskTagMapVersion((version) => version + 1);
+  }, []);
+
+  const handleTaskTagsChange = useCallback((taskId: string, tagIds: string[]) => {
+    setTaskTagMap((current) => {
+      const next = new Map(current);
+      next.set(taskId, tagIds);
+      return next;
+    });
+  }, []);
 
   useEffect(() => {
     void fetchEmployees();
@@ -63,39 +95,116 @@ export function KanbanPage() {
     void fetchTasks(currentProjectId);
   }, [currentProjectId, environmentMode, visibleProjectIdsKey, fetchTasks]);
 
+  // Load milestones/tags for the current project, or all visible projects when none selected
+  // so multi-project boards still resolve milestone names and tag filters.
   useEffect(() => {
-    if (!currentProjectId) {
+    const projectIds = currentProjectId
+      ? [currentProjectId]
+      : projects.map((project) => project.id);
+    if (projectIds.length === 0) {
       setMilestones([]);
       setTags([]);
       return;
     }
-    void listMilestones(currentProjectId)
-      .then(setMilestones)
-      .catch(() => setMilestones([]));
-    void listTags(currentProjectId)
-      .then(setTags)
-      .catch(() => setTags([]));
-  }, [currentProjectId]);
+
+    let cancelled = false;
+    void (async () => {
+      try {
+        const [milestoneGroups, tagGroups] = await Promise.all([
+          Promise.all(projectIds.map((id) => listMilestones(id).catch(() => [] as Milestone[]))),
+          Promise.all(projectIds.map((id) => listTags(id).catch(() => [] as Tag[]))),
+        ]);
+        if (cancelled) {
+          return;
+        }
+        const mergedMilestones = new Map<string, Milestone>();
+        for (const group of milestoneGroups) {
+          for (const item of group) {
+            mergedMilestones.set(item.id, item);
+          }
+        }
+        const mergedTags = new Map<string, Tag>();
+        for (const group of tagGroups) {
+          for (const item of group) {
+            mergedTags.set(item.id, item);
+          }
+        }
+        setMilestones(Array.from(mergedMilestones.values()));
+        setTags(Array.from(mergedTags.values()));
+      } catch {
+        if (!cancelled) {
+          setMilestones([]);
+          setTags([]);
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [currentProjectId, visibleProjectIdsKey, projects]);
+
+  // Board-level task → tags map to power tag filter and avoid per-card N+1 for tags.
+  useEffect(() => {
+    const activeTasks = tasks.filter((task) => task.status !== "archived");
+    if (activeTasks.length === 0) {
+      setTaskTagMap(new Map());
+      return;
+    }
+
+    let cancelled = false;
+    const ids = activeTasks.map((task) => task.id);
+
+    void (async () => {
+      const entries = await Promise.all(
+        ids.map(async (taskId) => {
+          try {
+            const taskTags = await listTaskTags(taskId);
+            return [taskId, taskTags.map((tag) => tag.id)] as const;
+          } catch {
+            return [taskId, [] as string[]] as const;
+          }
+        }),
+      );
+      if (cancelled) {
+        return;
+      }
+      setTaskTagMap(new Map(entries));
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeTaskIdsKey, taskTagMapVersion]);
 
   const hasProjects = projects.length > 0;
 
-  const filteredTaskIds = useMemo(() => {
-    const normalized = keyword.trim().toLowerCase();
-    return tasks
-      .filter((task) => task.status !== "archived")
-      .filter((task) => (overdueOnly ? Boolean(task.due_date) : true))
-      .filter((task) => (blockedOnly ? task.status === "blocked" : true))
-      .filter((task) =>
-        milestoneFilter === "all" ? true : (task.milestone_id ?? "") === milestoneFilter,
-      )
-      .filter((task) =>
-        !normalized
-          ? true
-          : task.title.toLowerCase().includes(normalized) ||
-            (task.description ?? "").toLowerCase().includes(normalized),
-      )
-      .map((task) => task.id);
-  }, [tasks, overdueOnly, blockedOnly, milestoneFilter, keyword]);
+  const kanbanFilters = useMemo(
+    () => ({
+      keyword,
+      overdueOnly,
+      blockedOnly,
+      milestoneId: milestoneFilter === FILTER_ALL ? null : milestoneFilter,
+      tagId: tagFilter === FILTER_ALL ? null : tagFilter,
+      priority: priorityFilter === FILTER_ALL ? null : priorityFilter,
+      assigneeId: assigneeFilter === FILTER_ALL ? null : assigneeFilter,
+    }),
+    [keyword, overdueOnly, blockedOnly, milestoneFilter, tagFilter, priorityFilter, assigneeFilter],
+  );
+
+  const filteredTaskIds = useMemo(
+    () => filterKanbanTaskIds(tasks, kanbanFilters, taskTagMap),
+    [tasks, kanbanFilters, taskTagMap],
+  );
+
+  const projectEmployees = useMemo(() => {
+    if (!currentProjectId) {
+      return employees;
+    }
+    return employees.filter(
+      (employee) => !employee.project_id || employee.project_id === currentProjectId,
+    );
+  }, [employees, currentProjectId]);
 
   useHotkeys("n", () => setShowCreateDialog(true), { preventDefault: true });
   useHotkeys("a", () => setShowArchiveDialog(true), { preventDefault: true });
@@ -163,13 +272,20 @@ export function KanbanPage() {
           />
           <Select
             value={milestoneFilter}
-            onValueChange={(value) => setMilestoneFilter(value ?? "all")}
+            onValueChange={(value) => setMilestoneFilter(value ?? FILTER_ALL)}
           >
             <SelectTrigger className="h-9 w-40">
-              <SelectValue placeholder="里程碑" />
+              <SelectValue placeholder="里程碑">
+                {(value) => {
+                  if (!value || value === FILTER_ALL) {
+                    return "全部里程碑";
+                  }
+                  return milestones.find((item) => item.id === value)?.name ?? "里程碑";
+                }}
+              </SelectValue>
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">全部里程碑</SelectItem>
+              <SelectItem value={FILTER_ALL}>全部里程碑</SelectItem>
               {milestones.map((item) => (
                 <SelectItem key={item.id} value={item.id}>
                   {item.name}
@@ -177,12 +293,19 @@ export function KanbanPage() {
               ))}
             </SelectContent>
           </Select>
-          <Select value={tagFilter} onValueChange={(value) => setTagFilter(value ?? "all")}>
+          <Select value={tagFilter} onValueChange={(value) => setTagFilter(value ?? FILTER_ALL)}>
             <SelectTrigger className="h-9 w-36">
-              <SelectValue placeholder="标签" />
+              <SelectValue placeholder="标签">
+                {(value) => {
+                  if (!value || value === FILTER_ALL) {
+                    return "全部标签";
+                  }
+                  return tags.find((item) => item.id === value)?.name ?? "标签";
+                }}
+              </SelectValue>
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">全部标签</SelectItem>
+              <SelectItem value={FILTER_ALL}>全部标签</SelectItem>
               {tags.map((item) => (
                 <SelectItem key={item.id} value={item.id}>
                   {item.name}
@@ -190,17 +313,75 @@ export function KanbanPage() {
               ))}
             </SelectContent>
           </Select>
-          <Select value={batchStatus} onValueChange={(value) => setBatchStatus(value ?? "")}>
-            <SelectTrigger className="h-9 w-36">
-              <SelectValue placeholder="批量改状态" />
+          <Select
+            value={priorityFilter}
+            onValueChange={(value) => setPriorityFilter(value ?? FILTER_ALL)}
+          >
+            <SelectTrigger className="h-9 w-32">
+              <SelectValue placeholder="优先级">
+                {(value) => {
+                  if (!value || value === FILTER_ALL) {
+                    return "全部优先级";
+                  }
+                  return PRIORITIES.find((item) => item.value === value)?.label ?? "优先级";
+                }}
+              </SelectValue>
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="todo">待办</SelectItem>
-              <SelectItem value="in_progress">进行中</SelectItem>
-              <SelectItem value="review">审核中</SelectItem>
-              <SelectItem value="completed">已完成</SelectItem>
-              <SelectItem value="blocked">阻塞</SelectItem>
-              <SelectItem value="archived">归档</SelectItem>
+              <SelectItem value={FILTER_ALL}>全部优先级</SelectItem>
+              {PRIORITIES.map((item) => (
+                <SelectItem key={item.value} value={item.value}>
+                  {item.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Select
+            value={assigneeFilter}
+            onValueChange={(value) => setAssigneeFilter(value ?? FILTER_ALL)}
+          >
+            <SelectTrigger className="h-9 w-36">
+              <SelectValue placeholder="执行人">
+                {(value) => {
+                  if (!value || value === FILTER_ALL) {
+                    return "全部执行人";
+                  }
+                  if (value === FILTER_UNASSIGNED) {
+                    return "未指派";
+                  }
+                  return projectEmployees.find((item) => item.id === value)?.name ?? "执行人";
+                }}
+              </SelectValue>
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={FILTER_ALL}>全部执行人</SelectItem>
+              <SelectItem value={FILTER_UNASSIGNED}>未指派</SelectItem>
+              {projectEmployees.map((item) => (
+                <SelectItem key={item.id} value={item.id}>
+                  {item.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Select
+            value={batchStatus || null}
+            onValueChange={(value) => setBatchStatus(value ?? "")}
+          >
+            <SelectTrigger className="h-9 w-36">
+              <SelectValue placeholder="批量改状态">
+                {(value) =>
+                  typeof value === "string" && value
+                    ? (TASK_STATUSES.find((item) => item.value === value)?.label ?? value)
+                    : "批量改状态"
+                }
+              </SelectValue>
+            </SelectTrigger>
+            <SelectContent>
+              {TASK_STATUSES.map((item) => (
+                <SelectItem key={item.value} value={item.value}>
+                  {item.label}
+                </SelectItem>
+              ))}
             </SelectContent>
           </Select>
           <Button
@@ -227,9 +408,14 @@ export function KanbanPage() {
             projectId={currentProjectId}
             overdueOnly={overdueOnly}
             blockedOnly={blockedOnly}
-            milestoneId={milestoneFilter === "all" ? null : milestoneFilter}
-            tagId={tagFilter === "all" ? null : tagFilter}
+            milestoneId={milestoneFilter === FILTER_ALL ? null : milestoneFilter}
+            tagId={tagFilter === FILTER_ALL ? null : tagFilter}
+            priority={priorityFilter === FILTER_ALL ? null : priorityFilter}
+            assigneeId={assigneeFilter === FILTER_ALL ? null : assigneeFilter}
             keyword={keyword}
+            taskTagMap={taskTagMap}
+            milestones={milestones}
+            tags={tags}
             selectedTaskIds={selectedTaskIds}
             onToggleTaskSelection={(taskId) => {
               setSelectedTaskIds((current) =>
@@ -238,6 +424,7 @@ export function KanbanPage() {
                   : [...current, taskId],
               );
             }}
+            onTaskTagsChange={handleTaskTagsChange}
             targetTaskId={targetTaskId}
             onClearTargetTask={() => {
               if (!targetTaskId) {
@@ -247,6 +434,8 @@ export function KanbanPage() {
               const nextSearchParams = new URLSearchParams(searchParams);
               nextSearchParams.delete("taskId");
               setSearchParams(nextSearchParams, { replace: true });
+              // Global-search detail may have edited tags/milestones.
+              refreshTaskTagMap();
             }}
             pendingLogRequest={pendingLogRequest}
             onPendingLogRequestConsumed={consumePendingLogRequest}
@@ -265,6 +454,10 @@ export function KanbanPage() {
           onOpenChange={setShowCreateDialog}
           projectId={currentProjectId}
           onOpenLog={handleCreateOpenLog}
+          onCreated={() => {
+            // Create+setTaskTags races with the initial tag-map load for the new id.
+            refreshTaskTagMap();
+          }}
         />
       )}
       {showArchiveDialog && (
