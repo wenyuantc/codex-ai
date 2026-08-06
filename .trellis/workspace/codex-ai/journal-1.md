@@ -306,3 +306,25 @@ Claude CLI -p+stream-json 补齐 --verbose，修复运行/审核任务退出码1
 ### Status
 
 [OK] **Completed**
+
+
+## Session 15: 前端测试网最小闭环
+
+**Date**: 2026-08-07
+**Task**: 前端测试网最小闭环
+**Branch**: `feat/frontend-test-net`
+
+### Summary
+
+接入 Vitest（vitest.config.ts、node 环境、复用 @ alias）与 test / test:ci 脚本；把 taskStore 项目作用域过滤抽为导出纯函数并替换 fetchTasks / fetchTrashedTasks 两处调用点，projectStore 的 resolveSelectedSshConfigId 与 dashboardStore 五个过滤辅助改为导出；新增 32 条断言覆盖 activity 中文映射及未知 key 回退、项目作用域过滤、SSH 主机选择优先级、活动日期区间与关键词匹配；CI frontend-lint 增加测试硬门禁；CLAUDE.md 与前端 spec 同步记录测试规范和 store 纯函数抽取模式。门禁：test:ci 32 passed、build/lint/format:check 全绿。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `38eda72` | (see git log) |
+| `b17c9ee` | (see git log) |
+
+### Status
+
+[OK] **Completed**
