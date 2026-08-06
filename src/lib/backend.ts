@@ -167,6 +167,9 @@ export interface UpdateCodexSettingsInput {
   task_automation_default_enabled?: boolean;
   task_automation_max_fix_rounds?: number;
   task_automation_failure_strategy?: "blocked" | "manual_control";
+  tester_automation_enabled?: boolean;
+  tester_allow_ai_only?: boolean;
+  default_test_command?: string | null;
   git_preferences?: Partial<CodexSettings["git_preferences"]>;
   node_path_override?: string | null;
 }
@@ -178,6 +181,7 @@ export interface CreateProjectInput {
   repo_path?: string | null;
   ssh_config_id?: string | null;
   remote_repo_path?: string | null;
+  test_command?: string | null;
 }
 
 export interface UpdateProjectInput {
@@ -188,6 +192,7 @@ export interface UpdateProjectInput {
   repo_path?: string | null;
   ssh_config_id?: string | null;
   remote_repo_path?: string | null;
+  test_command?: string | null;
 }
 
 export interface CreateSshConfigInput {
@@ -268,6 +273,7 @@ export interface UpdateTaskInput {
   due_date?: string | null;
   blocked_reason?: string | null;
   milestone_id?: string | null;
+  acceptance_checklist?: string | null;
 }
 
 export interface CreateMilestoneInput {
@@ -451,17 +457,28 @@ export interface DashboardReportSummary {
   blocked_tasks: number;
   in_progress_tasks: number;
   completion_rate: number;
+  /** Last 7 days (daily). Field name is historical. */
   weekly_completed: DashboardTrendPoint[];
   employee_workload: DashboardWorkloadItem[];
+  /** Last 8 weeks (true weekly series). */
+  weekly_completed_series: DashboardTrendPoint[];
+  aging_in_progress: number;
+  aging_days: number;
 }
 
 export async function getDashboardReportSummary(input?: {
   projectId?: string | null;
   environmentMode?: string | null;
+  selectedSshConfigId?: string | null;
+  agingDays?: number | null;
 }): Promise<DashboardReportSummary> {
   return invoke("get_dashboard_report_summary", {
-    projectId: input?.projectId ?? null,
-    environmentMode: input?.environmentMode ?? null,
+    payload: {
+      project_id: input?.projectId ?? null,
+      environment_mode: input?.environmentMode ?? null,
+      selected_ssh_config_id: input?.selectedSshConfigId ?? null,
+      aging_days: input?.agingDays ?? null,
+    },
   });
 }
 
@@ -637,6 +654,55 @@ export async function exportTasksCsv(input?: {
     payload: {
       project_id: input?.projectId ?? null,
       environment_mode: input?.environmentMode ?? null,
+    },
+  });
+}
+
+export interface ExportTasksJsonResult {
+  json: string;
+  task_count: number;
+  truncated: boolean;
+}
+
+export async function exportTasksJson(input?: {
+  projectId?: string | null;
+  environmentMode?: string | null;
+  selectedSshConfigId?: string | null;
+  limit?: number | null;
+}): Promise<ExportTasksJsonResult> {
+  return invoke("export_tasks_json", {
+    payload: {
+      project_id: input?.projectId ?? null,
+      environment_mode: input?.environmentMode ?? null,
+      selected_ssh_config_id: input?.selectedSshConfigId ?? null,
+      limit: input?.limit ?? null,
+    },
+  });
+}
+
+export interface ImportTaskError {
+  index: number;
+  message: string;
+}
+
+export interface ImportTasksJsonResult {
+  created: number;
+  skipped: number;
+  failed: number;
+  errors: ImportTaskError[];
+  task_ids: string[];
+}
+
+export async function importTasksJson(input: {
+  projectId: string;
+  json: string;
+  conflictStrategy?: "create_new" | "skip_existing" | null;
+}): Promise<ImportTasksJsonResult> {
+  return invoke("import_tasks_json", {
+    payload: {
+      project_id: input.projectId,
+      json: input.json,
+      conflict_strategy: input.conflictStrategy ?? "create_new",
     },
   });
 }
@@ -1492,6 +1558,22 @@ export async function aiGenerateTesterAcceptance(
   input: GenerateTesterAcceptanceInput,
 ): Promise<string> {
   return invoke("ai_generate_tester_acceptance", { payload: input });
+}
+
+export async function runTaskAcceptance(taskId: string, trigger: "manual" | "auto" = "manual") {
+  return invoke<import("./types").TaskAcceptanceRun>("run_task_acceptance", {
+    payload: { task_id: taskId, trigger },
+  });
+}
+
+export async function getTaskAcceptanceRuns(taskId: string) {
+  return invoke<import("./types").TaskAcceptanceRun[]>("get_task_acceptance_runs", { taskId });
+}
+
+export async function updateTaskAcceptanceChecklist(taskId: string, acceptanceChecklist: string) {
+  return invoke<Task>("update_task_acceptance_checklist", {
+    payload: { task_id: taskId, acceptance_checklist: acceptanceChecklist },
+  });
 }
 
 export async function deleteTask(id: string): Promise<void> {

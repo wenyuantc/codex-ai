@@ -14,6 +14,9 @@ import {
   abortTaskPipeline,
   aiGenerateCoordinatorTaskPlan,
   aiGenerateTesterAcceptance,
+  getTaskAcceptanceRuns,
+  getTaskCommitActionState,
+  getTaskCommitOverview,
   listTaskPipelineSteps,
   prepareTaskGitExecution,
   getCodexSessionFileChangeDetail,
@@ -21,12 +24,19 @@ import {
   getTaskLatestReview,
   openTaskAttachment,
   retryTaskPipelineStep,
+  runTaskAcceptance,
+  stageAllTaskCommitFiles,
   startTaskPipeline,
+  updateTaskAcceptanceChecklist,
   updateTaskPipelineStep,
 } from "@/lib/backend";
 import { useTaskStore } from "@/stores/taskStore";
 import { useEmployeeStore } from "@/stores/employeeStore";
 import { useProjectStore } from "@/stores/projectStore";
+import {
+  getTaskBackgroundRunLabel,
+  useTaskBackgroundRunStore,
+} from "@/stores/taskBackgroundRunStore";
 import {
   Dialog,
   DialogContent,
@@ -39,11 +49,13 @@ import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { buildTaskExecutionInput } from "@/lib/taskPrompt";
 import { dedupePaths, isTauriRuntime, normalizeDialogSelection } from "@/lib/taskAttachments";
-import { startCodex } from "@/lib/codex";
+import { onTaskAutomationStateChanged, startCodex } from "@/lib/codex";
 import { startClaude } from "@/lib/claude";
 import { startGrok } from "@/lib/grok";
 import { startOpenCode } from "@/lib/opencode";
 import { getProjectWorkingDir } from "@/lib/projects";
+import { countStageableGitFiles } from "@/lib/gitWorkingTree";
+import { resolveTaskPrimaryCta } from "@/lib/taskPrimaryCta";
 import type { TaskAutomationDisplayState } from "@/lib/utils";
 import {
   formatDate,
@@ -51,10 +63,14 @@ import {
   getTaskAutomationDisplayState,
   getTaskAutomationStatusLabel,
 } from "@/lib/utils";
+import { SessionLogDialog } from "@/components/sessions/SessionLogDialog";
+import type { TaskCommitActionState, TaskCommitOverview } from "@/lib/types";
 import { DeleteTaskDialog } from "./DeleteTaskDialog";
 import { InsertPlanConfirmDialog } from "./InsertPlanConfirmDialog";
 import { ReviewFixConfirmDialog } from "./ReviewFixConfirmDialog";
 import { CoordinatorPlanDialog } from "./CoordinatorPlanDialog";
+import { TaskGitCommitDialog } from "./TaskGitCommitDialog";
+import { TaskPrimaryActionBar } from "./TaskPrimaryActionBar";
 import { useTaskExecutionActions } from "./hooks/useTaskExecutionActions";
 import { useTaskReviewActions } from "./hooks/useTaskReviewActions";
 import { useTaskAiActions } from "./hooks/useTaskAiActions";
@@ -168,12 +184,32 @@ export function TaskDetailDialog({
   const [coordinatorPlanError, setCoordinatorPlanError] = useState<string | null>(null);
   const [coordinatorPlanLogs, setCoordinatorPlanLogs] = useState<string[]>([]);
   const [coordinatorPlanTerminalVisible, setCoordinatorPlanTerminalVisible] = useState(false);
+  const [pipelineStepLogTarget, setPipelineStepLogTarget] = useState<{
+    sessionRecordId: string;
+    stepTitle: string;
+    employeeName: string | null;
+  } | null>(null);
   const [testerAcceptanceLoading, setTesterAcceptanceLoading] = useState(false);
   const [testerAcceptanceError, setTesterAcceptanceError] = useState<string | null>(null);
   const [testerAcceptanceNotice, setTesterAcceptanceNotice] = useState<string | null>(null);
+  const [acceptanceChecklist, setAcceptanceChecklist] = useState(task.acceptance_checklist ?? "");
+  const [lastAcceptanceStatus, setLastAcceptanceStatus] = useState<string | null>(
+    task.last_acceptance_status ?? null,
+  );
+  const [lastAcceptanceSummary, setLastAcceptanceSummary] = useState<string | null>(null);
+  const [acceptanceRunning, setAcceptanceRunning] = useState(false);
   const [detailTab, setDetailTab] = useState("overview");
+  const [commitActionState, setCommitActionState] = useState<TaskCommitActionState | null>(null);
+  const [showCommitDialog, setShowCommitDialog] = useState(false);
+  const [openingCommitDialog, setOpeningCommitDialog] = useState(false);
+  const [initialCommitOverview, setInitialCommitOverview] = useState<TaskCommitOverview | null>(
+    null,
+  );
+  const [initialCommitError, setInitialCommitError] = useState<string | null>(null);
+  const [primaryActionNotice, setPrimaryActionNotice] = useState<string | null>(null);
   const latestReviewRequestIdRef = useRef(0);
   const executionChangeDetailRequestIdRef = useRef(0);
+  const pipelineStepsRequestIdRef = useRef(0);
   const taskIdCopyResetTimerRef = useRef<number | null>(null);
   const executionStartErrorRef = useRef<string | null>(null);
   const terminalRef = useRef<HTMLDivElement>(null);
@@ -259,11 +295,16 @@ export function TaskDetailDialog({
       setReviewError(message);
     },
   });
+  const backgroundRun = useTaskBackgroundRunStore((state) => state.byTaskId[task.id]);
+  const isBackgroundPlanning = backgroundRun?.phase === "planning";
+  const isBackgroundStarting = backgroundRun?.phase === "starting";
+  const isBackgroundRunBusy = isBackgroundPlanning || isBackgroundStarting;
+  const backgroundRunLabel = getTaskBackgroundRunLabel(backgroundRun);
   const resolvedAutomationState =
     automationState ?? getTaskAutomationDisplayState(task, persistedAutomationState ?? null);
   const runtimeState = getTaskActionRuntimeState({
     automationState: resolvedAutomationState,
-    isExecutionRunning: executionActions.isRunning,
+    isExecutionRunning: executionActions.isRunning || isBackgroundRunBusy,
     isReviewRunning: reviewActions.isRunning,
     pipelineState: persistedAutomationState ?? null,
   });
@@ -286,6 +327,31 @@ export function TaskDetailDialog({
   const isRunning = runtimeState.executionActive;
   const isReviewRunning = runtimeState.reviewActive;
   const isExecutionProcessRunning = executionActions.isRunning;
+  const hasActiveSession = isRunning || isReviewRunning;
+  const canCommitTaskCode = Boolean(
+    !hasActiveSession &&
+    (commitActionState?.can_commit || commitActionState?.can_ai_commit),
+  );
+  const primaryCta = resolveTaskPrimaryCta({
+    status,
+    executionActive: isRunning,
+    reviewActive: isReviewRunning,
+    canStopProcess: executionActions.isRunning,
+    backgroundPlanning: isBackgroundPlanning,
+    backgroundStarting: isBackgroundStarting,
+    hasAssignee: Boolean(assigneeId),
+    hasReviewer: Boolean(reviewerId),
+    canCommit: canCommitTaskCode,
+    canGenerateAcceptance: canGenerateTesterAcceptance,
+    automationStatus: resolvedAutomationState.status,
+    pipelineActive: Boolean(persistedAutomationState?.pipeline_active),
+  });
+  const primaryActionLoading =
+    executionActions.loading !== null ||
+    reviewActions.loading ||
+    testerAcceptanceLoading ||
+    openingCommitDialog ||
+    isBackgroundRunBusy;
   const hasActivePipelineStep = pipelineSteps.some(
     (step) => step.status === "launching" || step.status === "running",
   );
@@ -305,6 +371,29 @@ export function TaskDetailDialog({
       fetchEmployees();
       void fetchAttachments(task.id);
       void fetchTaskAutomationState(task.id);
+      setPipelineLoading(true);
+      setPipelineError(null);
+      setPipelineNotice(null);
+      setPipelineSteps([]);
+      const pipelineRequestId = ++pipelineStepsRequestIdRef.current;
+      void listTaskPipelineSteps(task.id)
+        .then((steps) => {
+          if (pipelineStepsRequestIdRef.current !== pipelineRequestId) {
+            return;
+          }
+          setPipelineSteps(steps);
+        })
+        .catch((error) => {
+          if (pipelineStepsRequestIdRef.current !== pipelineRequestId) {
+            return;
+          }
+          setPipelineError(error instanceof Error ? error.message : String(error));
+        })
+        .finally(() => {
+          if (pipelineStepsRequestIdRef.current === pipelineRequestId) {
+            setPipelineLoading(false);
+          }
+        });
       setTitle(task.title);
       setDescription(task.description ?? "");
       setPriority(task.priority);
@@ -320,17 +409,76 @@ export function TaskDetailDialog({
       setSaveError(null);
       setReviewError(null);
       setReviewNotice(null);
+      setPrimaryActionNotice(null);
       setDetailTab("overview");
       void loadLatestReview();
       void loadExecutionChangeHistory();
     }
-  }, [fetchAttachments, fetchEmployees, open, task]);
+  }, [fetchAttachments, fetchEmployees, open, task, fetchTaskAutomationState]);
 
   useEffect(() => {
     if (!open) {
       setDeleteDialogOpen(false);
+      setPipelineStepLogTarget(null);
+      return;
     }
-  }, [open]);
+
+    let active = true;
+    let unlisten: (() => void) | null = null;
+    void onTaskAutomationStateChanged((event) => {
+      if (!active || event.task_id !== task.id) {
+        return;
+      }
+      const pipelineRequestId = ++pipelineStepsRequestIdRef.current;
+      void listTaskPipelineSteps(task.id)
+        .then((steps) => {
+          if (!active || pipelineStepsRequestIdRef.current !== pipelineRequestId) {
+            return;
+          }
+          setPipelineSteps(steps);
+        })
+        .catch((error) => {
+          if (!active || pipelineStepsRequestIdRef.current !== pipelineRequestId) {
+            return;
+          }
+          setPipelineError(error instanceof Error ? error.message : String(error));
+        });
+      void fetchTaskAutomationState(task.id);
+    }).then((fn) => {
+      if (!active) {
+        fn();
+        return;
+      }
+      unlisten = fn;
+    });
+
+    return () => {
+      active = false;
+      unlisten?.();
+    };
+  }, [open, task.id, fetchTaskAutomationState]);
+
+  useEffect(() => {
+    if (!open) {
+      setCommitActionState(null);
+      return;
+    }
+    let cancelled = false;
+    void getTaskCommitActionState(task.id)
+      .then((state) => {
+        if (!cancelled) {
+          setCommitActionState(state);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setCommitActionState(null);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, task.id, task.updated_at, task.status, task.use_worktree, hasActiveSession]);
 
   useEffect(() => {
     return () => {
@@ -368,9 +516,35 @@ export function TaskDetailDialog({
     setTesterAcceptanceLoading(false);
     setTesterAcceptanceError(null);
     setTesterAcceptanceNotice(null);
+    setAcceptanceChecklist(task.acceptance_checklist ?? "");
+    setLastAcceptanceStatus(task.last_acceptance_status ?? null);
+    setLastAcceptanceSummary(null);
+    setAcceptanceRunning(false);
     setPlanContentDraft(task.plan_content ?? "");
     setPlanContentEditing(false);
     setPlanContentSaving(false);
+  }, [open, task.id]);
+
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const runs = await getTaskAcceptanceRuns(task.id);
+        if (cancelled || runs.length === 0) return;
+        const latest = runs[0];
+        setLastAcceptanceStatus(latest.status);
+        setLastAcceptanceSummary(latest.summary);
+        if (!acceptanceChecklist.trim() && latest.acceptance_checklist) {
+          setAcceptanceChecklist(latest.acceptance_checklist);
+        }
+      } catch {
+        // 历史加载失败不阻断主流程
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, [open, task.id]);
 
   useEffect(() => {
@@ -615,15 +789,24 @@ export function TaskDetailDialog({
   };
 
   const refreshPipelineSteps = async () => {
+    const pipelineRequestId = ++pipelineStepsRequestIdRef.current;
     setPipelineLoading(true);
     setPipelineError(null);
     try {
       const steps = await listTaskPipelineSteps(task.id);
+      if (pipelineStepsRequestIdRef.current !== pipelineRequestId) {
+        return;
+      }
       setPipelineSteps(steps);
     } catch (error) {
+      if (pipelineStepsRequestIdRef.current !== pipelineRequestId) {
+        return;
+      }
       setPipelineError(error instanceof Error ? error.message : String(error));
     } finally {
-      setPipelineLoading(false);
+      if (pipelineStepsRequestIdRef.current === pipelineRequestId) {
+        setPipelineLoading(false);
+      }
     }
   };
 
@@ -774,6 +957,10 @@ export function TaskDetailDialog({
     }
   };
 
+  const refreshTasksAfterAcceptanceChange = async () => {
+    await useTaskStore.getState().fetchTasks(useTaskStore.getState().activeProjectId);
+  };
+
   const handleGenerateTesterAcceptance = async () => {
     const testerId = resolveTesterIdForAcceptance();
     if (!testerId) {
@@ -792,13 +979,64 @@ export function TaskDetailDialog({
         working_dir: projectRepoPath ?? null,
       });
       await fetchComments(task.id);
+      // 后端同时写入 tasks.acceptance_checklist（原始正文）与评论（带前缀）
+      const plain = checklist.replace(/^\[验收清单\]\s*/m, "").trim();
+      setAcceptanceChecklist(plain || checklist);
+      await refreshTasksAfterAcceptanceChange();
       setTesterAcceptanceNotice(
-        `验收清单已生成并写入评论（共 ${checklist.trim().length} 字）。可在「协作」页查看。`,
+        `验收清单已生成（共 ${checklist.trim().length} 字），并写入任务字段与评论。`,
       );
     } catch (error) {
       setTesterAcceptanceError(error instanceof Error ? error.message : String(error));
     } finally {
       setTesterAcceptanceLoading(false);
+    }
+  };
+
+  const handleSaveAcceptanceChecklist = async () => {
+    const next = acceptanceChecklist.trim();
+    const current = (task.acceptance_checklist ?? "").trim();
+    if (next === current) {
+      return;
+    }
+    try {
+      const updated = await updateTaskAcceptanceChecklist(task.id, acceptanceChecklist);
+      setAcceptanceChecklist(updated.acceptance_checklist ?? "");
+      setLastAcceptanceStatus(updated.last_acceptance_status ?? lastAcceptanceStatus);
+      await refreshTasksAfterAcceptanceChange();
+      setTesterAcceptanceNotice("验收清单已保存。");
+      setTesterAcceptanceError(null);
+    } catch (error) {
+      setTesterAcceptanceError(error instanceof Error ? error.message : String(error));
+    }
+  };
+
+  const handleRunAcceptance = async () => {
+    setAcceptanceRunning(true);
+    setTesterAcceptanceError(null);
+    setTesterAcceptanceNotice(null);
+    try {
+      if (
+        acceptanceChecklist.trim() &&
+        acceptanceChecklist.trim() !== (task.acceptance_checklist ?? "").trim()
+      ) {
+        await updateTaskAcceptanceChecklist(task.id, acceptanceChecklist);
+      }
+      const run = await runTaskAcceptance(task.id, "manual");
+      setLastAcceptanceStatus(run.status);
+      setLastAcceptanceSummary(run.summary);
+      await refreshTasksAfterAcceptanceChange();
+      if (run.status === "passed") {
+        setTesterAcceptanceNotice(run.summary ?? "验收通过");
+      } else if (run.status === "skipped") {
+        setTesterAcceptanceNotice(run.summary ?? "验收已跳过");
+      } else {
+        setTesterAcceptanceError(run.summary ?? "验收失败");
+      }
+    } catch (error) {
+      setTesterAcceptanceError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setAcceptanceRunning(false);
     }
   };
 
@@ -816,6 +1054,71 @@ export function TaskDetailDialog({
 
   const handleStopCodex = async () => {
     await executionActions.stopTask();
+  };
+
+  const openCommitDialog = async () => {
+    if (!canCommitTaskCode) {
+      setPrimaryActionNotice("当前没有可提交的改动，或提交条件尚未满足。");
+      return;
+    }
+    setOpeningCommitDialog(true);
+    setPrimaryActionNotice(null);
+
+    let nextOverview: TaskCommitOverview | null = null;
+    let nextError: string | null = null;
+
+    try {
+      nextOverview = await getTaskCommitOverview(task.id);
+      if (countStageableGitFiles(nextOverview.working_tree_changes) > 0) {
+        await stageAllTaskCommitFiles(task.id);
+        nextOverview = await getTaskCommitOverview(task.id);
+      }
+    } catch (error) {
+      nextError = error instanceof Error ? error.message : String(error);
+    } finally {
+      setInitialCommitOverview(nextOverview);
+      setInitialCommitError(nextError);
+      setShowCommitDialog(true);
+      setOpeningCommitDialog(false);
+    }
+  };
+
+  const handlePrimaryCtaAction = async () => {
+    if (primaryCta.disabled || primaryActionLoading) {
+      return;
+    }
+
+    switch (primaryCta.kind) {
+      case "stop":
+        setDetailTab("execution");
+        await handleStopCodex();
+        return;
+      case "run":
+        setDetailTab("execution");
+        await handleRunCodex();
+        return;
+      case "review":
+        setDetailTab("review");
+        await handleStartCodeReview();
+        return;
+      case "blocked":
+        setDetailTab("overview");
+        setPrimaryActionNotice(
+          blockedReason.trim()
+            ? `阻塞原因：${blockedReason.trim()}`
+            : "任务已阻塞，请在概览中填写阻塞原因或指定协调员。",
+        );
+        return;
+      case "commit":
+        await openCommitDialog();
+        return;
+      case "acceptance":
+        setDetailTab("overview");
+        await handleGenerateTesterAcceptance();
+        return;
+      default:
+        return;
+    }
   };
 
   const handleSaveCoordinatorPlan = async () => {
@@ -1076,14 +1379,79 @@ export function TaskDetailDialog({
     }
   };
 
+  const primarySecondaryActions = [
+    canCommitTaskCode && primaryCta.kind !== "commit"
+      ? {
+          key: "commit",
+          label: "提交代码",
+          disabled: primaryActionLoading,
+          onSelect: () => {
+            void openCommitDialog();
+          },
+        }
+      : null,
+    canGenerateTesterAcceptance && primaryCta.kind !== "acceptance"
+      ? {
+          key: "acceptance",
+          label: "生成验收清单",
+          disabled: testerAcceptanceLoading,
+          onSelect: () => {
+            setDetailTab("overview");
+            void handleGenerateTesterAcceptance();
+          },
+        }
+      : null,
+    primaryCta.kind !== "run" && Boolean(assigneeId) && !hasActiveSession
+      ? {
+          key: "run",
+          label: "运行",
+          disabled: primaryActionLoading,
+          onSelect: () => {
+            setDetailTab("execution");
+            void handleRunCodex();
+          },
+        }
+      : null,
+    primaryCta.kind !== "review" && Boolean(reviewerId) && status === "review" && !isReviewRunning
+      ? {
+          key: "review",
+          label: "审核代码",
+          disabled: primaryActionLoading,
+          onSelect: () => {
+            setDetailTab("review");
+            void handleStartCodeReview();
+          },
+        }
+      : null,
+  ].filter((item): item is NonNullable<typeof item> => item != null);
+
   return (
     <>
       <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent className="max-h-[min(92vh,calc(100vh-2rem))] w-[min(96vw,80rem)] max-w-[min(96vw,80rem)] overflow-y-auto sm:max-w-[min(96vw,80rem)]">
+        <DialogContent className="flex max-h-[min(92vh,calc(100vh-2rem))] w-[min(96vw,80rem)] max-w-[min(96vw,80rem)] flex-col gap-0 overflow-hidden p-0 sm:max-w-[min(96vw,80rem)]">
+          <div className="flex-1 space-y-4 overflow-y-auto p-4">
           <DialogHeader>
             <DialogTitle className="sr-only">任务详情</DialogTitle>
             <DialogDescription className="sr-only">查看和编辑任务详情</DialogDescription>
           </DialogHeader>
+
+          {(primaryActionNotice ||
+            (primaryCta.kind === "starting" && backgroundRunLabel) ||
+            testerAcceptanceNotice ||
+            testerAcceptanceError) && (
+            <div className="rounded-lg border border-border/70 bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+              {primaryActionNotice && <p className="text-foreground/90">{primaryActionNotice}</p>}
+              {primaryCta.kind === "starting" && backgroundRunLabel && (
+                <p>{backgroundRunLabel}</p>
+              )}
+              {testerAcceptanceNotice && (
+                <p className="text-emerald-700 dark:text-emerald-300">{testerAcceptanceNotice}</p>
+              )}
+              {testerAcceptanceError && (
+                <p className="text-destructive">{testerAcceptanceError}</p>
+              )}
+            </div>
+          )}
 
           <div className="mb-4 flex flex-wrap items-center gap-2 rounded-lg border border-border/70 bg-background/80 px-4 py-3">
             <span className="text-xs font-medium text-muted-foreground">任务 ID</span>
@@ -1212,6 +1580,29 @@ export function TaskDetailDialog({
                 testerAcceptanceLoading={testerAcceptanceLoading}
                 testerAcceptanceError={testerAcceptanceError}
                 testerAcceptanceNotice={testerAcceptanceNotice}
+                pipelineSteps={pipelineSteps}
+                pipelineAutomation={persistedAutomationState ?? null}
+                pipelineLoading={pipelineLoading}
+                pipelineError={pipelineError}
+                onRefreshPipeline={() => void refreshPipelineSteps()}
+                onOpenPipelineStepSession={(step) => {
+                  if (!step.session_id) {
+                    return;
+                  }
+                  const stepEmployee = employees.find((item) => item.id === step.employee_id);
+                  setPipelineStepLogTarget({
+                    sessionRecordId: step.session_id,
+                    stepTitle: step.title,
+                    employeeName: stepEmployee?.name ?? null,
+                  });
+                }}
+                acceptanceChecklist={acceptanceChecklist}
+                lastAcceptanceStatus={lastAcceptanceStatus}
+                lastAcceptanceSummary={lastAcceptanceSummary}
+                acceptanceRunning={acceptanceRunning}
+                onAcceptanceChecklistChange={setAcceptanceChecklist}
+                onAcceptanceChecklistBlur={() => void handleSaveAcceptanceChecklist()}
+                onRunAcceptance={() => void handleRunAcceptance()}
                 onTitleChange={setTitle}
                 onTitleBlur={() => void handleSave("title", title)}
                 onDescriptionChange={setDescription}
@@ -1352,6 +1743,23 @@ export function TaskDetailDialog({
               />
             </TabsContent>
           </Tabs>
+          </div>
+
+          {primaryCta.kind !== "none" && (
+            <div className="shrink-0 bg-popover px-4">
+              <TaskPrimaryActionBar
+                primaryCta={primaryCta}
+                automationLabel={
+                  resolvedAutomationState.enabled
+                    ? getTaskAutomationStatusLabel(resolvedAutomationState.status)
+                    : null
+                }
+                loading={primaryActionLoading}
+                onPrimaryAction={() => void handlePrimaryCtaAction()}
+                secondaryActions={primarySecondaryActions}
+              />
+            </div>
+          )}
         </DialogContent>
       </Dialog>
       {deleteDialogOpen && (
@@ -1363,6 +1771,27 @@ export function TaskDetailDialog({
           onConfirm={handleDelete}
         />
       )}
+      <TaskGitCommitDialog
+        open={showCommitDialog}
+        onOpenChange={(nextOpen) => {
+          setShowCommitDialog(nextOpen);
+          if (!nextOpen) {
+            setInitialCommitOverview(null);
+            setInitialCommitError(null);
+          }
+        }}
+        task={task}
+        initialOverview={initialCommitOverview}
+        initialError={initialCommitError}
+        onCommitted={async () => {
+          try {
+            const nextState = await getTaskCommitActionState(task.id);
+            setCommitActionState(nextState);
+          } catch {
+            setCommitActionState(null);
+          }
+        }}
+      />
       <TaskExecutionChangeDetailDialog
         open={executionChangeDetailOpen}
         loading={executionChangeDetailLoading}
@@ -1419,6 +1848,7 @@ export function TaskDetailDialog({
         terminalLogs={coordinatorPlanLogs}
         terminalVisible={coordinatorPlanTerminalVisible}
         pipelineSteps={pipelineSteps}
+        pipelineAutomation={persistedAutomationState ?? null}
         pipelineLoading={pipelineLoading}
         pipelineActionLoading={pipelineActionLoading}
         pipelineError={pipelineError}
@@ -1439,6 +1869,28 @@ export function TaskDetailDialog({
         onSave={() => void handleSaveCoordinatorPlan()}
         onToggleTerminal={() => setCoordinatorPlanTerminalVisible((visible) => !visible)}
         onClearTerminal={() => setCoordinatorPlanLogs([])}
+      />
+      <SessionLogDialog
+        open={pipelineStepLogTarget !== null}
+        session={
+          pipelineStepLogTarget
+            ? {
+                sessionRecordId: pipelineStepLogTarget.sessionRecordId,
+                sessionId: pipelineStepLogTarget.sessionRecordId,
+                displayName: `步骤：${pipelineStepLogTarget.stepTitle}`,
+                employeeId: null,
+                employeeName: pipelineStepLogTarget.employeeName,
+                taskId: task.id,
+                taskTitle: title.trim() || task.title,
+                sessionKind: "execution",
+              }
+            : null
+        }
+        onOpenChange={(nextOpen) => {
+          if (!nextOpen) {
+            setPipelineStepLogTarget(null);
+          }
+        }}
       />
       {reviewFixDialogOpen && assignee && (
         <ReviewFixConfirmDialog

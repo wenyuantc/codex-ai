@@ -29,6 +29,8 @@ import {
 } from "@/lib/backend";
 import {
   formatDate,
+  getAcceptanceStatusClassName,
+  getAcceptanceStatusLabel,
   getPriorityColor,
   getPriorityLabel,
   getTaskActionRuntimeState,
@@ -36,9 +38,13 @@ import {
   getTaskAutomationStatusLabel,
   isTaskOverdue,
 } from "@/lib/utils";
+import { getPipelineKanbanBadgeLabel } from "@/lib/pipelineUi";
+import { onTaskAutomationStateChanged } from "@/lib/codex";
+import { resolveTaskPrimaryCta } from "@/lib/taskPrimaryCta";
 import { countStageableGitFiles } from "@/lib/gitWorkingTree";
 import { buildTaskExecutionInput } from "@/lib/taskPrompt";
 import {
+  AlertTriangle,
   Archive,
   Calendar,
   CircleCheckBig,
@@ -91,6 +97,12 @@ interface TaskCardProps {
   onToggleSelected?: (taskId: string) => void;
   gitContext?: TaskGitContext | null;
   projectBranches?: string[];
+  /** Board-level tags to avoid per-card listTaskTags N+1. */
+  tags?: Tag[];
+  /** Board-level milestone name for badge display. */
+  milestoneName?: string | null;
+  /** Notify board/page after tags change (detail edit) so filters stay correct. */
+  onTaskTagsChange?: (taskId: string, tagIds: string[]) => void;
   onOpenLog?: (taskId: string, sessionKind?: CodexSessionKind) => void;
   onGitActionCompleted?: (projectId: string, message: string) => Promise<void> | void;
 }
@@ -148,6 +160,9 @@ function TaskCardComponent({
   onToggleSelected,
   gitContext = null,
   projectBranches = [],
+  tags: tagsFromBoard,
+  milestoneName = null,
+  onTaskTagsChange,
   onOpenLog,
   onGitActionCompleted,
 }: TaskCardProps) {
@@ -283,6 +298,7 @@ function TaskCardComponent({
   });
   const isRunning = runtimeState.executionActive;
   const isReviewRunning = runtimeState.reviewActive;
+  const pipelineKanbanBadge = getPipelineKanbanBadgeLabel(persistedAutomationState ?? null);
   const hasActivePipelineStep = pipelineSteps.some(
     (step) => step.status === "launching" || step.status === "running",
   );
@@ -301,9 +317,8 @@ function TaskCardComponent({
     automationRestarting ||
     openingCommitDialog ||
     aiCommitting ||
-    isBackgroundRunBusy;
-  const shouldShowActionBar = !isOverlay && (isRunning || isReviewTask || !hideRunAction);
-  const shouldShowPrimaryMenuAction = isRunning || isReviewTask || !hideRunAction;
+    isBackgroundRunBusy ||
+    testerAcceptanceLoading;
   const isWorktreeModeEnabled = task.use_worktree;
   const isWorktreeReady = Boolean(gitContext?.worktree_path) && !gitContext?.worktree_missing;
   const complexityScore =
@@ -313,7 +328,6 @@ function TaskCardComponent({
   const canDeleteWorktree = Boolean(isWorktreeModeEnabled && isWorktreeReady && !hasActiveSession);
   const canArchiveTask = !hasActiveSession && task.status !== "archived";
   const canMarkCompleted = task.status !== "completed" && task.status !== "archived";
-  const shouldShowTaskActionBar = shouldShowActionBar;
   const gitContextBadge = getGitContextBadge(gitContext);
   const backendCanCommit = Boolean(
     commitActionState?.can_commit || commitActionState?.can_ai_commit,
@@ -350,6 +364,26 @@ function TaskCardComponent({
   const canAiCommitTaskCode = Boolean(
     !hasActiveSession && (commitActionState?.can_ai_commit || canCommitTaskCode),
   );
+  const primaryCta = resolveTaskPrimaryCta({
+    status: task.status,
+    executionActive: isRunning,
+    reviewActive: isReviewRunning,
+    canStopProcess: executionActions.isRunning,
+    backgroundPlanning: isBackgroundPlanning,
+    backgroundStarting: isBackgroundStarting,
+    hasAssignee: Boolean(task.assignee_id),
+    hasReviewer: Boolean(task.reviewer_id),
+    canCommit: canCommitTaskCode,
+    canGenerateAcceptance: canGenerateTesterAcceptance,
+    automationStatus: automationState.status,
+    pipelineActive: Boolean(persistedAutomationState?.pipeline_active),
+  });
+  // Show primary bar for stop/review/locked always; for run respect hideRunAction (completed column).
+  const shouldShowPrimaryCta =
+    primaryCta.kind !== "none" && (primaryCta.kind !== "run" || !hideRunAction);
+  const shouldShowActionBar = !isOverlay && shouldShowPrimaryCta;
+  const shouldShowTaskActionBar = shouldShowActionBar;
+  const shouldShowPrimaryMenuAction = shouldShowPrimaryCta;
   const hasPreLogActions =
     shouldShowPrimaryMenuAction ||
     Boolean(task.last_codex_session_id) ||
@@ -372,11 +406,20 @@ function TaskCardComponent({
   const overdue = isTaskOverdue(task);
 
   useEffect(() => {
+    if (tagsFromBoard !== undefined) {
+      setTaskTags(tagsFromBoard);
+    }
+  }, [tagsFromBoard]);
+
+  useEffect(() => {
     if (isOverlay) {
       return;
     }
     let cancelled = false;
-    void Promise.all([listTaskTags(task.id), listTaskDependencies(task.id)])
+    // Prefer board-level tags when provided; only fetch tags as fallback.
+    const tagsPromise =
+      tagsFromBoard !== undefined ? Promise.resolve(tagsFromBoard) : listTaskTags(task.id);
+    void Promise.all([tagsPromise, listTaskDependencies(task.id)])
       .then(([tags, deps]: [Tag[], TaskDependency[]]) => {
         if (cancelled) {
           return;
@@ -386,14 +429,33 @@ function TaskCardComponent({
       })
       .catch(() => {
         if (!cancelled) {
-          setTaskTags([]);
+          if (tagsFromBoard === undefined) {
+            setTaskTags([]);
+          }
           setDependencyCount(0);
         }
       });
     return () => {
       cancelled = true;
     };
-  }, [isOverlay, task.id, task.updated_at]);
+  }, [isOverlay, task.id, task.updated_at, tagsFromBoard]);
+
+  const refreshDeliveryBadges = async () => {
+    try {
+      const [nextTags, deps] = await Promise.all([
+        listTaskTags(task.id),
+        listTaskDependencies(task.id),
+      ]);
+      setTaskTags(nextTags);
+      setDependencyCount(deps.length);
+      onTaskTagsChange?.(
+        task.id,
+        nextTags.map((tag) => tag.id),
+      );
+    } catch (error) {
+      console.error("Failed to refresh task delivery badges:", error);
+    }
+  };
 
   useEffect(() => {
     if (isOverlay) {
@@ -463,6 +525,43 @@ function TaskCardComponent({
     }
   }, [fetchTaskAutomationState, persistedAutomationState, task.id]);
 
+  useEffect(() => {
+    if (isOverlay || !coordinatorPlanDialogOpen) {
+      return;
+    }
+
+    let active = true;
+    let unlisten: (() => void) | null = null;
+    void onTaskAutomationStateChanged((event) => {
+      if (!active || event.task_id !== task.id) {
+        return;
+      }
+      void listTaskPipelineSteps(task.id)
+        .then((steps) => {
+          if (active) {
+            setPipelineSteps(steps);
+          }
+        })
+        .catch((error) => {
+          if (active) {
+            setPipelineError(error instanceof Error ? error.message : String(error));
+          }
+        });
+      void fetchTaskAutomationState(task.id);
+    }).then((fn) => {
+      if (!active) {
+        fn();
+        return;
+      }
+      unlisten = fn;
+    });
+
+    return () => {
+      active = false;
+      unlisten?.();
+    };
+  }, [isOverlay, coordinatorPlanDialogOpen, task.id, fetchTaskAutomationState]);
+
   const handleRun = async (e?: React.MouseEvent) => {
     e?.stopPropagation();
     setContextMenu(null);
@@ -507,6 +606,87 @@ function TaskCardComponent({
     onOpenLog?.(task.id, "review");
     await reviewActions.startReview();
   };
+
+  const handlePrimaryCtaClick = async (e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    if (primaryCta.disabled || isActionLoading) {
+      return;
+    }
+    switch (primaryCta.kind) {
+      case "stop":
+        await handleStop(e);
+        return;
+      case "review":
+        await handleReviewCode(e);
+        return;
+      case "run":
+        await handleRun(e);
+        return;
+      case "commit":
+        await openCommitDialog();
+        return;
+      case "acceptance":
+        await handleGenerateTesterAcceptance();
+        return;
+      case "blocked":
+        setContextMenu(null);
+        setShowDetail(true);
+        return;
+      default:
+        return;
+    }
+  };
+
+  const primaryCtaButtonClass = (() => {
+    switch (primaryCta.tone) {
+      case "danger":
+        return "flex items-center gap-1 px-2 py-0.5 text-xs bg-red-600 text-white rounded hover:bg-red-700 transition-colors disabled:opacity-50";
+      case "warning":
+        return "flex items-center gap-1 px-2 py-0.5 text-xs bg-amber-500 text-black rounded hover:bg-amber-400 transition-colors disabled:opacity-50";
+      case "muted":
+        return "flex items-center gap-1 px-2 py-0.5 text-xs bg-green-600 text-white rounded opacity-50";
+      case "primary":
+      default:
+        return "flex items-center gap-1 px-2 py-0.5 text-xs bg-green-600 text-white rounded hover:bg-green-700 transition-colors disabled:opacity-50";
+    }
+  })();
+
+  const primaryCtaIcon = (() => {
+    switch (primaryCta.kind) {
+      case "stop":
+        return executionActions.loading === "stop" ? (
+          <Square className="h-3 w-3" />
+        ) : (
+          <span className="inline-block w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
+        );
+      case "starting":
+      case "running_locked":
+        return <Loader2 className="h-3 w-3 animate-spin" />;
+      case "review":
+        return reviewActions.loading || isReviewRunning ? (
+          <Loader2 className="h-3 w-3 animate-spin" />
+        ) : (
+          <ScrollText className="h-3 w-3" />
+        );
+      case "blocked":
+        return <AlertTriangle className="h-3 w-3" />;
+      case "commit":
+        return openingCommitDialog ? (
+          <Loader2 className="h-3 w-3 animate-spin" />
+        ) : (
+          <GitBranch className="h-3 w-3" />
+        );
+      case "acceptance":
+        return testerAcceptanceLoading ? (
+          <Loader2 className="h-3 w-3 animate-spin" />
+        ) : (
+          <ClipboardCheck className="h-3 w-3" />
+        );
+      case "run":
+      default:
+        return <Play className="h-3 w-3" />;
+    }
+  })();
 
   const handleContextMenu = (e: React.MouseEvent<HTMLDivElement>) => {
     if (isOverlay) return;
@@ -972,6 +1152,12 @@ function TaskCardComponent({
                 <Bot className="h-3 w-3" />
                 自动质控·{getTaskAutomationStatusLabel(automationState.status)}
               </span>
+              <span
+                className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] ${getAcceptanceStatusClassName(task.last_acceptance_status)}`}
+                title="最近一次测试验收状态"
+              >
+                验收·{getAcceptanceStatusLabel(task.last_acceptance_status)}
+              </span>
               {isWorktreeModeEnabled && (
                 <span
                   className="inline-flex items-center gap-1 rounded-full bg-sky-500/10 px-2 py-0.5 text-[11px] text-sky-700 dark:text-sky-200"
@@ -1044,7 +1230,25 @@ function TaskCardComponent({
                   <span className="truncate">{aiCommitLabel}</span>
                 </span>
               )}
-              {task.coordinator_id && !isBackgroundPlanning && (
+              {pipelineKanbanBadge && !isBackgroundPlanning && (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    void openCoordinatorPlanFlow();
+                  }}
+                  className={`inline-flex max-w-full items-center gap-1 rounded-full px-2 py-0.5 text-[11px] ${
+                    persistedAutomationState?.phase === "pipeline_step_failed"
+                      ? "bg-destructive/10 text-destructive hover:bg-destructive/15"
+                      : "bg-violet-500/10 text-violet-700 hover:bg-violet-500/15 dark:text-violet-200"
+                  }`}
+                  title="打开编排面板查看阶段进度"
+                >
+                  <GitBranch className="h-3 w-3 shrink-0" />
+                  <span className="truncate">{pipelineKanbanBadge}</span>
+                </button>
+              )}
+              {task.coordinator_id && !isBackgroundPlanning && !pipelineKanbanBadge && (
                 <button
                   type="button"
                   onClick={(e) => {
@@ -1075,6 +1279,14 @@ function TaskCardComponent({
                 >
                   <Calendar className="h-3 w-3" />
                   {overdue ? "逾期" : "截止"}·{formatDate(task.due_date)}
+                </span>
+              )}
+              {task.milestone_id && milestoneName && (
+                <span
+                  className="inline-flex max-w-[120px] items-center gap-1 truncate rounded-full bg-violet-500/10 px-2 py-0.5 text-[11px] text-violet-700 dark:text-violet-200"
+                  title={`里程碑：${milestoneName}`}
+                >
+                  里程碑·{milestoneName}
                 </span>
               )}
               {taskTags.slice(0, 3).map((tag) => (
@@ -1131,79 +1343,45 @@ function TaskCardComponent({
             </div>
           </div>
         </div>
-        {/* Run/Stop Codex */}
+        {/* Primary CTA — driven by resolveTaskPrimaryCta */}
         {shouldShowTaskActionBar && (
           <div className="flex items-center gap-1 mt-2 pt-2 border-t border-border/50">
-            {shouldShowActionBar &&
-              (isRunning ? (
-                executionActions.isRunning ? (
-                  <button
-                    onClick={handleStop}
-                    disabled={isActionLoading}
-                    className="flex items-center gap-1 px-2 py-0.5 text-xs bg-red-600 text-white rounded hover:bg-red-700 transition-colors disabled:opacity-50"
-                  >
-                    {executionActions.loading === "stop" ? (
-                      <Square className="h-3 w-3" />
-                    ) : (
-                      <span className="inline-block w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
-                    )}
-                    停止
-                  </button>
-                ) : isBackgroundRunBusy ? (
-                  <button
-                    disabled
-                    className="flex items-center gap-1 px-2 py-0.5 text-xs bg-violet-600 text-white rounded opacity-90"
-                    title={backgroundRunLabel ?? "后台启动中"}
-                  >
-                    <Loader2 className="h-3 w-3 animate-spin" />
-                    {isBackgroundPlanning ? "生成计划中" : "启动中"}
-                  </button>
-                ) : (
-                  <button
-                    disabled
-                    className="flex items-center gap-1 px-2 py-0.5 text-xs bg-green-600 text-white rounded opacity-50"
-                    title="自动修复正在启动或运行中"
-                  >
-                    <Loader2 className="h-3 w-3 animate-spin" />
-                    运行中
-                  </button>
-                )
-              ) : isReviewTask ? (
-                task.reviewer_id ? (
-                  <button
-                    onClick={(e) => void handleReviewCode(e)}
-                    disabled={isActionLoading || isReviewRunning}
-                    title={`由 ${reviewer?.name ?? "审查员"} 发起代码审核`}
-                    className="flex items-center gap-1 px-2 py-0.5 text-xs bg-amber-500 text-black rounded hover:bg-amber-400 transition-colors disabled:opacity-50"
-                  >
-                    {reviewActions.loading || isReviewRunning ? (
-                      <Loader2 className="h-3 w-3 animate-spin" />
-                    ) : (
-                      <ScrollText className="h-3 w-3" />
-                    )}
-                    {isReviewRunning ? "审核中" : "审核"}
-                  </button>
-                ) : (
-                  <span className="text-xs text-muted-foreground/50" title="请先指定审查员">
-                    <ScrollText className="h-3 w-3 inline mr-0.5" />
-                    未指定审查员
-                  </span>
-                )
-              ) : task.assignee_id ? (
-                <button
-                  onClick={handleRun}
-                  disabled={isActionLoading}
-                  className="flex items-center gap-1 px-2 py-0.5 text-xs bg-green-600 text-white rounded hover:bg-green-700 transition-colors disabled:opacity-50"
-                >
-                  <Play className="h-3 w-3" />
-                  运行
-                </button>
-              ) : (
-                <span className="text-xs text-muted-foreground/50" title="请先指派员工">
-                  <Play className="h-3 w-3 inline mr-0.5" />
-                  未指派
-                </span>
-              ))}
+            {primaryCta.kind === "run" && !task.assignee_id ? (
+              <span className="text-xs text-muted-foreground/50" title={primaryCta.reason ?? "请先指派员工"}>
+                <Play className="h-3 w-3 inline mr-0.5" />
+                未指派
+              </span>
+            ) : primaryCta.kind === "review" && !task.reviewer_id ? (
+              <span className="text-xs text-muted-foreground/50" title={primaryCta.reason ?? "请先指定审查员"}>
+                <ScrollText className="h-3 w-3 inline mr-0.5" />
+                未指定审查员
+              </span>
+            ) : primaryCta.kind === "starting" ? (
+              <button
+                type="button"
+                disabled
+                className="flex items-center gap-1 px-2 py-0.5 text-xs bg-violet-600 text-white rounded opacity-90"
+                title={backgroundRunLabel ?? primaryCta.reason ?? "后台启动中"}
+              >
+                <Loader2 className="h-3 w-3 animate-spin" />
+                {primaryCta.label}
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={(e) => void handlePrimaryCtaClick(e)}
+                disabled={primaryCta.disabled || isActionLoading}
+                title={
+                  primaryCta.kind === "review" && task.reviewer_id
+                    ? `由 ${reviewer?.name ?? "审查员"} 发起代码审核`
+                    : (primaryCta.reason ?? primaryCta.label)
+                }
+                className={primaryCtaButtonClass}
+              >
+                {primaryCtaIcon}
+                {primaryCta.label}
+              </button>
+            )}
           </div>
         )}
       </div>
@@ -1215,7 +1393,12 @@ function TaskCardComponent({
           <TaskDetailDialog
             task={task}
             open={showDetail}
-            onOpenChange={setShowDetail}
+            onOpenChange={(nextOpen) => {
+              setShowDetail(nextOpen);
+              if (!nextOpen) {
+                void refreshDeliveryBadges();
+              }
+            }}
             automationState={automationState}
           />
         </ErrorBoundary>
@@ -1233,59 +1416,41 @@ function TaskCardComponent({
               onMouseDown={(e) => e.stopPropagation()}
               onClick={(e) => e.stopPropagation()}
             >
-              {shouldShowPrimaryMenuAction &&
-                (isRunning ? (
-                  executionActions.isRunning ? (
-                    <button
-                      type="button"
-                      role="menuitem"
-                      onClick={() => void handleStop()}
-                      disabled={isActionLoading}
-                      className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-left hover:bg-accent hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-50"
-                    >
-                      <Square className="h-4 w-4" />
-                      停止
-                    </button>
-                  ) : (
-                    <button
-                      type="button"
-                      role="menuitem"
-                      disabled
-                      className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-left disabled:pointer-events-none disabled:opacity-50"
-                      title="自动修复正在启动或运行中"
-                    >
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                      运行中
-                    </button>
-                  )
-                ) : isReviewTask ? (
-                  <button
-                    type="button"
-                    role="menuitem"
-                    onClick={() => void handleReviewCode()}
-                    disabled={!task.reviewer_id || isActionLoading || isReviewRunning}
-                    title={
-                      task.reviewer_id
+              {shouldShowPrimaryMenuAction && (
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => void handlePrimaryCtaClick()}
+                  disabled={primaryCta.disabled || isActionLoading}
+                  title={
+                    primaryCta.kind === "review"
+                      ? task.reviewer_id
                         ? `由 ${reviewer?.name ?? "审查员"} 发起代码审核`
                         : "请先指定审查员"
-                    }
-                    className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-left hover:bg-accent hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-50"
-                  >
+                      : (primaryCta.reason ?? primaryCta.label)
+                  }
+                  className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-left hover:bg-accent hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-50"
+                >
+                  {primaryCta.kind === "stop" ? (
+                    <Square className="h-4 w-4" />
+                  ) : primaryCta.kind === "starting" || primaryCta.kind === "running_locked" ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : primaryCta.kind === "review" ? (
                     <ScrollText className="h-4 w-4" />
-                    {isReviewRunning ? "审核中" : "审核代码"}
-                  </button>
-                ) : (
-                  <button
-                    type="button"
-                    role="menuitem"
-                    onClick={() => void handleRun()}
-                    disabled={!task.assignee_id || isActionLoading}
-                    className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-left hover:bg-accent hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-50"
-                  >
+                  ) : primaryCta.kind === "blocked" ? (
+                    <AlertTriangle className="h-4 w-4" />
+                  ) : primaryCta.kind === "commit" ? (
+                    <GitBranch className="h-4 w-4" />
+                  ) : primaryCta.kind === "acceptance" ? (
+                    <ClipboardCheck className="h-4 w-4" />
+                  ) : (
                     <Play className="h-4 w-4" />
-                    运行
-                  </button>
-                ))}
+                  )}
+                  {primaryCta.kind === "review" && !isReviewRunning
+                    ? "审核代码"
+                    : primaryCta.label}
+                </button>
+              )}
               {canMarkCompleted && (
                 <>
                   {shouldShowPrimaryMenuAction && <div className="my-1 h-px bg-border" />}
@@ -1337,7 +1502,7 @@ function TaskCardComponent({
                   协调员计划
                 </button>
               )}
-              {canGenerateTesterAcceptance && (
+              {canGenerateTesterAcceptance && primaryCta.kind !== "acceptance" && (
                 <button
                   type="button"
                   role="menuitem"
@@ -1380,7 +1545,7 @@ function TaskCardComponent({
                   合并到目标分支
                 </button>
               )}
-              {canCommitTaskCode && (
+              {canCommitTaskCode && primaryCta.kind !== "commit" && (
                 <button
                   type="button"
                   role="menuitem"
@@ -1525,6 +1690,7 @@ function TaskCardComponent({
           terminalLogs={coordinatorPlanLogs}
           terminalVisible={coordinatorPlanTerminalVisible}
           pipelineSteps={pipelineSteps}
+          pipelineAutomation={persistedAutomationState ?? null}
           pipelineLoading={pipelineLoading}
           pipelineActionLoading={pipelineActionLoading}
           pipelineError={pipelineError}

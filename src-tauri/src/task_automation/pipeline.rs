@@ -1065,6 +1065,8 @@ mod pipeline_unit_tests {
             due_date: None,
             blocked_reason: None,
             milestone_id: None,
+            acceptance_checklist: None,
+            last_acceptance_status: None,
             mcp_server_ids: None,
             created_at: "2026-08-03".into(),
             updated_at: "2026-08-03".into(),

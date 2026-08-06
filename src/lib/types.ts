@@ -28,6 +28,7 @@ export interface Project {
   project_type: ProjectType;
   ssh_config_id: string | null;
   remote_repo_path: string | null;
+  test_command: string | null;
   deleted_at: string | null;
   created_at: string;
   updated_at: string;
@@ -96,8 +97,27 @@ export interface Task {
   milestone_id: string | null;
   /** NULL/missing = inherit global enabled; JSON array string when overridden */
   mcp_server_ids: string | null;
+  acceptance_checklist: string | null;
+  last_acceptance_status: string | null;
   created_at: string;
   updated_at: string;
+}
+
+export type AcceptanceRunStatus = "running" | "passed" | "failed" | "skipped";
+
+export interface TaskAcceptanceRun {
+  id: string;
+  task_id: string;
+  status: AcceptanceRunStatus | string;
+  trigger: string;
+  acceptance_checklist: string | null;
+  command: string | null;
+  command_exit_code: number | null;
+  command_output_excerpt: string | null;
+  ai_verdict: string | null;
+  summary: string | null;
+  created_at: string;
+  finished_at: string | null;
 }
 
 export interface Milestone {
@@ -737,6 +757,9 @@ export interface CodexSettings {
   task_automation_default_enabled: boolean;
   task_automation_max_fix_rounds: number;
   task_automation_failure_strategy: TaskAutomationFailureStrategy;
+  tester_automation_enabled: boolean;
+  tester_allow_ai_only: boolean;
+  default_test_command: string | null;
   git_preferences: GitPreferences;
   node_path_override: string | null;
   sdk_install_dir: string;

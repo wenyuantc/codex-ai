@@ -10,9 +10,21 @@ import {
   X,
 } from "lucide-react";
 
-import type { Employee, Task, TaskStatus } from "@/lib/types";
+import type {
+  Employee,
+  Task,
+  TaskAutomationState,
+  TaskPipelineStep,
+  TaskStatus,
+} from "@/lib/types";
 import { ACTIVE_TASK_STATUSES, PRIORITIES, TASK_STATUSES } from "@/lib/types";
-import { formatDate, formatDuration, getTaskElapsedSeconds } from "@/lib/utils";
+import {
+  formatDate,
+  formatDuration,
+  getAcceptanceStatusClassName,
+  getAcceptanceStatusLabel,
+  getTaskElapsedSeconds,
+} from "@/lib/utils";
 import { useSharedNow } from "@/hooks/useSharedNow";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -25,6 +37,7 @@ import {
 } from "@/components/ui/select";
 import { TaskDeliverySection } from "./TaskDeliverySection";
 import { TaskMcpBindingSection } from "./TaskMcpBindingSection";
+import { TaskPipelineProgress } from "./TaskPipelineProgress";
 
 const UNASSIGNED_VALUE = "__unassigned__";
 const MonacoMarkdownEditor = lazy(() =>
@@ -66,6 +79,22 @@ interface TaskOverviewPanelProps {
   testerAcceptanceLoading?: boolean;
   testerAcceptanceError?: string | null;
   testerAcceptanceNotice?: string | null;
+  pipelineSteps?: TaskPipelineStep[];
+  pipelineAutomation?: Pick<
+    TaskAutomationState,
+    "pipeline_active" | "pipeline_step_index" | "phase"
+  > | null;
+  pipelineLoading?: boolean;
+  pipelineError?: string | null;
+  onRefreshPipeline?: () => void;
+  onOpenPipelineStepSession?: (step: TaskPipelineStep) => void;
+  acceptanceChecklist?: string;
+  lastAcceptanceStatus?: string | null;
+  lastAcceptanceSummary?: string | null;
+  acceptanceRunning?: boolean;
+  onAcceptanceChecklistChange?: (value: string) => void;
+  onAcceptanceChecklistBlur?: () => void;
+  onRunAcceptance?: () => void;
   onTitleChange: (value: string) => void;
   onTitleBlur: () => void;
   onDescriptionChange: (value: string) => void;
@@ -133,6 +162,19 @@ export function TaskOverviewPanel({
   testerAcceptanceLoading = false,
   testerAcceptanceError = null,
   testerAcceptanceNotice = null,
+  pipelineSteps = [],
+  pipelineAutomation = null,
+  pipelineLoading = false,
+  pipelineError = null,
+  onRefreshPipeline,
+  onOpenPipelineStepSession,
+  acceptanceChecklist = "",
+  lastAcceptanceStatus = null,
+  lastAcceptanceSummary = null,
+  acceptanceRunning = false,
+  onAcceptanceChecklistChange,
+  onAcceptanceChecklistBlur,
+  onRunAcceptance,
   onTitleChange,
   onTitleBlur,
   onDescriptionChange,
@@ -193,7 +235,6 @@ export function TaskOverviewPanel({
           <span className="shrink-0 whitespace-nowrap text-xs text-muted-foreground">状态</span>
           <Select
             value={status}
-            disabled={status === "archived"}
             onValueChange={(value) => value && onStatusChange(value as TaskStatus)}
           >
             <SelectTrigger className="h-7 w-[104px] shrink-0 rounded-md px-2 text-xs">
@@ -206,6 +247,13 @@ export function TaskOverviewPanel({
               </SelectValue>
             </SelectTrigger>
             <SelectContent>
+              {/* Archived: allow picking an active status to unarchive. Keep current archived
+                  item so the controlled value stays valid while still showing 已归档. */}
+              {status === "archived" && (
+                <SelectItem value="archived" disabled>
+                  已归档
+                </SelectItem>
+              )}
               {ACTIVE_TASK_STATUSES.map((item) => (
                 <SelectItem key={item.value} value={item.value}>
                   {item.label}
@@ -406,7 +454,19 @@ export function TaskOverviewPanel({
 
       <TaskMcpBindingSection taskId={task.id} />
 
-      {coordinatorId && onOpenCoordinatorPlan && (
+      {(pipelineSteps.length > 0 || pipelineLoading) && (
+        <TaskPipelineProgress
+          steps={pipelineSteps}
+          automation={pipelineAutomation}
+          employees={employees}
+          loading={pipelineLoading}
+          error={pipelineError}
+          onRefresh={onRefreshPipeline}
+          onOpenStepSession={onOpenPipelineStepSession}
+        />
+      )}
+
+      {(coordinatorId || pipelineSteps.length > 0) && onOpenCoordinatorPlan && (
         <section className="rounded-md border border-border bg-muted/20 p-3">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div className="space-y-1">
@@ -417,10 +477,11 @@ export function TaskOverviewPanel({
               <p className="text-[11px] text-muted-foreground">
                 {coordinatorName
                   ? `由 ${coordinatorName} 生成执行计划，确认后交给指派员工执行。`
-                  : "已指定协调员。可生成或查看协调员执行计划。"}
+                  : "可生成或查看协调员执行计划与编排操作。"}
                 {planContent.trim()
                   ? " 任务中已保存一份计划内容。"
                   : " 当前还没有保存的协调员计划。"}
+                {pipelineSteps.length > 0 ? " 完整重试/转人工/改执行人请在编排面板中操作。" : ""}
               </p>
             </div>
             <button
@@ -429,46 +490,86 @@ export function TaskOverviewPanel({
               className="inline-flex h-8 items-center gap-1.5 rounded-md border border-input bg-background px-3 text-xs font-medium hover:bg-accent"
             >
               <Network className="h-3.5 w-3.5" />
-              {planContent.trim() ? "查看协调员计划" : "生成协调员计划"}
+              {pipelineSteps.length > 0
+                ? "打开编排面板"
+                : planContent.trim()
+                  ? "查看协调员计划"
+                  : "生成协调员计划"}
             </button>
           </div>
         </section>
       )}
 
-      {canGenerateTesterAcceptance && onGenerateTesterAcceptance && (
-        <section className="rounded-md border border-border bg-muted/20 p-3">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <div className="space-y-1">
-              <div className="flex items-center gap-2 text-sm font-medium text-foreground">
-                <ClipboardCheck className="h-4 w-4 text-primary" />
-                验收清单
-              </div>
-              <p className="text-[11px] text-muted-foreground">
-                由测试员基于任务标题、描述与子任务生成中文验收清单，结果会写入任务评论（前缀「[验收清单]」）。
-              </p>
+      <section className="rounded-md border border-border bg-muted/20 p-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="space-y-1">
+            <div className="flex items-center gap-2 text-sm font-medium text-foreground">
+              <ClipboardCheck className="h-4 w-4 text-primary" />
+              测试验收
+              <span
+                className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${getAcceptanceStatusClassName(lastAcceptanceStatus)}`}
+              >
+                {getAcceptanceStatusLabel(lastAcceptanceStatus)}
+              </span>
             </div>
-            <button
-              type="button"
-              onClick={onGenerateTesterAcceptance}
-              disabled={testerAcceptanceLoading}
-              className="inline-flex h-8 items-center gap-1.5 rounded-md border border-input bg-background px-3 text-xs font-medium hover:bg-accent disabled:opacity-50"
-            >
-              <ClipboardCheck className="h-3.5 w-3.5" />
-              {testerAcceptanceLoading ? "生成中…" : "生成验收清单"}
-            </button>
+            <p className="text-[11px] text-muted-foreground">
+              配置项目测试命令后可客观验收；命令失败为硬失败。也可生成/编辑验收清单。
+            </p>
           </div>
-          {testerAcceptanceError && (
-            <div className="mt-2 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
-              {testerAcceptanceError}
-            </div>
-          )}
-          {testerAcceptanceNotice && !testerAcceptanceError && (
-            <div className="mt-2 rounded-md border border-border bg-background/70 px-3 py-2 text-xs text-muted-foreground">
-              {testerAcceptanceNotice}
-            </div>
-          )}
-        </section>
-      )}
+          <div className="flex flex-wrap items-center gap-2">
+            {canGenerateTesterAcceptance && onGenerateTesterAcceptance && (
+              <button
+                type="button"
+                onClick={onGenerateTesterAcceptance}
+                disabled={testerAcceptanceLoading || acceptanceRunning}
+                className="inline-flex h-8 items-center gap-1.5 rounded-md border border-input bg-background px-3 text-xs font-medium hover:bg-accent disabled:opacity-50"
+              >
+                <ClipboardCheck className="h-3.5 w-3.5" />
+                {testerAcceptanceLoading ? "生成中…" : "生成验收清单"}
+              </button>
+            )}
+            {onRunAcceptance && (
+              <button
+                type="button"
+                onClick={onRunAcceptance}
+                disabled={acceptanceRunning || testerAcceptanceLoading}
+                className="inline-flex h-8 items-center gap-1.5 rounded-md border border-primary/40 bg-primary/10 px-3 text-xs font-medium text-primary hover:bg-primary/15 disabled:opacity-50"
+              >
+                {acceptanceRunning ? "验收中…" : "运行验收"}
+              </button>
+            )}
+          </div>
+        </div>
+        {lastAcceptanceSummary && (
+          <div className="mt-2 rounded-md border border-border bg-background/70 px-3 py-2 text-xs text-muted-foreground">
+            最近结果：{lastAcceptanceSummary}
+          </div>
+        )}
+        {onAcceptanceChecklistChange && (
+          <div className="mt-2 space-y-1">
+            <label className="text-[11px] text-muted-foreground">验收清单</label>
+            <Suspense fallback={<MonacoEditorFallback className="h-40" />}>
+              <MonacoMarkdownEditor
+                value={acceptanceChecklist}
+                onChange={onAcceptanceChecklistChange}
+                onBlur={onAcceptanceChecklistBlur}
+                className="h-40 bg-background"
+                placeholder="可手写或由测试员 AI 生成验收清单…"
+              />
+            </Suspense>
+          </div>
+        )}
+        {testerAcceptanceError && (
+          <div className="mt-2 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+            {testerAcceptanceError}
+          </div>
+        )}
+        {testerAcceptanceNotice && !testerAcceptanceError && (
+          <div className="mt-2 rounded-md border border-border bg-background/70 px-3 py-2 text-xs text-muted-foreground">
+            {testerAcceptanceNotice}
+          </div>
+        )}
+      </section>
 
       <section className="rounded-md border border-border bg-muted/20 p-3">
         <div className="mb-2 flex items-center gap-2 text-xs font-medium text-muted-foreground">

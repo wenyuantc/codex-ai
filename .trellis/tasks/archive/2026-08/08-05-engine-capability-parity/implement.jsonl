@@ -1,0 +1,15 @@
+{"file": ".trellis/spec/backend/index.md", "reason": "Backend hard rules: Tauri commands, no FE SQL, SSH first-class, activity logs"}
+{"file": ".trellis/spec/backend/ai-engines.md", "reason": "Shared engine kernel, lifecycle, restart/start boundaries per provider"}
+{"file": ".trellis/spec/backend/command-guidelines.md", "reason": "Tauri command shape for restart_* registration"}
+{"file": ".trellis/spec/backend/error-handling.md", "reason": "Chinese Result errors for send_input and restart failures"}
+{"file": ".trellis/spec/backend/ssh-remote.md", "reason": "Restart must reuse local+SSH start paths"}
+{"file": ".trellis/spec/backend/testing.md", "reason": "Rust unit test patterns for capability matrix snapshot"}
+{"file": ".trellis/spec/frontend/index.md", "reason": "Frontend hard rules: backend.ts wrappers, Chinese activity labels"}
+{"file": ".trellis/spec/frontend/data-access.md", "reason": "IPC-only data access for capabilities and session logs"}
+{"file": ".trellis/spec/frontend/component-guidelines.md", "reason": "UI patterns for badges, dialogs, virtualized lists"}
+{"file": ".trellis/spec/frontend/state-management.md", "reason": "employeeStore sessionLogs cache and hydrate patterns"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "Capability matrix must stay aligned across Rust model, backend.ts, Settings UI"}
+{"file": ".trellis/spec/guides/code-reuse-thinking-guide.md", "reason": "Reuse EngineCapabilityBadges, Kanban virtualizer, existing stop/start helpers"}
+{"file": ".trellis/tasks/08-05-engine-capability-parity/prd.md", "reason": "Requirements and acceptance criteria"}
+{"file": ".trellis/tasks/08-05-engine-capability-parity/design.md", "reason": "Technical design: honest matrix, restart parity, log virtualization"}
+{"file": ".trellis/tasks/08-05-engine-capability-parity/implement.md", "reason": "Ordered checklist and validation commands"}

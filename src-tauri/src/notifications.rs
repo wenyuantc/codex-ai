@@ -756,6 +756,8 @@ mod tests {
             due_date: None,
             blocked_reason: None,
             milestone_id: None,
+            acceptance_checklist: None,
+            last_acceptance_status: None,
             mcp_server_ids: None,
             created_at: "2026-04-20 10:00:00".to_string(),
             updated_at: "2026-04-20 10:00:00".to_string(),

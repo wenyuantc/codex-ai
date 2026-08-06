@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { CodexTerminal } from "@/components/codex/CodexTerminal";
 import {
@@ -8,9 +8,10 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
 import { getCodexSessionLogLines } from "@/lib/backend";
 import type { CodexSessionKind } from "@/lib/types";
-import { useEmployeeStore } from "@/stores/employeeStore";
+import { buildTaskLogKey, useEmployeeStore } from "@/stores/employeeStore";
 
 interface SessionLogTarget {
   sessionRecordId: string | null;
@@ -31,9 +32,12 @@ interface SessionLogDialogProps {
 
 export function SessionLogDialog({ open, session, onOpenChange }: SessionLogDialogProps) {
   const hydrateSessionLog = useEmployeeStore((state) => state.hydrateSessionLog);
+  const sessionLogs = useEmployeeStore((state) => state.sessionLogs);
+  const taskLogs = useEmployeeStore((state) => state.taskLogs);
   const [loadingHistory, setLoadingHistory] = useState(false);
   const [historyError, setHistoryError] = useState<string | null>(null);
   const [loadedSessionHistories, setLoadedSessionHistories] = useState<Record<string, boolean>>({});
+  const [keyword, setKeyword] = useState("");
   const sessionRecordId = session?.sessionRecordId ?? null;
 
   useEffect(() => {
@@ -77,10 +81,34 @@ export function SessionLogDialog({ open, session, onOpenChange }: SessionLogDial
     if (!open) {
       setHistoryError(null);
       setLoadingHistory(false);
+      setKeyword("");
     }
   }, [open]);
 
+  const rawLines = useMemo(() => {
+    if (sessionRecordId) {
+      return (sessionLogs[sessionRecordId] ?? []).map((entry) => entry.line);
+    }
+    if (session?.taskId) {
+      const kind = session.sessionKind ?? "execution";
+      return taskLogs[buildTaskLogKey(session.taskId, kind)] ?? [];
+    }
+    return [];
+  }, [session?.sessionKind, session?.taskId, sessionLogs, sessionRecordId, taskLogs]);
+
+  const trimmedKeyword = keyword.trim();
+  const filteredLines = useMemo(() => {
+    if (!trimmedKeyword) {
+      return rawLines;
+    }
+    const lower = trimmedKeyword.toLowerCase();
+    return rawLines.filter((line) => line.toLowerCase().includes(lower));
+  }, [rawLines, trimmedKeyword]);
+
   const canShowLogs = Boolean(session?.sessionRecordId || session?.taskId);
+  const matchLabel = trimmedKeyword
+    ? `匹配 ${filteredLines.length} / ${rawLines.length} 行`
+    : `共 ${rawLines.length} 行`;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -119,13 +147,35 @@ export function SessionLogDialog({ open, session, onOpenChange }: SessionLogDial
         )}
 
         {canShowLogs ? (
-          <div className="[&_div[data-slot='scroll-area']]:h-[28rem]">
-            {session?.sessionRecordId ? (
-              <CodexTerminal sessionRecordId={session.sessionRecordId} />
+          <div className="space-y-2">
+            <div className="flex flex-wrap items-center gap-2">
+              <Input
+                value={keyword}
+                onChange={(event) => setKeyword(event.target.value)}
+                placeholder="关键字过滤日志…"
+                className="h-8 max-w-sm text-sm"
+                aria-label="日志关键字过滤"
+              />
+              {trimmedKeyword && (
+                <button
+                  type="button"
+                  className="text-xs text-muted-foreground hover:text-foreground underline-offset-2 hover:underline"
+                  onClick={() => setKeyword("")}
+                >
+                  清空过滤
+                </button>
+              )}
+              <span className="text-xs text-muted-foreground">{matchLabel}</span>
+            </div>
+            {trimmedKeyword ? (
+              <CodexTerminal lines={filteredLines} hideClear heightClassName="h-[28rem]" />
+            ) : sessionRecordId ? (
+              <CodexTerminal sessionRecordId={sessionRecordId} heightClassName="h-[28rem]" />
             ) : session?.taskId ? (
               <CodexTerminal
                 taskId={session.taskId}
                 sessionKind={session.sessionKind ?? "execution"}
+                heightClassName="h-[28rem]"
               />
             ) : null}
           </div>

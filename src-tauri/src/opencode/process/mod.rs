@@ -9,11 +9,15 @@ use tokio::io::AsyncBufReadExt;
 use tokio::sync::Mutex;
 
 use crate::app::{
-    fetch_codex_session_by_id, insert_activity_log, insert_codex_session_event,
-    insert_codex_session_event_with_id, insert_codex_session_record, now_sqlite, sqlite_pool,
-    update_codex_session_record, validate_runtime_working_dir, EXECUTION_TARGET_LOCAL,
+    build_remote_shell_command, default_remote_opencode_sdk_install_dir,
+    ensure_remote_opencode_sdk_runtime_layout, execute_ssh_command, execute_ssh_command_with_input,
+    fetch_codex_session_by_id, fetch_ssh_config_record_by_id, insert_activity_log,
+    insert_codex_session_event, insert_codex_session_event_with_id, insert_codex_session_record,
+    inspect_remote_opencode_runtime, now_sqlite, remote_path_join, remote_shell_path_expression,
+    sqlite_pool, update_codex_session_record, validate_runtime_working_dir, EXECUTION_TARGET_LOCAL,
     EXECUTION_TARGET_SSH,
 };
+use crate::db::models::SshConfigRecord;
 use crate::codex::{CodexExecutionProvider, CodexSessionKind, ExecutionChangeBaseline};
 use crate::db::models::OpenCodeOutput;
 use crate::git_workflow::{
@@ -686,28 +690,60 @@ fn apply_opencode_runtime_config(
 }
 
 #[derive(Clone, Debug)]
+enum OpenCodeRuntimeConfigBackupTarget {
+    Local {
+        path: PathBuf,
+    },
+    Remote {
+        ssh_config: Box<SshConfigRecord>,
+        remote_path: String,
+    },
+}
+
+#[derive(Clone, Debug)]
 pub(crate) struct OpenCodeRuntimeConfigBackup {
-    path: PathBuf,
+    target: OpenCodeRuntimeConfigBackupTarget,
     original_content: Option<String>,
 }
 
 impl OpenCodeRuntimeConfigBackup {
     pub(crate) fn restore(&self) -> Result<(), String> {
-        match &self.original_content {
-            Some(content) => fs::write(&self.path, content).map_err(|error| {
-                format!(
-                    "OpenCode 配置文件 {} 恢复失败: {error}",
-                    self.path.display()
-                )
-            }),
-            None => match fs::remove_file(&self.path) {
-                Ok(()) => Ok(()),
-                Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
-                Err(error) => Err(format!(
-                    "OpenCode 临时配置文件 {} 清理失败: {error}",
-                    self.path.display()
-                )),
+        match &self.target {
+            OpenCodeRuntimeConfigBackupTarget::Local { path } => match &self.original_content {
+                Some(content) => fs::write(path, content).map_err(|error| {
+                    format!("OpenCode 配置文件 {} 恢复失败: {error}", path.display())
+                }),
+                None => match fs::remove_file(path) {
+                    Ok(()) => Ok(()),
+                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+                    Err(error) => Err(format!(
+                        "OpenCode 临时配置文件 {} 清理失败: {error}",
+                        path.display()
+                    )),
+                },
             },
+            OpenCodeRuntimeConfigBackupTarget::Remote { .. } => Err(
+                "远程 OpenCode 配置恢复需要异步路径，请使用 restore_async".to_string(),
+            ),
+        }
+    }
+
+    pub(crate) async fn restore_async<R: Runtime>(
+        &self,
+        app: &AppHandle<R>,
+    ) -> Result<(), String> {
+        match &self.target {
+            OpenCodeRuntimeConfigBackupTarget::Local { .. } => self.restore(),
+            OpenCodeRuntimeConfigBackupTarget::Remote {
+                ssh_config,
+                remote_path,
+            } => restore_remote_opencode_runtime_config_file(
+                app,
+                ssh_config,
+                remote_path,
+                self.original_content.as_deref(),
+            )
+            .await,
         }
     }
 }
@@ -799,7 +835,9 @@ pub(crate) fn write_opencode_runtime_config_file(
         None => serde_json::json!({}),
     };
     let backup = OpenCodeRuntimeConfigBackup {
-        path: config_path.clone(),
+        target: OpenCodeRuntimeConfigBackupTarget::Local {
+            path: config_path.clone(),
+        },
         original_content,
     };
 
@@ -814,6 +852,163 @@ pub(crate) fn write_opencode_runtime_config_file(
     })?;
     ensure_untracked_opencode_config_is_excluded(run_cwd, &config_path);
     Ok(backup)
+}
+
+pub(crate) async fn write_remote_opencode_runtime_config_file<R: Runtime>(
+    app: &AppHandle<R>,
+    ssh_config: &SshConfigRecord,
+    run_cwd: &str,
+    provider_id: &str,
+    model_id: &str,
+    reasoning_effort: Option<&str>,
+) -> Result<OpenCodeRuntimeConfigBackup, String> {
+    let remote_path = remote_path_join(run_cwd, "opencode.json");
+    let remote_path_expr = remote_shell_path_expression(&remote_path);
+    let read_script = format!(
+        "if [ -f {remote_path_expr} ]; then \
+           printf 'EXISTS=1\\n'; cat {remote_path_expr}; \
+         else \
+           printf 'EXISTS=0\\n'; \
+         fi"
+    );
+    let read_output = execute_ssh_command(
+        app,
+        ssh_config,
+        &build_remote_shell_command(&read_script, None),
+        true,
+    )
+    .await?;
+    if !read_output.status.success() {
+        let stderr = String::from_utf8_lossy(&read_output.stderr)
+            .trim()
+            .to_string();
+        return Err(if stderr.is_empty() {
+            format!("远程 OpenCode 配置文件 {remote_path} 读取失败")
+        } else {
+            format!(
+                "远程 OpenCode 配置文件 {remote_path} 读取失败：{}",
+                crate::app::redact_secret_text(&stderr)
+            )
+        });
+    }
+
+    let stdout = String::from_utf8_lossy(&read_output.stdout);
+    let mut lines = stdout.lines();
+    let exists_line = lines.next().unwrap_or("EXISTS=0");
+    let exists = exists_line.trim() == "EXISTS=1";
+    let original_content = if exists {
+        let content = lines.collect::<Vec<_>>().join("\n");
+        Some(content)
+    } else {
+        None
+    };
+
+    let mut config: serde_json::Value = match original_content.as_deref() {
+        Some(content) => serde_json::from_str(content).map_err(|error| {
+            format!(
+                "远程 OpenCode 配置文件 {remote_path} 解析失败，已停止启动以避免覆盖用户配置: {error}"
+            )
+        })?,
+        None => serde_json::json!({}),
+    };
+
+    apply_opencode_runtime_config(&mut config, provider_id, model_id, reasoning_effort);
+    let json_str = serde_json::to_string_pretty(&config)
+        .map_err(|error| format!("OpenCode 运行配置序列化失败: {error}"))?;
+
+    let write_output = execute_ssh_command_with_input(
+        app,
+        ssh_config,
+        &build_remote_shell_command(
+            &format!("cat > {remote_path_expr}"),
+            None,
+        ),
+        json_str.as_bytes(),
+        true,
+    )
+    .await?;
+    if !write_output.status.success() {
+        let stderr = String::from_utf8_lossy(&write_output.stderr)
+            .trim()
+            .to_string();
+        return Err(if stderr.is_empty() {
+            format!("远程 OpenCode 配置文件 {remote_path} 写入失败")
+        } else {
+            format!(
+                "远程 OpenCode 配置文件 {remote_path} 写入失败：{}",
+                crate::app::redact_secret_text(&stderr)
+            )
+        });
+    }
+
+    Ok(OpenCodeRuntimeConfigBackup {
+        target: OpenCodeRuntimeConfigBackupTarget::Remote {
+            ssh_config: Box::new(ssh_config.clone()),
+            remote_path,
+        },
+        original_content,
+    })
+}
+
+async fn restore_remote_opencode_runtime_config_file<R: Runtime>(
+    app: &AppHandle<R>,
+    ssh_config: &SshConfigRecord,
+    remote_path: &str,
+    original_content: Option<&str>,
+) -> Result<(), String> {
+    let remote_path_expr = remote_shell_path_expression(remote_path);
+    match original_content {
+        Some(content) => {
+            let write_output = execute_ssh_command_with_input(
+                app,
+                ssh_config,
+                &build_remote_shell_command(&format!("cat > {remote_path_expr}"), None),
+                content.as_bytes(),
+                true,
+            )
+            .await?;
+            if !write_output.status.success() {
+                let stderr = String::from_utf8_lossy(&write_output.stderr)
+                    .trim()
+                    .to_string();
+                return Err(if stderr.is_empty() {
+                    format!("远程 OpenCode 配置文件 {remote_path} 恢复失败")
+                } else {
+                    format!(
+                        "远程 OpenCode 配置文件 {remote_path} 恢复失败：{}",
+                        crate::app::redact_secret_text(&stderr)
+                    )
+                });
+            }
+            Ok(())
+        }
+        None => {
+            let remove_output = execute_ssh_command(
+                app,
+                ssh_config,
+                &build_remote_shell_command(
+                    &format!("rm -f {remote_path_expr}"),
+                    None,
+                ),
+                true,
+            )
+            .await?;
+            if !remove_output.status.success() {
+                let stderr = String::from_utf8_lossy(&remove_output.stderr)
+                    .trim()
+                    .to_string();
+                return Err(if stderr.is_empty() {
+                    format!("远程 OpenCode 临时配置文件 {remote_path} 清理失败")
+                } else {
+                    format!(
+                        "远程 OpenCode 临时配置文件 {remote_path} 清理失败：{}",
+                        crate::app::redact_secret_text(&stderr)
+                    )
+                });
+            }
+            Ok(())
+        }
+    }
 }
 
 fn resolve_final_opencode_status(
@@ -1085,7 +1280,7 @@ async fn stream_opencode_output(
     let raw_exit_code = exit_status.and_then(|status| status.code());
 
     if let Some(backup) = runtime_config_backup {
-        if let Err(error) = backup.restore() {
+        if let Err(error) = backup.restore_async(&app).await {
             let _ = insert_codex_session_event(
                 &pool,
                 &session_record_id,
@@ -1405,7 +1600,55 @@ pub async fn start_opencode_with_manager(
         git_context_marked_running = true;
     }
 
-    if execution_context.execution_target == EXECUTION_TARGET_SSH {
+    let is_ssh = execution_context.execution_target == EXECUTION_TARGET_SSH;
+    let ssh_config = if is_ssh {
+        let ssh_config_id = match execution_context.ssh_config_id.as_deref() {
+            Some(ssh_config_id) => ssh_config_id,
+            None => {
+                let error = "SSH 会话缺少 ssh_config_id".to_string();
+                finalize_launch_failure(
+                    &app,
+                    &pool,
+                    &session_record.id,
+                    task_git_context_id.as_deref(),
+                    git_context_marked_running,
+                    "runtime_prepare_failed",
+                    &error,
+                )
+                .await;
+                return Err(error);
+            }
+        };
+        match fetch_ssh_config_record_by_id(&pool, ssh_config_id).await {
+            Ok(ssh_config) => Some(ssh_config),
+            Err(error) => {
+                finalize_launch_failure(
+                    &app,
+                    &pool,
+                    &session_record.id,
+                    task_git_context_id.as_deref(),
+                    git_context_marked_running,
+                    "runtime_prepare_failed",
+                    &error,
+                )
+                .await;
+                return Err(error);
+            }
+        }
+    } else {
+        None
+    };
+
+    let local_install_dir = PathBuf::from(&opencode_settings.sdk_install_dir);
+    let remote_install_dir = if is_ssh {
+        let ssh_config_id = execution_context
+            .ssh_config_id
+            .as_deref()
+            .expect("ssh_config_id checked above");
+        let ssh_config = ssh_config
+            .as_ref()
+            .expect("ssh_config prepared before remote OpenCode launch");
+
         emit_session_terminal_line(
             &app,
             &pool,
@@ -1423,46 +1666,184 @@ pub async fn start_opencode_with_manager(
             ),
         )
         .await;
-
-        let _ = insert_codex_session_event(
-            &pool,
-            &session_record.id,
-            "session_requested",
-            Some("SSH 远程 OpenCode 会话暂不支持 SDK bridge 模式，请使用本地模式"),
-        )
-        .await;
-
-        finalize_launch_failure(
+        emit_session_terminal_line(
             &app,
             &pool,
             &session_record.id,
-            task_git_context_id.as_deref(),
-            git_context_marked_running,
-            "launch_failed",
-            "SSH 远程 OpenCode 会话暂不支持",
+            &employee_id,
+            task_id.as_deref(),
+            session_kind,
+            "[SSH] 运行通道: 远程 SDK".to_string(),
         )
         .await;
-        return Err("OpenCode SDK bridge 远程模式尚未实现，请先在本地项目中使用。".to_string());
-    }
-
-    let install_dir = PathBuf::from(&opencode_settings.sdk_install_dir);
-    let bridge_path = sdk_bridge_script_path(&install_dir);
-
-    if let Err(error) = ensure_opencode_sdk_runtime_layout(&install_dir) {
-        finalize_launch_failure(
+        emit_session_terminal_line(
             &app,
             &pool,
             &session_record.id,
-            task_git_context_id.as_deref(),
-            git_context_marked_running,
-            "sdk_runtime_setup_failed",
-            &error,
+            &employee_id,
+            task_id.as_deref(),
+            session_kind,
+            "[SSH] 正在检查远程 Node / OpenCode SDK 运行环境...".to_string(),
         )
         .await;
-        return Err(error);
-    }
 
-    let (image_paths_resolved, missing_image_paths, _ignored_remote) =
+        let default_install_dir = default_remote_opencode_sdk_install_dir(ssh_config_id);
+        let mut runtime =
+            match inspect_remote_opencode_runtime(&app, ssh_config, &default_install_dir, None)
+                .await
+            {
+                Ok(runtime) => runtime,
+                Err(error) => {
+                    finalize_launch_failure(
+                        &app,
+                        &pool,
+                        &session_record.id,
+                        task_git_context_id.as_deref(),
+                        git_context_marked_running,
+                        "remote_runtime_inspect_failed",
+                        &error,
+                    )
+                    .await;
+                    return Err(error);
+                }
+            };
+
+        if !runtime.available {
+            if runtime.node_available && !runtime.sdk_installed {
+                emit_session_terminal_line(
+                    &app,
+                    &pool,
+                    &session_record.id,
+                    &employee_id,
+                    task_id.as_deref(),
+                    session_kind,
+                    "[SSH] 远程 OpenCode SDK 未安装，正在自动安装...".to_string(),
+                )
+                .await;
+                match crate::app::remote::install_remote_opencode_sdk(
+                    app.clone(),
+                    ssh_config_id.to_string(),
+                )
+                .await
+                {
+                    Ok(result) => {
+                        emit_session_terminal_line(
+                            &app,
+                            &pool,
+                            &session_record.id,
+                            &employee_id,
+                            task_id.as_deref(),
+                            session_kind,
+                            format!("[SSH] {}", result.message),
+                        )
+                        .await;
+                    }
+                    Err(error) => {
+                        finalize_launch_failure(
+                            &app,
+                            &pool,
+                            &session_record.id,
+                            task_git_context_id.as_deref(),
+                            git_context_marked_running,
+                            "remote_sdk_install_failed",
+                            &error,
+                        )
+                        .await;
+                        return Err(error);
+                    }
+                }
+                runtime =
+                    match inspect_remote_opencode_runtime(&app, ssh_config, &default_install_dir, None)
+                        .await
+                    {
+                        Ok(runtime) => runtime,
+                        Err(error) => {
+                            finalize_launch_failure(
+                                &app,
+                                &pool,
+                                &session_record.id,
+                                task_git_context_id.as_deref(),
+                                git_context_marked_running,
+                                "remote_runtime_inspect_failed",
+                                &error,
+                            )
+                            .await;
+                            return Err(error);
+                        }
+                    };
+            }
+
+            if !runtime.available {
+                let error = runtime.message.clone();
+                finalize_launch_failure(
+                    &app,
+                    &pool,
+                    &session_record.id,
+                    task_git_context_id.as_deref(),
+                    git_context_marked_running,
+                    "remote_runtime_unavailable",
+                    &error,
+                )
+                .await;
+                return Err(error);
+            }
+        } else {
+            emit_session_terminal_line(
+                &app,
+                &pool,
+                &session_record.id,
+                &employee_id,
+                task_id.as_deref(),
+                session_kind,
+                format!("[SSH] {}", runtime.message),
+            )
+            .await;
+        }
+
+        emit_session_terminal_line(
+            &app,
+            &pool,
+            &session_record.id,
+            &employee_id,
+            task_id.as_deref(),
+            session_kind,
+            "[SSH] 正在准备远程 SDK 运行目录与 bridge...".to_string(),
+        )
+        .await;
+        match ensure_remote_opencode_sdk_runtime_layout(&app, ssh_config_id).await {
+            Ok(install_dir) => Some(install_dir),
+            Err(error) => {
+                finalize_launch_failure(
+                    &app,
+                    &pool,
+                    &session_record.id,
+                    task_git_context_id.as_deref(),
+                    git_context_marked_running,
+                    "sdk_runtime_setup_failed",
+                    &error,
+                )
+                .await;
+                return Err(error);
+            }
+        }
+    } else {
+        if let Err(error) = ensure_opencode_sdk_runtime_layout(&local_install_dir) {
+            finalize_launch_failure(
+                &app,
+                &pool,
+                &session_record.id,
+                task_git_context_id.as_deref(),
+                git_context_marked_running,
+                "sdk_runtime_setup_failed",
+                &error,
+            )
+            .await;
+            return Err(error);
+        }
+        None
+    };
+
+    let (image_paths_resolved, missing_image_paths, ignored_remote) =
         match crate::codex::process::prepare_execution_image_paths(
             &app,
             task_id.as_deref(),
@@ -1499,6 +1880,18 @@ pub async fn start_opencode_with_manager(
         )
         .await;
     }
+    if ignored_remote > 0 {
+        emit_session_terminal_line(
+            &app,
+            &pool,
+            &session_record.id,
+            &employee_id,
+            task_id.as_deref(),
+            session_kind,
+            format!("[WARN] SSH 模式下已跳过 {ignored_remote} 张本地图片附件"),
+        )
+        .await;
+    }
 
     // Query reasoning_effort from employee settings
     let reasoning_effort =
@@ -1514,12 +1907,18 @@ pub async fn start_opencode_with_manager(
         .as_deref()
         .filter(|v| !v.is_empty() && *v != "default")
         .unwrap_or("default");
+    let execution_env_label = if is_ssh {
+        "SSH 远程运行"
+    } else {
+        "本地运行"
+    };
+    let channel_label = if is_ssh { "远程 SDK" } else { "SDK" };
     let prompt_log = format!(
         "[PROMPT] 即将发送给 OpenCode 的完整提示词\n\
-运行通道: SDK\n\
+运行通道: {channel_label}\n\
 模型: {model}\n\
 推理强度: {reasoning_label}\n\
-执行环境: 本地运行\n\
+执行环境: {execution_env_label}\n\
 工作目录: {run_cwd}\n\
 附带图片: {} 张\n\n{prompt}",
         image_paths_resolved.len(),
@@ -1553,7 +1952,7 @@ pub async fn start_opencode_with_manager(
         session_kind,
         &execution_context.execution_target,
         &run_cwd,
-        None,
+        ssh_config.as_ref(),
     )
     .await;
 
@@ -1571,25 +1970,56 @@ pub async fn start_opencode_with_manager(
         .map(|(p, _)| p)
         .unwrap_or("opencode-go");
     let model_id = model.split_once('/').map(|(_, m)| m).unwrap_or(&model);
-    let runtime_config_backup = match write_opencode_runtime_config_file(
-        &run_cwd,
-        provider_id,
-        model_id,
-        effort_to_write.as_deref(),
-    ) {
-        Ok(backup) => backup,
-        Err(error) => {
-            finalize_launch_failure(
-                &app,
-                &pool,
-                &session_record.id,
-                task_git_context_id.as_deref(),
-                git_context_marked_running,
-                "opencode_runtime_config_failed",
-                &error,
-            )
-            .await;
-            return Err(error);
+    let runtime_config_backup = if is_ssh {
+        let ssh_config = ssh_config
+            .as_ref()
+            .expect("ssh_config prepared before remote OpenCode launch");
+        match write_remote_opencode_runtime_config_file(
+            &app,
+            ssh_config,
+            &run_cwd,
+            provider_id,
+            model_id,
+            effort_to_write.as_deref(),
+        )
+        .await
+        {
+            Ok(backup) => backup,
+            Err(error) => {
+                finalize_launch_failure(
+                    &app,
+                    &pool,
+                    &session_record.id,
+                    task_git_context_id.as_deref(),
+                    git_context_marked_running,
+                    "opencode_runtime_config_failed",
+                    &error,
+                )
+                .await;
+                return Err(error);
+            }
+        }
+    } else {
+        match write_opencode_runtime_config_file(
+            &run_cwd,
+            provider_id,
+            model_id,
+            effort_to_write.as_deref(),
+        ) {
+            Ok(backup) => backup,
+            Err(error) => {
+                finalize_launch_failure(
+                    &app,
+                    &pool,
+                    &session_record.id,
+                    task_git_context_id.as_deref(),
+                    git_context_marked_running,
+                    "opencode_runtime_config_failed",
+                    &error,
+                )
+                .await;
+                return Err(error);
+            }
         }
     };
 
@@ -1600,9 +2030,20 @@ pub async fn start_opencode_with_manager(
         &employee_id,
         task_id.as_deref(),
         session_kind,
-        "[SDK] 任务已提交，等待 OpenCode 响应...".to_string(),
+        if is_ssh {
+            "[SSH] 任务已提交，等待远程 OpenCode 响应...".to_string()
+        } else {
+            "[SDK] 任务已提交，等待 OpenCode 响应...".to_string()
+        },
     )
     .await;
+
+    let bridge_host = if is_ssh {
+        "127.0.0.1".to_string()
+    } else {
+        opencode_settings.host.clone()
+    };
+    let bridge_port = if is_ssh { 4096 } else { opencode_settings.port };
 
     let bridge_config = OpenCodeBridgeConfig {
         mode: if resume_session_id.is_some() {
@@ -1612,32 +2053,71 @@ pub async fn start_opencode_with_manager(
         },
         model: model.clone(),
         reasoning_effort: effort_to_write.clone(),
-        host: opencode_settings.host.clone(),
-        port: opencode_settings.port,
-        node_path_override: opencode_settings.node_path_override.clone(),
+        host: bridge_host,
+        port: bridge_port,
+        node_path_override: if is_ssh {
+            None
+        } else {
+            opencode_settings.node_path_override.clone()
+        },
         working_directory: run_cwd.clone(),
         prompt: prompt.clone(),
         system_prompt: None,
         resume_session_id,
         image_paths: image_paths_resolved,
-        install_dir: install_dir.clone(),
+        install_dir: local_install_dir.clone(),
     };
 
-    let child = match launch_opencode_bridge(&bridge_config, &bridge_path).await {
-        Ok(child) => child,
-        Err(error) => {
-            let _ = runtime_config_backup.restore();
-            finalize_launch_failure(
-                &app,
-                &pool,
-                &session_record.id,
-                task_git_context_id.as_deref(),
-                git_context_marked_running,
-                "sdk_bridge_launch_failed",
-                &error,
-            )
-            .await;
-            return Err(error);
+    let (child, cleanup_paths) = if is_ssh {
+        let ssh_config = ssh_config
+            .as_ref()
+            .expect("ssh_config prepared before remote OpenCode launch");
+        let remote_install_dir = remote_install_dir
+            .as_deref()
+            .expect("remote install dir prepared before remote OpenCode launch");
+        match launch_opencode_bridge_via_ssh(
+            &app,
+            ssh_config,
+            remote_install_dir,
+            None,
+            &bridge_config,
+        )
+        .await
+        {
+            Ok(result) => result,
+            Err(error) => {
+                let _ = runtime_config_backup.restore_async(&app).await;
+                finalize_launch_failure(
+                    &app,
+                    &pool,
+                    &session_record.id,
+                    task_git_context_id.as_deref(),
+                    git_context_marked_running,
+                    "sdk_bridge_launch_failed",
+                    &error,
+                )
+                .await;
+                return Err(error);
+            }
+        }
+    } else {
+        let bridge_path = sdk_bridge_script_path(&local_install_dir);
+        match launch_opencode_bridge(&bridge_config, &bridge_path).await {
+            Ok(child) => (child, vec![]),
+            Err(error) => {
+                let _ = runtime_config_backup.restore();
+                finalize_launch_failure(
+                    &app,
+                    &pool,
+                    &session_record.id,
+                    task_git_context_id.as_deref(),
+                    git_context_marked_running,
+                    "sdk_bridge_launch_failed",
+                    &error,
+                )
+                .await;
+                return Err(error);
+            }
         }
     };
     if let Err(error) =
@@ -1647,7 +2127,8 @@ pub async fn start_opencode_with_manager(
         let mut child = child;
         let _ = child.kill_process_group();
         let _ = child.kill().await;
-        let _ = runtime_config_backup.restore();
+        cleanup_process_artifacts(&cleanup_paths);
+        let _ = runtime_config_backup.restore_async(&app).await;
         finalize_launch_failure(
             &app,
             &pool,
@@ -1672,7 +2153,7 @@ pub async fn start_opencode_with_manager(
             session_kind,
             child.clone(),
             session_record.id.clone(),
-            vec![],
+            cleanup_paths,
         );
     }
 
@@ -1680,7 +2161,11 @@ pub async fn start_opencode_with_manager(
         &pool,
         &session_record.id,
         "session_started",
-        Some("OpenCode 会话已启动"),
+        Some(if is_ssh {
+            "远程 OpenCode 会话已启动"
+        } else {
+            "OpenCode 会话已启动"
+        }),
     )
     .await;
 
@@ -1781,6 +2266,50 @@ pub async fn stop_opencode(
     }
 
     Ok(())
+}
+
+#[tauri::command]
+pub async fn restart_opencode(
+    app: AppHandle,
+    state: State<'_, Arc<Mutex<OpenCodeManager>>>,
+    employee_id: String,
+    task_description: String,
+    model: Option<String>,
+    working_dir: Option<String>,
+    task_id: Option<String>,
+    task_git_context_id: Option<String>,
+    image_paths: Option<Vec<String>>,
+) -> Result<(), String> {
+    let processes = {
+        let manager = state.lock().await;
+        manager.get_employee_processes(&employee_id)
+    };
+
+    // Restart = stop live processes (if any) then start; no live is OK (re-run).
+    for process in processes {
+        stop_opencode_process_with_manager(
+            &app,
+            state.inner(),
+            &process.session_record_id,
+            "restart_requested",
+            "收到重启请求",
+        )
+        .await?;
+    }
+
+    start_opencode(
+        app,
+        state,
+        employee_id,
+        task_description,
+        model,
+        working_dir,
+        task_id,
+        task_git_context_id,
+        None,
+        image_paths,
+    )
+    .await
 }
 
 use tokio::io::AsyncReadExt;

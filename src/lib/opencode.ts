@@ -40,6 +40,28 @@ export interface OpenCodeSdkInstallResult {
   message: string;
 }
 
+export interface RemoteOpenCodeHealthCheck {
+  available: boolean;
+  node_available: boolean;
+  node_version: string | null;
+  sdk_installed: boolean;
+  sdk_version: string | null;
+  sdk_install_dir: string;
+  message: string;
+  checked_at: string;
+}
+
+export interface RemoteOpenCodeSdkInstallResult {
+  execution_target: string;
+  ssh_config_id: string | null;
+  target_host_label: string | null;
+  sdk_installed: boolean;
+  sdk_version: string | null;
+  install_dir: string;
+  node_version: string | null;
+  message: string;
+}
+
 export interface OpenCodeOutputEvent {
   employee_id: string;
   task_id: string | null;
@@ -102,6 +124,18 @@ export function installOpenCodeSdk(): Promise<OpenCodeSdkInstallResult> {
   return invoke<OpenCodeSdkInstallResult>("install_opencode_sdk");
 }
 
+export function validateRemoteOpenCodeHealth(
+  sshConfigId: string,
+): Promise<RemoteOpenCodeHealthCheck> {
+  return invoke<RemoteOpenCodeHealthCheck>("validate_remote_opencode_health", { sshConfigId });
+}
+
+export function installRemoteOpenCodeSdk(
+  sshConfigId: string,
+): Promise<RemoteOpenCodeSdkInstallResult> {
+  return invoke<RemoteOpenCodeSdkInstallResult>("install_remote_opencode_sdk", { sshConfigId });
+}
+
 export function startOpenCode(params: {
   employeeId: string;
   taskDescription: string;
@@ -121,6 +155,18 @@ export function stopOpenCodeSession(sessionRecordId: string): Promise<void> {
 
 export function stopOpenCode(employeeId: string): Promise<void> {
   return invoke<void>("stop_opencode", { employeeId });
+}
+
+export function restartOpenCode(params: {
+  employeeId: string;
+  taskDescription: string;
+  model?: string;
+  workingDir?: string;
+  taskId?: string;
+  taskGitContextId?: string;
+  imagePaths?: string[];
+}): Promise<void> {
+  return invoke<void>("restart_opencode", params);
 }
 
 // ---- Event Listeners ----

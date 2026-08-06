@@ -1085,6 +1085,34 @@ pub fn get_all_migrations() -> Vec<Migration> {
         },
         Migration {
             version: 43,
+            description: "tester acceptance runs, project test_command, task acceptance fields",
+            sql: r#"
+                ALTER TABLE projects ADD COLUMN test_command TEXT;
+                ALTER TABLE tasks ADD COLUMN acceptance_checklist TEXT;
+                ALTER TABLE tasks ADD COLUMN last_acceptance_status TEXT;
+
+                CREATE TABLE task_acceptance_runs (
+                    id TEXT PRIMARY KEY,
+                    task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+                    status TEXT NOT NULL,
+                    trigger TEXT NOT NULL,
+                    acceptance_checklist TEXT,
+                    command TEXT,
+                    command_exit_code INTEGER,
+                    command_output_excerpt TEXT,
+                    ai_verdict TEXT,
+                    summary TEXT,
+                    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                    finished_at TEXT
+                );
+
+                CREATE INDEX idx_task_acceptance_runs_task
+                    ON task_acceptance_runs(task_id, created_at DESC);
+            "#,
+            kind: tauri_plugin_sql::MigrationKind::Up,
+        },
+        Migration {
+            version: 44,
             description: "task mcp server binding (three-state JSON ids)",
             sql: r#"
                 ALTER TABLE tasks ADD COLUMN mcp_server_ids TEXT;
@@ -1132,7 +1160,7 @@ mod tests {
 
     #[test]
     fn latest_migration_version_includes_session_events_retention_index() {
-        assert_eq!(latest_migration_version(), 42);
+        assert_eq!(latest_migration_version(), 44);
     }
 
     #[test]

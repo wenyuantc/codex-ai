@@ -43,6 +43,9 @@ interface GitAutomationSettingsTabProps {
   taskAutomationDefaultEnabled: boolean;
   taskAutomationMaxFixRounds: number;
   taskAutomationFailureStrategy: TaskAutomationFailureStrategy;
+  testerAutomationEnabled: boolean;
+  testerAllowAiOnly: boolean;
+  defaultTestCommand: string;
   defaultTaskUseWorktree: boolean;
   worktreeLocationMode: WorktreeLocationMode;
   worktreeCustomRoot: string;
@@ -56,6 +59,9 @@ interface GitAutomationSettingsTabProps {
   onTaskAutomationDefaultEnabledChange: (value: boolean) => void;
   onTaskAutomationMaxFixRoundsChange: (value: number) => void;
   onTaskAutomationFailureStrategyChange: (value: TaskAutomationFailureStrategy) => void;
+  onTesterAutomationEnabledChange: (value: boolean) => void;
+  onTesterAllowAiOnlyChange: (value: boolean) => void;
+  onDefaultTestCommandChange: (value: string) => void;
   onDefaultTaskUseWorktreeChange: (value: boolean) => void;
   onWorktreeLocationModeChange: (value: WorktreeLocationMode) => void;
   onWorktreeCustomRootChange: (value: string) => void;
@@ -78,6 +84,9 @@ export function GitAutomationSettingsTab({
   taskAutomationDefaultEnabled,
   taskAutomationMaxFixRounds,
   taskAutomationFailureStrategy,
+  testerAutomationEnabled,
+  testerAllowAiOnly,
+  defaultTestCommand,
   defaultTaskUseWorktree,
   worktreeLocationMode,
   worktreeCustomRoot,
@@ -91,6 +100,9 @@ export function GitAutomationSettingsTab({
   onTaskAutomationDefaultEnabledChange,
   onTaskAutomationMaxFixRoundsChange,
   onTaskAutomationFailureStrategyChange,
+  onTesterAutomationEnabledChange,
+  onTesterAllowAiOnlyChange,
+  onDefaultTestCommandChange,
   onDefaultTaskUseWorktreeChange,
   onWorktreeLocationModeChange,
   onWorktreeCustomRootChange,
@@ -120,9 +132,7 @@ export function GitAutomationSettingsTab({
   const isGitClaudeProvider = gitAiProvider === "claude";
   const isGitOpenCodeProvider = gitAiProvider === "opencode";
   const isGitGrokProvider = gitAiProvider === "grok";
-  const availableGitProviders = AI_PROVIDER_OPTIONS.filter(
-    (option) => !(isRemoteMode && option.value === "opencode"),
-  );
+  const availableGitProviders = AI_PROVIDER_OPTIONS;
   const gitOpenCodeModelOptions =
     opencodeModelList.length > 0
       ? opencodeModelList
@@ -252,6 +262,62 @@ export function GitAutomationSettingsTab({
           最多自动修复 {taskAutomationMaxFixRounds} 轮； 失败后
           {taskAutomationFailureStrategy === "manual_control" ? "转人工处理" : "转阻塞"}。
         </p>
+      </div>
+
+      <div className="space-y-4 rounded-lg border border-border bg-card p-4">
+        <div className="space-y-1">
+          <h3 className="text-sm font-medium">测试员自动化（先测后审）</h3>
+          <p className="text-xs text-muted-foreground">
+            开发会话成功结束后先跑测试验收，通过后再进入自动 code review。命令失败为硬失败，不可被 AI
+            单独改判。
+          </p>
+        </div>
+
+        <label className="flex items-start gap-3 rounded-md border border-border px-3 py-2">
+          <input
+            type="checkbox"
+            className="mt-0.5 h-4 w-4 rounded border-input"
+            checked={testerAutomationEnabled}
+            onChange={(event) => onTesterAutomationEnabledChange(event.target.checked)}
+            disabled={healthLoading || actionLoading !== null}
+          />
+          <div className="space-y-1">
+            <p className="text-sm font-medium">启用测试员自动化</p>
+            <p className="text-xs text-muted-foreground">
+              关闭时保持旧路径：执行结束后直接进入审核。
+            </p>
+          </div>
+        </label>
+
+        <label className="flex items-start gap-3 rounded-md border border-border px-3 py-2">
+          <input
+            type="checkbox"
+            className="mt-0.5 h-4 w-4 rounded border-input"
+            checked={testerAllowAiOnly}
+            onChange={(event) => onTesterAllowAiOnlyChange(event.target.checked)}
+            disabled={healthLoading || actionLoading !== null}
+          />
+          <div className="space-y-1">
+            <p className="text-sm font-medium">允许无测试命令时仅 AI/清单验收</p>
+            <p className="text-xs text-muted-foreground">
+              未配置测试命令时结果偏主观；关闭则自动路径跳过测试阶段。
+            </p>
+          </div>
+        </label>
+
+        <div className="space-y-2">
+          <label className="text-sm font-medium">默认测试命令</label>
+          <Input
+            value={defaultTestCommand}
+            onChange={(event) => onDefaultTestCommandChange(event.target.value)}
+            placeholder="例如 npm test 或 cargo test"
+            disabled={healthLoading || actionLoading !== null}
+            className="bg-background font-mono text-sm"
+          />
+          <p className="text-xs text-muted-foreground">
+            项目可单独覆盖。local 在工作目录执行，SSH 在远程对应目录执行。
+          </p>
+        </div>
       </div>
 
       <div className="space-y-4 rounded-lg border border-border bg-card p-4">

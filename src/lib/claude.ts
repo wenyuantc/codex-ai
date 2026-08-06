@@ -70,6 +70,25 @@ export async function stopClaudeSession(sessionRecordId: string): Promise<void> 
   await invoke("stop_claude_session", { sessionRecordId });
 }
 
+export async function restartClaude(
+  employeeId: string,
+  taskDescription: string,
+  options: StartClaudeOptions = {},
+): Promise<void> {
+  await invoke("restart_claude", {
+    employeeId,
+    taskDescription,
+    model: options.model ?? null,
+    reasoningEffort: options.reasoningEffort ?? null,
+    systemPrompt: options.systemPrompt ?? null,
+    workingDir: options.workingDir ?? null,
+    taskId: options.taskId ?? null,
+    taskGitContextId: options.taskGitContextId ?? null,
+    imagePaths: options.imagePaths ?? null,
+    sessionKind: options.sessionKind ?? null,
+  });
+}
+
 export function onClaudeOutput(callback: (output: ClaudeOutput) => void): Promise<() => void> {
   return listen<ClaudeOutput>("claude-stdout", (event) => {
     callback(event.payload);
