@@ -26,3 +26,24 @@
 ### Status
 
 [OK] **Completed**
+
+
+## Session 2: OpenCode SSH 远程补齐
+
+**Date**: 2026-08-06
+**Task**: OpenCode SSH 远程补齐
+**Branch**: `feat/opencode-ssh-bridge`
+
+### Summary
+
+规划并实现 OpenCode SSH：对齐 Codex 远程 SDK（远端 Node+bridge 启动/停止、健康检查与安装、one-shot、设置页入口），移除「尚未实现」硬失败；通过 cargo test/clippy 与 npm build，提交 feat(opencode) 后归档任务。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `a5f5019` | (see git log) |
+
+### Status
+
+[OK] **Completed**
