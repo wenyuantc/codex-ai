@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 7
+- **Total Sessions**: 8
 - **Last Active**: 2026-08-06
 <!-- @@@/auto:current-status -->
 
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 8 | 2026-08-06 | MCP 任务级深度绑定 | `3f81008` | `feat/mcp-task-binding` |
 | 7 | 2026-08-06 | 引擎能力对齐与会话日志体验 | `a1bcc62` | `feat/engine-capability-parity` |
 | 6 | 2026-08-06 | 协调员编排可视化 | `8d89575` | `feat/coordinator-pipeline-viz` |
 | 5 | 2026-08-06 | 看板交付UX与可发现性 | `aae2774` | `feat/kanban-delivery-ux` |

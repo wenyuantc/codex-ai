@@ -1,0 +1,6 @@
+{"file": ".trellis/spec/backend/index.md", "reason": "Verify writes stay in Rust commands and activity logs exist"}
+{"file": ".trellis/spec/backend/testing.md", "reason": "Resolve/inject unit test expectations"}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "build gate and UI quality bar"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "Cross-layer field consistency: migration, models, TS types, labels"}
+{"file": ".trellis/tasks/08-05-mcp-task-binding/prd.md", "reason": "Map AC1–AC6 to verification steps"}
+{"file": ".trellis/tasks/08-05-mcp-task-binding/design.md", "reason": "Check injection replace semantics and no-secret logging"}

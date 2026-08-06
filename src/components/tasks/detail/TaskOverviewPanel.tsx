@@ -36,6 +36,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { TaskDeliverySection } from "./TaskDeliverySection";
+import { TaskMcpBindingSection } from "./TaskMcpBindingSection";
 import { TaskPipelineProgress } from "./TaskPipelineProgress";
 
 const UNASSIGNED_VALUE = "__unassigned__";
@@ -450,6 +451,8 @@ export function TaskOverviewPanel({
         onMilestoneChange={onMilestoneChange}
         onError={onDeliveryError}
       />
+
+      <TaskMcpBindingSection taskId={task.id} />
 
       {(pipelineSteps.length > 0 || pipelineLoading) && (
         <TaskPipelineProgress

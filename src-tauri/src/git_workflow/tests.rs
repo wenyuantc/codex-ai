@@ -107,6 +107,7 @@ use crate::app::build_current_migrator;
             milestone_id: None,
             acceptance_checklist: None,
             last_acceptance_status: None,
+            mcp_server_ids: None,
             created_at: now_sqlite(),
             updated_at: now_sqlite(),
         };

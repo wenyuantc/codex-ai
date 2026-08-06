@@ -817,6 +817,7 @@ pub async fn create_task<R: Runtime>(
         milestone_id,
         acceptance_checklist: None,
         last_acceptance_status: None,
+        mcp_server_ids: None,
         created_at: now_sqlite(),
         updated_at: now_sqlite(),
     };
@@ -2334,6 +2335,9 @@ pub(crate) async fn import_tasks_json_with_pool(
             due_date,
             blocked_reason,
             milestone_id: None,
+            acceptance_checklist: None,
+            last_acceptance_status: None,
+            mcp_server_ids: None,
             created_at: now.clone(),
             updated_at: now.clone(),
         };

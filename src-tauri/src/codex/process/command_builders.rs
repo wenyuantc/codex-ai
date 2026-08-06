@@ -47,6 +47,7 @@ pub(super) fn build_session_exec_args(
     image_paths: &[String],
     resume_session_id: Option<&str>,
     json_output_flag: Option<CliJsonOutputFlag>,
+    mcp_servers: &[crate::db::models::McpServerConfig],
 ) -> Vec<String> {
     let mut args = vec![
         "exec".to_string(),
@@ -57,6 +58,7 @@ pub(super) fn build_session_exec_args(
         "-C".to_string(),
         run_cwd.to_string(),
     ];
+    crate::codex::mcp::append_mcp_config_args(&mut args, mcp_servers);
     if let Some(json_output_flag) = json_output_flag {
         args.push(json_output_flag.as_arg().to_string());
     }
@@ -84,6 +86,7 @@ pub(super) fn build_remote_codex_session_command(
     resume_session_id: Option<&str>,
     json_output_flag: Option<CliJsonOutputFlag>,
     node_path_override: Option<&str>,
+    mcp_servers: &[crate::db::models::McpServerConfig],
 ) -> String {
     let args = build_session_exec_args(
         model,
@@ -92,6 +95,7 @@ pub(super) fn build_remote_codex_session_command(
         image_paths,
         resume_session_id,
         json_output_flag,
+        mcp_servers,
     )
     .into_iter()
     .map(|value| shell_escape_arg(&value))

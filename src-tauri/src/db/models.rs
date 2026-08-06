@@ -149,6 +149,8 @@ pub struct Task {
     pub milestone_id: Option<String>,
     pub acceptance_checklist: Option<String>,
     pub last_acceptance_status: Option<String>,
+    /// NULL = inherit global enabled; JSON array string e.g. `[]` or `["id"]` = override.
+    pub mcp_server_ids: Option<String>,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -1032,6 +1034,30 @@ pub struct GetDashboardReportPayload {
     /// Aging threshold in days for in-progress tasks (default 7).
     #[serde(default)]
     pub aging_days: Option<i64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TaskMcpBindingMode {
+    Inherit,
+    Override,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SetTaskMcpBindingPayload {
+    pub task_id: String,
+    pub mode: TaskMcpBindingMode,
+    /// Required when mode is Override (may be empty for explicit empty set).
+    #[serde(default)]
+    pub server_ids: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TaskMcpBindingView {
+    pub task_id: String,
+    pub mode: TaskMcpBindingMode,
+    pub server_ids: Vec<String>,
+    pub effective: Vec<McpServerConfig>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

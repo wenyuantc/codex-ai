@@ -1111,6 +1111,14 @@ pub fn get_all_migrations() -> Vec<Migration> {
             "#,
             kind: tauri_plugin_sql::MigrationKind::Up,
         },
+        Migration {
+            version: 44,
+            description: "task mcp server binding (three-state JSON ids)",
+            sql: r#"
+                ALTER TABLE tasks ADD COLUMN mcp_server_ids TEXT;
+            "#,
+            kind: tauri_plugin_sql::MigrationKind::Up,
+        },
     ]
 }
 
@@ -1152,7 +1160,7 @@ mod tests {
 
     #[test]
     fn latest_migration_version_includes_session_events_retention_index() {
-        assert_eq!(latest_migration_version(), 43);
+        assert_eq!(latest_migration_version(), 44);
     }
 
     #[test]

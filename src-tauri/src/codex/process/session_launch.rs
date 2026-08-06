@@ -55,6 +55,7 @@ async fn build_remote_cli_fallback_command(
     resume_session_id: Option<&str>,
     remote_exec_json_flag: Option<CliJsonOutputFlag>,
     fallback_message: Option<String>,
+    mcp_servers: &[crate::db::models::McpServerConfig],
 ) -> Result<(tokio::process::Command, Vec<PathBuf>), String> {
     if let Some(fallback_message) = fallback_message {
         emit_session_terminal_line(
@@ -98,6 +99,7 @@ async fn build_remote_cli_fallback_command(
         resume_session_id,
         remote_exec_json_flag,
         node_path_override,
+        mcp_servers,
     );
     build_remote_exec_command(
         app,
@@ -121,6 +123,7 @@ async fn prepare_remote_session_launch(
     run_cwd: &str,
     image_paths: &[String],
     resume_session_id: Option<&str>,
+    mcp_servers: &[crate::db::models::McpServerConfig],
 ) -> Result<SessionLaunch, String> {
     let ssh_config_id = execution_context
         .ssh_config_id
@@ -263,8 +266,11 @@ async fn prepare_remote_session_launch(
                                         remote_exec_json_flag,
                                         Some(format!(
                                             "[WARN] [SSH] 远程 SDK 启动失败，已回退到远程 codex exec：{}",
-                                            error
+                                            error,
+
                                         )),
+
+                                        mcp_servers,
                                     )
                                     .await?;
                                     return Ok(SessionLaunch {
@@ -303,8 +309,11 @@ async fn prepare_remote_session_launch(
                                 remote_exec_json_flag,
                                 Some(format!(
                                     "[WARN] [SSH] 远程 SDK 准备失败，已回退到远程 codex exec：{}",
-                                    error
+                                    error,
+
                                 )),
+
+                                mcp_servers,
                             )
                             .await?;
                             return Ok(SessionLaunch {
@@ -342,6 +351,7 @@ async fn prepare_remote_session_launch(
                         resume_session_id,
                         remote_exec_json_flag,
                         Some(format!("[WARN] [SSH] {}", runtime.status_message)),
+                        mcp_servers,
                     )
                     .await?;
                     return Ok(SessionLaunch {
@@ -378,8 +388,11 @@ async fn prepare_remote_session_launch(
                         remote_exec_json_flag,
                         Some(format!(
                             "[WARN] [SSH] 远程运行环境检查失败，已回退到远程 codex exec：{}",
-                            error
+                            error,
+
                         )),
+
+                        mcp_servers,
                     )
                     .await?;
                     return Ok(SessionLaunch {
@@ -418,6 +431,7 @@ async fn prepare_remote_session_launch(
         resume_session_id,
         remote_exec_json_flag,
         None,
+        mcp_servers,
     )
     .await?;
 
@@ -517,6 +531,7 @@ pub(super) async fn prepare_session_launch(
     run_cwd: &str,
     image_paths: &[String],
     resume_session_id: Option<&str>,
+    mcp_servers: &[crate::db::models::McpServerConfig],
 ) -> Result<SessionLaunch, String> {
     if execution_context.execution_target == EXECUTION_TARGET_SSH {
         prepare_remote_session_launch(
@@ -532,6 +547,7 @@ pub(super) async fn prepare_session_launch(
             run_cwd,
             image_paths,
             resume_session_id,
+            mcp_servers,
         )
         .await
     } else {

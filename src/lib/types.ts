@@ -95,6 +95,8 @@ export interface Task {
   due_date: string | null;
   blocked_reason: string | null;
   milestone_id: string | null;
+  /** NULL/missing = inherit global enabled; JSON array string when overridden */
+  mcp_server_ids: string | null;
   acceptance_checklist: string | null;
   last_acceptance_status: string | null;
   created_at: string;

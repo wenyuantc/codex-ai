@@ -70,6 +70,7 @@ mod automation_working_dir_tests {
             milestone_id: None,
             acceptance_checklist: None,
             last_acceptance_status: None,
+            mcp_server_ids: None,
             created_at: "2026-04-17 00:00:00".to_string(),
             updated_at: "2026-04-17 00:00:00".to_string(),
         }
@@ -415,6 +416,7 @@ mod automation_guard_tests {
             milestone_id: None,
             acceptance_checklist: None,
             last_acceptance_status: None,
+            mcp_server_ids: None,
             created_at: "2026-04-21 00:00:00".to_string(),
             updated_at: "2026-04-21 00:00:00".to_string(),
         }
