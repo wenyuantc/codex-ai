@@ -328,3 +328,29 @@ Claude CLI -p+stream-json 补齐 --verbose，修复运行/审核任务退出码1
 ### Status
 
 [OK] **Completed**
+
+
+## Session 16: 产品能力补齐路线图父任务收尾
+
+**Date**: 2026-08-07
+**Task**: 产品能力补齐路线图（全量）— 父任务
+**Branch**: `main`
+
+### Summary
+
+9/9 子任务已全部实现归档，父任务只做收尾：按代码取证重写 `docs/analysis/01-domain-capability-matrix.md`（三引擎→四引擎、能力真源指向 `get_ai_provider_capabilities`、新增验收阶段/流水线操作/MCP 三态绑定/报表洞察/JSON 导入导出/前端测试网、§7 缺口重估）；在 `00-architecture-overview.md`（保留 2026-07-16 快照 + 更正块）与 `05-quality-risks.md`（#1/#4/#5 关闭、#9 加剧）标注失效结论；校准 CLAUDE.md 计数（命令 168→207、迁移 80→44、表 22→24、测试 300→339 并补前端 Vitest 段）与 README（npm test 脚本、MCP 任务级绑定）。门禁：clippy -D warnings、cargo test 339 passed、vitest 32 passed、format:check 全绿。
+
+**注意**：收尾期间工作区出现并发改动（`task_automation/pipeline.rs`、`TaskPipelineProgress.tsx`、`pipelineUi.ts` 等 13 个文件，来自另一会话在做 BUG.md 编排失败状态/转人工议题），本次提交已刻意避开这些文件。
+
+遗留待单开任务：TaskCard 1799 行 / TaskDetailDialog 1975 行拆分；测试员自动化默认关闭缺引导；SSH 下 review/自动 commit 未与 local 等价；前端测试无组件/e2e 层。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `e422a9f` | docs: 校准能力矩阵与架构文档至路线图收尾状态 |
+| `e219f25` | docs(BUG): 标记工作区文件变更不显示问题为已修复 |
+
+### Status
+
+[OK] **Completed**
