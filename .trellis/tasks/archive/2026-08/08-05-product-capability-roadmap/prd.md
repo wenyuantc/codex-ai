@@ -62,12 +62,12 @@ frontend-test-net：从 Sprint B 起随改动补测
 
 ### R-P2 跨子任务验收（集成）
 
-- [ ] 典型本地路径：创建任务 → 执行 →（可选自动质控）→ **测试员阶段** → 完成/提交，全程状态与活动日志中文可读。
-- [ ] 典型 SSH 路径：同流程可在 SSH 项目上跑通，或明确降级提示且不静默失败。
-- [ ] 看板可按里程碑/标签筛选，筛选与批量状态 UI 为中文。
-- [ ] 非 Codex 引擎在 UI 上能力边界可见；无能力操作禁用并说明。
-- [ ] 仪表盘具备基础趋势/吞吐类洞察；任务可 JSON（或 CSV）导出/导入。
-- [ ] 前端至少有 store 过滤 + activity label 的最小自动化测试可跑。
+- [x] 典型本地路径：创建任务 → 执行 →（可选自动质控）→ **测试员阶段** → 完成/提交，全程状态与活动日志中文可读。（`task_automation/acceptance.rs`，phase `launching_tester`/`waiting_tester`/`tester_failed`；开关默认关闭）
+- [x] 典型 SSH 路径：同流程可在 SSH 项目上跑通，或明确降级提示且不静默失败。（四引擎均有 SSH 路径；降级由 `SshTrustBanner` + `SshArtifactLimitedNotice` 提示）
+- [x] 看板可按里程碑/标签筛选，筛选与批量状态 UI 为中文。（`lib/kanbanFilters.ts` → `KanbanBoard`）
+- [x] 非 Codex 引擎在 UI 上能力边界可见；无能力操作禁用并说明。（`get_ai_provider_capabilities` + `EngineCapabilityBadges`，含 `capability_matrix_is_honest_and_complete` 单测）
+- [x] 仪表盘具备基础趋势/吞吐类洞察；任务可 JSON（或 CSV）导出/导入。（`get_dashboard_report_summary` 日/周序列 + `aging_in_progress`；`export_tasks_json` / `import_tasks_json`）
+- [x] 前端至少有 store 过滤 + activity label 的最小自动化测试可跑。（Vitest 4 文件 32 断言，CI 硬门禁）
 
 ### R-P3 明确不做（全路线图级）
 
@@ -78,10 +78,10 @@ frontend-test-net：从 Sprint B 起随改动补测
 
 ## Acceptance Criteria（父任务）
 
-- [ ] 9 个子任务均已规划（含可测 AC），并按序或按用户批准顺序完成实现与归档
-- [ ] 无子任务将业务写回退到前端 SQL
-- [ ] README 或 analysis 文档与最终能力矩阵一致（可在收尾子任务中更新）
-- [ ] 父任务 journal/notes 记录交付顺序与任何范围裁剪决策
+- [x] 9 个子任务均已规划（含可测 AC），并按序或按用户批准顺序完成实现与归档（全部在 `.trellis/tasks/archive/2026-08/`）
+- [x] 无子任务将业务写回退到前端 SQL（`src/lib/database.ts` hard-fail stub；capabilities 不授予 `sql:allow-select` / `sql:allow-execute`）
+- [x] README 或 analysis 文档与最终能力矩阵一致（commit `e422a9f`：能力矩阵重写 + 架构/风险文档更正 + CLAUDE.md/README 计数校准）
+- [x] 父任务 journal/notes 记录交付顺序与任何范围裁剪决策（见下方 Notes；无范围裁剪，9/9 全交付）
 
 ## Key Decisions
 
@@ -104,3 +104,28 @@ frontend-test-net：从 Sprint B 起随改动补测
 - 用户 2026-08-05 明确：「说的全部要做」→ 本树覆盖讨论中的 P0–P2 全部条目。
 - 复杂父任务产物：`prd.md` + `design.md` + `implement.md`；首个子任务 `tester-automation-loop` 已具备 design/implement。
 - **实现批准**：需用户在本最终规划摘要之后另发明确批准，再 `task.py start 08-05-tester-automation-loop`（父任务不直接写产品代码）。
+
+### 收尾结论（2026-08-07）
+
+**实际交付顺序**（与 `implement.md` 建议顺序基本一致，无范围裁剪）：
+
+| 序 | 子任务 | 归档位置 |
+|----|--------|----------|
+| 1 | tester-automation-loop | `archive/2026-08/` |
+| 2 | kanban-delivery-ux | 同上 |
+| 3 | ux-trust-hardening | 同上 |
+| 4 | engine-capability-parity | 同上 |
+| 5 | insights-export | 同上 |
+| 6 | coordinator-pipeline-viz | 同上 |
+| 7 | mcp-task-binding | 同上 |
+| 8 | opencode-ssh-bridge | 同上 |
+| 9 | frontend-test-net | 同上 |
+
+**父级收尾门禁**：`cargo clippy -D warnings` 通过；`cargo test` 339 passed；`npm run test:ci` 32 passed；`npm run format:check` 通过。
+
+**遗留（未纳入本路线图，建议单开任务）**：
+
+1. `TaskCard` 1799 行 / `TaskDetailDialog` 1975 行——本轮多个子任务持续往这两个文件加功能，体量比路线图启动时更大。
+2. 测试员自动化 `tester_automation_enabled` 默认 `false`，缺开箱引导。
+3. SSH 下 review / 自动 commit 仍为 ⚠️，未与 local 等价。
+4. 前端测试仅覆盖 store 纯函数层，无组件/e2e。
