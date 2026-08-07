@@ -297,12 +297,52 @@ async fn read_node_version(node_path_override: Option<&str>) -> Result<String, S
     Ok(version)
 }
 
-pub async fn read_claude_cli_version(cli_path_override: Option<&str>) -> Result<String, String> {
-    let cli_path = cli_path_override
+/// Resolve Claude Code CLI path for health checks and process launch.
+/// Order: explicit override → local SDK package bin → system PATH / known dirs / login shell.
+pub async fn resolve_claude_cli_executable(
+    cli_path_override: Option<&str>,
+    sdk_install_dir: Option<&str>,
+) -> Result<PathBuf, String> {
+    if let Some(override_path) = cli_path_override
         .map(str::trim)
         .filter(|value| !value.is_empty())
-        .unwrap_or("claude");
-    let output = tokio::process::Command::new(cli_path)
+    {
+        let path = PathBuf::from(override_path);
+        if path.is_file() {
+            return Ok(path);
+        }
+        return Err(format!("配置的 Claude CLI 路径无效：{override_path}"));
+    }
+
+    if let Some(install_dir) = sdk_install_dir
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        let bin_name = if cfg!(target_os = "windows") {
+            "claude.exe"
+        } else {
+            "claude"
+        };
+        let pkg_bin = Path::new(install_dir)
+            .join("node_modules")
+            .join("@anthropic-ai")
+            .join("claude-code")
+            .join("bin")
+            .join(bin_name);
+        if pkg_bin.is_file() {
+            return Ok(pkg_bin);
+        }
+    }
+
+    crate::codex::resolve_system_executable("claude", None).await
+}
+
+pub async fn read_claude_cli_version(
+    cli_path_override: Option<&str>,
+    sdk_install_dir: Option<&str>,
+) -> Result<String, String> {
+    let cli_path = resolve_claude_cli_executable(cli_path_override, sdk_install_dir).await?;
+    let output = tokio::process::Command::new(&cli_path)
         .arg("--version")
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -345,7 +385,11 @@ pub async fn inspect_claude_sdk_runtime<R: Runtime>(
     let install_dir = Path::new(&settings.sdk_install_dir);
     let sdk_version = read_claude_sdk_version(install_dir).unwrap_or(None);
     let sdk_installed = sdk_version.is_some() && sdk_bridge_script_path(install_dir).exists();
-    let cli_result = read_claude_cli_version(settings.cli_path_override.as_deref()).await;
+    let cli_result = read_claude_cli_version(
+        settings.cli_path_override.as_deref(),
+        Some(settings.sdk_install_dir.as_str()),
+    )
+    .await;
     let cli_available = cli_result.is_ok();
     let cli_version = cli_result.as_ref().ok().cloned();
     let effective_provider = if claude_sdk_runtime_ready(
@@ -434,12 +478,15 @@ pub async fn install_claude_sdk_runtime<R: Runtime>(
         }
     }
 
+    // @anthropic-ai/claude-agent-sdk@0.3+ declares peer deps that npm 7+ may reject
+    // (ERESOLVE) when upgrading an existing runtime; --legacy-peer-deps keeps reinstall reliable.
     let mut npm_command = new_npm_command(settings.node_path_override.as_deref()).await?;
     let output = npm_command
         .current_dir(&install_dir)
         .arg("install")
         .arg("--no-audit")
         .arg("--no-fund")
+        .arg("--legacy-peer-deps")
         .arg(format!("{SDK_PACKAGE_NAME}@latest"))
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
