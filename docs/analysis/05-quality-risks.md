@@ -1,5 +1,7 @@
 # 05 · 质量与风险清单
 
+> **复核（2026-08-07，随 `08-05-product-capability-roadmap` 收尾）**：下表风险 **#1 / #4 / #5 已关闭**——前端 SQL 读写全面封堵（`database.ts` hard-fail stub + capabilities 收权）；Vitest 前端测试网与 CI 硬门禁已接入；四引擎能力矩阵由 `get_ai_provider_capabilities` + 单测守护，UI 有能力徽章。风险 **#9 加剧**（`TaskCard` 1799 行、`TaskDetailDialog` 1975 行）。其余条目仍有效。当前能力以 `01-domain-capability-matrix.md` 为准。
+
 ## 1. 风险 TOP 10
 
 | # | 风险 | 影响 | 概率 | 证据 |

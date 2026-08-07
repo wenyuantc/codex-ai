@@ -147,7 +147,7 @@
 
 **提示词模板**：可配置的 AI 提示词模板管理
 
-**MCP 管理**：MCP server 配置的查看、编辑、重置与配置片段导出
+**MCP 管理**：MCP server 配置的查看、编辑、重置与配置片段导出；任务级三态绑定（继承全局 / 显式空集 / 指定集合），会话启动时按任务注入有效工具集
 
 **SSH 配置**：SSH 配置 CRUD、密码/密钥认证、连接测试、密码认证探测、远程 SDK 安装与健康验证
 
@@ -217,7 +217,9 @@ npm run bump-version                   # 同步升级 package.json / Cargo.toml 
 npm run tauri:dmg:no-sign              # macOS 未签名 DMG
 npm run tauri:linux                    # Linux 打包（AppImage/deb/rpm）
 npm run tauri:windows                  # Windows 打包（NSIS/MSI）
-cargo test --manifest-path src-tauri/Cargo.toml               # Rust 测试（项目唯一测试套件，246 个用例）
+npm test                               # 前端测试（Vitest watch）
+npm run test:ci                        # 前端测试单次运行（CI 门禁）
+cargo test --manifest-path src-tauri/Cargo.toml               # Rust 测试（339 个用例）
 cargo test --manifest-path src-tauri/Cargo.toml <test_name>   # 运行单个测试
 ```
 

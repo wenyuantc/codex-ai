@@ -4,7 +4,7 @@
 
 ## 1. 一句话
 
-**Codex AI** 是本地桌面「AI 协作控制台」：用 Tauri 模块化单体管理项目/任务/员工，驱动 Codex / Claude / OpenCode 三引擎执行，并集成 Git worktree、代码审查、自动质控与 SSH 远程执行。
+**Codex AI** 是本地桌面「AI 协作控制台」：用 Tauri 模块化单体管理项目/任务/员工，驱动 Codex / Claude / OpenCode / Grok 四引擎执行，并集成 Git worktree、代码审查、自动质控与 SSH 远程执行。
 
 ## 2. 技术栈基线
 
@@ -77,9 +77,11 @@ flowchart TB
 | 前端直接 INSERT 写 | ❌ **边界违规** | `projectStore.ts` 写 `activity_logs`；`GlobalSearchDialog.tsx` 写搜索跳转日志 |
 | SQL 插件权限 | ⚠️ 前端可 execute | `capabilities/default.json`：`sql:allow-execute` |
 | 会话落库 | ✅ | migrations v14+、`sessions.rs` |
-| 三引擎 Manager | ✅ 启动注入 | `lib.rs` setup |
+| 四引擎 Manager | ✅ 启动注入 | `lib.rs` setup |
 
-> **结论**：架构意图清晰，但「读路径」仍混用 plugin-sql；「写路径」有少量 activity 日志泄漏，未完全符合 ADR。
+> **结论（2026-07-16 时点）**：架构意图清晰，但「读路径」仍混用 plugin-sql；「写路径」有少量 activity 日志泄漏，未完全符合 ADR。
+>
+> **更正（2026-08-07）**：上表前四行已过时。前端 SQL 读写路径已全面封堵——`src/lib/database.ts` 为 hard-fail stub，`capabilities/default.json` 不再授予 `sql:allow-select` / `sql:allow-execute`，`projectStore` 与 `GlobalSearchDialog` 的 activity 写入已改走 Rust command。当前边界以 `01-domain-capability-matrix.md` 为准。
 
 ## 4. 模块地图
 
@@ -147,7 +149,7 @@ flowchart TB
 ## 7. 架构优势
 
 - 能力闭环完整：任务 → AI 执行 → 审查 → 自动修复 → Git  
-- 三引擎统一会话模型（表名仍叫 codex_*，但已含 `ai_provider`）  
+- 四引擎统一会话模型（表名仍叫 codex_*，但已含 `ai_provider`）  
 - SSH 作为一等执行目标，而非事后补丁  
 - 通知中心有独立事件矩阵文档  
 

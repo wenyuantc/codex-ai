@@ -68,11 +68,11 @@ React (UI) → Tauri IPC commands → Rust service layer → SQLite
 
 - Rust 2021, Tokio async, SQLx 0.8 (compile-time checked queries)
 - Entry: `lib.rs` → `pub fn run()` registers plugins, the four engine managers, tray, and window restoration
-- **168 Tauri commands**, all registered in the single `invoke_handler!` list in `lib.rs`. Largest sources:
-  - `git_workflow/` (43), `app/tasks.rs` (18), `app/delivery.rs` (12), `app/remote.rs` (10)
-  - `codex/process/ai_commands.rs` (9), `app/sessions.rs` (9), `app/projects.rs` (7), `app/database.rs` (7), `app/employees.rs` (6)
+- **207 Tauri commands**, all registered in the single `invoke_handler!` list in `lib.rs`. Largest sources:
+  - `git_workflow/` (49), `codex/` (28), `app/tasks.rs` (24), `app/remote.rs` (13), `app/delivery.rs` (12), `task_automation` (10)
+  - `app/database.rs` (9), `app/sessions.rs` (9), `grok/` (9), `opencode/` (9), `app/employees.rs` (8), `app/projects.rs` (8), `claude/` (8)
 - `app/` submodules: `projects`, `employees`, `tasks`, `delivery`, `sessions`, `review`, `remote`, `database`, `shared`
-- `db/migrations.rs` — versioned DDL, **80 migrations** inline
+- `db/migrations.rs` — versioned DDL, **44 migrations** inline (versions must stay contiguous 1..N; enforced by `migration_versions_are_contiguous`)
 - `db/models.rs` — SQLx `query_as!` type definitions for all tables
 - `task_automation` — review/fix state machine root (`task_automation.rs` + domain slices under `task_automation/`; `prompt.rs` is a real submodule, other slices use `include!`)
 - `git_workflow/` — Git UX commands split by domain (`types`, `runtime`, `worktree`, `context`, `project_ops`, `branch`, `pending_action`, `tests`); composed via `include!` for stable `crate::git_workflow::*` paths
@@ -98,12 +98,12 @@ Capability matrix is the single UI truth source. `restart_*` = stop live process
 
 ### Database
 
-SQLite at `$APPCONFIG/codex-ai.db`, 22 tables:
+SQLite at `$APPCONFIG/codex-ai.db`, 24 tables:
 
 - Core: `projects`, `employees`, `tasks`, `subtasks`, `comments`, `activity_logs`, `employee_metrics`
 - Delivery: `milestones`, `tags`, `task_tags`, `task_dependencies`, `task_attachments`
 - Sessions: `codex_sessions`, `codex_session_events`, `codex_session_file_changes`, `codex_session_file_change_details`
-- Ops: `notifications`, `ssh_configs`, `task_automation_state`, `task_git_contexts`
+- Ops: `notifications`, `ssh_configs`, `task_automation_state`, `task_git_contexts`, `task_pipeline_steps`, `task_acceptance_runs`
 - Legacy, not a read/write source: `project_employees`, `codex_sessions_new`
 
 **Constraints**:
@@ -113,7 +113,9 @@ SQLite at `$APPCONFIG/codex-ai.db`, 22 tables:
 
 ### Tests
 
-Rust only (no frontend tests): **300 test cases**, mostly `#[cfg(test)]` modules colocated with the code they cover. Densest areas include codex process/settings, shared `engine/` kernel, `git_workflow/`, and `task_automation`. Non-codex engines (claude/grok/opencode) still have thinner coverage than codex, but share the kernel tests.
+Rust is the primary suite: **339 test cases**, mostly `#[cfg(test)]` modules colocated with the code they cover. Densest areas include codex process/settings, shared `engine/` kernel, `git_workflow/`, and `task_automation`. Non-codex engines (claude/grok/opencode) still have thinner coverage than codex, but share the kernel tests.
+
+Frontend has a minimal Vitest net: **32 assertions across 4 files** (`src/stores/{task,project,dashboard}Store.test.ts`, `src/lib/utils.test.ts`) covering exported pure functions only — store scope filters, SSH host selection, activity label mapping, activity date/keyword filters. No component or e2e tests. `npm run test:ci` is a CI hard gate.
 
 Cross-cutting integration tests live in `src-tauri/src/app/tests/`:
 - `runtime_and_paths.rs` — app runtime setup
