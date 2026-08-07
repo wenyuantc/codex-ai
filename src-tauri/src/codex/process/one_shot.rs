@@ -304,35 +304,14 @@ fn build_claude_one_shot_cli_args(model: &str, effort: &str) -> Vec<String> {
     args
 }
 
-fn resolve_claude_binary_path(
+async fn resolve_claude_binary_path(
     settings: &crate::db::models::ClaudeSettings,
 ) -> Result<PathBuf, String> {
-    if let Some(cli_path_override) = settings
-        .cli_path_override
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-    {
-        return Ok(PathBuf::from(cli_path_override));
-    }
-
-    let install_dir = PathBuf::from(&settings.sdk_install_dir);
-    let bin_name = if cfg!(target_os = "windows") {
-        "claude.exe"
-    } else {
-        "claude"
-    };
-    let pkg_bin = install_dir
-        .join("node_modules")
-        .join("@anthropic-ai")
-        .join("claude-code")
-        .join("bin")
-        .join(bin_name);
-    if pkg_bin.exists() {
-        return Ok(pkg_bin);
-    }
-
-    Ok(PathBuf::from("claude"))
+    crate::claude::resolve_claude_cli_executable(
+        settings.cli_path_override.as_deref(),
+        Some(settings.sdk_install_dir.as_str()),
+    )
+    .await
 }
 
 async fn run_claude_one_shot_via_sdk<R: Runtime>(
@@ -353,6 +332,7 @@ async fn run_claude_one_shot_via_sdk<R: Runtime>(
 
     let mut command = new_node_command(claude_settings.node_path_override.as_deref()).await?;
     let claude_path_override = resolve_claude_binary_path(&claude_settings)
+        .await
         .ok()
         .map(|path| path.to_string_lossy().to_string());
     if let Some(ref claude_path_override) = claude_path_override {
@@ -404,7 +384,7 @@ async fn run_claude_one_shot_via_cli<R: Runtime>(
     working_dir: Option<&str>,
 ) -> Result<String, String> {
     let claude_settings = crate::claude::load_claude_settings(app)?;
-    let claude_bin = resolve_claude_binary_path(&claude_settings)?;
+    let claude_bin = resolve_claude_binary_path(&claude_settings).await?;
     let mut command = tokio::process::Command::new(&claude_bin);
     command
         .args(build_claude_one_shot_cli_args(model, reasoning_effort))

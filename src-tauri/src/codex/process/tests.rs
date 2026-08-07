@@ -74,7 +74,6 @@ fn session_exec_args_pipe_prompt_via_stdin() {
             "model_reasoning_effort=\"high\"".to_string(),
             "-C".to_string(),
             r"D:\repo\demo".to_string(),
-            "--ignore-user-config".to_string(),
             "--json".to_string(),
             "resume".to_string(),
             "session-123".to_string(),

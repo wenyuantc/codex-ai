@@ -359,35 +359,14 @@ mod tests {
     }
 }
 
-fn resolve_claude_binary_path(
+async fn resolve_claude_binary_path(
     settings: &crate::db::models::ClaudeSettings,
 ) -> Result<PathBuf, String> {
-    if let Some(cli_path_override) = settings
-        .cli_path_override
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-    {
-        return Ok(PathBuf::from(cli_path_override));
-    }
-
-    let install_dir = PathBuf::from(&settings.sdk_install_dir);
-    let bin_name = if cfg!(target_os = "windows") {
-        "claude.exe"
-    } else {
-        "claude"
-    };
-    let pkg_bin = install_dir
-        .join("node_modules")
-        .join("@anthropic-ai")
-        .join("claude-code")
-        .join("bin")
-        .join(bin_name);
-    if pkg_bin.exists() {
-        return Ok(pkg_bin);
-    }
-
-    Ok(PathBuf::from("claude"))
+    crate::claude::resolve_claude_cli_executable(
+        settings.cli_path_override.as_deref(),
+        Some(settings.sdk_install_dir.as_str()),
+    )
+    .await
 }
 
 fn upsert_sdk_file_change_event(store: &SdkFileChangeStore, event: SdkFileChangeEvent) {
@@ -1146,7 +1125,7 @@ pub async fn start_claude_with_manager(
         if let Some(child) = sdk_child {
             (child, Vec::new(), ClaudeExecutionProvider::Sdk)
         } else {
-            let claude_bin = match resolve_claude_binary_path(&claude_settings) {
+            let claude_bin = match resolve_claude_binary_path(&claude_settings).await {
                 Ok(path) => path,
                 Err(error) => {
                     finalize_claude_launch_failure(
@@ -1191,7 +1170,7 @@ pub async fn start_claude_with_manager(
             (child, Vec::new(), ClaudeExecutionProvider::Cli)
         }
     } else {
-        let claude_bin = match resolve_claude_binary_path(&claude_settings) {
+        let claude_bin = match resolve_claude_binary_path(&claude_settings).await {
             Ok(path) => path,
             Err(error) => {
                 finalize_claude_launch_failure(

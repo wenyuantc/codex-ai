@@ -70,6 +70,27 @@ pub async fn new_ssh_command() -> Result<Command, String> {
     build_command("ssh", SSH_PATH_ENV_VARS, None, &[], None).await
 }
 
+/// Resolve a system executable by override path, known dirs, PATH, and login shell.
+/// Used by non-Codex engines (e.g. Claude CLI health checks) that need GUI-app path discovery.
+pub async fn resolve_system_executable(
+    binary_name: &str,
+    path_override: Option<&str>,
+) -> Result<PathBuf, String> {
+    let explicit_path = match path_override.map(str::trim).filter(|value| !value.is_empty()) {
+        Some(value) => {
+            let path = PathBuf::from(value);
+            if is_executable_file(&path) {
+                Some(path)
+            } else {
+                return Err(format!("配置的 {binary_name} 路径无效：{value}"));
+            }
+        }
+        None => None,
+    };
+
+    resolve_executable(binary_name, &[], explicit_path.as_deref(), &[]).await
+}
+
 async fn build_command(
     binary_name: &str,
     env_vars: &[&str],
@@ -228,6 +249,17 @@ fn search_dirs(additional_search_dirs: &[PathBuf]) -> Vec<PathBuf> {
         push_unique_dir(&mut dirs, dir.clone());
     }
 
+    #[cfg(not(target_os = "windows"))]
+    {
+        // Prefer the active nvm install before process PATH / system bins.
+        // GUI-launched apps often inherit a PATH with /usr/local/bin but no nvm,
+        // which previously resolved stale codex installs (e.g. 0.132.0 / 0.34.0)
+        // instead of the nvm default the user sees in their terminal (0.147.0).
+        if let Some(home) = env::var_os("HOME").map(PathBuf::from) {
+            push_preferred_nvm_dirs(&mut dirs, &home);
+        }
+    }
+
     if let Some(path_var) = env::var_os("PATH") {
         for dir in env::split_paths(&path_var) {
             push_unique_dir(&mut dirs, dir);
@@ -241,7 +273,7 @@ fn search_dirs(additional_search_dirs: &[PathBuf]) -> Vec<PathBuf> {
                 push_unique_dir(&mut dirs, home.join(dir));
             }
 
-            push_nvm_dirs(&mut dirs, &home);
+            push_remaining_nvm_dirs(&mut dirs, &home);
             push_fnm_dirs(&mut dirs, &home);
         }
 
@@ -253,16 +285,111 @@ fn search_dirs(additional_search_dirs: &[PathBuf]) -> Vec<PathBuf> {
     dirs
 }
 
+/// Active nvm bins only: `NVM_BIN` and the resolved `alias/default`.
 #[cfg(not(target_os = "windows"))]
-fn push_nvm_dirs(dirs: &mut Vec<PathBuf>, home: &Path) {
-    let versions_dir = home.join(".nvm/versions/node");
+fn push_preferred_nvm_dirs(dirs: &mut Vec<PathBuf>, home: &Path) {
+    if let Some(nvm_bin) = env::var_os("NVM_BIN").map(PathBuf::from) {
+        push_unique_dir(dirs, nvm_bin);
+    }
+
+    let nvm_dir = nvm_root_dir(home);
+    if let Some(default_bin) = resolve_nvm_default_bin_dir(&nvm_dir) {
+        push_unique_dir(dirs, default_bin);
+    }
+}
+
+/// Remaining nvm installs, newest Node version first (fallback after PATH).
+#[cfg(not(target_os = "windows"))]
+fn push_remaining_nvm_dirs(dirs: &mut Vec<PathBuf>, home: &Path) {
+    let nvm_dir = nvm_root_dir(home);
+    let versions_dir = nvm_dir.join("versions/node");
     let Ok(entries) = fs::read_dir(versions_dir) else {
         return;
     };
 
-    for entry in entries.flatten() {
-        push_unique_dir(dirs, entry.path().join("bin"));
+    let mut version_bins = entries
+        .flatten()
+        .map(|entry| entry.path())
+        .filter(|path| path.is_dir())
+        .map(|path| {
+            let version_name = path
+                .file_name()
+                .and_then(|name| name.to_str())
+                .unwrap_or_default()
+                .to_string();
+            (parse_node_version_sort_key(&version_name), path.join("bin"))
+        })
+        .collect::<Vec<_>>();
+
+    version_bins.sort_by(|left, right| right.0.cmp(&left.0));
+    for (_, bin_dir) in version_bins {
+        push_unique_dir(dirs, bin_dir);
     }
+}
+
+#[cfg(not(target_os = "windows"))]
+fn nvm_root_dir(home: &Path) -> PathBuf {
+    env::var_os("NVM_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| home.join(".nvm"))
+}
+
+#[cfg(not(target_os = "windows"))]
+fn resolve_nvm_default_bin_dir(nvm_dir: &Path) -> Option<PathBuf> {
+    let alias_default = fs::read_to_string(nvm_dir.join("alias/default")).ok()?;
+    let version_name = resolve_nvm_alias_target(nvm_dir, alias_default.trim(), 0)?;
+    let bin_dir = nvm_dir
+        .join("versions/node")
+        .join(version_name)
+        .join("bin");
+    bin_dir.is_dir().then_some(bin_dir)
+}
+
+/// Resolve nvm alias chains (`default` → `22.19` → `v22.19.0`, or `lts/*` → …).
+#[cfg(not(target_os = "windows"))]
+fn resolve_nvm_alias_target(nvm_dir: &Path, name: &str, depth: u8) -> Option<String> {
+    if name.is_empty() || depth > 8 {
+        return None;
+    }
+
+    let versions_dir = nvm_dir.join("versions/node");
+    for candidate in [name.to_string(), format!("v{name}")] {
+        if versions_dir.join(&candidate).is_dir() {
+            return Some(candidate);
+        }
+    }
+
+    // Partial version like "22.19" should resolve to the newest matching install.
+    if let Ok(entries) = fs::read_dir(&versions_dir) {
+        let mut matches = entries
+            .flatten()
+            .filter_map(|entry| entry.file_name().into_string().ok())
+            .filter(|version| {
+                let stripped = version.trim_start_matches('v');
+                stripped == name || stripped.starts_with(&format!("{name}."))
+            })
+            .collect::<Vec<_>>();
+        matches.sort_by(|left, right| {
+            parse_node_version_sort_key(right).cmp(&parse_node_version_sort_key(left))
+        });
+        if let Some(matched) = matches.into_iter().next() {
+            return Some(matched);
+        }
+    }
+
+    let alias_path = nvm_dir.join("alias").join(name);
+    let alias_value = fs::read_to_string(alias_path).ok()?;
+    resolve_nvm_alias_target(nvm_dir, alias_value.trim(), depth + 1)
+}
+
+#[cfg(not(target_os = "windows"))]
+fn parse_node_version_sort_key(version: &str) -> Vec<u64> {
+    version
+        .trim_start_matches('v')
+        .split(|ch: char| !ch.is_ascii_digit())
+        .filter(|part| !part.is_empty())
+        .filter_map(|part| part.parse::<u64>().ok())
+        .collect()
 }
 
 #[cfg(not(target_os = "windows"))]
@@ -272,8 +399,26 @@ fn push_fnm_dirs(dirs: &mut Vec<PathBuf>, home: &Path) {
         return;
     };
 
-    for entry in entries.flatten() {
-        push_unique_dir(dirs, entry.path().join("installation/bin"));
+    let mut version_bins = entries
+        .flatten()
+        .map(|entry| entry.path())
+        .filter(|path| path.is_dir())
+        .map(|path| {
+            let version_name = path
+                .file_name()
+                .and_then(|name| name.to_str())
+                .unwrap_or_default()
+                .to_string();
+            (
+                parse_node_version_sort_key(&version_name),
+                path.join("installation/bin"),
+            )
+        })
+        .collect::<Vec<_>>();
+
+    version_bins.sort_by(|left, right| right.0.cmp(&left.0));
+    for (_, bin_dir) in version_bins {
+        push_unique_dir(dirs, bin_dir);
     }
 }
 
@@ -441,6 +586,8 @@ mod tests {
         parse_executable_path_from_output, resolve_executable, script_requires_env_node,
         unique_dirs,
     };
+    #[cfg(not(target_os = "windows"))]
+    use super::{parse_node_version_sort_key, resolve_nvm_alias_target, resolve_nvm_default_bin_dir};
     use std::fs;
     use std::path::{Path, PathBuf};
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -554,6 +701,52 @@ mod tests {
             .expect("resolve npm from extra search dir");
 
         assert_eq!(resolved, npm);
+
+        fs::remove_dir_all(base).expect("remove temp dir");
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    #[test]
+    fn parse_node_version_sort_key_handles_v_prefix() {
+        assert_eq!(parse_node_version_sort_key("v22.19.0"), vec![22, 19, 0]);
+        assert_eq!(parse_node_version_sort_key("20.19.2"), vec![20, 19, 2]);
+        assert!(
+            parse_node_version_sort_key("v22.19.0") > parse_node_version_sort_key("v20.19.2")
+        );
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    #[test]
+    fn nvm_default_alias_prefers_matching_install_over_older_versions() {
+        let base = create_temp_dir();
+        let nvm_dir = base.join(".nvm");
+        let v20_bin = nvm_dir.join("versions/node/v20.19.2/bin");
+        let v22_bin = nvm_dir.join("versions/node/v22.19.0/bin");
+        fs::create_dir_all(&v20_bin).expect("create v20 bin");
+        fs::create_dir_all(&v22_bin).expect("create v22 bin");
+        fs::create_dir_all(nvm_dir.join("alias")).expect("create alias dir");
+        // nvm often stores default as a partial version like "22.19"
+        fs::write(nvm_dir.join("alias/default"), "22.19\n").expect("write default alias");
+
+        let resolved = resolve_nvm_default_bin_dir(&nvm_dir);
+        assert_eq!(resolved, Some(v22_bin));
+
+        fs::remove_dir_all(base).expect("remove temp dir");
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    #[test]
+    fn nvm_alias_chain_resolves_nested_targets() {
+        let base = create_temp_dir();
+        let nvm_dir = base.join(".nvm");
+        let v22_dir = nvm_dir.join("versions/node/v22.19.0");
+        fs::create_dir_all(&v22_dir).expect("create v22 dir");
+        fs::create_dir_all(nvm_dir.join("alias/lts")).expect("create lts alias dir");
+        fs::write(nvm_dir.join("alias/default"), "lts/*\n").expect("write default");
+        fs::write(nvm_dir.join("alias/lts/*"), "22.19.0\n").expect("write lts star");
+
+        let resolved = resolve_nvm_alias_target(&nvm_dir, "lts/*", 0);
+        assert_eq!(resolved.as_deref(), Some("v22.19.0"));
 
         fs::remove_dir_all(base).expect("remove temp dir");
     }
