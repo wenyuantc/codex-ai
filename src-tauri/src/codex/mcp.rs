@@ -300,11 +300,11 @@ fn toml_quoted(value: &str) -> String {
     format!("\"{}\"", value.replace('\\', "\\\\").replace('"', "\\\""))
 }
 
-/// Append Codex CLI args so this process uses only `servers` as MCP set.
+/// Append Codex CLI args for app-managed MCP servers on top of user config.
+///
+/// Session launches intentionally load `~/.codex/config.toml` (no
+/// `--ignore-user-config`). App MCP bindings are injected via `-c` overrides.
 pub fn append_mcp_config_args(args: &mut Vec<String>, servers: &[McpServerConfig]) {
-    // Prevent merging user ~/.codex mcp_servers into the session set.
-    args.push("--ignore-user-config".to_string());
-
     for server in servers {
         let key = mcp_config_key(server);
         args.push("-c".to_string());
@@ -663,10 +663,10 @@ mod tests {
     }
 
     #[test]
-    fn append_mcp_config_args_empty_still_ignores_user_config() {
+    fn append_mcp_config_args_empty_is_noop() {
         let mut args = vec!["exec".to_string()];
         append_mcp_config_args(&mut args, &[]);
-        assert_eq!(args, vec!["exec", "--ignore-user-config"]);
+        assert_eq!(args, vec!["exec"]);
     }
 
     #[test]
@@ -685,7 +685,7 @@ mod tests {
             notes: None,
         }];
         append_mcp_config_args(&mut args, &servers);
-        assert!(args.contains(&"--ignore-user-config".to_string()));
+        assert!(!args.contains(&"--ignore-user-config".to_string()));
         assert!(args.iter().any(|arg| arg.contains("mcp_servers.a.command=")));
         assert!(args.iter().any(|arg| arg.contains("mcp_servers.a.args=")));
         assert!(args
