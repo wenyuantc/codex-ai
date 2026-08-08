@@ -21,8 +21,8 @@ use crate::codex::{
 };
 use crate::db::models::{
     AbortTaskPipelinePayload, CodexSessionRecord, Project, ReviewVerdict, RunTaskAcceptancePayload,
-    StartTaskPipelinePayload, Subtask, Task, TaskAcceptanceRun, TaskAttachment,
-    TaskAutomationStateRecord, TaskPipelineStep, RetryTaskPipelineStepPayload,
+    RunTaskPipelineStepManualPayload, StartTaskPipelinePayload, Subtask, Task, TaskAcceptanceRun,
+    TaskAttachment, TaskAutomationStateRecord, TaskPipelineStep, RetryTaskPipelineStepPayload,
     UpdateTaskAcceptanceChecklistPayload, UpdateTaskPipelineStepPayload,
 };
 use crate::git_workflow::{

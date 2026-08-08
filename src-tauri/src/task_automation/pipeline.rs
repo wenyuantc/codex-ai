@@ -227,6 +227,7 @@ async fn update_pipeline_step_status(
     set_ended: bool,
 ) -> Result<(), String> {
     let now = now_sqlite();
+    // When re-launching a step (set_started), clear ended_at so failure/success timing is fresh.
     sqlx::query(
         r#"
         UPDATE task_pipeline_steps
@@ -235,7 +236,11 @@ async fn update_pipeline_step_status(
             handoff_summary = COALESCE($4, handoff_summary),
             last_error = $5,
             started_at = CASE WHEN $6 THEN $7 ELSE started_at END,
-            ended_at = CASE WHEN $8 THEN $7 ELSE ended_at END,
+            ended_at = CASE
+                WHEN $8 THEN $7
+                WHEN $6 THEN NULL
+                ELSE ended_at
+            END,
             updated_at = $7
         WHERE id = $1
         "#,
@@ -939,6 +944,43 @@ pub async fn start_task_pipeline(
     launch_pipeline_step(&app, &pool, &task, first_index).await
 }
 
+fn resolve_failed_pipeline_step_index(
+    state: &TaskAutomationStateRecord,
+    steps: &[TaskPipelineStep],
+) -> Option<i32> {
+    if state.phase == PHASE_PIPELINE_STEP_FAILED {
+        if let Some(index) = state.pipeline_step_index {
+            if steps.iter().any(|step| {
+                step.step_index == index && step.status == STEP_STATUS_FAILED
+            }) {
+                return Some(index);
+            }
+        }
+    }
+
+    steps
+        .iter()
+        .find(|step| step.status == STEP_STATUS_FAILED)
+        .map(|step| step.step_index)
+}
+
+fn is_pipeline_mid_flight(state: Option<&TaskAutomationStateRecord>) -> bool {
+    state.is_some_and(|item| {
+        item.pipeline_active
+            && matches!(
+                item.phase.as_str(),
+                PHASE_PIPELINE_LAUNCHING_STEP | PHASE_PIPELINE_WAITING_STEP
+            )
+    })
+}
+
+fn is_manual_runnable_step_status(status: &str) -> bool {
+    matches!(
+        status,
+        STEP_STATUS_PENDING | STEP_STATUS_FAILED | STEP_STATUS_CANCELLED
+    )
+}
+
 #[tauri::command]
 pub async fn retry_task_pipeline_step(
     app: AppHandle,
@@ -946,19 +988,75 @@ pub async fn retry_task_pipeline_step(
 ) -> Result<(), String> {
     let pool = sqlite_pool(&app).await?;
     let task = fetch_task_by_id(&pool, &payload.task_id).await?;
+    if task.status == TASK_STATUS_ARCHIVED {
+        return Err("已归档任务不能重试编排步骤".to_string());
+    }
+
     let state = fetch_task_automation_state_record(&pool, &task.id)
         .await?
         .ok_or_else(|| "编排状态不存在，无法重试".to_string())?;
-    if state.phase != PHASE_PIPELINE_STEP_FAILED && !state.pipeline_active {
-        return Err("当前没有失败的编排步骤可重试".to_string());
+    if is_pipeline_mid_flight(Some(&state)) {
+        return Err("编排仍在执行中，请等待当前步骤结束后再重试".to_string());
     }
-    if state.phase != PHASE_PIPELINE_STEP_FAILED {
-        return Err("仅失败的编排步骤可以重试".to_string());
-    }
-    let step_index = state
-        .pipeline_step_index
-        .ok_or_else(|| "缺少失败步骤索引".to_string())?;
+
+    let steps = fetch_task_pipeline_steps(&pool, &task.id).await?;
+    let step_index = resolve_failed_pipeline_step_index(&state, &steps)
+        .ok_or_else(|| "当前没有失败的编排步骤可重试".to_string())?;
     launch_pipeline_step(&app, &pool, &task, step_index).await
+}
+
+/// Manually run a single incomplete pipeline step (after 转人工 / idle recovery).
+#[tauri::command]
+pub async fn run_task_pipeline_step_manual(
+    app: AppHandle,
+    payload: RunTaskPipelineStepManualPayload,
+) -> Result<(), String> {
+    let pool = sqlite_pool(&app).await?;
+    let task = fetch_task_by_id(&pool, &payload.task_id).await?;
+    if task.status == TASK_STATUS_ARCHIVED {
+        return Err("已归档任务不能手动运行编排步骤".to_string());
+    }
+
+    let state = fetch_task_automation_state_record(&pool, &task.id).await?;
+    if is_pipeline_mid_flight(state.as_ref()) {
+        return Err("编排仍在执行中，不能手动启动其他步骤".to_string());
+    }
+
+    let step = sqlx::query_as::<_, TaskPipelineStep>(
+        "SELECT * FROM task_pipeline_steps WHERE id = $1 LIMIT 1",
+    )
+    .bind(&payload.step_id)
+    .fetch_optional(&pool)
+    .await
+    .map_err(|error| format!("Failed to fetch pipeline step: {}", error))?
+    .ok_or_else(|| "编排步骤不存在".to_string())?;
+
+    if step.task_id != task.id {
+        return Err("编排步骤不属于当前任务".to_string());
+    }
+    if !is_manual_runnable_step_status(&step.status) {
+        return Err(format!(
+            "步骤「{}」当前状态为「{}」，不能手动运行",
+            step.title, step.status
+        ));
+    }
+
+    insert_activity_log(
+        &pool,
+        "task_pipeline_step_manual_run",
+        &format!(
+            "{}（手动运行步骤 {}：{}）",
+            task.title,
+            step.step_index + 1,
+            step.title
+        ),
+        task.assignee_id.as_deref(),
+        Some(task.id.as_str()),
+        Some(task.project_id.as_str()),
+    )
+    .await?;
+
+    launch_pipeline_step(&app, &pool, &task, step.step_index).await
 }
 
 #[tauri::command]
@@ -969,7 +1067,23 @@ pub async fn abort_task_pipeline(
     let pool = sqlite_pool(&app).await?;
     let task = fetch_task_by_id(&pool, &payload.task_id).await?;
     let state = fetch_task_automation_state_record(&pool, &task.id).await?;
-    if !state_pipeline_active(state.as_ref()) {
+    let steps = fetch_task_pipeline_steps(&pool, &task.id).await?;
+    let has_incomplete_steps = steps.iter().any(|step| {
+        matches!(
+            step.status.as_str(),
+            STEP_STATUS_PENDING
+                | STEP_STATUS_LAUNCHING
+                | STEP_STATUS_RUNNING
+                | STEP_STATUS_FAILED
+                | STEP_STATUS_CANCELLED
+        )
+    });
+    let can_abort = state_pipeline_active(state.as_ref())
+        || state
+            .as_ref()
+            .is_some_and(|item| is_pipeline_phase(&item.phase))
+        || has_incomplete_steps;
+    if !can_abort {
         return Err("当前任务没有进行中的编排".to_string());
     }
 
@@ -1019,6 +1133,7 @@ pub async fn abort_task_pipeline(
     Ok(())
 }
 
+/// Resume only interrupted mid-launch steps. Failed steps stay failed for manual retry.
 async fn retry_pending_pipeline(
     app: &AppHandle,
     pool: &SqlitePool,
@@ -1028,7 +1143,17 @@ async fn retry_pending_pipeline(
     let task = fetch_task_by_id(pool, task_id).await?;
     let step_index = state_record.pipeline_step_index.unwrap_or(0);
     match state_record.phase.as_str() {
-        PHASE_PIPELINE_LAUNCHING_STEP | PHASE_PIPELINE_STEP_FAILED => {
+        // Do NOT auto-retry PHASE_PIPELINE_STEP_FAILED: user must click 重试失败步骤.
+        PHASE_PIPELINE_LAUNCHING_STEP => {
+            // If the step already reached a terminal status, leave it for manual action.
+            if let Ok(step) = fetch_pipeline_step_by_index(pool, task_id, step_index).await {
+                if matches!(
+                    step.status.as_str(),
+                    STEP_STATUS_FAILED | STEP_STATUS_SUCCEEDED | STEP_STATUS_CANCELLED
+                ) {
+                    return Ok(());
+                }
+            }
             launch_pipeline_step(app, pool, &task, step_index).await
         }
         _ => Ok(()),
@@ -1037,8 +1162,12 @@ async fn retry_pending_pipeline(
 
 #[cfg(test)]
 mod pipeline_unit_tests {
-    use super::{build_pipeline_step_prompt, is_pipeline_phase, PHASE_PIPELINE_WAITING_STEP};
-    use crate::db::models::{Task, TaskPipelineStep};
+    use super::{
+        build_pipeline_step_prompt, is_manual_runnable_step_status, is_pipeline_mid_flight,
+        is_pipeline_phase, resolve_failed_pipeline_step_index, PHASE_PIPELINE_STEP_FAILED,
+        PHASE_PIPELINE_WAITING_STEP, STEP_STATUS_FAILED, STEP_STATUS_PENDING,
+    };
+    use crate::db::models::{Task, TaskAutomationStateRecord, TaskPipelineStep};
 
     fn sample_task() -> Task {
         Task {
@@ -1093,6 +1222,23 @@ mod pipeline_unit_tests {
         }
     }
 
+    fn sample_state(phase: &str, pipeline_active: bool, step_index: Option<i32>) -> TaskAutomationStateRecord {
+        TaskAutomationStateRecord {
+            task_id: "t1".into(),
+            phase: phase.into(),
+            round_count: 0,
+            consumed_session_id: None,
+            last_trigger_session_id: None,
+            pending_action: None,
+            pending_round_count: None,
+            last_error: None,
+            last_verdict_json: None,
+            updated_at: "2026-08-03".into(),
+            pipeline_active,
+            pipeline_step_index: step_index,
+        }
+    }
+
     #[test]
     fn pipeline_phase_helper_recognizes_pipeline_phases() {
         assert!(is_pipeline_phase(PHASE_PIPELINE_WAITING_STEP));
@@ -1111,5 +1257,36 @@ mod pipeline_unit_tests {
         assert!(prompt.contains("上一步交接摘要"));
         assert!(prompt.contains("仅完成本步目标"));
         assert!(prompt.contains("第 1 / 3 步"));
+    }
+
+    #[test]
+    fn resolve_failed_step_prefers_cursor_then_falls_back_to_step_status() {
+        let mut failed = sample_step();
+        failed.status = STEP_STATUS_FAILED.into();
+        failed.step_index = 1;
+        let pending = sample_step();
+        let steps = vec![pending, failed.clone()];
+
+        let state = sample_state(PHASE_PIPELINE_STEP_FAILED, true, Some(1));
+        assert_eq!(resolve_failed_pipeline_step_index(&state, &steps), Some(1));
+
+        // Phase drifted after restart, but step still failed — retry must still work.
+        let drifted = sample_state("idle", false, None);
+        assert_eq!(resolve_failed_pipeline_step_index(&drifted, &steps), Some(1));
+
+        let clean = sample_state("idle", false, None);
+        let only_pending = vec![sample_step()];
+        assert_eq!(resolve_failed_pipeline_step_index(&clean, &only_pending), None);
+    }
+
+    #[test]
+    fn mid_flight_and_manual_runnable_helpers() {
+        let launching = sample_state("pipeline_launching_step", true, Some(0));
+        assert!(is_pipeline_mid_flight(Some(&launching)));
+        let failed = sample_state(PHASE_PIPELINE_STEP_FAILED, true, Some(0));
+        assert!(!is_pipeline_mid_flight(Some(&failed)));
+        assert!(is_manual_runnable_step_status(STEP_STATUS_PENDING));
+        assert!(is_manual_runnable_step_status(STEP_STATUS_FAILED));
+        assert!(!is_manual_runnable_step_status("running"));
     }
 }

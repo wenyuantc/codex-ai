@@ -1,12 +1,15 @@
-import { GitBranch, Loader2, RefreshCw, ScrollText } from "lucide-react";
+import { GitBranch, Loader2, Play, RefreshCw, ScrollText } from "lucide-react";
 
 import type { Employee, TaskAutomationState, TaskPipelineStep } from "@/lib/types";
 import { formatDate } from "@/lib/utils";
 import {
   getPipelineProgressSummary,
+  isPipelineStepManuallyRunnable,
   pipelineStatusLabel,
   pipelineStepStatusDotClass,
   pipelineStepStatusTextClass,
+  shouldShowPipelineManualRun,
+  shouldShowPipelineRetry,
 } from "@/lib/pipelineUi";
 
 export interface TaskPipelineProgressProps {
@@ -28,6 +31,7 @@ export interface TaskPipelineProgressProps {
   onRefresh?: () => void;
   onRetry?: () => void;
   onAbort?: () => void;
+  onManualRunStep?: (step: TaskPipelineStep) => void;
   onOpenStepSession?: (step: TaskPipelineStep) => void;
   onPipelineEmployeeChange?: (stepId: string, employeeId: string) => void;
 }
@@ -47,6 +51,7 @@ export function TaskPipelineProgress({
   onRefresh,
   onRetry,
   onAbort,
+  onManualRunStep,
   onOpenStepSession,
   onPipelineEmployeeChange,
 }: TaskPipelineProgressProps) {
@@ -55,6 +60,8 @@ export function TaskPipelineProgress({
   }
 
   const summary = getPipelineProgressSummary(steps, automation);
+  const showRetry = Boolean(onRetry) && shouldShowPipelineRetry(steps, automation);
+  const showManualRun = Boolean(onManualRunStep) && shouldShowPipelineManualRun(steps, automation);
   const projectEmployees = employees.filter(
     (employee) => !employee.project_id || !projectId || employee.project_id === projectId,
   );
@@ -73,7 +80,7 @@ export function TaskPipelineProgress({
           </p>
         </div>
         <div className="flex flex-wrap gap-1.5">
-          {onRetry && (
+          {showRetry && (
             <button
               type="button"
               className="rounded-md border border-input px-2 py-1 text-xs hover:bg-accent disabled:opacity-50"
@@ -114,6 +121,11 @@ export function TaskPipelineProgress({
 
       {notice && <p className="text-xs text-emerald-700 dark:text-emerald-300">{notice}</p>}
       {error && <p className="text-xs text-destructive">{error}</p>}
+      {showManualRun && automation?.phase === "manual_control" && (
+        <p className="text-[11px] text-amber-800 dark:text-amber-200">
+          已转人工：可对未完成步骤点击「手动运行」。
+        </p>
+      )}
 
       {loading && steps.length === 0 ? (
         <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
@@ -144,6 +156,8 @@ export function TaskPipelineProgress({
             {steps.map((step) => {
               const stepEmployee = employees.find((item) => item.id === step.employee_id);
               const stepBusy = step.status === "running" || step.status === "launching";
+              const canManualRun =
+                showManualRun && isPipelineStepManuallyRunnable(step.status) && !stepBusy;
               return (
                 <div
                   key={step.id}
@@ -159,6 +173,20 @@ export function TaskPipelineProgress({
                       </span>
                     </div>
                     <div className="flex flex-wrap items-center gap-1.5">
+                      {canManualRun && onManualRunStep && (
+                        <button
+                          type="button"
+                          className="inline-flex items-center gap-1 rounded border border-primary/40 bg-primary/10 px-2 py-1 text-[11px] text-primary hover:bg-primary/15 disabled:opacity-50"
+                          disabled={actionsBusy || actionsLocked}
+                          title={
+                            actionsLocked ? "任务执行中，请等待当前步骤结束" : "手动运行此编排步骤"
+                          }
+                          onClick={() => onManualRunStep(step)}
+                        >
+                          <Play className="h-3 w-3" />
+                          手动运行
+                        </button>
+                      )}
                       {onOpenStepSession && (
                         <button
                           type="button"

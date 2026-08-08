@@ -192,3 +192,52 @@ export function pipelineStepStatusTextClass(status: string): string {
       return "text-muted-foreground";
   }
 }
+
+/** Steps that can be started with 手动运行 after 转人工. */
+export function isPipelineStepManuallyRunnable(status: string): boolean {
+  return status === "pending" || status === "failed" || status === "cancelled";
+}
+
+/**
+ * Show per-step 手动运行 after 转人工, or when orchestration is no longer auto-running
+ * but still has incomplete steps (failed/cancelled/pending).
+ */
+export function shouldShowPipelineManualRun(
+  steps: TaskPipelineStep[],
+  automation?: Pick<TaskAutomationState, "pipeline_active" | "phase"> | null,
+): boolean {
+  if (steps.length === 0) {
+    return false;
+  }
+
+  const midFlight =
+    Boolean(automation?.pipeline_active) &&
+    (automation?.phase === "pipeline_launching_step" ||
+      automation?.phase === "pipeline_waiting_step");
+  if (midFlight) {
+    return false;
+  }
+
+  if (automation?.phase === "manual_control") {
+    return steps.some((step) => isPipelineStepManuallyRunnable(step.status));
+  }
+
+  // Also expose manual run when pipeline failed/cancelled and user has not started auto-run again.
+  const overall = getPipelineOverallStatus(steps, automation);
+  return (
+    (overall === "failed" || overall === "cancelled" || overall === "pending") &&
+    steps.some((step) => isPipelineStepManuallyRunnable(step.status)) &&
+    !steps.every((step) => step.status === "pending")
+  );
+}
+
+/** Whether the top-level 重试失败步骤 control should be available. */
+export function shouldShowPipelineRetry(
+  steps: TaskPipelineStep[],
+  automation?: Pick<TaskAutomationState, "pipeline_active" | "phase"> | null,
+): boolean {
+  if (automation?.phase === "pipeline_step_failed") {
+    return true;
+  }
+  return steps.some((step) => step.status === "failed");
+}

@@ -1550,6 +1550,12 @@ export async function retryTaskPipelineStep(taskId: string): Promise<void> {
   return invoke("retry_task_pipeline_step", { payload: { task_id: taskId } });
 }
 
+export async function runTaskPipelineStepManual(taskId: string, stepId: string): Promise<void> {
+  return invoke("run_task_pipeline_step_manual", {
+    payload: { task_id: taskId, step_id: stepId },
+  });
+}
+
 export async function abortTaskPipeline(taskId: string): Promise<void> {
   return invoke("abort_task_pipeline", { payload: { task_id: taskId } });
 }

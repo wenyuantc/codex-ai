@@ -73,7 +73,8 @@ pub async fn resume_pending_automation(app: &AppHandle) -> Result<(), String> {
                 let task = fetch_task_by_id(&pool, task_id).await?;
                 retry_pending_commit(app, &pool, &task, None).await?;
             }
-            PHASE_PIPELINE_LAUNCHING_STEP | PHASE_PIPELINE_STEP_FAILED => {
+            // pipeline_step_failed must NOT auto-retry on restart — keep failure for manual retry.
+            PHASE_PIPELINE_LAUNCHING_STEP => {
                 retry_pending_pipeline(app, &pool, task_id, &state_record).await?;
             }
             _ => {}
@@ -81,7 +82,8 @@ pub async fn resume_pending_automation(app: &AppHandle) -> Result<(), String> {
         resumed_task_ids.insert(task_id.clone());
     }
 
-    // Resume pipeline launches even when automation_mode is off.
+    // Resume only interrupted mid-launch pipeline steps (not failed steps).
+    // Failed orchestration must stay failed so "重试失败步骤" remains valid after restart.
     let pipeline_pending = sqlx::query_scalar::<_, String>(
         r#"
         SELECT tas.task_id
@@ -89,12 +91,11 @@ pub async fn resume_pending_automation(app: &AppHandle) -> Result<(), String> {
         INNER JOIN tasks t ON t.id = tas.task_id
         WHERE t.status != $1
           AND tas.pipeline_active = 1
-          AND tas.phase IN ($2, $3)
+          AND tas.phase = $2
         "#,
     )
     .bind(TASK_STATUS_ARCHIVED)
     .bind(PHASE_PIPELINE_LAUNCHING_STEP)
-    .bind(PHASE_PIPELINE_STEP_FAILED)
     .fetch_all(&pool)
     .await
     .map_err(|error| format!("Failed to list pending pipeline tasks: {}", error))?;

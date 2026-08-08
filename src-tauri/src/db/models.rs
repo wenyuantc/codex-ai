@@ -601,6 +601,12 @@ pub struct RetryTaskPipelineStepPayload {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RunTaskPipelineStepManualPayload {
+    pub task_id: String,
+    pub step_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AbortTaskPipelinePayload {
     pub task_id: String,
 }

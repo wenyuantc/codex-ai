@@ -23,6 +23,7 @@ import {
   listTaskPipelineSteps,
   listTaskTags,
   retryTaskPipelineStep,
+  runTaskPipelineStepManual,
   stageAllTaskCommitFiles,
   startTaskPipeline,
   updateTaskPipelineStep,
@@ -859,6 +860,7 @@ function TaskCardComponent({
       await retryTaskPipelineStep(task.id);
       setPipelineNotice("已重试当前编排步骤。");
       await refreshPipelineSteps();
+      await fetchTaskAutomationState(task.id);
     } catch (error) {
       setPipelineError(error instanceof Error ? error.message : String(error));
     } finally {
@@ -872,8 +874,25 @@ function TaskCardComponent({
     setPipelineNotice(null);
     try {
       await abortTaskPipeline(task.id);
-      setPipelineNotice("编排已转人工。");
+      setPipelineNotice("编排已转人工。未完成步骤可点「手动运行」。");
       await refreshPipelineSteps();
+      await fetchTaskAutomationState(task.id);
+    } catch (error) {
+      setPipelineError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setPipelineActionLoading(false);
+    }
+  };
+
+  const handleManualRunPipelineStep = async (step: TaskPipelineStep) => {
+    setPipelineActionLoading(true);
+    setPipelineError(null);
+    setPipelineNotice(null);
+    try {
+      await runTaskPipelineStepManual(task.id, step.id);
+      setPipelineNotice(`已手动启动步骤 ${step.step_index + 1}「${step.title}」。`);
+      await refreshPipelineSteps();
+      await fetchTaskAutomationState(task.id);
     } catch (error) {
       setPipelineError(error instanceof Error ? error.message : String(error));
     } finally {
@@ -1707,6 +1726,7 @@ function TaskCardComponent({
           onStartPipeline={() => void handleStartPipeline()}
           onRetryPipeline={() => void handleRetryPipeline()}
           onAbortPipeline={() => void handleAbortPipeline()}
+          onManualRunPipelineStep={(step) => void handleManualRunPipelineStep(step)}
           onRefreshPipeline={() => void refreshPipelineSteps()}
           onPipelineEmployeeChange={(stepId, employeeId) =>
             void handlePipelineEmployeeChange(stepId, employeeId)
