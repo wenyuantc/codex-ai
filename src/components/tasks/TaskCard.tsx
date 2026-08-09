@@ -39,6 +39,7 @@ import {
   getTaskAutomationDisplayState,
   getTaskAutomationStatusLabel,
   isTaskOverdue,
+  isTaskPipelineRunning,
 } from "@/lib/utils";
 import { getPipelineKanbanBadgeLabel } from "@/lib/pipelineUi";
 import { onTaskAutomationStateChanged } from "@/lib/codex";
@@ -320,7 +321,8 @@ function TaskCardComponent({
     openingCommitDialog ||
     aiCommitting ||
     isBackgroundRunBusy ||
-    testerAcceptanceLoading;
+    testerAcceptanceLoading ||
+    pipelineActionLoading;
   const isWorktreeModeEnabled = task.use_worktree;
   const isWorktreeReady = Boolean(gitContext?.worktree_path) && !gitContext?.worktree_missing;
   const complexityScore =
@@ -366,11 +368,12 @@ function TaskCardComponent({
   const canAiCommitTaskCode = Boolean(
     !hasActiveSession && (commitActionState?.can_ai_commit || canCommitTaskCode),
   );
+  const pipelineRunning = isTaskPipelineRunning(persistedAutomationState ?? null);
   const primaryCta = resolveTaskPrimaryCta({
     status: task.status,
     executionActive: isRunning,
     reviewActive: isReviewRunning,
-    canStopProcess: executionActions.isRunning,
+    canStopProcess: executionActions.isRunning || pipelineRunning,
     backgroundPlanning: isBackgroundPlanning,
     backgroundStarting: isBackgroundStarting,
     hasAssignee: Boolean(task.assignee_id),
@@ -378,7 +381,7 @@ function TaskCardComponent({
     canCommit: canCommitTaskCode,
     canGenerateAcceptance: canGenerateTesterAcceptance,
     automationStatus: automationState.status,
-    pipelineActive: Boolean(persistedAutomationState?.pipeline_active),
+    pipelineActive: pipelineRunning,
   });
   // Show primary bar for stop/review/locked always; for run respect hideRunAction (completed column).
   const shouldShowPrimaryCta =
@@ -582,6 +585,23 @@ function TaskCardComponent({
   const handleStop = async (e?: React.MouseEvent) => {
     e?.stopPropagation();
     setContextMenu(null);
+    if (isTaskPipelineRunning(persistedAutomationState ?? null)) {
+      setPipelineActionLoading(true);
+      setPipelineError(null);
+      setPipelineNotice(null);
+      try {
+        await abortTaskPipeline(task.id);
+        setPipelineNotice("编排已停止并转人工。未完成步骤可点「手动运行」或「转自动」。");
+        await refreshPipelineSteps();
+        await fetchTaskAutomationState(task.id);
+        await useTaskStore.getState().fetchTasks(useTaskStore.getState().activeProjectId);
+      } catch (error) {
+        setPipelineError(error instanceof Error ? error.message : String(error));
+      } finally {
+        setPipelineActionLoading(false);
+      }
+      return;
+    }
     await executionActions.stopTask();
   };
 
@@ -875,7 +895,7 @@ function TaskCardComponent({
     setPipelineNotice(null);
     try {
       await abortTaskPipeline(task.id);
-      setPipelineNotice("编排已转人工。未完成步骤可点「手动运行」。");
+      setPipelineNotice("编排已停止并转人工。未完成步骤可点「手动运行」或「转自动」。");
       await refreshPipelineSteps();
       await fetchTaskAutomationState(task.id);
     } catch (error) {

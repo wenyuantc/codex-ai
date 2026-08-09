@@ -989,6 +989,51 @@ fn resolve_resume_pipeline_step_index(steps: &[TaskPipelineStep]) -> Option<i32>
         .map(|step| step.step_index)
 }
 
+struct PipelineAbortTarget {
+    step_index: Option<i32>,
+    session_id: Option<String>,
+    employee_id: Option<String>,
+}
+
+/// Resolve the live step/session/employee to cancel when aborting mid-pipeline.
+fn resolve_pipeline_abort_target(
+    state: Option<&TaskAutomationStateRecord>,
+    steps: &[TaskPipelineStep],
+    task: &Task,
+) -> PipelineAbortTarget {
+    let step = state
+        .and_then(|item| item.pipeline_step_index)
+        .and_then(|index| steps.iter().find(|step| step.step_index == index))
+        .or_else(|| {
+            steps.iter().find(|step| {
+                matches!(
+                    step.status.as_str(),
+                    STEP_STATUS_RUNNING | STEP_STATUS_LAUNCHING
+                )
+            })
+        });
+
+    let step_index = step
+        .map(|item| item.step_index)
+        .or_else(|| state.and_then(|item| item.pipeline_step_index));
+
+    let session_id = step
+        .and_then(|item| item.session_id.clone())
+        .or_else(|| state.and_then(|item| item.last_trigger_session_id.clone()));
+
+    let employee_id = step
+        .and_then(|item| item.employee_id.clone())
+        .filter(|value| !value.trim().is_empty())
+        .or_else(|| task.assignee_id.clone())
+        .filter(|value| !value.trim().is_empty());
+
+    PipelineAbortTarget {
+        step_index,
+        session_id,
+        employee_id,
+    }
+}
+
 #[tauri::command]
 pub async fn retry_task_pipeline_step(
     app: AppHandle,
@@ -1095,7 +1140,9 @@ pub async fn abort_task_pipeline(
         return Err("当前任务没有进行中的编排".to_string());
     }
 
-    if let Some(step_index) = state.as_ref().and_then(|item| item.pipeline_step_index) {
+    let abort_target = resolve_pipeline_abort_target(state.as_ref(), &steps, &task);
+
+    if let Some(step_index) = abort_target.step_index {
         if let Ok(step) = fetch_pipeline_step_by_index(&pool, &task.id, step_index).await {
             if matches!(
                 step.status.as_str(),
@@ -1116,14 +1163,15 @@ pub async fn abort_task_pipeline(
         }
     }
 
+    // Flip state before killing the process so exit handlers cannot advance the pipeline.
     set_pipeline_state(
         &pool,
         &task.id,
         PHASE_MANUAL_CONTROL,
         false,
-        state.as_ref().and_then(|item| item.pipeline_step_index),
-        None,
-        None,
+        abort_target.step_index,
+        abort_target.session_id.as_deref(),
+        abort_target.session_id.as_deref(),
         Some("编排已转人工"),
     )
     .await?;
@@ -1132,12 +1180,24 @@ pub async fn abort_task_pipeline(
         &pool,
         "task_pipeline_aborted",
         &format!("{}（转人工）", task.title),
-        task.assignee_id.as_deref(),
+        abort_target
+            .employee_id
+            .as_deref()
+            .or(task.assignee_id.as_deref()),
         Some(task.id.as_str()),
         Some(task.project_id.as_str()),
     )
     .await?;
     emit_task_automation_state_changed(&app, &task, PHASE_MANUAL_CONTROL);
+
+    stop_running_session_for_pipeline_abort(
+        &app,
+        abort_target.employee_id.as_deref(),
+        abort_target.session_id.as_deref(),
+        "编排已转人工，停止当前步骤",
+    )
+    .await?;
+
     Ok(())
 }
 
@@ -1212,9 +1272,10 @@ async fn retry_pending_pipeline(
 mod pipeline_unit_tests {
     use super::{
         build_pipeline_step_prompt, is_manual_runnable_step_status, is_pipeline_mid_flight,
-        is_pipeline_phase, resolve_failed_pipeline_step_index, resolve_resume_pipeline_step_index,
-        PHASE_PIPELINE_STEP_FAILED, PHASE_PIPELINE_WAITING_STEP, STEP_STATUS_CANCELLED,
-        STEP_STATUS_FAILED, STEP_STATUS_PENDING, STEP_STATUS_SUCCEEDED,
+        is_pipeline_phase, resolve_failed_pipeline_step_index, resolve_pipeline_abort_target,
+        resolve_resume_pipeline_step_index, PHASE_PIPELINE_STEP_FAILED,
+        PHASE_PIPELINE_WAITING_STEP, STEP_STATUS_CANCELLED, STEP_STATUS_FAILED,
+        STEP_STATUS_PENDING, STEP_STATUS_RUNNING, STEP_STATUS_SUCCEEDED,
     };
     use crate::db::models::{Task, TaskAutomationStateRecord, TaskPipelineStep};
 
@@ -1364,5 +1425,47 @@ mod pipeline_unit_tests {
             step
         }];
         assert_eq!(resolve_resume_pipeline_step_index(&all_done), None);
+    }
+
+    #[test]
+    fn resolve_abort_target_prefers_step_session_and_employee() {
+        let mut task = sample_task();
+        task.assignee_id = Some("assignee-1".into());
+
+        let mut running = sample_step();
+        running.status = STEP_STATUS_RUNNING.into();
+        running.session_id = Some("sess-step".into());
+        running.employee_id = Some("emp-step".into());
+        running.step_index = 1;
+
+        let steps = vec![sample_step(), running];
+        let mut state = sample_state(PHASE_PIPELINE_WAITING_STEP, true, Some(1));
+        state.last_trigger_session_id = Some("sess-state".into());
+
+        let target = resolve_pipeline_abort_target(Some(&state), &steps, &task);
+        assert_eq!(target.step_index, Some(1));
+        assert_eq!(target.session_id.as_deref(), Some("sess-step"));
+        assert_eq!(target.employee_id.as_deref(), Some("emp-step"));
+    }
+
+    #[test]
+    fn resolve_abort_target_falls_back_to_state_session_and_assignee() {
+        let mut task = sample_task();
+        task.assignee_id = Some("assignee-1".into());
+
+        let mut launching = sample_step();
+        launching.status = STEP_STATUS_RUNNING.into();
+        launching.session_id = None;
+        launching.employee_id = None;
+        launching.step_index = 0;
+
+        let steps = vec![launching];
+        let mut state = sample_state(PHASE_PIPELINE_WAITING_STEP, true, Some(0));
+        state.last_trigger_session_id = Some("sess-state".into());
+
+        let target = resolve_pipeline_abort_target(Some(&state), &steps, &task);
+        assert_eq!(target.step_index, Some(0));
+        assert_eq!(target.session_id.as_deref(), Some("sess-state"));
+        assert_eq!(target.employee_id.as_deref(), Some("assignee-1"));
     }
 }

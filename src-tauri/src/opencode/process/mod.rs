@@ -2213,6 +2213,43 @@ pub async fn start_opencode_with_manager(
     Ok(())
 }
 
+pub(crate) async fn stop_opencode_for_automation_restart<R: Runtime>(
+    app: &AppHandle<R>,
+    employee_id: &str,
+    expected_session_record_id: Option<&str>,
+    message: &str,
+) -> Result<bool, String> {
+    let manager_state = app
+        .state::<Arc<Mutex<OpenCodeManager>>>()
+        .inner()
+        .clone();
+    let Some(expected_session_record_id) = expected_session_record_id else {
+        return Err("当前自动化步骤缺少会话标识，无法安全重启".to_string());
+    };
+
+    let running_process = {
+        let manager = manager_state.lock().await;
+        manager.get_process(expected_session_record_id)
+    };
+
+    let Some(process) = running_process else {
+        return Ok(false);
+    };
+
+    if process.employee_id != employee_id {
+        return Err("当前员工正在执行其他任务，无法重启这条自动化步骤".to_string());
+    }
+
+    stop_opencode_process_with_manager(
+        app,
+        &manager_state,
+        expected_session_record_id,
+        "automation_restart_requested",
+        message,
+    )
+    .await
+}
+
 #[tauri::command]
 pub async fn stop_opencode_session(
     app: AppHandle,

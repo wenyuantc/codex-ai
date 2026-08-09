@@ -31,7 +31,9 @@ use crate::git_workflow::{
 };
 use crate::grok::{start_grok_with_manager, stop_grok_for_automation_restart, GrokManager};
 use crate::notifications::{build_task_status_notification, publish_one_time_notification};
-use crate::opencode::{start_opencode_with_manager, OpenCodeManager};
+use crate::opencode::{
+    start_opencode_with_manager, stop_opencode_for_automation_restart, OpenCodeManager,
+};
 
 
 // File-split for navigation; items remain in this module namespace via include!.

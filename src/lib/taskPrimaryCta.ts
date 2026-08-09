@@ -93,12 +93,13 @@ export function resolveTaskPrimaryCta(input: ResolveTaskPrimaryCtaInput): TaskPr
 
   const backgroundBusy = backgroundPlanning || backgroundStarting;
 
-  // 1. Process running → stop
+  // 1. Process running or mid-pipeline (caller sets canStopProcess for pipeline too) → stop
   if (canStopProcess) {
     return {
       kind: "stop",
       label: "停止",
       disabled: false,
+      reason: pipelineActive ? "停止当前编排步骤并转人工" : "停止当前运行会话",
       tone: "danger",
     };
   }
@@ -116,7 +117,7 @@ export function resolveTaskPrimaryCta(input: ResolveTaskPrimaryCtaInput): TaskPr
     };
   }
 
-  // 2. Execution occupied by automation / pipeline (not user-stoppable)
+  // 2. Execution occupied by automation / residual pipeline lock (not stoppable here)
   if (executionActive) {
     const label = lockedExecutionLabel(automationStatus, pipelineActive);
     return {
@@ -125,7 +126,7 @@ export function resolveTaskPrimaryCta(input: ResolveTaskPrimaryCtaInput): TaskPr
       disabled: true,
       reason:
         pipelineActive || (automationStatus && PIPELINE_STATUSES.has(automationStatus))
-          ? "编排流水线执行中，请等待完成或从流水线面板中止"
+          ? "编排流水线执行中"
           : "自动修复正在启动或运行中",
       tone: "muted",
     };

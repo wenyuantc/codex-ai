@@ -43,8 +43,51 @@ async fn stop_running_session_for_automation_restart(
         return Ok(true);
     }
 
-    stop_grok_for_automation_restart(app, employee_id, Some(expected_session_record_id), message)
-        .await
+    if stop_grok_for_automation_restart(
+        app,
+        employee_id,
+        Some(expected_session_record_id),
+        message,
+    )
+    .await?
+    {
+        return Ok(true);
+    }
+
+    stop_opencode_for_automation_restart(
+        app,
+        employee_id,
+        Some(expected_session_record_id),
+        message,
+    )
+    .await
+}
+
+/// Best-effort stop for pipeline 转人工. Missing session/employee or no live process is OK.
+async fn stop_running_session_for_pipeline_abort(
+    app: &AppHandle,
+    employee_id: Option<&str>,
+    session_record_id: Option<&str>,
+    message: &str,
+) -> Result<(), String> {
+    let (Some(employee_id), Some(session_record_id)) = (employee_id, session_record_id) else {
+        return Ok(());
+    };
+
+    match stop_running_session_for_automation_restart(
+        app,
+        employee_id,
+        Some(session_record_id),
+        message,
+    )
+    .await
+    {
+        Ok(_) => Ok(()),
+        Err(error) => {
+            eprintln!("[task-pipeline] stop after abort ignored: {error}");
+            Ok(())
+        }
+    }
 }
 
 async fn restart_review_step(

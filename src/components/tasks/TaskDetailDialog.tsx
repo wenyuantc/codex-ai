@@ -64,6 +64,7 @@ import {
   getTaskActionRuntimeState,
   getTaskAutomationDisplayState,
   getTaskAutomationStatusLabel,
+  isTaskPipelineRunning,
 } from "@/lib/utils";
 import { SessionLogDialog } from "@/components/sessions/SessionLogDialog";
 import type { TaskCommitActionState, TaskCommitOverview } from "@/lib/types";
@@ -333,11 +334,12 @@ export function TaskDetailDialog({
   const canCommitTaskCode = Boolean(
     !hasActiveSession && (commitActionState?.can_commit || commitActionState?.can_ai_commit),
   );
+  const pipelineRunning = isTaskPipelineRunning(persistedAutomationState ?? null);
   const primaryCta = resolveTaskPrimaryCta({
     status,
     executionActive: isRunning,
     reviewActive: isReviewRunning,
-    canStopProcess: executionActions.isRunning,
+    canStopProcess: executionActions.isRunning || pipelineRunning,
     backgroundPlanning: isBackgroundPlanning,
     backgroundStarting: isBackgroundStarting,
     hasAssignee: Boolean(assigneeId),
@@ -345,14 +347,15 @@ export function TaskDetailDialog({
     canCommit: canCommitTaskCode,
     canGenerateAcceptance: canGenerateTesterAcceptance,
     automationStatus: resolvedAutomationState.status,
-    pipelineActive: Boolean(persistedAutomationState?.pipeline_active),
+    pipelineActive: pipelineRunning,
   });
   const primaryActionLoading =
     executionActions.loading !== null ||
     reviewActions.loading ||
     testerAcceptanceLoading ||
     openingCommitDialog ||
-    isBackgroundRunBusy;
+    isBackgroundRunBusy ||
+    pipelineActionLoading;
   const hasActivePipelineStep = pipelineSteps.some(
     (step) => step.status === "launching" || step.status === "running",
   );
@@ -920,7 +923,7 @@ export function TaskDetailDialog({
     setPipelineNotice(null);
     try {
       await abortTaskPipeline(task.id);
-      setPipelineNotice("编排已转人工。未完成步骤可点「手动运行」。");
+      setPipelineNotice("编排已停止并转人工。未完成步骤可点「手动运行」或「转自动」。");
       await refreshPipelineSteps();
       await fetchTaskAutomationState(task.id);
     } catch (error) {
@@ -1088,6 +1091,23 @@ export function TaskDetailDialog({
   };
 
   const handleStopCodex = async () => {
+    if (isTaskPipelineRunning(persistedAutomationState ?? null)) {
+      setPipelineActionLoading(true);
+      setPipelineError(null);
+      setPipelineNotice(null);
+      try {
+        await abortTaskPipeline(task.id);
+        setPipelineNotice("编排已停止并转人工。未完成步骤可点「手动运行」或「转自动」。");
+        await refreshPipelineSteps();
+        await fetchTaskAutomationState(task.id);
+        await useTaskStore.getState().fetchTasks(useTaskStore.getState().activeProjectId);
+      } catch (error) {
+        setPipelineError(error instanceof Error ? error.message : String(error));
+      } finally {
+        setPipelineActionLoading(false);
+      }
+      return;
+    }
     await executionActions.stopTask();
   };
 
