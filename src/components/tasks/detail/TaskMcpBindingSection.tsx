@@ -90,7 +90,7 @@ export function TaskMcpBindingSection({ taskId }: TaskMcpBindingSectionProps) {
 
   if (loading) {
     return (
-      <section className="rounded-md border border-border bg-muted/20 p-3">
+      <section className="rounded-lg border border-border/60 bg-background/60 p-4">
         <div className="flex items-center gap-2 text-xs text-muted-foreground">
           <Loader2 className="h-3.5 w-3.5 animate-spin" />
           加载任务 MCP 绑定…
@@ -100,7 +100,7 @@ export function TaskMcpBindingSection({ taskId }: TaskMcpBindingSectionProps) {
   }
 
   return (
-    <section className="rounded-md border border-border bg-muted/20 p-3 space-y-3">
+    <section className="rounded-lg border border-border/60 bg-background/60 p-4 space-y-3">
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div className="space-y-1">
           <div className="flex items-center gap-2 text-sm font-medium text-foreground">

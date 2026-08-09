@@ -5,9 +5,11 @@ import { Plus } from "lucide-react";
 
 interface SubtaskListProps {
   taskId: string;
+  /** Hide the built-in heading (used when a parent section already renders one). */
+  hideHeader?: boolean;
 }
 
-export function SubtaskList({ taskId }: SubtaskListProps) {
+export function SubtaskList({ taskId, hideHeader = false }: SubtaskListProps) {
   const { subtasks, fetchSubtasks, addSubtask } = useTaskStore();
   const [newTitle, setNewTitle] = useState("");
 
@@ -26,16 +28,18 @@ export function SubtaskList({ taskId }: SubtaskListProps) {
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-2">
-        <h3 className="text-xs font-medium text-muted-foreground">
-          子任务
-          {items.length > 0 && (
-            <span className="ml-1">
-              ({completedCount}/{items.length})
-            </span>
-          )}
-        </h3>
-      </div>
+      {!hideHeader && (
+        <div className="flex items-center justify-between mb-2">
+          <h3 className="text-xs font-medium text-muted-foreground">
+            子任务
+            {items.length > 0 && (
+              <span className="ml-1">
+                ({completedCount}/{items.length})
+              </span>
+            )}
+          </h3>
+        </div>
+      )}
 
       {items.length > 0 && (
         <div className="space-y-1 mb-2">

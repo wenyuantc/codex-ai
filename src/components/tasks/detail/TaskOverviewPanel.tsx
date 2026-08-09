@@ -1,45 +1,30 @@
 import { lazy, Suspense } from "react";
 import {
   AlertTriangle,
+  Bot,
   ClipboardCheck,
-  Clock,
+  ClipboardList,
+  FileText,
   Network,
   Pencil,
   Save,
-  Trash2,
   X,
 } from "lucide-react";
 
-import type {
-  Employee,
-  Task,
-  TaskAutomationState,
-  TaskPipelineStep,
-  TaskStatus,
-} from "@/lib/types";
-import { ACTIVE_TASK_STATUSES, PRIORITIES, TASK_STATUSES } from "@/lib/types";
+import type { Employee, Task, TaskAutomationState, TaskPipelineStep } from "@/lib/types";
 import {
   formatDate,
-  formatDuration,
   getAcceptanceStatusClassName,
   getAcceptanceStatusLabel,
-  getTaskElapsedSeconds,
+  getTaskAutomationStatusLabel,
+  type TaskAutomationDisplayState,
 } from "@/lib/utils";
-import { useSharedNow } from "@/hooks/useSharedNow";
-import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { TaskDeliverySection } from "./TaskDeliverySection";
+import { Button } from "@/components/ui/button";
+import { DetailSection, DetailStat } from "./DetailSection";
 import { TaskMcpBindingSection } from "./TaskMcpBindingSection";
 import { TaskPipelineProgress } from "./TaskPipelineProgress";
 
-const UNASSIGNED_VALUE = "__unassigned__";
 const MonacoMarkdownEditor = lazy(() =>
   import("./MonacoMarkdownEditor").then((module) => ({
     default: module.MonacoMarkdownEditor,
@@ -48,33 +33,20 @@ const MonacoMarkdownEditor = lazy(() =>
 
 interface TaskOverviewPanelProps {
   task: Task;
-  projectTasks: Task[];
-  title: string;
   description: string;
   status: string;
-  priority: string;
-  assigneeId: string;
-  reviewerId: string;
   coordinatorId: string;
   coordinatorName?: string;
-  dueDate: string;
-  milestoneId: string;
   blockedReason: string;
-  createdAt: string;
-  timeStartedAt: string | null;
-  timeSpentSeconds: number;
-  completedAt: string | null;
   planContent: string;
   planContentDraft: string;
   planEditing: boolean;
   planSaving: boolean;
   planHasChanges: boolean;
   employees: Employee[];
-  reviewerCandidates: Employee[];
   coordinatorCandidates: Employee[];
   saveError: string | null;
-  isRunning: boolean;
-  deletingTask: boolean;
+  automationDisplay: TaskAutomationDisplayState;
   canGenerateTesterAcceptance?: boolean;
   testerAcceptanceLoading?: boolean;
   testerAcceptanceError?: string | null;
@@ -95,18 +67,8 @@ interface TaskOverviewPanelProps {
   onAcceptanceChecklistChange?: (value: string) => void;
   onAcceptanceChecklistBlur?: () => void;
   onRunAcceptance?: () => void;
-  onTitleChange: (value: string) => void;
-  onTitleBlur: () => void;
   onDescriptionChange: (value: string) => void;
   onDescriptionBlur: () => void;
-  onStatusChange: (value: TaskStatus) => void;
-  onPriorityChange: (value: string) => void;
-  onAssigneeChange: (value: string) => void;
-  onReviewerChange: (value: string) => void;
-  onCoordinatorChange: (value: string) => void;
-  onDueDateChange: (value: string) => void;
-  onDueDateBlur: () => void;
-  onMilestoneChange: (value: string) => void;
   onBlockedReasonChange: (value: string) => void;
   onBlockedReasonBlur: () => void;
   onOpenCoordinatorPlan?: () => void;
@@ -115,8 +77,6 @@ interface TaskOverviewPanelProps {
   onPlanEditCancel: () => void;
   onPlanDraftChange: (value: string) => void;
   onPlanSave: () => void;
-  onDeleteRequest: () => void;
-  onDeliveryError?: (message: string) => void;
 }
 
 function MonacoEditorFallback({ className }: { className: string }) {
@@ -131,33 +91,20 @@ function MonacoEditorFallback({ className }: { className: string }) {
 
 export function TaskOverviewPanel({
   task,
-  projectTasks,
-  title,
   description,
   status,
-  priority,
-  assigneeId,
-  reviewerId,
   coordinatorId,
   coordinatorName,
-  dueDate,
-  milestoneId,
   blockedReason,
-  createdAt,
-  timeStartedAt,
-  timeSpentSeconds,
-  completedAt,
   planContent,
   planContentDraft,
   planEditing,
   planSaving,
   planHasChanges,
   employees,
-  reviewerCandidates,
   coordinatorCandidates,
   saveError,
-  isRunning,
-  deletingTask,
+  automationDisplay,
   canGenerateTesterAcceptance = false,
   testerAcceptanceLoading = false,
   testerAcceptanceError = null,
@@ -175,18 +122,8 @@ export function TaskOverviewPanel({
   onAcceptanceChecklistChange,
   onAcceptanceChecklistBlur,
   onRunAcceptance,
-  onTitleChange,
-  onTitleBlur,
   onDescriptionChange,
   onDescriptionBlur,
-  onStatusChange,
-  onPriorityChange,
-  onAssigneeChange,
-  onReviewerChange,
-  onCoordinatorChange,
-  onDueDateChange,
-  onDueDateBlur,
-  onMilestoneChange,
   onBlockedReasonChange,
   onBlockedReasonBlur,
   onOpenCoordinatorPlan,
@@ -195,228 +132,97 @@ export function TaskOverviewPanel({
   onPlanEditCancel,
   onPlanDraftChange,
   onPlanSave,
-  onDeleteRequest,
-  onDeliveryError,
 }: TaskOverviewPanelProps) {
-  const timerNow = useSharedNow(Boolean(timeStartedAt));
-  const elapsedSeconds = getTaskElapsedSeconds(
-    {
-      time_started_at: timeStartedAt,
-      time_spent_seconds: timeSpentSeconds,
-    },
-    timerNow,
-  );
-  const timerStatus = timeStartedAt
-    ? "计时中"
-    : completedAt
-      ? "已完成"
-      : timeSpentSeconds > 0
-        ? "待继续"
-        : "未开始";
-
   return (
     <div className="space-y-4">
-      <Input
-        value={title}
-        onChange={(e) => onTitleChange(e.target.value)}
-        onBlur={onTitleBlur}
-        className="text-lg font-semibold border-none px-0 focus-visible:ring-0"
-        placeholder="任务标题"
-      />
-
       {saveError && (
-        <div className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+        <div className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
           {saveError}
         </div>
       )}
 
-      <div className="flex flex-wrap items-center gap-3">
-        <div className="flex shrink-0 items-center gap-2">
-          <span className="shrink-0 whitespace-nowrap text-xs text-muted-foreground">状态</span>
-          <Select
-            value={status}
-            onValueChange={(value) => value && onStatusChange(value as TaskStatus)}
-          >
-            <SelectTrigger className="h-7 w-[104px] shrink-0 rounded-md px-2 text-xs">
-              <SelectValue>
-                {(value) =>
-                  typeof value === "string"
-                    ? (TASK_STATUSES.find((item) => item.value === value)?.label ?? value)
-                    : "选择状态"
-                }
-              </SelectValue>
-            </SelectTrigger>
-            <SelectContent>
-              {/* Archived: allow picking an active status to unarchive. Keep current archived
-                  item so the controlled value stays valid while still showing 已归档. */}
-              {status === "archived" && (
-                <SelectItem value="archived" disabled>
-                  已归档
-                </SelectItem>
+      <DetailSection icon={FileText} title="描述" contentClassName="mt-2">
+        <Suspense fallback={<MonacoEditorFallback className="h-[260px]" />}>
+          <MonacoMarkdownEditor
+            value={description}
+            onChange={onDescriptionChange}
+            onBlur={onDescriptionBlur}
+            className="h-[260px]"
+            placeholder="添加任务描述..."
+          />
+        </Suspense>
+      </DetailSection>
+
+      <DetailSection
+        icon={ClipboardList}
+        title="计划内容"
+        contentClassName="mt-2"
+        actions={
+          planEditing ? (
+            <>
+              {planHasChanges && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="xs"
+                  onClick={onPlanSave}
+                  disabled={planSaving}
+                  title="保存计划"
+                >
+                  <Save />
+                  保存
+                </Button>
               )}
-              {ACTIVE_TASK_STATUSES.map((item) => (
-                <SelectItem key={item.value} value={item.value}>
-                  {item.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-
-        <div className="flex shrink-0 items-center gap-2">
-          <span className="shrink-0 whitespace-nowrap text-xs text-muted-foreground">优先级</span>
-          <Select value={priority} onValueChange={(value) => value && onPriorityChange(value)}>
-            <SelectTrigger className="h-7 w-[92px] shrink-0 rounded-md px-2 text-xs">
-              <SelectValue>
-                {(value) =>
-                  typeof value === "string"
-                    ? (PRIORITIES.find((item) => item.value === value)?.label ?? value)
-                    : "选择优先级"
-                }
-              </SelectValue>
-            </SelectTrigger>
-            <SelectContent>
-              {PRIORITIES.map((item) => (
-                <SelectItem key={item.value} value={item.value}>
-                  {item.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-
-        <div className="flex shrink-0 items-center gap-2">
-          <span className="shrink-0 whitespace-nowrap text-xs text-muted-foreground">指派</span>
-          <Select
-            value={assigneeId || UNASSIGNED_VALUE}
-            onValueChange={(value) =>
-              onAssigneeChange(!value || value === UNASSIGNED_VALUE ? "" : value)
-            }
-          >
-            <SelectTrigger className="h-7 w-[240px] shrink-0 rounded-md px-2 text-xs">
-              <SelectValue>
-                {(value) => {
-                  if (!value || value === UNASSIGNED_VALUE) {
-                    return "未指派";
-                  }
-
-                  const emp = employees.find((e) => e.id === value);
-                  return emp
-                    ? `${emp.name} · ${emp.ai_provider === "claude" ? "Claude" : emp.ai_provider === "opencode" ? "OpenCode" : emp.ai_provider === "grok" ? "Grok" : "Codex"}`
-                    : "未指派";
-                }}
-              </SelectValue>
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value={UNASSIGNED_VALUE}>未指派</SelectItem>
-              {employees.map((emp) => (
-                <SelectItem key={emp.id} value={emp.id}>
-                  {emp.name} ·{" "}
-                  {emp.ai_provider === "claude"
-                    ? "Claude"
-                    : emp.ai_provider === "opencode"
-                      ? "OpenCode"
-                      : emp.ai_provider === "grok"
-                        ? "Grok"
-                        : "Codex"}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-
-        <div className="flex shrink-0 items-center gap-2">
-          <span className="shrink-0 whitespace-nowrap text-xs text-muted-foreground">审查员</span>
-          <Select
-            value={reviewerId || UNASSIGNED_VALUE}
-            onValueChange={(value) =>
-              onReviewerChange(!value || value === UNASSIGNED_VALUE ? "" : value)
-            }
-          >
-            <SelectTrigger className="h-7 w-[240px] shrink-0 rounded-md px-2 text-xs">
-              <SelectValue>
-                {(value) => {
-                  if (!value || value === UNASSIGNED_VALUE) {
-                    return "未指定";
-                  }
-
-                  const emp = employees.find((e) => e.id === value);
-                  return emp
-                    ? `${emp.name} · ${emp.ai_provider === "claude" ? "Claude" : emp.ai_provider === "opencode" ? "OpenCode" : emp.ai_provider === "grok" ? "Grok" : "Codex"}`
-                    : "未指定";
-                }}
-              </SelectValue>
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value={UNASSIGNED_VALUE}>未指定</SelectItem>
-              {reviewerCandidates.map((emp) => (
-                <SelectItem key={emp.id} value={emp.id}>
-                  {emp.name} ·{" "}
-                  {emp.ai_provider === "claude"
-                    ? "Claude"
-                    : emp.ai_provider === "opencode"
-                      ? "OpenCode"
-                      : emp.ai_provider === "grok"
-                        ? "Grok"
-                        : "Codex"}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-
-        <div className="flex shrink-0 items-center gap-2">
-          <span className="shrink-0 whitespace-nowrap text-xs text-muted-foreground">协调员</span>
-          <Select
-            value={coordinatorId || UNASSIGNED_VALUE}
-            onValueChange={(value) =>
-              onCoordinatorChange(!value || value === UNASSIGNED_VALUE ? "" : value)
-            }
-          >
-            <SelectTrigger className="h-7 w-[240px] shrink-0 rounded-md px-2 text-xs">
-              <SelectValue>
-                {(value) => {
-                  if (!value || value === UNASSIGNED_VALUE) {
-                    return "未指定";
-                  }
-
-                  const emp = coordinatorCandidates.find((e) => e.id === value);
-                  return emp
-                    ? `${emp.name} · ${emp.ai_provider === "claude" ? "Claude" : emp.ai_provider === "opencode" ? "OpenCode" : emp.ai_provider === "grok" ? "Grok" : "Codex"}`
-                    : "未指定";
-                }}
-              </SelectValue>
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value={UNASSIGNED_VALUE}>未指定</SelectItem>
-              {coordinatorCandidates.map((emp) => (
-                <SelectItem key={emp.id} value={emp.id}>
-                  {emp.name} ·{" "}
-                  {emp.ai_provider === "claude"
-                    ? "Claude"
-                    : emp.ai_provider === "opencode"
-                      ? "OpenCode"
-                      : emp.ai_provider === "grok"
-                        ? "Grok"
-                        : "Codex"}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-
-        <button
-          onClick={onDeleteRequest}
-          disabled={isRunning || deletingTask}
-          className="ml-auto p-1 text-muted-foreground hover:text-destructive transition-colors disabled:opacity-50"
-          title={isRunning ? "运行中的任务不能删除，请先停止" : "删除任务"}
-        >
-          <Trash2 className="h-4 w-4" />
-        </button>
-      </div>
+              <Button
+                type="button"
+                variant="outline"
+                size="xs"
+                onClick={onPlanEditCancel}
+                disabled={planSaving}
+                title="取消编辑"
+              >
+                <X />
+                取消
+              </Button>
+            </>
+          ) : (
+            <Button
+              type="button"
+              variant="outline"
+              size="xs"
+              onClick={onPlanEditStart}
+              title="编辑计划"
+            >
+              <Pencil />
+              编辑
+            </Button>
+          )
+        }
+      >
+        {planEditing ? (
+          <Suspense fallback={<MonacoEditorFallback className="h-72" />}>
+            <MonacoMarkdownEditor
+              value={planContentDraft}
+              onChange={onPlanDraftChange}
+              readOnly={planSaving}
+              className="h-72"
+              placeholder="输入任务计划内容..."
+            />
+          </Suspense>
+        ) : (
+          <Suspense fallback={<MonacoEditorFallback className="h-72" />}>
+            <MonacoMarkdownEditor
+              value={planContent}
+              readOnly
+              className="h-72 bg-muted/30"
+              placeholder="暂无计划内容"
+            />
+          </Suspense>
+        )}
+      </DetailSection>
 
       {status === "blocked" && (
-        <div className="space-y-2 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-900 dark:text-amber-100">
+        <div className="space-y-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-xs text-amber-900 dark:text-amber-100">
           <div className="flex items-start gap-2">
             <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
             <span>
@@ -441,19 +247,6 @@ export function TaskOverviewPanel({
         </div>
       )}
 
-      <TaskDeliverySection
-        task={task}
-        projectTasks={projectTasks}
-        dueDate={dueDate}
-        milestoneId={milestoneId}
-        onDueDateChange={onDueDateChange}
-        onDueDateBlur={onDueDateBlur}
-        onMilestoneChange={onMilestoneChange}
-        onError={onDeliveryError}
-      />
-
-      <TaskMcpBindingSection taskId={task.id} />
-
       {(pipelineSteps.length > 0 || pipelineLoading) && (
         <TaskPipelineProgress
           steps={pipelineSteps}
@@ -467,212 +260,159 @@ export function TaskOverviewPanel({
       )}
 
       {(coordinatorId || pipelineSteps.length > 0) && onOpenCoordinatorPlan && (
-        <section className="rounded-md border border-border bg-muted/20 p-3">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <div className="space-y-1">
-              <div className="flex items-center gap-2 text-sm font-medium text-foreground">
-                <Network className="h-4 w-4 text-primary" />
-                协调员计划
-              </div>
-              <p className="text-[11px] text-muted-foreground">
-                {coordinatorName
-                  ? `由 ${coordinatorName} 生成执行计划，确认后交给指派员工执行。`
-                  : "可生成或查看协调员执行计划与编排操作。"}
-                {planContent.trim()
-                  ? " 任务中已保存一份计划内容。"
-                  : " 当前还没有保存的协调员计划。"}
-                {pipelineSteps.length > 0 ? " 完整重试/转人工/改执行人请在编排面板中操作。" : ""}
-              </p>
-            </div>
-            <button
-              type="button"
-              onClick={onOpenCoordinatorPlan}
-              className="inline-flex h-8 items-center gap-1.5 rounded-md border border-input bg-background px-3 text-xs font-medium hover:bg-accent"
-            >
-              <Network className="h-3.5 w-3.5" />
+        <DetailSection
+          icon={Network}
+          title="协调员计划"
+          description={
+            <>
+              {coordinatorName
+                ? `由 ${coordinatorName} 生成执行计划，确认后交给指派员工执行。`
+                : "可生成或查看协调员执行计划与编排操作。"}
+              {planContent.trim() ? " 任务中已保存一份计划内容。" : " 当前还没有保存的协调员计划。"}
+              {pipelineSteps.length > 0 ? " 完整重试/转人工/改执行人请在编排面板中操作。" : ""}
+            </>
+          }
+          actions={
+            <Button type="button" variant="outline" size="sm" onClick={onOpenCoordinatorPlan}>
+              <Network />
               {pipelineSteps.length > 0
                 ? "打开编排面板"
                 : planContent.trim()
                   ? "查看协调员计划"
                   : "生成协调员计划"}
-            </button>
-          </div>
-        </section>
+            </Button>
+          }
+        />
       )}
 
-      <section className="rounded-md border border-border bg-muted/20 p-3">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <div className="space-y-1">
-            <div className="flex items-center gap-2 text-sm font-medium text-foreground">
-              <ClipboardCheck className="h-4 w-4 text-primary" />
-              测试验收
-              <span
-                className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${getAcceptanceStatusClassName(lastAcceptanceStatus)}`}
-              >
-                {getAcceptanceStatusLabel(lastAcceptanceStatus)}
-              </span>
-            </div>
-            <p className="text-[11px] text-muted-foreground">
-              配置项目测试命令后可客观验收；命令失败为硬失败。也可生成/编辑验收清单。
-            </p>
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
+      <DetailSection
+        icon={ClipboardCheck}
+        title={
+          <>
+            测试验收
+            <span
+              className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${getAcceptanceStatusClassName(lastAcceptanceStatus)}`}
+            >
+              {getAcceptanceStatusLabel(lastAcceptanceStatus)}
+            </span>
+          </>
+        }
+        description="配置项目测试命令后可客观验收；命令失败为硬失败。也可生成/编辑验收清单。"
+        actions={
+          <>
             {canGenerateTesterAcceptance && onGenerateTesterAcceptance && (
-              <button
+              <Button
                 type="button"
+                variant="outline"
+                size="sm"
                 onClick={onGenerateTesterAcceptance}
                 disabled={testerAcceptanceLoading || acceptanceRunning}
-                className="inline-flex h-8 items-center gap-1.5 rounded-md border border-input bg-background px-3 text-xs font-medium hover:bg-accent disabled:opacity-50"
               >
-                <ClipboardCheck className="h-3.5 w-3.5" />
+                <ClipboardCheck />
                 {testerAcceptanceLoading ? "生成中…" : "生成验收清单"}
-              </button>
+              </Button>
             )}
             {onRunAcceptance && (
-              <button
+              <Button
                 type="button"
+                size="sm"
                 onClick={onRunAcceptance}
                 disabled={acceptanceRunning || testerAcceptanceLoading}
-                className="inline-flex h-8 items-center gap-1.5 rounded-md border border-primary/40 bg-primary/10 px-3 text-xs font-medium text-primary hover:bg-primary/15 disabled:opacity-50"
+                className="border-primary/40 bg-primary/10 text-primary hover:bg-primary/15"
               >
                 {acceptanceRunning ? "验收中…" : "运行验收"}
-              </button>
+              </Button>
             )}
-          </div>
+          </>
+        }
+      >
+        <div className="space-y-2">
+          {lastAcceptanceSummary && (
+            <div className="rounded-md border border-border/60 bg-background/70 px-3 py-2 text-xs text-muted-foreground">
+              最近结果：{lastAcceptanceSummary}
+            </div>
+          )}
+          {onAcceptanceChecklistChange && (
+            <div className="space-y-1">
+              <label className="text-[11px] text-muted-foreground">验收清单</label>
+              <Suspense fallback={<MonacoEditorFallback className="h-40" />}>
+                <MonacoMarkdownEditor
+                  value={acceptanceChecklist}
+                  onChange={onAcceptanceChecklistChange}
+                  onBlur={onAcceptanceChecklistBlur}
+                  className="h-40 bg-background"
+                  placeholder="可手写或由测试员 AI 生成验收清单…"
+                />
+              </Suspense>
+            </div>
+          )}
+          {testerAcceptanceError && (
+            <div className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+              {testerAcceptanceError}
+            </div>
+          )}
+          {testerAcceptanceNotice && !testerAcceptanceError && (
+            <div className="rounded-md border border-border/60 bg-background/70 px-3 py-2 text-xs text-muted-foreground">
+              {testerAcceptanceNotice}
+            </div>
+          )}
         </div>
-        {lastAcceptanceSummary && (
-          <div className="mt-2 rounded-md border border-border bg-background/70 px-3 py-2 text-xs text-muted-foreground">
-            最近结果：{lastAcceptanceSummary}
-          </div>
-        )}
-        {onAcceptanceChecklistChange && (
-          <div className="mt-2 space-y-1">
-            <label className="text-[11px] text-muted-foreground">验收清单</label>
-            <Suspense fallback={<MonacoEditorFallback className="h-40" />}>
-              <MonacoMarkdownEditor
-                value={acceptanceChecklist}
-                onChange={onAcceptanceChecklistChange}
-                onBlur={onAcceptanceChecklistBlur}
-                className="h-40 bg-background"
-                placeholder="可手写或由测试员 AI 生成验收清单…"
+      </DetailSection>
+
+      <DetailSection
+        icon={Bot}
+        title="自动质控"
+        description="原任务内的自动审核与修复闭环状态；开关入口在任务卡片右键菜单。"
+        actions={
+          <span
+            className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium ${
+              automationDisplay.enabled
+                ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
+                : "bg-muted text-muted-foreground"
+            }`}
+          >
+            {automationDisplay.enabled ? "已开启" : "未开启"}
+          </span>
+        }
+      >
+        {automationDisplay.enabled ? (
+          <div className="space-y-2">
+            <div className="grid gap-2 sm:grid-cols-2">
+              <DetailStat
+                label="闭环阶段"
+                value={getTaskAutomationStatusLabel(automationDisplay.status)}
               />
-            </Suspense>
-          </div>
-        )}
-        {testerAcceptanceError && (
-          <div className="mt-2 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
-            {testerAcceptanceError}
-          </div>
-        )}
-        {testerAcceptanceNotice && !testerAcceptanceError && (
-          <div className="mt-2 rounded-md border border-border bg-background/70 px-3 py-2 text-xs text-muted-foreground">
-            {testerAcceptanceNotice}
-          </div>
-        )}
-      </section>
-
-      <section className="rounded-md border border-border bg-muted/20 p-3">
-        <div className="mb-2 flex items-center gap-2 text-xs font-medium text-muted-foreground">
-          <Clock className="h-3.5 w-3.5" />
-          耗时汇总
-        </div>
-        <div className="grid gap-2 text-xs text-muted-foreground sm:grid-cols-2 lg:grid-cols-4">
-          <div className="rounded-md border border-border bg-background/70 px-3 py-2">
-            <span className="font-medium text-foreground">累计耗时：</span>
-            {formatDuration(elapsedSeconds)}
-          </div>
-          <div className="rounded-md border border-border bg-background/70 px-3 py-2">
-            <span className="font-medium text-foreground">计时开始：</span>
-            {timeStartedAt ? formatDate(timeStartedAt) : "未开始"}
-          </div>
-          <div className="rounded-md border border-border bg-background/70 px-3 py-2">
-            <span className="font-medium text-foreground">完成时间：</span>
-            {completedAt ? formatDate(completedAt) : "未完成"}
-          </div>
-          <div className="rounded-md border border-border bg-background/70 px-3 py-2">
-            <span className="font-medium text-foreground">计时状态：</span>
-            {timerStatus}
-          </div>
-        </div>
-        <div className="mt-2 text-[11px] text-muted-foreground">
-          创建时间：{formatDate(createdAt)}
-        </div>
-      </section>
-
-      <div>
-        <label className="text-xs font-medium text-muted-foreground">描述</label>
-        <Suspense fallback={<MonacoEditorFallback className="mt-1 h-[220px]" />}>
-          <MonacoMarkdownEditor
-            value={description}
-            onChange={onDescriptionChange}
-            onBlur={onDescriptionBlur}
-            className="mt-1 h-[220px]"
-            placeholder="添加任务描述..."
-          />
-        </Suspense>
-      </div>
-
-      <div>
-        <div className="flex items-center justify-between gap-2">
-          <label className="text-xs font-medium text-muted-foreground">计划内容</label>
-          <div className="flex items-center gap-1">
-            {planEditing && planHasChanges && (
-              <button
-                type="button"
-                onClick={onPlanSave}
-                disabled={planSaving}
-                className="inline-flex h-7 items-center gap-1 rounded-md border border-input px-2 text-xs hover:bg-accent disabled:opacity-50"
-                title="保存计划"
-              >
-                <Save className="h-3.5 w-3.5" />
-                保存
-              </button>
-            )}
-            {planEditing ? (
-              <button
-                type="button"
-                onClick={onPlanEditCancel}
-                disabled={planSaving}
-                className="inline-flex h-7 items-center gap-1 rounded-md border border-input px-2 text-xs hover:bg-accent disabled:opacity-50"
-                title="取消编辑"
-              >
-                <X className="h-3.5 w-3.5" />
-                取消
-              </button>
-            ) : (
-              <button
-                type="button"
-                onClick={onPlanEditStart}
-                className="inline-flex h-7 items-center gap-1 rounded-md border border-input px-2 text-xs hover:bg-accent"
-                title="编辑计划"
-              >
-                <Pencil className="h-3.5 w-3.5" />
-                编辑
-              </button>
+              <DetailStat label="自动修复轮次" value={automationDisplay.roundCount ?? 0} />
+              <DetailStat
+                label="最近更新时间"
+                value={
+                  automationDisplay.updatedAt ? formatDate(automationDisplay.updatedAt) : "暂无"
+                }
+              />
+              <DetailStat
+                label="状态来源"
+                value={automationDisplay.source === "automation_state" ? "自动化状态" : "任务配置"}
+              />
+            </div>
+            <div className="rounded-md border border-dashed border-border/60 bg-background/70 px-3 py-2 text-xs text-muted-foreground">
+              自动质控不会替代现有“审核结果 →
+              修复”手动路径。手动修复仍然通过创建新任务推进；自动质控接线后则在原任务内完成审核与修复闭环。
+            </div>
+            {automationDisplay.note && (
+              <div className="flex items-start gap-2 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-800 dark:text-amber-200">
+                <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                <span>{automationDisplay.note}</span>
+              </div>
             )}
           </div>
-        </div>
-        {planEditing ? (
-          <Suspense fallback={<MonacoEditorFallback className="mt-1 h-72" />}>
-            <MonacoMarkdownEditor
-              value={planContentDraft}
-              onChange={onPlanDraftChange}
-              readOnly={planSaving}
-              className="mt-1 h-72"
-              placeholder="输入任务计划内容..."
-            />
-          </Suspense>
         ) : (
-          <Suspense fallback={<MonacoEditorFallback className="mt-1 h-72" />}>
-            <MonacoMarkdownEditor
-              value={planContent}
-              readOnly
-              className="mt-1 h-72 bg-muted/30"
-              placeholder="暂无计划内容"
-            />
-          </Suspense>
+          <p className="text-xs text-muted-foreground">
+            未开启自动质控。可在任务卡片右键菜单开启；手动「审核结果 → 修复」路径不受影响。
+          </p>
         )}
-      </div>
+      </DetailSection>
+
+      <TaskMcpBindingSection taskId={task.id} />
     </div>
   );
 }

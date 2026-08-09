@@ -30,6 +30,8 @@ interface TaskDeliverySectionProps {
   projectTasks: Task[];
   dueDate: string;
   milestoneId: string;
+  /** Render without the outer card chrome and heading (used inside the sidebar). */
+  bare?: boolean;
   onDueDateChange: (value: string) => void;
   onDueDateBlur: () => void;
   onMilestoneChange: (value: string) => void;
@@ -41,6 +43,7 @@ export function TaskDeliverySection({
   projectTasks,
   dueDate,
   milestoneId,
+  bare = false,
   onDueDateChange,
   onDueDateBlur,
   onMilestoneChange,
@@ -171,10 +174,14 @@ export function TaskDeliverySection({
   };
 
   return (
-    <section className="space-y-3 rounded-md border border-border bg-muted/20 p-3">
-      <h4 className="text-xs font-medium text-muted-foreground">交付信息</h4>
+    <section
+      className={
+        bare ? "space-y-3" : "space-y-3 rounded-lg border border-border/60 bg-background/60 p-4"
+      }
+    >
+      {!bare && <h4 className="text-xs font-medium text-muted-foreground">交付信息</h4>}
 
-      <div className="grid gap-3 sm:grid-cols-2">
+      <div className={bare ? "space-y-3" : "grid gap-3 sm:grid-cols-2"}>
         <div>
           <label className="text-xs font-medium text-muted-foreground">截止日期</label>
           <Input

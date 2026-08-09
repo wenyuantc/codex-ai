@@ -90,10 +90,7 @@ export function TaskPrimaryActionBar({
 
   return (
     <div
-      className={cn(
-        "flex flex-wrap items-center justify-between gap-3 border-t border-border/70 bg-popover/95 px-1 py-3",
-        className,
-      )}
+      className={cn("flex flex-wrap items-center justify-between gap-3 px-1 py-3", className)}
       data-slot="task-primary-action-bar"
     >
       <div className="min-w-0 flex-1">

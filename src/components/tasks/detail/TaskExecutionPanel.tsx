@@ -2,6 +2,7 @@ import type { RefObject } from "react";
 import { Eraser, Loader2, Play, Square } from "lucide-react";
 
 import type { CodexSessionFileChange, TaskExecutionChangeHistoryItem } from "@/lib/types";
+import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { getLineColor } from "./taskDetailViewHelpers";
 import { TaskFileChangeHistoryPanel } from "./TaskFileChangeHistoryPanel";
@@ -50,66 +51,66 @@ export function TaskExecutionPanel({
           <span className="text-xs text-muted-foreground">已归档任务不可运行 Codex</span>
         ) : assigneeId ? (
           isRunning ? (
-            <button
+            <Button
+              size="sm"
               onClick={onStop}
               disabled={codexLoading}
-              className="flex items-center gap-1 px-2 py-1 text-xs bg-red-600 text-white rounded hover:bg-red-700 transition-colors disabled:opacity-50"
+              className="bg-red-600 text-white hover:bg-red-700"
             >
-              {codexLoading ? (
-                <Loader2 className="h-3 w-3 animate-spin" />
-              ) : (
-                <Square className="h-3 w-3" />
-              )}
+              {codexLoading ? <Loader2 className="animate-spin" /> : <Square />}
               停止运行
-            </button>
+            </Button>
           ) : isExecutionActive ? (
-            <button
+            <Button
+              size="sm"
               disabled
-              className="flex items-center gap-1 px-2 py-1 text-xs bg-green-600 text-white rounded opacity-50"
+              className="bg-green-600 text-white opacity-60"
               title="自动修复正在启动或运行中"
             >
-              <Loader2 className="h-3 w-3 animate-spin" />
+              <Loader2 className="animate-spin" />
               运行中
-            </button>
+            </Button>
           ) : (
-            <button
+            <Button
+              size="sm"
               onClick={onRun}
               disabled={codexLoading}
-              className="flex items-center gap-1 px-2 py-1 text-xs bg-green-600 text-white rounded hover:bg-green-700 transition-colors disabled:opacity-50"
+              className="bg-green-600 text-white hover:bg-green-700"
             >
-              {codexLoading ? (
-                <Loader2 className="h-3 w-3 animate-spin" />
-              ) : (
-                <Play className="h-3 w-3" />
-              )}
+              {codexLoading ? <Loader2 className="animate-spin" /> : <Play />}
               运行
-            </button>
+            </Button>
           )
         ) : (
           <span className="text-xs text-muted-foreground">请先指派员工以运行 Codex</span>
         )}
         {isExecutionActive && (
-          <span className="flex items-center gap-1 text-xs text-green-500">
-            <span className="inline-block w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
+          <span className="flex items-center gap-1.5 text-xs text-green-500">
+            <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-green-500" />
             运行中
           </span>
         )}
       </div>
 
       {(isExecutionActive || output.length > 0) && assigneeId && (
-        <div>
-          <div className="flex items-center justify-between px-2 py-1 bg-black/80 rounded-t border-b border-zinc-800">
-            <span className="text-xs text-zinc-500 font-mono">Codex 终端</span>
+        <div className="overflow-hidden rounded-lg border border-zinc-800">
+          <div className="flex items-center justify-between border-b border-zinc-800 bg-zinc-900 px-3 py-1.5">
+            <span className="flex items-center gap-1.5 font-mono text-xs text-zinc-400">
+              {isExecutionActive && (
+                <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-green-500" />
+              )}
+              Codex 终端
+            </span>
             <button
               onClick={onClearOutput}
-              className="p-0.5 text-zinc-500 hover:text-zinc-300 transition-colors"
+              className="cursor-pointer p-0.5 text-zinc-500 transition-colors hover:text-zinc-300"
               title="清空日志"
             >
               <Eraser className="h-3 w-3" />
             </button>
           </div>
-          <ScrollArea className="h-64 bg-black rounded-b">
-            <div className="p-2 font-mono text-xs space-y-0.5">
+          <ScrollArea className="h-72 bg-black">
+            <div className="space-y-0.5 p-2 font-mono text-xs">
               {output.length === 0 ? (
                 <div className="text-zinc-600">等待输出...</div>
               ) : (

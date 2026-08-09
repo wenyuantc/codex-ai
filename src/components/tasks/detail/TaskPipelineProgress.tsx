@@ -74,7 +74,7 @@ export function TaskPipelineProgress({
   const listMaxClass = compact ? "max-h-48" : "max-h-64";
 
   return (
-    <section className="space-y-2 rounded-md border border-border/70 bg-muted/20 p-3">
+    <section className="space-y-2 rounded-lg border border-border/60 bg-background/60 p-4">
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div className="space-y-0.5">
           <p className="flex items-center gap-1.5 text-sm font-medium text-foreground">
@@ -178,7 +178,7 @@ export function TaskPipelineProgress({
               return (
                 <div
                   key={step.id}
-                  className="rounded-md border border-border bg-background/70 px-3 py-2 text-xs"
+                  className="rounded-md border border-border/60 bg-background/70 px-3 py-2 text-xs"
                 >
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <div className="min-w-0 font-medium text-foreground">

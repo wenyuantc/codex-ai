@@ -5,9 +5,11 @@ import { Send } from "lucide-react";
 
 interface CommentListProps {
   taskId: string;
+  /** Hide the built-in heading (used when a parent section already renders one). */
+  hideHeader?: boolean;
 }
 
-export function CommentList({ taskId }: CommentListProps) {
+export function CommentList({ taskId, hideHeader = false }: CommentListProps) {
   const { comments, fetchComments, addComment } = useTaskStore();
   const [newContent, setNewContent] = useState("");
 
@@ -25,7 +27,9 @@ export function CommentList({ taskId }: CommentListProps) {
 
   return (
     <div>
-      <h3 className="text-xs font-medium text-muted-foreground mb-2">评论 ({items.length})</h3>
+      {!hideHeader && (
+        <h3 className="text-xs font-medium text-muted-foreground mb-2">评论 ({items.length})</h3>
+      )}
 
       {items.length > 0 && (
         <div className="space-y-2 mb-3">

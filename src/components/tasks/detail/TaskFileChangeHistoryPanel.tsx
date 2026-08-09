@@ -44,7 +44,7 @@ export function TaskFileChangeHistoryPanel({
   )?.session.artifact_capture_mode;
 
   return (
-    <div className="space-y-3 rounded-md border border-border/70 bg-muted/20 p-3">
+    <div className="space-y-3 rounded-lg border border-border/60 bg-background/60 p-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="space-y-1">
           <p className="text-sm font-medium">{title}</p>
@@ -78,7 +78,7 @@ export function TaskFileChangeHistoryPanel({
           {history.map((item) => (
             <div
               key={item.session.id}
-              className="rounded-md border border-border bg-background/70 p-3"
+              className="rounded-md border border-border/60 bg-background/70 p-3"
             >
               <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-muted-foreground">
                 <span>
