@@ -163,6 +163,7 @@ export function getActivityActionLabel(action: string): string {
     task_pipeline_step_completed: "编排步骤完成",
     task_pipeline_step_failed: "编排步骤失败",
     task_pipeline_step_manual_run: "手动运行编排步骤",
+    task_pipeline_step_manual_stop: "手动停止编排步骤",
     task_pipeline_completed: "编排全部完成",
     task_pipeline_aborted: "编排转人工",
     task_pipeline_resumed: "编排转自动",
@@ -393,6 +394,8 @@ export function getTaskAutomationStatusLabel(status: string): string {
     skip_disabled: "因配置关闭而跳过",
     pipeline_launching_step: "编排启动步骤中",
     pipeline_waiting_step: "编排执行中",
+    pipeline_manual_launching_step: "手动编排启动中",
+    pipeline_manual_waiting_step: "手动编排执行中",
     pipeline_step_failed: "编排步骤失败",
   };
 
@@ -407,7 +410,12 @@ const ACTIVE_EXECUTION_AUTOMATION_PHASES = new Set([
   "committing_code",
 ]);
 
-const ACTIVE_PIPELINE_PHASES = new Set(["pipeline_launching_step", "pipeline_waiting_step"]);
+const ACTIVE_PIPELINE_PHASES = new Set([
+  "pipeline_launching_step",
+  "pipeline_waiting_step",
+  "pipeline_manual_launching_step",
+  "pipeline_manual_waiting_step",
+]);
 
 export function isTaskAutomationReviewActive(
   automationState?: Pick<TaskAutomationDisplayState, "enabled" | "status"> | null,

@@ -74,7 +74,7 @@ pub async fn resume_pending_automation(app: &AppHandle) -> Result<(), String> {
                 retry_pending_commit(app, &pool, &task, None).await?;
             }
             // pipeline_step_failed must NOT auto-retry on restart — keep failure for manual retry.
-            PHASE_PIPELINE_LAUNCHING_STEP => {
+            PHASE_PIPELINE_LAUNCHING_STEP | PHASE_PIPELINE_MANUAL_LAUNCHING_STEP => {
                 retry_pending_pipeline(app, &pool, task_id, &state_record).await?;
             }
             _ => {}
@@ -91,11 +91,12 @@ pub async fn resume_pending_automation(app: &AppHandle) -> Result<(), String> {
         INNER JOIN tasks t ON t.id = tas.task_id
         WHERE t.status != $1
           AND tas.pipeline_active = 1
-          AND tas.phase = $2
+          AND tas.phase IN ($2, $3)
         "#,
     )
     .bind(TASK_STATUS_ARCHIVED)
     .bind(PHASE_PIPELINE_LAUNCHING_STEP)
+    .bind(PHASE_PIPELINE_MANUAL_LAUNCHING_STEP)
     .fetch_all(&pool)
     .await
     .map_err(|error| format!("Failed to list pending pipeline tasks: {}", error))?;
@@ -125,7 +126,7 @@ async fn replay_unconsumed_pipeline_exits(
         INNER JOIN codex_sessions s ON s.id = tas.last_trigger_session_id
         WHERE t.status != $1
           AND tas.pipeline_active = 1
-          AND tas.phase = $2
+          AND tas.phase IN ($2, $3)
           AND s.status IN ('exited', 'failed')
           AND (
             tas.consumed_session_id IS NULL
@@ -136,6 +137,7 @@ async fn replay_unconsumed_pipeline_exits(
     )
     .bind(TASK_STATUS_ARCHIVED)
     .bind(PHASE_PIPELINE_WAITING_STEP)
+    .bind(PHASE_PIPELINE_MANUAL_WAITING_STEP)
     .fetch_all(pool)
     .await
     .map_err(|error| format!("Failed to fetch unconsumed pipeline exits: {}", error))?;

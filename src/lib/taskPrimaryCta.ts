@@ -52,7 +52,12 @@ const FIX_AUTOMATION_STATUSES = new Set([
   "fix_started",
 ]);
 
-const PIPELINE_STATUSES = new Set(["pipeline_launching_step", "pipeline_waiting_step"]);
+const PIPELINE_STATUSES = new Set([
+  "pipeline_launching_step",
+  "pipeline_waiting_step",
+  "pipeline_manual_launching_step",
+  "pipeline_manual_waiting_step",
+]);
 
 function lockedExecutionLabel(
   automationStatus: string | null | undefined,

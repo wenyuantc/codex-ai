@@ -29,10 +29,6 @@
           "$APPCONFIG/task-attachments/**"
         ]
       }
-    },
-    "trayIcon": {
-      "iconPath": "icons/icon.png",
-      "iconAsTemplate": false
     }
   },
   "plugins": {

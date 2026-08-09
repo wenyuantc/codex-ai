@@ -1556,6 +1556,12 @@ export async function runTaskPipelineStepManual(taskId: string, stepId: string):
   });
 }
 
+export async function stopTaskPipelineStepManual(taskId: string, stepId: string): Promise<void> {
+  return invoke("stop_task_pipeline_step_manual", {
+    payload: { task_id: taskId, step_id: stepId },
+  });
+}
+
 export async function abortTaskPipeline(taskId: string): Promise<void> {
   return invoke("abort_task_pipeline", { payload: { task_id: taskId } });
 }

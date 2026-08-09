@@ -1,15 +1,17 @@
-import { GitBranch, Loader2, Play, RefreshCw, ScrollText } from "lucide-react";
+import { GitBranch, Loader2, Play, RefreshCw, ScrollText, Square } from "lucide-react";
 
 import type { Employee, TaskAutomationState, TaskPipelineStep } from "@/lib/types";
 import { formatDate } from "@/lib/utils";
 import {
   getPipelineProgressSummary,
   isPipelineManualControl,
+  isPipelineManualOneShotPhase,
   isPipelineStepManuallyRunnable,
   pipelineStatusLabel,
   pipelineStepStatusDotClass,
   pipelineStepStatusTextClass,
   shouldShowPipelineManualRun,
+  shouldShowPipelineManualStop,
   shouldShowPipelineRetry,
 } from "@/lib/pipelineUi";
 
@@ -34,6 +36,7 @@ export interface TaskPipelineProgressProps {
   onAbort?: () => void;
   onResumeAuto?: () => void;
   onManualRunStep?: (step: TaskPipelineStep) => void;
+  onManualStopStep?: (step: TaskPipelineStep) => void;
   onOpenStepSession?: (step: TaskPipelineStep) => void;
   onPipelineEmployeeChange?: (stepId: string, employeeId: string) => void;
 }
@@ -55,6 +58,7 @@ export function TaskPipelineProgress({
   onAbort,
   onResumeAuto,
   onManualRunStep,
+  onManualStopStep,
   onOpenStepSession,
   onPipelineEmployeeChange,
 }: TaskPipelineProgressProps) {
@@ -66,8 +70,10 @@ export function TaskPipelineProgress({
   const showRetry = Boolean(onRetry) && shouldShowPipelineRetry(steps, automation);
   const showManualRun = Boolean(onManualRunStep) && shouldShowPipelineManualRun(steps, automation);
   const manualControl = isPipelineManualControl(automation);
+  const manualOneShotMidFlight = isPipelineManualOneShotPhase(automation?.phase);
   const showResumeAuto = manualControl && Boolean(onResumeAuto);
-  const showAbort = !manualControl && Boolean(onAbort);
+  // During manual one-shot, stop via per-step 手动停止 — hide top-level 转人工.
+  const showAbort = !manualControl && !manualOneShotMidFlight && Boolean(onAbort);
   const projectEmployees = employees.filter(
     (employee) => !employee.project_id || !projectId || employee.project_id === projectId,
   );
@@ -138,11 +144,13 @@ export function TaskPipelineProgress({
 
       {notice && <p className="text-xs text-emerald-700 dark:text-emerald-300">{notice}</p>}
       {error && <p className="text-xs text-destructive">{error}</p>}
-      {showManualRun && manualControl && (
+      {(showManualRun && manualControl) || manualOneShotMidFlight ? (
         <p className="text-[11px] text-amber-800 dark:text-amber-200">
-          已转人工：可对未完成步骤点击「手动运行」，或点「转自动」继续串行编排。
+          {manualOneShotMidFlight
+            ? "正在手动运行当前步骤：可点「手动停止」结束本步；完成后不会自动进入下一步。"
+            : "已转人工：可对未完成步骤点击「手动运行」，或点「转自动」继续串行编排。"}
         </p>
-      )}
+      ) : null}
 
       {loading && steps.length === 0 ? (
         <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
@@ -175,6 +183,8 @@ export function TaskPipelineProgress({
               const stepBusy = step.status === "running" || step.status === "launching";
               const canManualRun =
                 showManualRun && isPipelineStepManuallyRunnable(step.status) && !stepBusy;
+              const canManualStop =
+                Boolean(onManualStopStep) && shouldShowPipelineManualStop(step, automation);
               return (
                 <div
                   key={step.id}
@@ -190,6 +200,18 @@ export function TaskPipelineProgress({
                       </span>
                     </div>
                     <div className="flex flex-wrap items-center gap-1.5">
+                      {canManualStop && onManualStopStep && (
+                        <button
+                          type="button"
+                          className="inline-flex items-center gap-1 rounded border border-destructive/40 bg-destructive/10 px-2 py-1 text-[11px] text-destructive hover:bg-destructive/15 disabled:opacity-50"
+                          disabled={actionsBusy}
+                          title="手动停止此编排步骤"
+                          onClick={() => onManualStopStep(step)}
+                        >
+                          <Square className="h-3 w-3" />
+                          手动停止
+                        </button>
+                      )}
                       {canManualRun && onManualRunStep && (
                         <button
                           type="button"

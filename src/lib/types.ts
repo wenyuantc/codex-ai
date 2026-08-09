@@ -845,6 +845,8 @@ export type TaskAutomationPhase =
   | "completed"
   | "pipeline_launching_step"
   | "pipeline_waiting_step"
+  | "pipeline_manual_launching_step"
+  | "pipeline_manual_waiting_step"
   | "pipeline_step_failed";
 export type TaskAutomationPendingAction = "start_review" | "start_fix";
 export type TaskPipelineStepStatus =

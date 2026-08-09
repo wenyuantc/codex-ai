@@ -2,6 +2,8 @@
 
 const PHASE_PIPELINE_LAUNCHING_STEP: &str = "pipeline_launching_step";
 const PHASE_PIPELINE_WAITING_STEP: &str = "pipeline_waiting_step";
+const PHASE_PIPELINE_MANUAL_LAUNCHING_STEP: &str = "pipeline_manual_launching_step";
+const PHASE_PIPELINE_MANUAL_WAITING_STEP: &str = "pipeline_manual_waiting_step";
 const PHASE_PIPELINE_STEP_FAILED: &str = "pipeline_step_failed";
 
 const STEP_STATUS_PENDING: &str = "pending";
@@ -11,11 +13,45 @@ const STEP_STATUS_SUCCEEDED: &str = "succeeded";
 const STEP_STATUS_FAILED: &str = "failed";
 const STEP_STATUS_CANCELLED: &str = "cancelled";
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PipelineLaunchMode {
+    /// Serial auto orchestration: success advances to the next step.
+    Auto,
+    /// Single-step manual run after 转人工: success returns to manual_control.
+    ManualOneShot,
+}
+
+fn is_manual_oneshot_phase(phase: &str) -> bool {
+    matches!(
+        phase,
+        PHASE_PIPELINE_MANUAL_LAUNCHING_STEP | PHASE_PIPELINE_MANUAL_WAITING_STEP
+    )
+}
+
 fn is_pipeline_phase(phase: &str) -> bool {
     matches!(
         phase,
-        PHASE_PIPELINE_LAUNCHING_STEP | PHASE_PIPELINE_WAITING_STEP | PHASE_PIPELINE_STEP_FAILED
+        PHASE_PIPELINE_LAUNCHING_STEP
+            | PHASE_PIPELINE_WAITING_STEP
+            | PHASE_PIPELINE_MANUAL_LAUNCHING_STEP
+            | PHASE_PIPELINE_MANUAL_WAITING_STEP
+            | PHASE_PIPELINE_STEP_FAILED
     )
+}
+
+fn is_pipeline_running_phase(phase: &str) -> bool {
+    matches!(
+        phase,
+        PHASE_PIPELINE_LAUNCHING_STEP
+            | PHASE_PIPELINE_WAITING_STEP
+            | PHASE_PIPELINE_MANUAL_LAUNCHING_STEP
+            | PHASE_PIPELINE_MANUAL_WAITING_STEP
+    )
+}
+
+/// Auto serial orchestration continues after a successful step; manual one-shot does not.
+fn should_auto_advance_pipeline(phase: &str, is_last: bool) -> bool {
+    !is_last && !is_manual_oneshot_phase(phase)
 }
 
 fn state_pipeline_active(state: Option<&TaskAutomationStateRecord>) -> bool {
@@ -411,11 +447,51 @@ async fn start_employee_execution_session(
     }
 }
 
+async fn mark_pipeline_step_launch_failed(
+    app: &AppHandle,
+    pool: &SqlitePool,
+    task: &Task,
+    step_id: &str,
+    step_index: i32,
+    mode: PipelineLaunchMode,
+    error: &str,
+) -> Result<(), String> {
+    update_pipeline_step_status(
+        pool,
+        step_id,
+        STEP_STATUS_FAILED,
+        None,
+        None,
+        Some(error),
+        false,
+        true,
+    )
+    .await?;
+    let (phase, active) = match mode {
+        PipelineLaunchMode::Auto => (PHASE_PIPELINE_STEP_FAILED, true),
+        PipelineLaunchMode::ManualOneShot => (PHASE_MANUAL_CONTROL, false),
+    };
+    set_pipeline_state(
+        pool,
+        &task.id,
+        phase,
+        active,
+        Some(step_index),
+        None,
+        None,
+        Some(error),
+    )
+    .await?;
+    emit_task_automation_state_changed(app, task, phase);
+    Ok(())
+}
+
 async fn launch_pipeline_step(
     app: &AppHandle,
     pool: &SqlitePool,
     task: &Task,
     step_index: i32,
+    mode: PipelineLaunchMode,
 ) -> Result<(), String> {
     let steps = fetch_task_pipeline_steps(pool, &task.id).await?;
     if steps.is_empty() {
@@ -432,10 +508,19 @@ async fn launch_pipeline_step(
     let previous = previous_step_handoff(pool, &task.id, step_index).await?;
     let prompt = build_pipeline_step_prompt(task, &step, previous.as_deref(), steps.len());
 
+    let launching_phase = match mode {
+        PipelineLaunchMode::Auto => PHASE_PIPELINE_LAUNCHING_STEP,
+        PipelineLaunchMode::ManualOneShot => PHASE_PIPELINE_MANUAL_LAUNCHING_STEP,
+    };
+    let waiting_phase = match mode {
+        PipelineLaunchMode::Auto => PHASE_PIPELINE_WAITING_STEP,
+        PipelineLaunchMode::ManualOneShot => PHASE_PIPELINE_MANUAL_WAITING_STEP,
+    };
+
     set_pipeline_state(
         pool,
         &task.id,
-        PHASE_PIPELINE_LAUNCHING_STEP,
+        launching_phase,
         true,
         Some(step_index),
         None,
@@ -467,29 +552,8 @@ async fn launch_pipeline_step(
     let execution_context = match resolve_pipeline_working_dir(app, pool, task, &project).await {
         Ok(context) => context,
         Err(error) => {
-            update_pipeline_step_status(
-                pool,
-                &step.id,
-                STEP_STATUS_FAILED,
-                None,
-                None,
-                Some(&error),
-                false,
-                true,
-            )
-            .await?;
-            set_pipeline_state(
-                pool,
-                &task.id,
-                PHASE_PIPELINE_STEP_FAILED,
-                true,
-                Some(step_index),
-                None,
-                None,
-                Some(&error),
-            )
-            .await?;
-            emit_task_automation_state_changed(app, task, PHASE_PIPELINE_STEP_FAILED);
+            mark_pipeline_step_launch_failed(app, pool, task, &step.id, step_index, mode, &error)
+                .await?;
             return Err(error);
         }
     };
@@ -497,29 +561,8 @@ async fn launch_pipeline_step(
     if let Err(error) =
         start_employee_execution_session(app, &employee, task, prompt, &execution_context).await
     {
-        update_pipeline_step_status(
-            pool,
-            &step.id,
-            STEP_STATUS_FAILED,
-            None,
-            None,
-            Some(&error),
-            false,
-            true,
-        )
-        .await?;
-        set_pipeline_state(
-            pool,
-            &task.id,
-            PHASE_PIPELINE_STEP_FAILED,
-            true,
-            Some(step_index),
-            None,
-            None,
-            Some(&error),
-        )
-        .await?;
-        emit_task_automation_state_changed(app, task, PHASE_PIPELINE_STEP_FAILED);
+        mark_pipeline_step_launch_failed(app, pool, task, &step.id, step_index, mode, &error)
+            .await?;
         return Err(error);
     }
 
@@ -538,7 +581,7 @@ async fn launch_pipeline_step(
     set_pipeline_state(
         pool,
         &task.id,
-        PHASE_PIPELINE_WAITING_STEP,
+        waiting_phase,
         true,
         Some(step_index),
         session_id.as_deref(),
@@ -562,7 +605,7 @@ async fn launch_pipeline_step(
         Some(task.project_id.as_str()),
     )
     .await?;
-    emit_task_automation_state_changed(app, task, PHASE_PIPELINE_WAITING_STEP);
+    emit_task_automation_state_changed(app, task, waiting_phase);
     Ok(())
 }
 
@@ -580,6 +623,7 @@ async fn handle_pipeline_execution_exit(
         .last()
         .map(|item| item.step_index == step_index)
         .unwrap_or(true);
+    let manual_oneshot = is_manual_oneshot_phase(&state_record.phase);
 
     if facts.has_stopping_requested {
         update_pipeline_step_status(
@@ -607,7 +651,11 @@ async fn handle_pipeline_execution_exit(
         stop_task_timer_internal(pool, &task.id, "编排人工停止").await?;
         insert_activity_log(
             pool,
-            "task_pipeline_aborted",
+            if manual_oneshot {
+                "task_pipeline_step_manual_stop"
+            } else {
+                "task_pipeline_aborted"
+            },
             &format!("{}（步骤 {} 被停止）", task.title, step_index + 1),
             facts.employee_id.as_deref(),
             Some(task.id.as_str()),
@@ -637,11 +685,17 @@ async fn handle_pipeline_execution_exit(
             true,
         )
         .await?;
+        // Manual one-shot stays in 转人工 so the user can re-run or 转自动.
+        let (phase, active) = if manual_oneshot {
+            (PHASE_MANUAL_CONTROL, false)
+        } else {
+            (PHASE_PIPELINE_STEP_FAILED, true)
+        };
         set_pipeline_state(
             pool,
             &task.id,
-            PHASE_PIPELINE_STEP_FAILED,
-            true,
+            phase,
+            active,
             Some(step_index),
             Some(&facts.session_id),
             Some(&facts.session_id),
@@ -657,7 +711,7 @@ async fn handle_pipeline_execution_exit(
             Some(task.project_id.as_str()),
         )
         .await?;
-        emit_task_automation_state_changed(app, task, PHASE_PIPELINE_STEP_FAILED);
+        emit_task_automation_state_changed(app, task, phase);
         return Ok(());
     }
 
@@ -688,7 +742,25 @@ async fn handle_pipeline_execution_exit(
     )
     .await?;
 
-    if !is_last {
+    // Manual one-shot: stay in 转人工 (unless this was the last step) and never auto-advance.
+    if manual_oneshot && !is_last {
+        set_pipeline_state(
+            pool,
+            &task.id,
+            PHASE_MANUAL_CONTROL,
+            false,
+            Some(step_index),
+            Some(&facts.session_id),
+            Some(&facts.session_id),
+            None,
+        )
+        .await?;
+        stop_task_timer_internal(pool, &task.id, "手动编排步骤完成").await?;
+        emit_task_automation_state_changed(app, task, PHASE_MANUAL_CONTROL);
+        return Ok(());
+    }
+
+    if should_auto_advance_pipeline(&state_record.phase, is_last) {
         let next_index = step_index + 1;
         // Consume current session before launching next so resume won't re-handle.
         set_pipeline_state(
@@ -702,10 +774,10 @@ async fn handle_pipeline_execution_exit(
             None,
         )
         .await?;
-        return launch_pipeline_step(app, pool, task, next_index).await;
+        return launch_pipeline_step(app, pool, task, next_index, PipelineLaunchMode::Auto).await;
     }
 
-    // Pipeline finished successfully.
+    // Pipeline finished successfully (auto last step, or manual last step).
     set_pipeline_state(
         pool,
         &task.id,
@@ -808,10 +880,9 @@ pub async fn update_task_pipeline_step(
     let task = fetch_task_by_id(&pool, &step.task_id).await?;
     let state = fetch_task_automation_state_record(&pool, &task.id).await?;
     if state_pipeline_active(state.as_ref())
-        && matches!(
-            state.as_ref().map(|item| item.phase.as_str()),
-            Some(PHASE_PIPELINE_LAUNCHING_STEP | PHASE_PIPELINE_WAITING_STEP)
-        )
+        && state
+            .as_ref()
+            .is_some_and(|item| is_pipeline_running_phase(&item.phase))
     {
         return Err("编排运行中，不能修改步骤".to_string());
     }
@@ -897,10 +968,9 @@ pub async fn start_task_pipeline(
 
     let state = fetch_task_automation_state_record(&pool, &task.id).await?;
     if state_pipeline_active(state.as_ref())
-        && matches!(
-            state.as_ref().map(|item| item.phase.as_str()),
-            Some(PHASE_PIPELINE_LAUNCHING_STEP | PHASE_PIPELINE_WAITING_STEP)
-        )
+        && state
+            .as_ref()
+            .is_some_and(|item| is_pipeline_running_phase(&item.phase))
     {
         return Err("编排已在运行中".to_string());
     }
@@ -941,7 +1011,7 @@ pub async fn start_task_pipeline(
     .await?;
 
     let first_index = steps[0].step_index;
-    launch_pipeline_step(&app, &pool, &task, first_index).await
+    launch_pipeline_step(&app, &pool, &task, first_index, PipelineLaunchMode::Auto).await
 }
 
 fn resolve_failed_pipeline_step_index(
@@ -965,13 +1035,7 @@ fn resolve_failed_pipeline_step_index(
 }
 
 fn is_pipeline_mid_flight(state: Option<&TaskAutomationStateRecord>) -> bool {
-    state.is_some_and(|item| {
-        item.pipeline_active
-            && matches!(
-                item.phase.as_str(),
-                PHASE_PIPELINE_LAUNCHING_STEP | PHASE_PIPELINE_WAITING_STEP
-            )
-    })
+    state.is_some_and(|item| item.pipeline_active && is_pipeline_running_phase(&item.phase))
 }
 
 fn is_manual_runnable_step_status(status: &str) -> bool {
@@ -1055,7 +1119,7 @@ pub async fn retry_task_pipeline_step(
     let steps = fetch_task_pipeline_steps(&pool, &task.id).await?;
     let step_index = resolve_failed_pipeline_step_index(&state, &steps)
         .ok_or_else(|| "当前没有失败的编排步骤可重试".to_string())?;
-    launch_pipeline_step(&app, &pool, &task, step_index).await
+    launch_pipeline_step(&app, &pool, &task, step_index, PipelineLaunchMode::Auto).await
 }
 
 /// Manually run a single incomplete pipeline step (after 转人工 / idle recovery).
@@ -1109,7 +1173,111 @@ pub async fn run_task_pipeline_step_manual(
     )
     .await?;
 
-    launch_pipeline_step(&app, &pool, &task, step.step_index).await
+    launch_pipeline_step(
+        &app,
+        &pool,
+        &task,
+        step.step_index,
+        PipelineLaunchMode::ManualOneShot,
+    )
+    .await
+}
+
+/// Stop a single manually-running pipeline step and remain in 转人工.
+#[tauri::command]
+pub async fn stop_task_pipeline_step_manual(
+    app: AppHandle,
+    payload: RunTaskPipelineStepManualPayload,
+) -> Result<(), String> {
+    let pool = sqlite_pool(&app).await?;
+    let task = fetch_task_by_id(&pool, &payload.task_id).await?;
+    let state = fetch_task_automation_state_record(&pool, &task.id)
+        .await?
+        .ok_or_else(|| "编排状态不存在，无法停止步骤".to_string())?;
+
+    if !is_manual_oneshot_phase(&state.phase) || !state.pipeline_active {
+        return Err("当前没有正在手动运行的编排步骤".to_string());
+    }
+
+    let step = sqlx::query_as::<_, TaskPipelineStep>(
+        "SELECT * FROM task_pipeline_steps WHERE id = $1 LIMIT 1",
+    )
+    .bind(&payload.step_id)
+    .fetch_optional(&pool)
+    .await
+    .map_err(|error| format!("Failed to fetch pipeline step: {}", error))?
+    .ok_or_else(|| "编排步骤不存在".to_string())?;
+
+    if step.task_id != task.id {
+        return Err("编排步骤不属于当前任务".to_string());
+    }
+    if state.pipeline_step_index != Some(step.step_index) {
+        return Err("只能停止当前正在手动运行的编排步骤".to_string());
+    }
+    if !matches!(
+        step.status.as_str(),
+        STEP_STATUS_LAUNCHING | STEP_STATUS_RUNNING
+    ) {
+        return Err(format!(
+            "步骤「{}」当前状态为「{}」，不能手动停止",
+            step.title, step.status
+        ));
+    }
+
+    let abort_target = resolve_pipeline_abort_target(Some(&state), std::slice::from_ref(&step), &task);
+
+    // Flip state before killing the process so exit handlers cannot advance.
+    let _ = update_pipeline_step_status(
+        &pool,
+        &step.id,
+        STEP_STATUS_CANCELLED,
+        abort_target.session_id.as_deref(),
+        None,
+        Some("步骤已被手动停止"),
+        false,
+        true,
+    )
+    .await;
+    set_pipeline_state(
+        &pool,
+        &task.id,
+        PHASE_MANUAL_CONTROL,
+        false,
+        Some(step.step_index),
+        abort_target.session_id.as_deref(),
+        abort_target.session_id.as_deref(),
+        Some("手动编排步骤已停止"),
+    )
+    .await?;
+    stop_task_timer_internal(&pool, &task.id, "手动停止编排步骤").await?;
+    insert_activity_log(
+        &pool,
+        "task_pipeline_step_manual_stop",
+        &format!(
+            "{}（手动停止步骤 {}：{}）",
+            task.title,
+            step.step_index + 1,
+            step.title
+        ),
+        abort_target
+            .employee_id
+            .as_deref()
+            .or(task.assignee_id.as_deref()),
+        Some(task.id.as_str()),
+        Some(task.project_id.as_str()),
+    )
+    .await?;
+    emit_task_automation_state_changed(&app, &task, PHASE_MANUAL_CONTROL);
+
+    stop_running_session_for_pipeline_abort(
+        &app,
+        abort_target.employee_id.as_deref(),
+        abort_target.session_id.as_deref(),
+        "手动停止编排步骤",
+    )
+    .await?;
+
+    Ok(())
 }
 
 #[tauri::command]
@@ -1238,7 +1406,7 @@ pub async fn resume_task_pipeline(
     )
     .await?;
 
-    launch_pipeline_step(&app, &pool, &task, step_index).await
+    launch_pipeline_step(&app, &pool, &task, step_index, PipelineLaunchMode::Auto).await
 }
 
 /// Resume only interrupted mid-launch steps. Failed steps stay failed for manual retry.
@@ -1250,32 +1418,33 @@ async fn retry_pending_pipeline(
 ) -> Result<(), String> {
     let task = fetch_task_by_id(pool, task_id).await?;
     let step_index = state_record.pipeline_step_index.unwrap_or(0);
-    match state_record.phase.as_str() {
+    let mode = match state_record.phase.as_str() {
         // Do NOT auto-retry PHASE_PIPELINE_STEP_FAILED: user must click 重试失败步骤.
-        PHASE_PIPELINE_LAUNCHING_STEP => {
-            // If the step already reached a terminal status, leave it for manual action.
-            if let Ok(step) = fetch_pipeline_step_by_index(pool, task_id, step_index).await {
-                if matches!(
-                    step.status.as_str(),
-                    STEP_STATUS_FAILED | STEP_STATUS_SUCCEEDED | STEP_STATUS_CANCELLED
-                ) {
-                    return Ok(());
-                }
-            }
-            launch_pipeline_step(app, pool, &task, step_index).await
+        PHASE_PIPELINE_LAUNCHING_STEP => PipelineLaunchMode::Auto,
+        PHASE_PIPELINE_MANUAL_LAUNCHING_STEP => PipelineLaunchMode::ManualOneShot,
+        _ => return Ok(()),
+    };
+    // If the step already reached a terminal status, leave it for manual action.
+    if let Ok(step) = fetch_pipeline_step_by_index(pool, task_id, step_index).await {
+        if matches!(
+            step.status.as_str(),
+            STEP_STATUS_FAILED | STEP_STATUS_SUCCEEDED | STEP_STATUS_CANCELLED
+        ) {
+            return Ok(());
         }
-        _ => Ok(()),
     }
+    launch_pipeline_step(app, pool, &task, step_index, mode).await
 }
 
 #[cfg(test)]
 mod pipeline_unit_tests {
     use super::{
-        build_pipeline_step_prompt, is_manual_runnable_step_status, is_pipeline_mid_flight,
-        is_pipeline_phase, resolve_failed_pipeline_step_index, resolve_pipeline_abort_target,
-        resolve_resume_pipeline_step_index, PHASE_PIPELINE_STEP_FAILED,
-        PHASE_PIPELINE_WAITING_STEP, STEP_STATUS_CANCELLED, STEP_STATUS_FAILED,
-        STEP_STATUS_PENDING, STEP_STATUS_RUNNING, STEP_STATUS_SUCCEEDED,
+        build_pipeline_step_prompt, is_manual_oneshot_phase, is_manual_runnable_step_status,
+        is_pipeline_mid_flight, is_pipeline_phase, resolve_failed_pipeline_step_index,
+        resolve_pipeline_abort_target, resolve_resume_pipeline_step_index,
+        should_auto_advance_pipeline, PHASE_PIPELINE_MANUAL_WAITING_STEP,
+        PHASE_PIPELINE_STEP_FAILED, PHASE_PIPELINE_WAITING_STEP, STEP_STATUS_CANCELLED,
+        STEP_STATUS_FAILED, STEP_STATUS_PENDING, STEP_STATUS_RUNNING, STEP_STATUS_SUCCEEDED,
     };
     use crate::db::models::{Task, TaskAutomationStateRecord, TaskPipelineStep};
 
@@ -1352,7 +1521,30 @@ mod pipeline_unit_tests {
     #[test]
     fn pipeline_phase_helper_recognizes_pipeline_phases() {
         assert!(is_pipeline_phase(PHASE_PIPELINE_WAITING_STEP));
+        assert!(is_pipeline_phase(PHASE_PIPELINE_MANUAL_WAITING_STEP));
+        assert!(is_manual_oneshot_phase(PHASE_PIPELINE_MANUAL_WAITING_STEP));
+        assert!(!is_manual_oneshot_phase(PHASE_PIPELINE_WAITING_STEP));
         assert!(!is_pipeline_phase("waiting_review"));
+    }
+
+    #[test]
+    fn manual_oneshot_does_not_auto_advance() {
+        assert!(!should_auto_advance_pipeline(
+            PHASE_PIPELINE_MANUAL_WAITING_STEP,
+            false
+        ));
+        assert!(!should_auto_advance_pipeline(
+            PHASE_PIPELINE_MANUAL_WAITING_STEP,
+            true
+        ));
+        assert!(should_auto_advance_pipeline(
+            PHASE_PIPELINE_WAITING_STEP,
+            false
+        ));
+        assert!(!should_auto_advance_pipeline(
+            PHASE_PIPELINE_WAITING_STEP,
+            true
+        ));
     }
 
     #[test]
@@ -1393,6 +1585,8 @@ mod pipeline_unit_tests {
     fn mid_flight_and_manual_runnable_helpers() {
         let launching = sample_state("pipeline_launching_step", true, Some(0));
         assert!(is_pipeline_mid_flight(Some(&launching)));
+        let manual = sample_state(PHASE_PIPELINE_MANUAL_WAITING_STEP, true, Some(1));
+        assert!(is_pipeline_mid_flight(Some(&manual)));
         let failed = sample_state(PHASE_PIPELINE_STEP_FAILED, true, Some(0));
         assert!(!is_pipeline_mid_flight(Some(&failed)));
         assert!(is_manual_runnable_step_status(STEP_STATUS_PENDING));

@@ -26,6 +26,7 @@ import {
   retryTaskPipelineStep,
   runTaskAcceptance,
   runTaskPipelineStepManual,
+  stopTaskPipelineStepManual,
   stageAllTaskCommitFiles,
   startTaskPipeline,
   updateTaskAcceptanceChecklist,
@@ -964,6 +965,22 @@ export function TaskDetailDialog({
     }
   };
 
+  const handleManualStopPipelineStep = async (step: TaskPipelineStep) => {
+    setPipelineActionLoading(true);
+    setPipelineError(null);
+    setPipelineNotice(null);
+    try {
+      await stopTaskPipelineStepManual(task.id, step.id);
+      setPipelineNotice(`已手动停止步骤 ${step.step_index + 1}「${step.title}」。`);
+      await refreshPipelineSteps();
+      await fetchTaskAutomationState(task.id);
+    } catch (error) {
+      setPipelineError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setPipelineActionLoading(false);
+    }
+  };
+
   const handlePipelineEmployeeChange = async (stepId: string, employeeId: string) => {
     setPipelineError(null);
     try {
@@ -1868,6 +1885,7 @@ export function TaskDetailDialog({
         onAbortPipeline={() => void handleAbortPipeline()}
         onResumeAutoPipeline={() => void handleResumeAutoPipeline()}
         onManualRunPipelineStep={(step) => void handleManualRunPipelineStep(step)}
+        onManualStopPipelineStep={(step) => void handleManualStopPipelineStep(step)}
         onRefreshPipeline={() => void refreshPipelineSteps()}
         onPipelineEmployeeChange={(stepId, employeeId) =>
           void handlePipelineEmployeeChange(stepId, employeeId)

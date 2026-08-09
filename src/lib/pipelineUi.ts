@@ -198,6 +198,21 @@ export function isPipelineStepManuallyRunnable(status: string): boolean {
   return status === "pending" || status === "failed" || status === "cancelled";
 }
 
+export function isPipelineManualOneShotPhase(phase?: string | null): boolean {
+  return phase === "pipeline_manual_launching_step" || phase === "pipeline_manual_waiting_step";
+}
+
+export function isPipelineMidFlight(
+  automation?: Pick<TaskAutomationState, "pipeline_active" | "phase"> | null,
+): boolean {
+  return (
+    Boolean(automation?.pipeline_active) &&
+    (automation?.phase === "pipeline_launching_step" ||
+      automation?.phase === "pipeline_waiting_step" ||
+      isPipelineManualOneShotPhase(automation?.phase))
+  );
+}
+
 /** Whether orchestration is in 转人工 / manual_control mode. */
 export function isPipelineManualControl(
   automation?: Pick<TaskAutomationState, "phase"> | null,
@@ -217,11 +232,7 @@ export function shouldShowPipelineManualRun(
     return false;
   }
 
-  const midFlight =
-    Boolean(automation?.pipeline_active) &&
-    (automation?.phase === "pipeline_launching_step" ||
-      automation?.phase === "pipeline_waiting_step");
-  if (midFlight) {
+  if (isPipelineMidFlight(automation)) {
     return false;
   }
 
@@ -236,6 +247,23 @@ export function shouldShowPipelineManualRun(
     steps.some((step) => isPipelineStepManuallyRunnable(step.status)) &&
     !steps.every((step) => step.status === "pending")
   );
+}
+
+/** Show 手动停止 on the currently running manual one-shot step. */
+export function shouldShowPipelineManualStop(
+  step: TaskPipelineStep,
+  automation?: Pick<
+    TaskAutomationState,
+    "pipeline_active" | "pipeline_step_index" | "phase"
+  > | null,
+): boolean {
+  if (!automation?.pipeline_active || !isPipelineManualOneShotPhase(automation.phase)) {
+    return false;
+  }
+  if (automation.pipeline_step_index !== step.step_index) {
+    return false;
+  }
+  return step.status === "running" || step.status === "launching";
 }
 
 /** Whether the top-level 重试失败步骤 control should be available. */
