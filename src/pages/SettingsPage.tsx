@@ -216,6 +216,9 @@ export function SettingsPage() {
   const [sdkActionLoading, setSdkActionLoading] = useState<"save" | "install" | null>(null);
   const [sdkActionMessage, setSdkActionMessage] = useState<string | null>(null);
   const [sdkActionError, setSdkActionError] = useState<string | null>(null);
+  const [sdkActionFeedbackKind, setSdkActionFeedbackKind] = useState<"save" | "install" | null>(
+    null,
+  );
   const [databaseActionLoading, setDatabaseActionLoading] = useState<
     "backup" | "restore" | "open-folder" | null
   >(null);
@@ -618,12 +621,14 @@ export function SettingsPage() {
 
   async function handleSaveSdkSettings() {
     if (worktreeLocationMode === "custom_root" && !worktreeCustomRoot.trim()) {
+      setSdkActionFeedbackKind("save");
       setSdkActionError("自定义 Worktree 根目录不能为空。");
       setSdkActionMessage(null);
       return;
     }
 
     setSdkActionLoading("save");
+    setSdkActionFeedbackKind("save");
     setSdkActionError(null);
     setSdkActionMessage(null);
 
@@ -670,11 +675,13 @@ export function SettingsPage() {
 
   async function handleInstallSdk() {
     if (isRemoteMode && !selectedSshConfigId) {
+      setSdkActionFeedbackKind("install");
       setSdkActionError("请先选择 SSH 配置后再安装远程 SDK。");
       return;
     }
 
     setSdkActionLoading("install");
+    setSdkActionFeedbackKind("install");
     setSdkActionError(null);
     setSdkActionMessage(null);
 
@@ -1085,6 +1092,7 @@ export function SettingsPage() {
             actionLoading={sdkActionLoading}
             actionMessage={sdkActionMessage}
             actionError={sdkActionError}
+            actionFeedbackKind={sdkActionFeedbackKind}
             isRemoteMode={isRemoteMode}
             hasSelectedSshConfig={Boolean(selectedSshConfig)}
             remoteTargetName={remoteTargetName}

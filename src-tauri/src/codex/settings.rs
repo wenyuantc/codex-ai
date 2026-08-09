@@ -979,15 +979,30 @@ fn current_sdk_platform_package() -> Option<(&'static str, &'static str, &'stati
     sdk_platform_package_for_target(std::env::consts::OS, std::env::consts::ARCH)
 }
 
-fn sdk_platform_binary_path(install_dir: &Path) -> Option<PathBuf> {
+/// Candidate locations for the platform CLI binary shipped with `@openai/codex-*`.
+///
+/// Layouts observed in the wild:
+/// - modern (`@openai/codex` >= ~0.147): `vendor/<triple>/bin/codex[.exe]`
+/// - legacy: `vendor/<triple>/codex/codex[.exe]`
+fn sdk_platform_binary_candidates(install_dir: &Path) -> Option<Vec<PathBuf>> {
     let (package_name, target_triple, binary_name) = current_sdk_platform_package()?;
-    Some(
-        npm_package_dir(install_dir, package_name)
-            .join("vendor")
-            .join(target_triple)
-            .join("codex")
-            .join(binary_name),
-    )
+    let vendor_root = npm_package_dir(install_dir, package_name)
+        .join("vendor")
+        .join(target_triple);
+
+    Some(vec![
+        vendor_root.join("bin").join(binary_name),
+        vendor_root.join("codex").join(binary_name),
+    ])
+}
+
+fn sdk_platform_binary_path(install_dir: &Path) -> Option<PathBuf> {
+    let candidates = sdk_platform_binary_candidates(install_dir)?;
+    if let Some(existing) = candidates.iter().find(|path| path.exists()) {
+        return Some(existing.clone());
+    }
+    // Prefer the modern layout in diagnostics when nothing is installed yet.
+    candidates.into_iter().next()
 }
 
 fn sdk_cli_binaries_available(install_dir: &Path) -> bool {
@@ -1344,12 +1359,13 @@ pub async fn install_codex_sdk<R: Runtime>(
 #[cfg(test)]
 mod tests {
     use super::{
-        default_git_preferences, default_remote_codex_settings, determine_effective_provider,
-        merge_git_preferences, normalize_one_shot_model, normalize_one_shot_provider,
-        normalize_one_shot_reasoning_effort, normalize_raw_settings,
+        current_sdk_platform_package, default_git_preferences, default_remote_codex_settings,
+        determine_effective_provider, merge_git_preferences, normalize_one_shot_model,
+        normalize_one_shot_provider, normalize_one_shot_reasoning_effort, normalize_raw_settings,
         normalize_remote_profile_settings, normalize_remote_settings,
         normalize_task_automation_failure_strategy, normalize_task_automation_max_fix_rounds,
-        parse_node_major_version, read_sdk_version_from_dir, sdk_platform_package_for_target,
+        npm_package_dir, parse_node_major_version, read_sdk_version_from_dir,
+        sdk_cli_binaries_available, sdk_platform_binary_path, sdk_platform_package_for_target,
         RawCodexSettings, RawGitPreferences, SDK_INSTALL_PACKAGE_SPECS,
     };
     use crate::db::models::{CodexSettings, GitPreferences, UpdateGitPreferences};
@@ -1418,6 +1434,89 @@ mod tests {
     fn rejects_unsupported_platform_targets() {
         assert_eq!(sdk_platform_package_for_target("windows", "x86"), None);
         assert_eq!(sdk_platform_package_for_target("freebsd", "x86_64"), None);
+    }
+
+    fn write_cli_package_json(install_dir: &std::path::Path) {
+        let cli_pkg = npm_package_dir(install_dir, super::SDK_CLI_PACKAGE_NAME);
+        fs::create_dir_all(&cli_pkg).expect("create cli package dir");
+        fs::write(
+            cli_pkg.join("package.json"),
+            r#"{"name":"@openai/codex","version":"0.147.0"}"#,
+        )
+        .expect("write cli package json");
+    }
+
+    fn write_platform_binary(
+        install_dir: &std::path::Path,
+        layout: &str,
+    ) -> Option<std::path::PathBuf> {
+        let (package_name, target_triple, binary_name) = current_sdk_platform_package()?;
+        let binary_path = npm_package_dir(install_dir, package_name)
+            .join("vendor")
+            .join(target_triple)
+            .join(layout)
+            .join(binary_name);
+        if let Some(parent) = binary_path.parent() {
+            fs::create_dir_all(parent).expect("create platform binary parent");
+        }
+        fs::write(&binary_path, b"fake-codex").expect("write platform binary");
+        Some(binary_path)
+    }
+
+    #[test]
+    fn detects_sdk_platform_binary_in_modern_bin_layout() {
+        let Some(_) = current_sdk_platform_package() else {
+            return;
+        };
+        let base = create_temp_dir();
+        write_cli_package_json(&base);
+        let binary_path =
+            write_platform_binary(&base, "bin").expect("create modern layout binary");
+
+        assert!(sdk_cli_binaries_available(&base));
+        assert_eq!(
+            sdk_platform_binary_path(&base).as_deref(),
+            Some(binary_path.as_path())
+        );
+
+        fs::remove_dir_all(base).expect("remove temp dir");
+    }
+
+    #[test]
+    fn detects_sdk_platform_binary_in_legacy_codex_layout() {
+        let Some(_) = current_sdk_platform_package() else {
+            return;
+        };
+        let base = create_temp_dir();
+        write_cli_package_json(&base);
+        let binary_path =
+            write_platform_binary(&base, "codex").expect("create legacy layout binary");
+
+        assert!(sdk_cli_binaries_available(&base));
+        assert_eq!(
+            sdk_platform_binary_path(&base).as_deref(),
+            Some(binary_path.as_path())
+        );
+
+        fs::remove_dir_all(base).expect("remove temp dir");
+    }
+
+    #[test]
+    fn prefers_modern_bin_layout_when_both_platform_binaries_exist() {
+        let Some(_) = current_sdk_platform_package() else {
+            return;
+        };
+        let base = create_temp_dir();
+        write_cli_package_json(&base);
+        let modern = write_platform_binary(&base, "bin").expect("create modern layout binary");
+        let _legacy = write_platform_binary(&base, "codex").expect("create legacy layout binary");
+
+        assert_eq!(
+            sdk_platform_binary_path(&base).as_deref(),
+            Some(modern.as_path())
+        );
+
+        fs::remove_dir_all(base).expect("remove temp dir");
     }
 
     #[test]

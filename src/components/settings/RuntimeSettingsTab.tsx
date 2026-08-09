@@ -42,6 +42,8 @@ interface RuntimeSettingsTabProps {
   actionLoading: "save" | "install" | null;
   actionMessage: string | null;
   actionError: string | null;
+  /** Which action last produced actionMessage/actionError — controls where feedback is shown. */
+  actionFeedbackKind: "save" | "install" | null;
   isRemoteMode: boolean;
   hasSelectedSshConfig: boolean;
   remoteTargetName: string;
@@ -137,6 +139,7 @@ export function RuntimeSettingsTab({
   actionLoading,
   actionMessage,
   actionError,
+  actionFeedbackKind,
   isRemoteMode,
   hasSelectedSshConfig,
   remoteTargetName,
@@ -484,6 +487,13 @@ export function RuntimeSettingsTab({
                 刷新检测
               </Button>
             </div>
+
+            {actionFeedbackKind === "install" && actionMessage ? (
+              <p className="text-xs text-green-700">{actionMessage}</p>
+            ) : null}
+            {actionFeedbackKind === "install" && actionError ? (
+              <p className="text-xs text-destructive">{actionError}</p>
+            ) : null}
           </div>
         </div>
       </div>
@@ -709,8 +719,12 @@ export function RuntimeSettingsTab({
           </Button>
         </div>
 
-        {actionMessage && <p className="text-xs text-green-700">{actionMessage}</p>}
-        {actionError && <p className="text-xs text-destructive">{actionError}</p>}
+        {actionFeedbackKind === "save" && actionMessage ? (
+          <p className="text-xs text-green-700">{actionMessage}</p>
+        ) : null}
+        {actionFeedbackKind === "save" && actionError ? (
+          <p className="text-xs text-destructive">{actionError}</p>
+        ) : null}
       </div>
 
       <div className="space-y-4 rounded-lg border border-border bg-card p-4">
