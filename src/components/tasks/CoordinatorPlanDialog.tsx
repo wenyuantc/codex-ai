@@ -62,6 +62,7 @@ interface CoordinatorPlanDialogProps {
   onStartPipeline?: () => void;
   onRetryPipeline?: () => void;
   onAbortPipeline?: () => void;
+  onResumeAutoPipeline?: () => void;
   onManualRunPipelineStep?: (step: TaskPipelineStep) => void;
   onRefreshPipeline?: () => void;
   onPipelineEmployeeChange?: (stepId: string, employeeId: string) => void;
@@ -113,6 +114,7 @@ export function CoordinatorPlanDialog({
   onStartPipeline,
   onRetryPipeline,
   onAbortPipeline,
+  onResumeAutoPipeline,
   onManualRunPipelineStep,
   onRefreshPipeline,
   onPipelineEmployeeChange,
@@ -251,6 +253,7 @@ export function CoordinatorPlanDialog({
                 onRefresh={onRefreshPipeline}
                 onRetry={onRetryPipeline}
                 onAbort={onAbortPipeline}
+                onResumeAuto={onResumeAutoPipeline}
                 onManualRunStep={onManualRunPipelineStep}
                 onPipelineEmployeeChange={onPipelineEmployeeChange}
                 onOpenStepSession={(step) => {

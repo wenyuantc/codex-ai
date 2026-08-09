@@ -1560,6 +1560,10 @@ export async function abortTaskPipeline(taskId: string): Promise<void> {
   return invoke("abort_task_pipeline", { payload: { task_id: taskId } });
 }
 
+export async function resumeTaskPipeline(taskId: string): Promise<void> {
+  return invoke("resume_task_pipeline", { payload: { task_id: taskId } });
+}
+
 export async function aiGenerateTesterAcceptance(
   input: GenerateTesterAcceptanceInput,
 ): Promise<string> {

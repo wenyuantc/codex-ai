@@ -165,6 +165,7 @@ export function getActivityActionLabel(action: string): string {
     task_pipeline_step_manual_run: "手动运行编排步骤",
     task_pipeline_completed: "编排全部完成",
     task_pipeline_aborted: "编排转人工",
+    task_pipeline_resumed: "编排转自动",
     task_tester_acceptance_generated: "测试员生成验收清单",
     task_tester_acceptance_started: "开始测试验收",
     task_tester_acceptance_passed: "测试验收通过",

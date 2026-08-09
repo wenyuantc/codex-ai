@@ -22,6 +22,7 @@ import {
   listTaskDependencies,
   listTaskPipelineSteps,
   listTaskTags,
+  resumeTaskPipeline,
   retryTaskPipelineStep,
   runTaskPipelineStepManual,
   stageAllTaskCommitFiles,
@@ -884,6 +885,22 @@ function TaskCardComponent({
     }
   };
 
+  const handleResumeAutoPipeline = async () => {
+    setPipelineActionLoading(true);
+    setPipelineError(null);
+    setPipelineNotice(null);
+    try {
+      await resumeTaskPipeline(task.id);
+      setPipelineNotice("编排已转自动，将继续串行执行。");
+      await refreshPipelineSteps();
+      await fetchTaskAutomationState(task.id);
+    } catch (error) {
+      setPipelineError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setPipelineActionLoading(false);
+    }
+  };
+
   const handleManualRunPipelineStep = async (step: TaskPipelineStep) => {
     setPipelineActionLoading(true);
     setPipelineError(null);
@@ -1726,6 +1743,7 @@ function TaskCardComponent({
           onStartPipeline={() => void handleStartPipeline()}
           onRetryPipeline={() => void handleRetryPipeline()}
           onAbortPipeline={() => void handleAbortPipeline()}
+          onResumeAutoPipeline={() => void handleResumeAutoPipeline()}
           onManualRunPipelineStep={(step) => void handleManualRunPipelineStep(step)}
           onRefreshPipeline={() => void refreshPipelineSteps()}
           onPipelineEmployeeChange={(stepId, employeeId) =>

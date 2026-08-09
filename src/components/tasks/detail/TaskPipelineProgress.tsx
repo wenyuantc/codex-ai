@@ -4,6 +4,7 @@ import type { Employee, TaskAutomationState, TaskPipelineStep } from "@/lib/type
 import { formatDate } from "@/lib/utils";
 import {
   getPipelineProgressSummary,
+  isPipelineManualControl,
   isPipelineStepManuallyRunnable,
   pipelineStatusLabel,
   pipelineStepStatusDotClass,
@@ -31,6 +32,7 @@ export interface TaskPipelineProgressProps {
   onRefresh?: () => void;
   onRetry?: () => void;
   onAbort?: () => void;
+  onResumeAuto?: () => void;
   onManualRunStep?: (step: TaskPipelineStep) => void;
   onOpenStepSession?: (step: TaskPipelineStep) => void;
   onPipelineEmployeeChange?: (stepId: string, employeeId: string) => void;
@@ -51,6 +53,7 @@ export function TaskPipelineProgress({
   onRefresh,
   onRetry,
   onAbort,
+  onResumeAuto,
   onManualRunStep,
   onOpenStepSession,
   onPipelineEmployeeChange,
@@ -62,6 +65,9 @@ export function TaskPipelineProgress({
   const summary = getPipelineProgressSummary(steps, automation);
   const showRetry = Boolean(onRetry) && shouldShowPipelineRetry(steps, automation);
   const showManualRun = Boolean(onManualRunStep) && shouldShowPipelineManualRun(steps, automation);
+  const manualControl = isPipelineManualControl(automation);
+  const showResumeAuto = manualControl && Boolean(onResumeAuto);
+  const showAbort = !manualControl && Boolean(onAbort);
   const projectEmployees = employees.filter(
     (employee) => !employee.project_id || !projectId || employee.project_id === projectId,
   );
@@ -91,7 +97,18 @@ export function TaskPipelineProgress({
               重试失败步骤
             </button>
           )}
-          {onAbort && (
+          {showResumeAuto && (
+            <button
+              type="button"
+              className="rounded-md border border-input px-2 py-1 text-xs hover:bg-accent disabled:opacity-50"
+              disabled={actionsBusy || actionsLocked}
+              onClick={onResumeAuto}
+              title={actionsLocked ? "任务执行中，请等待当前步骤结束" : "转自动，继续串行编排"}
+            >
+              转自动
+            </button>
+          )}
+          {showAbort && (
             <button
               type="button"
               className="rounded-md border border-input px-2 py-1 text-xs hover:bg-accent disabled:opacity-50"
@@ -121,9 +138,9 @@ export function TaskPipelineProgress({
 
       {notice && <p className="text-xs text-emerald-700 dark:text-emerald-300">{notice}</p>}
       {error && <p className="text-xs text-destructive">{error}</p>}
-      {showManualRun && automation?.phase === "manual_control" && (
+      {showManualRun && manualControl && (
         <p className="text-[11px] text-amber-800 dark:text-amber-200">
-          已转人工：可对未完成步骤点击「手动运行」。
+          已转人工：可对未完成步骤点击「手动运行」，或点「转自动」继续串行编排。
         </p>
       )}
 

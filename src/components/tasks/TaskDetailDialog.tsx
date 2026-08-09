@@ -23,6 +23,7 @@ import {
   getTaskExecutionChangeHistory,
   getTaskLatestReview,
   openTaskAttachment,
+  resumeTaskPipeline,
   retryTaskPipelineStep,
   runTaskAcceptance,
   runTaskPipelineStepManual,
@@ -920,6 +921,22 @@ export function TaskDetailDialog({
     try {
       await abortTaskPipeline(task.id);
       setPipelineNotice("编排已转人工。未完成步骤可点「手动运行」。");
+      await refreshPipelineSteps();
+      await fetchTaskAutomationState(task.id);
+    } catch (error) {
+      setPipelineError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setPipelineActionLoading(false);
+    }
+  };
+
+  const handleResumeAutoPipeline = async () => {
+    setPipelineActionLoading(true);
+    setPipelineError(null);
+    setPipelineNotice(null);
+    try {
+      await resumeTaskPipeline(task.id);
+      setPipelineNotice("编排已转自动，将继续串行执行。");
       await refreshPipelineSteps();
       await fetchTaskAutomationState(task.id);
     } catch (error) {
@@ -1879,6 +1896,7 @@ export function TaskDetailDialog({
         onStartPipeline={() => void handleStartPipeline()}
         onRetryPipeline={() => void handleRetryPipeline()}
         onAbortPipeline={() => void handleAbortPipeline()}
+        onResumeAutoPipeline={() => void handleResumeAutoPipeline()}
         onManualRunPipelineStep={(step) => void handleManualRunPipelineStep(step)}
         onRefreshPipeline={() => void refreshPipelineSteps()}
         onPipelineEmployeeChange={(stepId, employeeId) =>

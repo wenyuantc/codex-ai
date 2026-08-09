@@ -981,6 +981,14 @@ fn is_manual_runnable_step_status(status: &str) -> bool {
     )
 }
 
+/// First incomplete step to resume after 转人工 → 转自动.
+fn resolve_resume_pipeline_step_index(steps: &[TaskPipelineStep]) -> Option<i32> {
+    steps
+        .iter()
+        .find(|step| is_manual_runnable_step_status(&step.status))
+        .map(|step| step.step_index)
+}
+
 #[tauri::command]
 pub async fn retry_task_pipeline_step(
     app: AppHandle,
@@ -1133,6 +1141,46 @@ pub async fn abort_task_pipeline(
     Ok(())
 }
 
+/// Resume automatic serial orchestration after 转人工.
+#[tauri::command]
+pub async fn resume_task_pipeline(
+    app: AppHandle,
+    payload: ResumeTaskPipelinePayload,
+) -> Result<(), String> {
+    let pool = sqlite_pool(&app).await?;
+    let task = fetch_task_by_id(&pool, &payload.task_id).await?;
+    if task.status == TASK_STATUS_ARCHIVED {
+        return Err("已归档任务不能转自动编排".to_string());
+    }
+
+    let state = fetch_task_automation_state_record(&pool, &task.id).await?;
+    if is_pipeline_mid_flight(state.as_ref()) {
+        return Err("编排仍在执行中，请等待当前步骤结束".to_string());
+    }
+
+    let phase = state.as_ref().map(|item| item.phase.as_str());
+    let in_manual = phase == Some(PHASE_MANUAL_CONTROL);
+    if !in_manual {
+        return Err("当前不在人工模式，无需转自动".to_string());
+    }
+
+    let steps = fetch_task_pipeline_steps(&pool, &task.id).await?;
+    let step_index = resolve_resume_pipeline_step_index(&steps)
+        .ok_or_else(|| "没有可继续的编排步骤".to_string())?;
+
+    insert_activity_log(
+        &pool,
+        "task_pipeline_resumed",
+        &format!("{}（转自动，从步骤 {} 继续）", task.title, step_index + 1),
+        task.assignee_id.as_deref(),
+        Some(task.id.as_str()),
+        Some(task.project_id.as_str()),
+    )
+    .await?;
+
+    launch_pipeline_step(&app, &pool, &task, step_index).await
+}
+
 /// Resume only interrupted mid-launch steps. Failed steps stay failed for manual retry.
 async fn retry_pending_pipeline(
     app: &AppHandle,
@@ -1164,8 +1212,9 @@ async fn retry_pending_pipeline(
 mod pipeline_unit_tests {
     use super::{
         build_pipeline_step_prompt, is_manual_runnable_step_status, is_pipeline_mid_flight,
-        is_pipeline_phase, resolve_failed_pipeline_step_index, PHASE_PIPELINE_STEP_FAILED,
-        PHASE_PIPELINE_WAITING_STEP, STEP_STATUS_FAILED, STEP_STATUS_PENDING,
+        is_pipeline_phase, resolve_failed_pipeline_step_index, resolve_resume_pipeline_step_index,
+        PHASE_PIPELINE_STEP_FAILED, PHASE_PIPELINE_WAITING_STEP, STEP_STATUS_CANCELLED,
+        STEP_STATUS_FAILED, STEP_STATUS_PENDING, STEP_STATUS_SUCCEEDED,
     };
     use crate::db::models::{Task, TaskAutomationStateRecord, TaskPipelineStep};
 
@@ -1288,5 +1337,32 @@ mod pipeline_unit_tests {
         assert!(is_manual_runnable_step_status(STEP_STATUS_PENDING));
         assert!(is_manual_runnable_step_status(STEP_STATUS_FAILED));
         assert!(!is_manual_runnable_step_status("running"));
+    }
+
+    #[test]
+    fn resolve_resume_step_picks_first_incomplete() {
+        let mut succeeded = sample_step();
+        succeeded.status = STEP_STATUS_SUCCEEDED.into();
+        succeeded.step_index = 0;
+
+        let mut cancelled = sample_step();
+        cancelled.id = "s2".into();
+        cancelled.status = STEP_STATUS_CANCELLED.into();
+        cancelled.step_index = 1;
+
+        let mut pending = sample_step();
+        pending.id = "s3".into();
+        pending.status = STEP_STATUS_PENDING.into();
+        pending.step_index = 2;
+
+        let steps = vec![succeeded, cancelled, pending];
+        assert_eq!(resolve_resume_pipeline_step_index(&steps), Some(1));
+
+        let all_done = vec![{
+            let mut step = sample_step();
+            step.status = STEP_STATUS_SUCCEEDED.into();
+            step
+        }];
+        assert_eq!(resolve_resume_pipeline_step_index(&all_done), None);
     }
 }

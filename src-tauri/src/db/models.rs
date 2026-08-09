@@ -612,6 +612,11 @@ pub struct AbortTaskPipelinePayload {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ResumeTaskPipelinePayload {
+    pub task_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CodexSessionFileChangeDetail {
     pub change: CodexSessionFileChange,
     pub working_dir: Option<String>,

@@ -20,9 +20,10 @@ use crate::codex::{
     stop_codex_for_automation_restart, CodexManager,
 };
 use crate::db::models::{
-    AbortTaskPipelinePayload, CodexSessionRecord, Project, ReviewVerdict, RunTaskAcceptancePayload,
-    RunTaskPipelineStepManualPayload, StartTaskPipelinePayload, Subtask, Task, TaskAcceptanceRun,
-    TaskAttachment, TaskAutomationStateRecord, TaskPipelineStep, RetryTaskPipelineStepPayload,
+    AbortTaskPipelinePayload, CodexSessionRecord, Project, ResumeTaskPipelinePayload,
+    ReviewVerdict, RunTaskAcceptancePayload, RunTaskPipelineStepManualPayload,
+    StartTaskPipelinePayload, Subtask, Task, TaskAcceptanceRun, TaskAttachment,
+    TaskAutomationStateRecord, TaskPipelineStep, RetryTaskPipelineStepPayload,
     UpdateTaskAcceptanceChecklistPayload, UpdateTaskPipelineStepPayload,
 };
 use crate::git_workflow::{

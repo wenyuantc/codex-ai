@@ -161,6 +161,7 @@ pub fn run() {
             task_automation::retry_task_pipeline_step,
             task_automation::run_task_pipeline_step_manual,
             task_automation::abort_task_pipeline,
+            task_automation::resume_task_pipeline,
             task_automation::run_task_acceptance,
             task_automation::get_task_acceptance_runs,
             task_automation::update_task_acceptance_checklist,

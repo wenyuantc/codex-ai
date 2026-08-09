@@ -198,6 +198,13 @@ export function isPipelineStepManuallyRunnable(status: string): boolean {
   return status === "pending" || status === "failed" || status === "cancelled";
 }
 
+/** Whether orchestration is in 转人工 / manual_control mode. */
+export function isPipelineManualControl(
+  automation?: Pick<TaskAutomationState, "phase"> | null,
+): boolean {
+  return automation?.phase === "manual_control";
+}
+
 /**
  * Show per-step 手动运行 after 转人工, or when orchestration is no longer auto-running
  * but still has incomplete steps (failed/cancelled/pending).
