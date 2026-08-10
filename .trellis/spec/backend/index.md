@@ -39,6 +39,7 @@
 | [AI Engines](./ai-engines.md) | Codex/Claude/OpenCode/Grok process lifecycle and per-engine contracts |
 | [SSH Remote](./ssh-remote.md) | `build_ssh_command` multiplexing, askpass env, quit cleanup, remote SDK runtimes |
 | [Testing](./testing.md) | Integration/unit test patterns |
+| [Dashboard Report](./dashboard-report.md) | `get_dashboard_report_summary` R1 trend/milestone contract |
 
 ## Data Flow
 
