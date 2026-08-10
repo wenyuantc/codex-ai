@@ -1,0 +1,4 @@
+{"file": ".trellis/spec/frontend/index.md", "reason": "Frontend hard rules and index"}
+{"file": ".trellis/spec/backend/index.md", "reason": "Backend hard rules and index"}
+{"file": ".trellis/spec/frontend/data-access.md", "reason": "IPC via backend.ts only"}
+{"file": ".trellis/spec/backend/command-guidelines.md", "reason": "Report command shape"}
