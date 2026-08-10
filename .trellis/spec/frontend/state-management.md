@@ -11,7 +11,7 @@
 | Domain cache | Zustand store | tasks, projects, employees, notifications, dashboard metrics |
 | Server/DB truth | SQLite via Rust Tauri commands (reads + writes) | `tasks`, `projects`, `activity_logs` |
 | Ephemeral UI | `useState` / dialog open flags | create dialog open, selected card ids |
-| Environment preference | Zustand + `localStorage` | `environmentMode`, selected SSH config, last route |
+| Environment preference | Zustand + `localStorage` | `environmentMode`, selected SSH config, last route, **`codex-ai:locale`** (via `src/lib/i18n/locale.ts`) |
 | Live engine streams | Zustand + Tauri event listeners | Codex output buffers, session status |
 
 There is **no** Redux, React Query, or SWR layer.

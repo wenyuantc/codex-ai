@@ -12,6 +12,7 @@
 | Build | Vite (dev port `1420`), path alias `@/*` → `src/*` |
 | Styling | Tailwind CSS 4 (`@tailwindcss/vite`), shadcn/ui (`base-nova`, CSS variables) |
 | Icons | `lucide-react` |
+| i18n | `i18next` + `react-i18next` (`src/lib/i18n/`, packs in `src/locales/{zh-CN,en}/`) |
 | State | Zustand stores under `src/stores/` |
 | IPC | `@tauri-apps/api` via thin wrappers in `src/lib/backend.ts` |
 | SQL reads | `@tauri-apps/plugin-sql` select-only through `src/lib/database.ts` |
@@ -24,7 +25,7 @@
 2. **Do not call `invoke()` from components/stores.** Add or reuse a wrapper in `src/lib/backend.ts`.
 3. **Domain types live in `src/lib/types.ts`.** Prefer snake_case fields that mirror Rust/SQLite payloads.
 4. **Display dates with `formatDate()` from `src/lib/utils.ts`.** Do not hand-roll locale formatting.
-5. **New user-visible activity actions need Chinese labels** in `getActivityActionLabel()`.
+5. **User-visible copy goes through i18n** (`t` / `i18n.t`). New activity actions need **zh-CN + en** keys under `activity:actions.*` via `getActivityActionLabel()` — no parallel hardcoded label maps. See [i18n](./i18n.md).
 6. **Local and SSH modes are first-class.** UI that starts sessions, opens repos, or captures artifacts must respect `environmentMode` / `project_type`.
 
 ## Guidelines Index
@@ -38,6 +39,7 @@
 | [Data Access](./data-access.md) | SQL select, backend IPC, normalization |
 | [Type Safety](./type-safety.md) | Types, unions, nullable update payloads |
 | [Quality Guidelines](./quality-guidelines.md) | Build checks, a11y, ErrorBoundary, smoke |
+| [i18n](./i18n.md) | Locale packs, persistence, activity single-source |
 
 ## Primary References
 
@@ -50,4 +52,4 @@
 
 ## Language
 
-Spec content is English. Product UI copy in the app is primarily Chinese.
+Spec content is English. Product UI ships **zh-CN + en** via i18n; default runtime locale is `zh-CN`.
