@@ -47,3 +47,25 @@
 ### Status
 
 [OK] **Completed**
+
+
+## Session 3: P3 reports R1
+
+**Date**: 2026-08-10
+**Task**: P3 reports R1
+**Branch**: `main`
+
+### Summary
+
+Dashboard report R1: configurable 7d/30d/8w trends + milestone remaining series; spec contract; TASK.md checked. Next: i18n ahead of send_input per user ok.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `eff5027` | (see git log) |
+| `5fadede` | (see git log) |
+
+### Status
+
+[OK] **Completed**
