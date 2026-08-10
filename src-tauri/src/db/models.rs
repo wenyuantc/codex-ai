@@ -1045,6 +1045,12 @@ pub struct GetDashboardReportPayload {
     /// Aging threshold in days for in-progress tasks (default 7).
     #[serde(default)]
     pub aging_days: Option<i64>,
+    /// Trend preset: `7d` | `30d` | `8w` (default `7d`).
+    #[serde(default)]
+    pub trend_range: Option<String>,
+    /// Optional milestone for remaining/burndown series.
+    #[serde(default)]
+    pub milestone_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1087,12 +1093,38 @@ pub struct DashboardReportSummary {
     /// In-progress tasks older than `aging_days`.
     pub aging_in_progress: i64,
     pub aging_days: i64,
+    /// Applied trend preset (`7d` | `30d` | `8w`).
+    pub trend_range: String,
+    /// Completions for the selected trend range (daily for `7d`/`30d`, weekly for `8w`).
+    pub trend_series: Vec<DashboardTrendPoint>,
+    /// Remaining open tasks over time for the selected/auto-picked milestone.
+    pub milestone_burndown: Vec<DashboardBurndownPoint>,
+    /// Chinese empty-state reason when burndown has no series.
+    pub milestone_burndown_empty_reason: Option<String>,
+    /// Milestone that produced `milestone_burndown` (if any).
+    pub selected_milestone_id: Option<String>,
+    /// Milestones visible in the current project/SSH scope (picker).
+    pub milestones: Vec<DashboardMilestoneOption>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DashboardTrendPoint {
     pub label: String,
     pub count: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DashboardBurndownPoint {
+    pub label: String,
+    pub remaining: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DashboardMilestoneOption {
+    pub id: String,
+    pub name: String,
+    pub project_id: String,
+    pub due_date: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

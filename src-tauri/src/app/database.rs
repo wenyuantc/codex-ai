@@ -902,6 +902,112 @@ mod ai_provider_capabilities_tests {
     }
 }
 
+#[cfg(test)]
+mod dashboard_report_tests {
+    use super::{
+        build_milestone_burndown_series, normalize_dashboard_trend_range,
+        remaining_milestone_tasks_on_day, resolve_milestone_burndown_window, sample_burndown_days,
+        MilestoneTaskSnapshot,
+    };
+    use chrono::NaiveDate;
+
+    #[test]
+    fn dashboard_report_normalizes_trend_range_presets() {
+        assert_eq!(normalize_dashboard_trend_range(None), "7d");
+        assert_eq!(normalize_dashboard_trend_range(Some("")), "7d");
+        assert_eq!(normalize_dashboard_trend_range(Some("7d")), "7d");
+        assert_eq!(normalize_dashboard_trend_range(Some("30d")), "30d");
+        assert_eq!(normalize_dashboard_trend_range(Some("8w")), "8w");
+        assert_eq!(normalize_dashboard_trend_range(Some("weird")), "7d");
+        assert_eq!(normalize_dashboard_trend_range(Some(" 30d ")), "30d");
+    }
+
+    #[test]
+    fn dashboard_report_burndown_window_uses_due_or_today() {
+        let today = NaiveDate::from_ymd_opt(2026, 8, 10).unwrap();
+        let (start, end) = resolve_milestone_burndown_window(
+            "2026-08-01 09:00:00",
+            Some("2026-08-08"),
+            today,
+        )
+        .expect("window");
+        assert_eq!(start, NaiveDate::from_ymd_opt(2026, 8, 1).unwrap());
+        assert_eq!(end, NaiveDate::from_ymd_opt(2026, 8, 8).unwrap());
+
+        let (start2, end2) =
+            resolve_milestone_burndown_window("2026-08-01", None, today).expect("window");
+        assert_eq!(start2, NaiveDate::from_ymd_opt(2026, 8, 1).unwrap());
+        assert_eq!(end2, today);
+
+        // Due before created falls back to today.
+        let (start3, end3) = resolve_milestone_burndown_window(
+            "2026-08-05",
+            Some("2026-08-01"),
+            today,
+        )
+        .expect("window");
+        assert_eq!(start3, NaiveDate::from_ymd_opt(2026, 8, 5).unwrap());
+        assert_eq!(end3, today);
+    }
+
+    #[test]
+    fn dashboard_report_sample_days_includes_edges_and_caps() {
+        let start = NaiveDate::from_ymd_opt(2026, 8, 1).unwrap();
+        let end = NaiveDate::from_ymd_opt(2026, 8, 10).unwrap();
+        let days = sample_burndown_days(start, end, 32);
+        assert_eq!(days.first().copied(), Some(start));
+        assert_eq!(days.last().copied(), Some(end));
+        assert_eq!(days.len(), 10);
+
+        let long_end = NaiveDate::from_ymd_opt(2026, 10, 31).unwrap();
+        let sampled = sample_burndown_days(start, long_end, 8);
+        assert!(sampled.len() <= 8);
+        assert_eq!(sampled.first().copied(), Some(start));
+        assert_eq!(sampled.last().copied(), Some(long_end));
+    }
+
+    #[test]
+    fn dashboard_report_remaining_counts_drop_after_completion() {
+        let tasks = vec![
+            MilestoneTaskSnapshot {
+                created_at: "2026-08-01".into(),
+                completed_at: Some("2026-08-05".into()),
+            },
+            MilestoneTaskSnapshot {
+                created_at: "2026-08-02".into(),
+                completed_at: None,
+            },
+        ];
+        let d1 = NaiveDate::from_ymd_opt(2026, 8, 1).unwrap();
+        let d4 = NaiveDate::from_ymd_opt(2026, 8, 4).unwrap();
+        let d5 = NaiveDate::from_ymd_opt(2026, 8, 5).unwrap();
+        let d6 = NaiveDate::from_ymd_opt(2026, 8, 6).unwrap();
+        assert_eq!(remaining_milestone_tasks_on_day(&tasks, d1), 1);
+        assert_eq!(remaining_milestone_tasks_on_day(&tasks, d4), 2);
+        assert_eq!(remaining_milestone_tasks_on_day(&tasks, d5), 1);
+        assert_eq!(remaining_milestone_tasks_on_day(&tasks, d6), 1);
+
+        let series = build_milestone_burndown_series(
+            &tasks,
+            d1,
+            NaiveDate::from_ymd_opt(2026, 8, 6).unwrap(),
+            32,
+        );
+        assert!(!series.is_empty());
+        assert_eq!(series.first().unwrap().remaining, 1);
+        assert_eq!(series.last().unwrap().remaining, 1);
+    }
+
+    #[test]
+    fn dashboard_report_empty_milestone_tasks_still_emit_zero_points() {
+        let start = NaiveDate::from_ymd_opt(2026, 8, 1).unwrap();
+        let end = NaiveDate::from_ymd_opt(2026, 8, 3).unwrap();
+        let series = build_milestone_burndown_series(&[], start, end, 32);
+        assert_eq!(series.len(), 3);
+        assert!(series.iter().all(|p| p.remaining == 0));
+    }
+}
+
 /// Count tasks limited to an explicit project-id set (SSH-host-safe scoping).
 async fn count_tasks_in_project_ids(
     pool: &SqlitePool,
@@ -1572,12 +1678,278 @@ pub async fn get_dashboard_stats<R: Runtime>(
     get_dashboard_stats_with_pool(&pool, &payload).await
 }
 
+/// Supported dashboard trend presets (`7d` daily, `30d` daily, `8w` weekly).
+pub(crate) fn normalize_dashboard_trend_range(raw: Option<&str>) -> &'static str {
+    match raw.map(str::trim).filter(|v| !v.is_empty()) {
+        Some("30d") => "30d",
+        Some("8w") => "8w",
+        _ => "7d",
+    }
+}
+
+fn parse_sqlite_date_prefix(value: &str) -> Option<chrono::NaiveDate> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    let date_part = trimmed
+        .split(['T', ' '])
+        .next()
+        .unwrap_or(trimmed)
+        .trim();
+    chrono::NaiveDate::parse_from_str(date_part, "%Y-%m-%d").ok()
+}
+
+/// Resolve burndown window: `[created_date, due_date|today]`, clamped so start ≤ end.
+/// Returns `None` when created date cannot be parsed.
+pub(crate) fn resolve_milestone_burndown_window(
+    milestone_created_at: &str,
+    due_date: Option<&str>,
+    today: chrono::NaiveDate,
+) -> Option<(chrono::NaiveDate, chrono::NaiveDate)> {
+    let start = parse_sqlite_date_prefix(milestone_created_at)?;
+    let due = due_date.and_then(parse_sqlite_date_prefix);
+    let end = match due {
+        Some(d) if d >= start => d,
+        _ => today.max(start),
+    };
+    Some((start, end))
+}
+
+/// Build inclusive day samples from start..=end, stepping so length ≤ `max_points`.
+pub(crate) fn sample_burndown_days(
+    start: chrono::NaiveDate,
+    end: chrono::NaiveDate,
+    max_points: usize,
+) -> Vec<chrono::NaiveDate> {
+    if end < start {
+        return Vec::new();
+    }
+    let total_days = (end - start).num_days() as usize + 1;
+    let max_points = max_points.max(1);
+    if total_days <= max_points {
+        return (0..total_days as i64)
+            .map(|offset| start + chrono::Duration::days(offset))
+            .collect();
+    }
+    let step = ((total_days - 1) as f64 / (max_points - 1) as f64).ceil() as i64;
+    let step = step.max(1);
+    let mut days = Vec::new();
+    let mut cursor = start;
+    while cursor < end {
+        days.push(cursor);
+        cursor += chrono::Duration::days(step);
+        if days.len() + 1 >= max_points {
+            break;
+        }
+    }
+    if days.last().copied() != Some(end) {
+        days.push(end);
+    }
+    days
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct MilestoneTaskSnapshot {
+    pub created_at: String,
+    pub completed_at: Option<String>,
+}
+
+/// Remaining open tasks on `day`: created on/before day and not completed on/before day.
+pub(crate) fn remaining_milestone_tasks_on_day(
+    tasks: &[MilestoneTaskSnapshot],
+    day: chrono::NaiveDate,
+) -> i64 {
+    tasks
+        .iter()
+        .filter(|task| {
+            let Some(created) = parse_sqlite_date_prefix(&task.created_at) else {
+                return false;
+            };
+            if created > day {
+                return false;
+            }
+            match task.completed_at.as_deref() {
+                Some(completed) => parse_sqlite_date_prefix(completed)
+                    .map(|done| done > day)
+                    .unwrap_or(true),
+                None => true,
+            }
+        })
+        .count() as i64
+}
+
+pub(crate) fn build_milestone_burndown_series(
+    tasks: &[MilestoneTaskSnapshot],
+    start: chrono::NaiveDate,
+    end: chrono::NaiveDate,
+    max_points: usize,
+) -> Vec<crate::db::models::DashboardBurndownPoint> {
+    sample_burndown_days(start, end, max_points)
+        .into_iter()
+        .map(|day| crate::db::models::DashboardBurndownPoint {
+            label: day.format("%m-%d").to_string(),
+            remaining: remaining_milestone_tasks_on_day(tasks, day),
+        })
+        .collect()
+}
+
+async fn build_daily_completion_series(
+    pool: &SqlitePool,
+    scoped_ids: &[String],
+    days: i64,
+) -> Result<Vec<crate::db::models::DashboardTrendPoint>, String> {
+    use crate::db::models::DashboardTrendPoint;
+    let mut series = Vec::new();
+    for days_ago in (0..days).rev() {
+        let label: String = sqlx::query_scalar(&format!("SELECT date('now', '-{days_ago} day')"))
+            .fetch_one(pool)
+            .await
+            .unwrap_or_else(|_| format!("d-{days_ago}"));
+        let count = count_tasks_in_project_ids(
+            pool,
+            scoped_ids,
+            &format!(
+                "AND t.completed_at IS NOT NULL AND date(t.completed_at) = date('now', '-{days_ago} day')"
+            ),
+        )
+        .await
+        .unwrap_or(0);
+        series.push(DashboardTrendPoint {
+            label: label.chars().skip(5).collect::<String>(),
+            count,
+        });
+    }
+    Ok(series)
+}
+
+async fn build_weekly_completion_series(
+    pool: &SqlitePool,
+    scoped_ids: &[String],
+    weeks: i64,
+) -> Result<Vec<crate::db::models::DashboardTrendPoint>, String> {
+    use crate::db::models::DashboardTrendPoint;
+    let mut series = Vec::new();
+    for weeks_ago in (0..weeks).rev() {
+        let days_offset = weeks_ago * 7;
+        let label: String = sqlx::query_scalar(&format!(
+            "SELECT strftime('%Y', date('now', '-{days_offset} day')) || '-W' || strftime('%W', date('now', '-{days_offset} day'))"
+        ))
+        .fetch_one(pool)
+        .await
+        .unwrap_or_else(|_| format!("W-{weeks_ago}"));
+        let count = count_tasks_in_project_ids(
+            pool,
+            scoped_ids,
+            &format!(
+                "AND t.completed_at IS NOT NULL AND (strftime('%Y', t.completed_at) || '-W' || strftime('%W', t.completed_at)) = '{label}'"
+            ),
+        )
+        .await
+        .unwrap_or(0);
+        series.push(DashboardTrendPoint { label, count });
+    }
+    Ok(series)
+}
+
+async fn list_scoped_milestone_options(
+    pool: &SqlitePool,
+    scoped_ids: &[String],
+) -> Result<Vec<crate::db::models::DashboardMilestoneOption>, String> {
+    use crate::db::models::DashboardMilestoneOption;
+    if scoped_ids.is_empty() {
+        return Ok(Vec::new());
+    }
+    let mut builder = QueryBuilder::<Sqlite>::new(
+        "SELECT id, name, project_id, due_date FROM milestones WHERE project_id IN (",
+    );
+    {
+        let mut separated = builder.separated(", ");
+        for id in scoped_ids {
+            separated.push_bind(id);
+        }
+    }
+    builder.push(") ORDER BY due_date IS NULL, due_date, created_at");
+    let rows = builder
+        .build_query_as::<(String, String, String, Option<String>)>()
+        .fetch_all(pool)
+        .await
+        .map_err(|e| format!("加载里程碑失败: {e}"))?;
+    Ok(rows
+        .into_iter()
+        .map(|(id, name, project_id, due_date)| DashboardMilestoneOption {
+            id,
+            name,
+            project_id,
+            due_date,
+        })
+        .collect())
+}
+
+async fn load_milestone_task_snapshots(
+    pool: &SqlitePool,
+    scoped_ids: &[String],
+    milestone_id: &str,
+) -> Result<(Option<(String, Option<String>)>, Vec<MilestoneTaskSnapshot>), String> {
+    if scoped_ids.is_empty() {
+        return Ok((None, Vec::new()));
+    }
+    let mut meta_builder = QueryBuilder::<Sqlite>::new(
+        "SELECT created_at, due_date FROM milestones WHERE id = ",
+    );
+    meta_builder.push_bind(milestone_id);
+    meta_builder.push(" AND project_id IN (");
+    {
+        let mut separated = meta_builder.separated(", ");
+        for id in scoped_ids {
+            separated.push_bind(id);
+        }
+    }
+    meta_builder.push(") LIMIT 1");
+    let meta = meta_builder
+        .build_query_as::<(String, Option<String>)>()
+        .fetch_optional(pool)
+        .await
+        .map_err(|e| format!("读取里程碑失败: {e}"))?;
+
+    let Some(meta) = meta else {
+        return Ok((None, Vec::new()));
+    };
+
+    let mut task_builder = QueryBuilder::<Sqlite>::new(
+        "SELECT t.created_at, t.completed_at FROM tasks t \
+         WHERE t.deleted_at IS NULL AND t.milestone_id = ",
+    );
+    task_builder.push_bind(milestone_id);
+    task_builder.push(" AND t.project_id IN (");
+    {
+        let mut separated = task_builder.separated(", ");
+        for id in scoped_ids {
+            separated.push_bind(id);
+        }
+    }
+    task_builder.push(")");
+    let rows = task_builder
+        .build_query_as::<(String, Option<String>)>()
+        .fetch_all(pool)
+        .await
+        .map_err(|e| format!("统计里程碑任务失败: {e}"))?;
+    let tasks = rows
+        .into_iter()
+        .map(|(created_at, completed_at)| MilestoneTaskSnapshot {
+            created_at,
+            completed_at,
+        })
+        .collect();
+    Ok((Some(meta), tasks))
+}
+
 pub(crate) async fn get_dashboard_report_summary_with_pool(
     pool: &SqlitePool,
     payload: &crate::db::models::GetDashboardReportPayload,
 ) -> Result<crate::db::models::DashboardReportSummary, String> {
     use crate::db::models::{
-        DashboardReportSummary, DashboardTrendPoint, DashboardWorkloadItem,
+        DashboardReportSummary, DashboardWorkloadItem,
     };
 
     let environment_mode = payload
@@ -1600,6 +1972,13 @@ pub(crate) async fn get_dashboard_report_summary_with_pool(
         .filter(|v| *v > 0)
         .unwrap_or(7)
         .clamp(1, 365);
+    let trend_range = normalize_dashboard_trend_range(payload.trend_range.as_deref());
+    let requested_milestone_id = payload
+        .milestone_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+        .map(str::to_string);
 
     let scoped_ids =
         resolve_scoped_project_ids_for_stats(pool, environment_mode, selected_ssh, project_id)
@@ -1634,48 +2013,87 @@ pub(crate) async fn get_dashboard_report_summary_with_pool(
     };
 
     // Keep `weekly_completed` as last-7-days daily series for frontend compatibility.
-    let mut weekly_completed = Vec::new();
-    for days_ago in (0..7).rev() {
-        let label: String = sqlx::query_scalar(&format!("SELECT date('now', '-{days_ago} day')"))
-            .fetch_one(pool)
-            .await
-            .unwrap_or_else(|_| format!("d-{days_ago}"));
-        let count = count_tasks_in_project_ids(
-            pool,
-            &scoped_ids,
-            &format!(
-                "AND t.completed_at IS NOT NULL AND date(t.completed_at) = date('now', '-{days_ago} day')"
-            ),
-        )
-        .await
-        .unwrap_or(0);
-        weekly_completed.push(DashboardTrendPoint {
-            label: label.chars().skip(5).collect::<String>(),
-            count,
-        });
-    }
-
+    let weekly_completed = build_daily_completion_series(pool, &scoped_ids, 7).await?;
     // True weekly series: last 8 calendar weeks (SQLite %W, Monday-based week number).
-    let mut weekly_completed_series = Vec::new();
-    for weeks_ago in (0..8).rev() {
-        let days_offset = weeks_ago * 7;
-        let label: String = sqlx::query_scalar(&format!(
-            "SELECT strftime('%Y', date('now', '-{days_offset} day')) || '-W' || strftime('%W', date('now', '-{days_offset} day'))"
-        ))
-        .fetch_one(pool)
-        .await
-        .unwrap_or_else(|_| format!("W-{weeks_ago}"));
-        let count = count_tasks_in_project_ids(
-            pool,
-            &scoped_ids,
-            &format!(
-                "AND t.completed_at IS NOT NULL AND (strftime('%Y', t.completed_at) || '-W' || strftime('%W', t.completed_at)) = '{label}'"
-            ),
+    let weekly_completed_series = build_weekly_completion_series(pool, &scoped_ids, 8).await?;
+
+    let trend_series = match trend_range {
+        "30d" => build_daily_completion_series(pool, &scoped_ids, 30).await?,
+        "8w" => weekly_completed_series.clone(),
+        _ => weekly_completed.clone(),
+    };
+
+    let milestones = list_scoped_milestone_options(pool, &scoped_ids).await?;
+
+    let (
+        selected_milestone_id,
+        milestone_burndown,
+        milestone_burndown_empty_reason,
+    ) = if milestones.is_empty() {
+        (
+            None,
+            Vec::new(),
+            Some("当前作用域内暂无里程碑，可在项目交付中创建后再查看剩余任务趋势。".to_string()),
         )
-        .await
-        .unwrap_or(0);
-        weekly_completed_series.push(DashboardTrendPoint { label, count });
-    }
+    } else {
+        let chosen_id = requested_milestone_id
+            .as_ref()
+            .filter(|id| milestones.iter().any(|m| &m.id == *id))
+            .cloned()
+            .or_else(|| milestones.first().map(|m| m.id.clone()));
+
+        match chosen_id {
+            None => (
+                None,
+                Vec::new(),
+                Some("请选择里程碑以查看剩余任务趋势。".to_string()),
+            ),
+            Some(milestone_id) => {
+                let today_raw: String = sqlx::query_scalar("SELECT date('now')")
+                    .fetch_one(pool)
+                    .await
+                    .unwrap_or_else(|_| chrono::Utc::now().date_naive().to_string());
+                let today = parse_sqlite_date_prefix(&today_raw)
+                    .unwrap_or_else(|| chrono::Utc::now().date_naive());
+
+                let (meta, tasks) =
+                    load_milestone_task_snapshots(pool, &scoped_ids, &milestone_id).await?;
+                match meta {
+                    None => (
+                        None,
+                        Vec::new(),
+                        Some("所选里程碑不在当前作用域内。".to_string()),
+                    ),
+                    Some((created_at, due_date)) => {
+                        match resolve_milestone_burndown_window(
+                            &created_at,
+                            due_date.as_deref(),
+                            today,
+                        ) {
+                            None => (
+                                Some(milestone_id),
+                                Vec::new(),
+                                Some("里程碑创建日期无效，无法绘制剩余任务趋势。".to_string()),
+                            ),
+                            Some((start, end)) => {
+                                let series =
+                                    build_milestone_burndown_series(&tasks, start, end, 32);
+                                if series.is_empty() {
+                                    (
+                                        Some(milestone_id),
+                                        series,
+                                        Some("暂无可绘制的剩余任务时间点。".to_string()),
+                                    )
+                                } else {
+                                    (Some(milestone_id), series, None)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    };
 
     let employee_workload = if scoped_ids.is_empty() {
         Vec::new()
@@ -1747,6 +2165,12 @@ pub(crate) async fn get_dashboard_report_summary_with_pool(
         weekly_completed_series,
         aging_in_progress,
         aging_days,
+        trend_range: trend_range.to_string(),
+        trend_series,
+        milestone_burndown,
+        milestone_burndown_empty_reason,
+        selected_milestone_id,
+        milestones,
     })
 }
 

@@ -34,6 +34,7 @@ mod runtime_and_paths;
 mod sql_and_session;
 mod task_lifecycle;
 mod tasks_json;
+mod dashboard_report;
 
 pub(super) async fn setup_test_pool() -> SqlitePool {
     let pool = SqlitePool::connect("sqlite::memory:")

@@ -450,6 +450,20 @@ export interface DashboardWorkloadItem {
   completed_tasks: number;
 }
 
+export interface DashboardBurndownPoint {
+  label: string;
+  remaining: number;
+}
+
+export interface DashboardMilestoneOption {
+  id: string;
+  name: string;
+  project_id: string;
+  due_date: string | null;
+}
+
+export type DashboardTrendRange = "7d" | "30d" | "8w";
+
 export interface DashboardReportSummary {
   total_tasks: number;
   completed_tasks: number;
@@ -464,6 +478,14 @@ export interface DashboardReportSummary {
   weekly_completed_series: DashboardTrendPoint[];
   aging_in_progress: number;
   aging_days: number;
+  /** Applied trend preset. */
+  trend_range: DashboardTrendRange | string;
+  /** Completions for the selected trend range. */
+  trend_series: DashboardTrendPoint[];
+  milestone_burndown: DashboardBurndownPoint[];
+  milestone_burndown_empty_reason: string | null;
+  selected_milestone_id: string | null;
+  milestones: DashboardMilestoneOption[];
 }
 
 export async function getDashboardReportSummary(input?: {
@@ -471,6 +493,8 @@ export async function getDashboardReportSummary(input?: {
   environmentMode?: string | null;
   selectedSshConfigId?: string | null;
   agingDays?: number | null;
+  trendRange?: DashboardTrendRange | string | null;
+  milestoneId?: string | null;
 }): Promise<DashboardReportSummary> {
   return invoke("get_dashboard_report_summary", {
     payload: {
@@ -478,6 +502,8 @@ export async function getDashboardReportSummary(input?: {
       environment_mode: input?.environmentMode ?? null,
       selected_ssh_config_id: input?.selectedSshConfigId ?? null,
       aging_days: input?.agingDays ?? null,
+      trend_range: input?.trendRange ?? null,
+      milestone_id: input?.milestoneId ?? null,
     },
   });
 }

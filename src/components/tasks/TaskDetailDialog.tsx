@@ -399,7 +399,7 @@ export function TaskDetailDialog({
         .then((deps) => {
           const incomplete = deps
             .map((dep) => storeTasks.find((item) => item.id === dep.depends_on_task_id))
-            .filter((item): item is Task => Boolean(item) && item.status !== "completed")
+            .filter((item): item is Task => item != null && item.status !== "completed")
             .map((item) => item.title);
           setIncompleteDependencyTitles(incomplete);
         })

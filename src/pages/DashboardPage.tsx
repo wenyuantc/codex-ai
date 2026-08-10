@@ -15,7 +15,14 @@ import {
   getDashboardReportSummary,
   importTasksJson,
   type DashboardReportSummary,
+  type DashboardTrendRange,
 } from "@/lib/backend";
+import {
+  DASHBOARD_TREND_RANGE_OPTIONS,
+  normalizeTrendRange,
+  shortTrendPointLabel,
+  trendRangeChartTitle,
+} from "@/lib/dashboardReport";
 import { TASK_STATUSES } from "@/lib/types";
 import { getStatusLabel, getStatusColor } from "@/lib/utils";
 
@@ -27,6 +34,8 @@ export function DashboardPage() {
   const [report, setReport] = useState<DashboardReportSummary | null>(null);
   const [reportLoading, setReportLoading] = useState(false);
   const [reportError, setReportError] = useState<string | null>(null);
+  const [trendRange, setTrendRange] = useState<DashboardTrendRange>("7d");
+  const [milestoneId, setMilestoneId] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
   const [exportingCsv, setExportingCsv] = useState(false);
   const [importing, setImporting] = useState(false);
@@ -39,11 +48,12 @@ export function DashboardPage() {
       }))
     : [];
   const maxTaskCount = Math.max(...taskDistribution.map((item) => item.count), 0);
-  const maxDaily = Math.max(...(report?.weekly_completed.map((p) => p.count) ?? [0]), 0);
-  const maxWeeklySeries = Math.max(
-    ...(report?.weekly_completed_series?.map((p) => p.count) ?? [0]),
-    0,
-  );
+  const appliedTrendRange = normalizeTrendRange(report?.trend_range ?? trendRange);
+  const trendSeries = report?.trend_series?.length
+    ? report.trend_series
+    : (report?.weekly_completed ?? []);
+  const maxTrend = Math.max(...trendSeries.map((p) => p.count), 0);
+  const maxBurndown = Math.max(...(report?.milestone_burndown?.map((p) => p.remaining) ?? [0]), 0);
 
   const loadReport = useCallback(async () => {
     setReportLoading(true);
@@ -53,6 +63,8 @@ export function DashboardPage() {
         projectId: currentProjectId,
         environmentMode,
         selectedSshConfigId,
+        trendRange,
+        milestoneId,
       });
       setReport(summary);
     } catch (error) {
@@ -61,7 +73,7 @@ export function DashboardPage() {
     } finally {
       setReportLoading(false);
     }
-  }, [currentProjectId, environmentMode, selectedSshConfigId]);
+  }, [currentProjectId, environmentMode, milestoneId, selectedSshConfigId, trendRange]);
 
   useEffect(() => {
     void fetchStats(environmentMode, selectedSshConfigId, currentProjectId);
@@ -70,6 +82,13 @@ export function DashboardPage() {
   useEffect(() => {
     void loadReport();
   }, [loadReport]);
+
+  // Reset milestone selection when project/SSH scope changes so auto-pick can refresh.
+  useEffect(() => {
+    setMilestoneId(null);
+  }, [currentProjectId, environmentMode, selectedSshConfigId]);
+
+  const selectedMilestoneValue = milestoneId ?? report?.selected_milestone_id ?? "";
 
   const handleExportJson = async () => {
     setExporting(true);
@@ -248,59 +267,121 @@ export function DashboardPage() {
       {report && (
         <Card className="p-4 space-y-4">
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <h3 className="text-sm font-semibold">增强报表</h3>
-            <p className="text-xs text-muted-foreground">
-              完成率 {report.completion_rate.toFixed(1)}% · 逾期 {report.overdue_tasks} · 阻塞{" "}
-              {report.blocked_tasks} · 老化进行中 {report.aging_in_progress ?? 0}（超过{" "}
-              {report.aging_days ?? 7} 天）
-            </p>
+            <div className="space-y-1">
+              <h3 className="text-sm font-semibold">增强报表</h3>
+              <p className="text-xs text-muted-foreground">
+                完成率 {report.completion_rate.toFixed(1)}% · 逾期 {report.overdue_tasks} · 阻塞{" "}
+                {report.blocked_tasks} · 老化进行中 {report.aging_in_progress ?? 0}（超过{" "}
+                {report.aging_days ?? 7} 天）
+              </p>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="flex items-center gap-1 rounded-md border p-0.5">
+                {DASHBOARD_TREND_RANGE_OPTIONS.map((option) => (
+                  <Button
+                    key={option.value}
+                    type="button"
+                    size="sm"
+                    variant={trendRange === option.value ? "default" : "ghost"}
+                    className="h-7 px-2 text-xs"
+                    disabled={reportLoading}
+                    onClick={() => setTrendRange(option.value)}
+                  >
+                    {option.label}
+                  </Button>
+                ))}
+              </div>
+              <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                里程碑
+                <select
+                  className="h-7 max-w-[12rem] rounded-md border bg-background px-2 text-xs text-foreground"
+                  value={selectedMilestoneValue}
+                  disabled={reportLoading || (report.milestones?.length ?? 0) === 0}
+                  onChange={(event) => {
+                    const next = event.target.value;
+                    setMilestoneId(next.length > 0 ? next : null);
+                  }}
+                >
+                  {(report.milestones?.length ?? 0) === 0 ? (
+                    <option value="">无可用里程碑</option>
+                  ) : (
+                    report.milestones.map((milestone) => (
+                      <option key={milestone.id} value={milestone.id}>
+                        {milestone.name}
+                      </option>
+                    ))
+                  )}
+                </select>
+              </label>
+              {reportLoading && (
+                <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
+              )}
+            </div>
           </div>
           <div className="grid gap-4 lg:grid-cols-2">
             <div>
-              <p className="mb-2 text-xs font-medium text-muted-foreground">近 7 日完成趋势</p>
-              <div className="flex h-28 items-end gap-2">
-                {report.weekly_completed.map((point) => {
-                  const height = maxDaily > 0 ? (point.count / maxDaily) * 100 : 0;
+              <p className="mb-2 text-xs font-medium text-muted-foreground">
+                {trendRangeChartTitle(appliedTrendRange)}
+              </p>
+              <div className="flex h-28 items-end gap-1.5">
+                {trendSeries.map((point, index) => {
+                  const height = maxTrend > 0 ? (point.count / maxTrend) * 100 : 0;
+                  const shortLabel = shortTrendPointLabel(point.label, appliedTrendRange);
                   return (
-                    <div key={point.label} className="flex flex-1 flex-col items-center gap-1">
+                    <div
+                      key={`${appliedTrendRange}-${point.label}-${index}`}
+                      className="flex flex-1 flex-col items-center gap-1"
+                    >
                       <span className="text-[10px] font-medium">{point.count}</span>
                       <div className="flex h-20 w-full items-end rounded-sm bg-muted/40 px-0.5">
                         <div
                           className="w-full rounded-t bg-primary/80 transition-all"
                           style={{ height: point.count > 0 ? `${Math.max(height, 8)}%` : "0%" }}
+                          title={point.label}
                         />
                       </div>
-                      <span className="text-[10px] text-muted-foreground">{point.label}</span>
+                      <span className="text-[10px] text-muted-foreground" title={point.label}>
+                        {shortLabel}
+                      </span>
                     </div>
                   );
                 })}
               </div>
             </div>
             <div>
-              <p className="mb-2 text-xs font-medium text-muted-foreground">近 8 周完成趋势</p>
-              <div className="flex h-28 items-end gap-1.5">
-                {(report.weekly_completed_series ?? []).map((point) => {
-                  const height = maxWeeklySeries > 0 ? (point.count / maxWeeklySeries) * 100 : 0;
-                  const shortLabel = point.label.includes("-W")
-                    ? point.label.split("-W")[1]
-                    : point.label;
-                  return (
-                    <div key={point.label} className="flex flex-1 flex-col items-center gap-1">
-                      <span className="text-[10px] font-medium">{point.count}</span>
-                      <div className="flex h-20 w-full items-end rounded-sm bg-muted/40 px-0.5">
-                        <div
-                          className="w-full rounded-t bg-emerald-500/80 transition-all"
-                          style={{ height: point.count > 0 ? `${Math.max(height, 8)}%` : "0%" }}
-                          title={point.label}
-                        />
+              <p className="mb-2 text-xs font-medium text-muted-foreground">里程碑剩余任务</p>
+              {report.milestone_burndown_empty_reason ||
+              (report.milestone_burndown?.length ?? 0) === 0 ? (
+                <div className="flex h-28 items-center rounded-md border border-dashed px-3">
+                  <p className="text-xs text-muted-foreground">
+                    {report.milestone_burndown_empty_reason ?? "暂无可展示的剩余任务趋势。"}
+                  </p>
+                </div>
+              ) : (
+                <div className="flex h-28 items-end gap-1.5">
+                  {report.milestone_burndown.map((point, index) => {
+                    const height = maxBurndown > 0 ? (point.remaining / maxBurndown) * 100 : 0;
+                    return (
+                      <div
+                        key={`${point.label}-${index}`}
+                        className="flex flex-1 flex-col items-center gap-1"
+                      >
+                        <span className="text-[10px] font-medium">{point.remaining}</span>
+                        <div className="flex h-20 w-full items-end rounded-sm bg-muted/40 px-0.5">
+                          <div
+                            className="w-full rounded-t bg-amber-500/80 transition-all"
+                            style={{
+                              height: point.remaining > 0 ? `${Math.max(height, 8)}%` : "0%",
+                            }}
+                            title={`${point.label}: 剩余 ${point.remaining}`}
+                          />
+                        </div>
+                        <span className="text-[10px] text-muted-foreground">{point.label}</span>
                       </div>
-                      <span className="text-[10px] text-muted-foreground" title={point.label}>
-                        W{shortLabel}
-                      </span>
-                    </div>
-                  );
-                })}
-              </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
             <div className="lg:col-span-2">
               <p className="mb-2 text-xs font-medium text-muted-foreground">
