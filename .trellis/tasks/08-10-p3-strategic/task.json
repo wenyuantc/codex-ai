@@ -1,0 +1,30 @@
+{
+  "id": "p3-strategic",
+  "name": "p3-strategic",
+  "title": "P3 战略扩展三项",
+  "description": "send_input + i18n完整框架 + 更强报表（不含Issues同步）",
+  "status": "planning",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "P3",
+  "creator": "wenyuantc",
+  "assignee": "wenyuantc",
+  "createdAt": "2026-08-10",
+  "completedAt": null,
+  "branch": null,
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [
+    "08-10-p3-send-input",
+    "08-10-p3-i18n",
+    "08-10-p3-reports"
+  ],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {}
+}
