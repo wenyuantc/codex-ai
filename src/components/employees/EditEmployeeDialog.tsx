@@ -33,14 +33,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { EmployeeSystemPromptField } from "./EmployeeSystemPromptField";
+import { EMPLOYEE_ROLE_OPTIONS, EmployeeRoleHint } from "./employeeRoles";
 import { selectOpenCodeModel, selectOpenCodeReasoningEffort } from "./openCodeModelSelection";
-
-const EMPLOYEE_ROLE_OPTIONS = [
-  { value: "developer", label: "开发者" },
-  { value: "reviewer", label: "审查员" },
-  { value: "tester", label: "测试员" },
-  { value: "coordinator", label: "协调员" },
-] as const;
 
 const NO_PROJECT_VALUE = "__no_project__";
 
@@ -231,6 +225,9 @@ export function EditEmployeeDialog({ open, onOpenChange, employee }: EditEmploye
                   ))}
                 </SelectContent>
               </Select>
+              <div className="mt-1.5">
+                <EmployeeRoleHint role={role} />
+              </div>
             </div>
 
             <div>

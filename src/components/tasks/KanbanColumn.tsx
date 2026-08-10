@@ -13,7 +13,7 @@ import type {
 import { TaskCard } from "./TaskCard";
 
 /** Columns at or above this size use virtualization. */
-const VIRTUALIZE_THRESHOLD = 25;
+const VIRTUALIZE_THRESHOLD = 15;
 /** Estimated TaskCard height including gap; overscan absorbs variance. */
 const ESTIMATED_CARD_HEIGHT = 140;
 const VIRTUAL_OVERSCAN = 4;

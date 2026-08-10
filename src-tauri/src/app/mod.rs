@@ -138,7 +138,7 @@ pub(crate) use tasks::{
     build_task_completion_timer_update, clear_task_automation_state_for_disabled_mode,
     decode_task_automation_state, disable_task_automation_for_archived_task,
     export_tasks_json_with_pool, fetch_task_attachments, fetch_task_automation_state_record,
-    fetch_task_by_id, fetch_task_subtasks, import_tasks_json_with_pool, insert_task_record,
+    fetch_task_by_id, ensure_task_dependencies_satisfied, fetch_task_subtasks, import_tasks_json_with_pool, insert_task_record,
     is_task_automation_active_for_archival, list_tasks_with_pool, parse_tasks_json_envelope,
     record_completion_metric, resolve_project_task_default_settings,
     should_clear_task_completed_at, start_task_timer_internal, stop_task_timer_internal,

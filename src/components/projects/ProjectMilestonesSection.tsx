@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
-import { Flag, Plus, Trash2 } from "lucide-react";
+import { Flag, Pencil, Plus, Trash2 } from "lucide-react";
 
 import type { Milestone } from "@/lib/types";
-import { createMilestone, deleteMilestone, listMilestones } from "@/lib/backend";
+import { createMilestone, deleteMilestone, listMilestones, updateMilestone } from "@/lib/backend";
 import { formatDate } from "@/lib/utils";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -19,6 +19,7 @@ export function ProjectMilestonesSection({ projectId }: ProjectMilestonesSection
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
+  const [editing, setEditing] = useState<Milestone | null>(null);
   const [name, setName] = useState("");
   const [dueDate, setDueDate] = useState("");
   const [description, setDescription] = useState("");
@@ -42,6 +43,19 @@ export function ProjectMilestonesSection({ projectId }: ProjectMilestonesSection
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId]);
 
+  const resetForm = () => {
+    setName("");
+    setDueDate("");
+    setDescription("");
+  };
+
+  const openEdit = (milestone: Milestone) => {
+    setEditing(milestone);
+    setName(milestone.name);
+    setDueDate(milestone.due_date ? milestone.due_date.slice(0, 10) : "");
+    setDescription(milestone.description ?? "");
+  };
+
   const handleCreate = async () => {
     if (!name.trim()) {
       return;
@@ -56,9 +70,29 @@ export function ProjectMilestonesSection({ projectId }: ProjectMilestonesSection
         description: description.trim() || null,
       });
       setCreateOpen(false);
-      setName("");
-      setDueDate("");
-      setDescription("");
+      resetForm();
+      await reload();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleUpdate = async () => {
+    if (!editing || !name.trim()) {
+      return;
+    }
+    setSaving(true);
+    setError(null);
+    try {
+      await updateMilestone(editing.id, {
+        name: name.trim(),
+        due_date: dueDate || null,
+        description: description.trim() || null,
+      });
+      setEditing(null);
+      resetForm();
       await reload();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -88,7 +122,14 @@ export function ProjectMilestonesSection({ projectId }: ProjectMilestonesSection
             <Flag className="h-4 w-4 text-primary" />
             里程碑
           </h3>
-          <Button size="sm" variant="outline" onClick={() => setCreateOpen(true)}>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => {
+              resetForm();
+              setCreateOpen(true);
+            }}
+          >
             <Plus className="h-3.5 w-3.5" />
             新建
           </Button>
@@ -122,15 +163,25 @@ export function ProjectMilestonesSection({ projectId }: ProjectMilestonesSection
                     </p>
                   )}
                 </div>
-                <button
-                  type="button"
-                  disabled={deletingId === milestone.id}
-                  onClick={() => void handleDelete(milestone.id)}
-                  className="shrink-0 rounded-md p-1.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive disabled:opacity-50"
-                  title="删除里程碑"
-                >
-                  <Trash2 className="h-3.5 w-3.5" />
-                </button>
+                <div className="flex shrink-0 items-center gap-0.5">
+                  <button
+                    type="button"
+                    onClick={() => openEdit(milestone)}
+                    className="rounded-md p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground"
+                    title="编辑里程碑"
+                  >
+                    <Pencil className="h-3.5 w-3.5" />
+                  </button>
+                  <button
+                    type="button"
+                    disabled={deletingId === milestone.id}
+                    onClick={() => void handleDelete(milestone.id)}
+                    className="rounded-md p-1.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive disabled:opacity-50"
+                    title="删除里程碑"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </button>
+                </div>
               </div>
             ))}
           </div>
@@ -176,6 +227,66 @@ export function ProjectMilestonesSection({ projectId }: ProjectMilestonesSection
               </Button>
               <Button onClick={() => void handleCreate()} disabled={saving || !name.trim()}>
                 {saving ? "创建中…" : "创建"}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={Boolean(editing)}
+        onOpenChange={(open) => {
+          if (!open) {
+            setEditing(null);
+            resetForm();
+          }
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>编辑里程碑</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div>
+              <label className="text-xs font-medium text-muted-foreground">名称 *</label>
+              <Input
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                className="mt-1"
+                placeholder="例如：MVP 发布"
+              />
+            </div>
+            <div>
+              <label className="text-xs font-medium text-muted-foreground">截止日期</label>
+              <Input
+                type="date"
+                value={dueDate}
+                onChange={(e) => setDueDate(e.target.value)}
+                className="mt-1"
+              />
+            </div>
+            <div>
+              <label className="text-xs font-medium text-muted-foreground">描述</label>
+              <Textarea
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                className="mt-1 min-h-[72px] resize-y"
+                placeholder="可选"
+              />
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setEditing(null);
+                  resetForm();
+                }}
+                disabled={saving}
+              >
+                取消
+              </Button>
+              <Button onClick={() => void handleUpdate()} disabled={saving || !name.trim()}>
+                {saving ? "保存中…" : "保存"}
               </Button>
             </div>
           </div>

@@ -194,6 +194,10 @@ export function DatabaseSettingsTab({
                 </ul>
               </div>
             </div>
+            <p className="text-[11px] leading-5 opacity-90">
+              导入 SQL
+              只会覆盖数据库；不会还原提示词、MCP、附件与密钥。导入前请确认已另行备份这些内容。
+            </p>
           </div>
         )}
 

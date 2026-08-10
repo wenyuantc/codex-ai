@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ChangeEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type ChangeEvent } from "react";
 import { Download, Loader2, Upload } from "lucide-react";
 
 import { useDashboardStore } from "@/stores/dashboardStore";
@@ -6,9 +6,11 @@ import { useProjectStore } from "@/stores/projectStore";
 import { DashboardStats } from "@/components/dashboard/DashboardStats";
 import { ActivityFeed } from "@/components/dashboard/ActivityFeed";
 import { EmployeePerformanceChart } from "@/components/dashboard/EmployeePerformanceChart";
+import { OnboardingChecklist } from "@/components/dashboard/OnboardingChecklist";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import {
+  exportTasksCsv,
   exportTasksJson,
   getDashboardReportSummary,
   importTasksJson,
@@ -23,7 +25,10 @@ export function DashboardPage() {
   const environmentMode = useProjectStore((state) => state.environmentMode);
   const selectedSshConfigId = useProjectStore((state) => state.selectedSshConfigId);
   const [report, setReport] = useState<DashboardReportSummary | null>(null);
+  const [reportLoading, setReportLoading] = useState(false);
+  const [reportError, setReportError] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
+  const [exportingCsv, setExportingCsv] = useState(false);
   const [importing, setImporting] = useState(false);
   const [ioMessage, setIoMessage] = useState<string | null>(null);
   const importInputRef = useRef<HTMLInputElement>(null);
@@ -40,19 +45,31 @@ export function DashboardPage() {
     0,
   );
 
+  const loadReport = useCallback(async () => {
+    setReportLoading(true);
+    setReportError(null);
+    try {
+      const summary = await getDashboardReportSummary({
+        projectId: currentProjectId,
+        environmentMode,
+        selectedSshConfigId,
+      });
+      setReport(summary);
+    } catch (error) {
+      setReport(null);
+      setReportError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setReportLoading(false);
+    }
+  }, [currentProjectId, environmentMode, selectedSshConfigId]);
+
   useEffect(() => {
     void fetchStats(environmentMode, selectedSshConfigId, currentProjectId);
   }, [currentProjectId, environmentMode, fetchStats, selectedSshConfigId]);
 
   useEffect(() => {
-    void getDashboardReportSummary({
-      projectId: currentProjectId,
-      environmentMode,
-      selectedSshConfigId,
-    })
-      .then(setReport)
-      .catch(() => setReport(null));
-  }, [currentProjectId, environmentMode, selectedSshConfigId]);
+    void loadReport();
+  }, [loadReport]);
 
   const handleExportJson = async () => {
     setExporting(true);
@@ -77,6 +94,29 @@ export function DashboardPage() {
       setIoMessage(error instanceof Error ? error.message : String(error));
     } finally {
       setExporting(false);
+    }
+  };
+
+  const handleExportCsv = async () => {
+    setExportingCsv(true);
+    setIoMessage(null);
+    try {
+      const result = await exportTasksCsv({
+        projectId: currentProjectId,
+        environmentMode,
+      });
+      const blob = new Blob([result.csv], { type: "text/csv;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = `tasks-export-${new Date().toISOString().slice(0, 10)}.csv`;
+      anchor.click();
+      URL.revokeObjectURL(url);
+      setIoMessage(`已导出 ${result.row_count} 行任务 CSV。`);
+    } catch (error) {
+      setIoMessage(error instanceof Error ? error.message : String(error));
+    } finally {
+      setExportingCsv(false);
     }
   };
 
@@ -116,13 +156,7 @@ export function DashboardPage() {
       } else {
         setIoMessage(`导入完成：新建 ${result.created} 条，跳过 ${result.skipped} 条。`);
         void fetchStats(environmentMode, selectedSshConfigId, currentProjectId);
-        void getDashboardReportSummary({
-          projectId: currentProjectId,
-          environmentMode,
-          selectedSshConfigId,
-        })
-          .then(setReport)
-          .catch(() => setReport(null));
+        void loadReport();
       }
     } catch (error) {
       setIoMessage(error instanceof Error ? error.message : String(error));
@@ -133,6 +167,8 @@ export function DashboardPage() {
 
   return (
     <div className="space-y-6">
+      <OnboardingChecklist />
+
       <div className="flex flex-wrap items-center justify-end gap-2">
         <input
           ref={importInputRef}
@@ -145,7 +181,7 @@ export function DashboardPage() {
           variant="outline"
           size="sm"
           onClick={handleImportClick}
-          disabled={importing || exporting}
+          disabled={importing || exporting || exportingCsv}
         >
           {importing ? (
             <Loader2 className="h-4 w-4 animate-spin" />
@@ -158,7 +194,7 @@ export function DashboardPage() {
           variant="outline"
           size="sm"
           onClick={() => void handleExportJson()}
-          disabled={exporting || importing}
+          disabled={exporting || exportingCsv || importing}
         >
           {exporting ? (
             <Loader2 className="h-4 w-4 animate-spin" />
@@ -167,9 +203,47 @@ export function DashboardPage() {
           )}
           导出任务 JSON
         </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => void handleExportCsv()}
+          disabled={exportingCsv || exporting || importing}
+        >
+          {exportingCsv ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : (
+            <Download className="h-4 w-4" />
+          )}
+          导出任务 CSV
+        </Button>
         {ioMessage && <p className="text-[11px] text-muted-foreground">{ioMessage}</p>}
       </div>
       <DashboardStats />
+
+      {reportError && (
+        <Card className="flex flex-wrap items-center justify-between gap-3 border-destructive/40 p-4">
+          <div className="space-y-1">
+            <h3 className="text-sm font-semibold text-destructive">增强报表加载失败</h3>
+            <p className="text-xs text-muted-foreground">{reportError}</p>
+          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={reportLoading}
+            onClick={() => void loadReport()}
+          >
+            {reportLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+            重试
+          </Button>
+        </Card>
+      )}
+
+      {reportLoading && !report && !reportError && (
+        <Card className="flex items-center gap-2 p-4 text-xs text-muted-foreground">
+          <Loader2 className="h-4 w-4 animate-spin" />
+          正在加载增强报表…
+        </Card>
+      )}
 
       {report && (
         <Card className="p-4 space-y-4">

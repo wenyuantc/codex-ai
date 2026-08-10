@@ -1,0 +1,32 @@
+{
+  "id": "p0-main-path",
+  "name": "p0-main-path",
+  "title": "P0 主路径可用",
+  "description": "下一波 P0：首次引导、测试员可发现、依赖拦截、多任务CTA、仪表盘报表错误可见",
+  "status": "completed",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "P2",
+  "creator": "wenyuantc",
+  "assignee": "wenyuantc",
+  "createdAt": "2026-08-10",
+  "completedAt": "2026-08-10",
+  "branch": null,
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [
+    "08-10-p0-onboarding-checklist",
+    "08-10-p0-tester-discoverability",
+    "08-10-p0-dependency-enforcement",
+    "08-10-p0-multitask-cta-copy",
+    "08-10-p0-dashboard-report-errors"
+  ],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {}
+}

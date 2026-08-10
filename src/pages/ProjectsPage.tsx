@@ -33,7 +33,7 @@ export function ProjectsPage() {
         </button>
       </div>
 
-      <ProjectList />
+      <ProjectList onCreateProject={() => setShowCreate(true)} />
       <CreateProjectDialog open={showCreate} onOpenChange={setShowCreate} />
     </div>
   );

@@ -2,7 +2,7 @@ import { useHotkeys } from "react-hotkeys-hook";
 import { Kbd } from "@/components/keyboard/Kbd";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useSearchParams } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { KanbanBoard } from "@/components/tasks/KanbanBoard";
 import { ArchiveManagementDialog } from "@/components/tasks/ArchiveManagementDialog";
 import { CreateTaskDialog } from "@/components/tasks/CreateTaskDialog";
@@ -15,7 +15,13 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { batchUpdateTasks, listMilestones, listTags, listTaskTags } from "@/lib/backend";
+import {
+  batchUpdateTasks,
+  getCodexSettings,
+  listMilestones,
+  listTags,
+  listTaskTags,
+} from "@/lib/backend";
 import { filterKanbanTaskIds, type TaskTagMap } from "@/lib/kanbanFilters";
 import type { CodexSessionKind, Milestone, Tag } from "@/lib/types";
 import { PRIORITIES, TASK_STATUSES } from "@/lib/types";
@@ -23,7 +29,6 @@ import { useTaskStore } from "@/stores/taskStore";
 import { useProjectStore } from "@/stores/projectStore";
 import { useEmployeeStore } from "@/stores/employeeStore";
 import { Archive, CheckSquare, Plus } from "lucide-react";
-
 const FILTER_ALL = "all";
 const FILTER_UNASSIGNED = "__unassigned__";
 
@@ -62,6 +67,13 @@ export function KanbanPage() {
   const [batchStatus, setBatchStatus] = useState<string>("");
   const [batchMessage, setBatchMessage] = useState<string | null>(null);
   const [batchLoading, setBatchLoading] = useState(false);
+  const [testerAutomationEnabled, setTesterAutomationEnabled] = useState<boolean | null>(null);
+  const [testerTipDismissed, setTesterTipDismissed] = useState(() => {
+    if (typeof window === "undefined") {
+      return false;
+    }
+    return window.localStorage.getItem("codex-ai:kanban-tester-tip-dismissed") === "1";
+  });
   const visibleProjectIdsKey = projects.map((project) => project.id).join(",");
   const targetTaskId = searchParams.get("taskId");
 
@@ -90,6 +102,12 @@ export function KanbanPage() {
   useEffect(() => {
     void fetchEmployees();
   }, [fetchEmployees]);
+
+  useEffect(() => {
+    void getCodexSettings()
+      .then((settings) => setTesterAutomationEnabled(settings.tester_automation_enabled))
+      .catch(() => setTesterAutomationEnabled(null));
+  }, []);
 
   useEffect(() => {
     void fetchTasks(currentProjectId);
@@ -262,6 +280,29 @@ export function KanbanPage() {
             </Button>
           </div>
         </div>
+
+        {testerAutomationEnabled === false && !testerTipDismissed && (
+          <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-950 dark:text-amber-100">
+            <p>
+              测试员自动化当前关闭：任务做完不会自动验收。可在
+              <Link className="mx-1 underline" to="/settings?section=git">
+                设置 → Git 与自动质控
+              </Link>
+              开启「启用测试员自动化」。
+            </p>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 px-2"
+              onClick={() => {
+                window.localStorage.setItem("codex-ai:kanban-tester-tip-dismissed", "1");
+                setTesterTipDismissed(true);
+              }}
+            >
+              知道了
+            </Button>
+          </div>
+        )}
 
         <div className="flex flex-wrap items-center gap-2">
           <Input
@@ -441,10 +482,29 @@ export function KanbanPage() {
             onPendingLogRequestConsumed={consumePendingLogRequest}
           />
         ) : (
-          <div className="flex h-full items-center justify-center rounded-lg border border-dashed border-border text-sm text-muted-foreground">
-            {environmentMode === "ssh"
-              ? "当前 SSH 视图还没有项目，请先到项目管理创建 SSH 项目。"
-              : "当前没有可展示的本地项目。"}
+          <div className="flex h-full flex-col items-center justify-center gap-3 rounded-lg border border-dashed border-border text-sm text-muted-foreground">
+            <p>
+              {environmentMode === "ssh"
+                ? "当前 SSH 视图还没有项目，请先到项目管理创建 SSH 项目。"
+                : "当前没有可展示的本地项目。"}
+            </p>
+            <div className="flex flex-wrap items-center justify-center gap-2">
+              <Link
+                to="/projects"
+                className="rounded-md bg-primary px-3 py-1.5 text-sm text-primary-foreground hover:bg-primary/90"
+              >
+                去创建项目
+              </Link>
+              {currentProjectId && (
+                <button
+                  type="button"
+                  onClick={() => setShowCreateDialog(true)}
+                  className="rounded-md border border-border px-3 py-1.5 text-sm hover:bg-accent"
+                >
+                  新建任务
+                </button>
+              )}
+            </div>
           </div>
         )}
       </div>

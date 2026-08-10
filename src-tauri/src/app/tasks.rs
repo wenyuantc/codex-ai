@@ -8,6 +8,43 @@ pub(crate) async fn fetch_task_by_id(pool: &SqlitePool, id: &str) -> Result<Task
         .map_err(|error| format!("Task {} not found: {}", id, error))
 }
 
+/// Block transitioning into `in_progress` / `completed` when any dependency is unfinished.
+pub(crate) async fn ensure_task_dependencies_satisfied(
+    pool: &SqlitePool,
+    task_id: &str,
+) -> Result<(), String> {
+    let incomplete_titles: Vec<String> = sqlx::query_scalar(
+        r#"
+        SELECT t.title
+        FROM task_dependencies d
+        INNER JOIN tasks t ON t.id = d.depends_on_task_id
+        WHERE d.task_id = $1
+          AND t.deleted_at IS NULL
+          AND t.status != 'completed'
+        ORDER BY t.title COLLATE NOCASE
+        "#,
+    )
+    .bind(task_id)
+    .fetch_all(pool)
+    .await
+    .map_err(|error| format!("Failed to check task dependencies: {}", error))?;
+
+    if incomplete_titles.is_empty() {
+        return Ok(());
+    }
+
+    let preview = if incomplete_titles.len() <= 3 {
+        incomplete_titles.join("、")
+    } else {
+        format!(
+            "{} 等 {} 个任务",
+            incomplete_titles[..3].join("、"),
+            incomplete_titles.len()
+        )
+    };
+    Err(format!("依赖任务尚未完成：{}", preview))
+}
+
 async fn fetch_any_task_by_id(pool: &SqlitePool, id: &str) -> Result<Task, String> {
     sqlx::query_as::<_, Task>("SELECT * FROM tasks WHERE id = $1 LIMIT 1")
         .bind(id)
@@ -1286,6 +1323,12 @@ pub async fn update_task<R: Runtime>(
     };
     if is_archiving {
         ensure_task_can_be_archived(&app, &pool, &current).await?;
+    }
+
+    let entering_in_progress = next_status == "in_progress" && current.status != "in_progress";
+    let entering_completed = next_status == "completed" && current.status != "completed";
+    if entering_in_progress || entering_completed {
+        ensure_task_dependencies_satisfied(&pool, &id).await?;
     }
 
     let mut builder = QueryBuilder::<Sqlite>::new("UPDATE tasks SET ");

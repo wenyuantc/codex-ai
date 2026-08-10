@@ -1,0 +1,31 @@
+{
+  "id": "product-next-wave-backlog",
+  "name": "product-next-wave-backlog",
+  "title": "产品下一波能力与体验规划",
+  "description": "",
+  "status": "completed",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "P2",
+  "creator": "wenyuantc",
+  "assignee": "wenyuantc",
+  "createdAt": "2026-08-10",
+  "completedAt": "2026-08-10",
+  "branch": null,
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [
+    "TASK.md",
+    ".trellis/tasks/08-10-product-next-wave-backlog/prd.md"
+  ],
+  "notes": "Delivered: TASK.md P0-P3 backlog + PRD. No product code.",
+  "meta": {
+    "related_note": "TASK.md P0-P3 backlog delivered"
+  }
+}

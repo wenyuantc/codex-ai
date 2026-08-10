@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import type {
+  ArtifactCaptureMode,
   CodexSessionKind,
   Tag,
   Task,
@@ -17,11 +18,14 @@ import {
   aiCommitTaskChanges,
   aiGenerateCoordinatorTaskPlan,
   aiGenerateTesterAcceptance,
+  aiResolveTaskGitConflicts,
   getTaskCommitActionState,
   getTaskCommitOverview,
+  listCodexSessions,
   listTaskDependencies,
   listTaskPipelineSteps,
   listTaskTags,
+  prepareCodexSessionResume,
   resumeTaskPipeline,
   retryTaskPipelineStep,
   runTaskPipelineStepManual,
@@ -39,6 +43,7 @@ import {
   getTaskActionRuntimeState,
   getTaskAutomationDisplayState,
   getTaskAutomationStatusLabel,
+  isArtifactCaptureLimited,
   isTaskOverdue,
   isTaskPipelineRunning,
 } from "@/lib/utils";
@@ -76,6 +81,11 @@ import { CoordinatorPlanDialog } from "./CoordinatorPlanDialog";
 import { TaskElapsedSummary } from "./TaskElapsedSummary";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { ProjectGitActionDialog } from "@/components/projects/ProjectGitActionDialog";
+import {
+  TaskCardPrimaryCtaStrip,
+  renderTaskCardPrimaryCtaIcon,
+  taskCardPrimaryCtaButtonClass,
+} from "./TaskCardPrimaryCtaStrip";
 import { useProjectStore } from "@/stores/projectStore";
 import { useEmployeeStore } from "@/stores/employeeStore";
 import { useTaskStore } from "@/stores/taskStore";
@@ -202,9 +212,17 @@ function TaskCardComponent({
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
   const [taskTags, setTaskTags] = useState<Tag[]>([]);
   const [dependencyCount, setDependencyCount] = useState(0);
+  const [incompleteDependencyTitles, setIncompleteDependencyTitles] = useState<string[]>([]);
+  const [sshReviewEvidenceLimited, setSshReviewEvidenceLimited] = useState(false);
+  const [lastArtifactCaptureMode, setLastArtifactCaptureMode] =
+    useState<ArtifactCaptureMode | null>(null);
+  const [resolvingConflicts, setResolvingConflicts] = useState(false);
   const executionStartErrorRef = useRef<string | null>(null);
   const projects = useProjectStore((s) => s.projects);
+  const environmentMode = useProjectStore((s) => s.environmentMode);
   const employees = useEmployeeStore((s) => s.employees);
+  const employeeRuntime = useEmployeeStore((s) => s.employeeRuntime);
+  const allTasks = useTaskStore((s) => s.tasks);
   const project = projects.find((p) => p.id === task.project_id);
   const projectName = project?.name;
   const projectRepoPath = getProjectWorkingDir(project);
@@ -370,6 +388,15 @@ function TaskCardComponent({
     !hasActiveSession && (commitActionState?.can_ai_commit || canCommitTaskCode),
   );
   const pipelineRunning = isTaskPipelineRunning(persistedAutomationState ?? null);
+  const assigneeOtherSessions =
+    task.assignee_id && employeeRuntime[task.assignee_id]
+      ? employeeRuntime[task.assignee_id].sessions.filter(
+          (session) =>
+            session.task_id &&
+            session.task_id !== task.id &&
+            (session.session_kind === "execution" || session.session_kind === "review"),
+        )
+      : [];
   const primaryCta = resolveTaskPrimaryCta({
     status: task.status,
     executionActive: isRunning,
@@ -383,6 +410,15 @@ function TaskCardComponent({
     canGenerateAcceptance: canGenerateTesterAcceptance,
     automationStatus: automationState.status,
     pipelineActive: pipelineRunning,
+    assigneeBusyOnOtherTask: assigneeOtherSessions.length > 0,
+    hasIncompleteDependencies: incompleteDependencyTitles.length > 0,
+    incompleteDependencySummary:
+      incompleteDependencyTitles.length === 0
+        ? null
+        : incompleteDependencyTitles.length <= 2
+          ? incompleteDependencyTitles.join("、")
+          : `${incompleteDependencyTitles.slice(0, 2).join("、")} 等`,
+    sshReviewEvidenceLimited,
   });
   // Show primary bar for stop/review/locked always; for run respect hideRunAction (completed column).
   const shouldShowPrimaryCta =
@@ -432,6 +468,11 @@ function TaskCardComponent({
         }
         setTaskTags(tags);
         setDependencyCount(deps.length);
+        const incomplete = deps
+          .map((dep) => allTasks.find((item) => item.id === dep.depends_on_task_id))
+          .filter((item): item is Task => Boolean(item) && item.status !== "completed")
+          .map((item) => item.title);
+        setIncompleteDependencyTitles(incomplete);
       })
       .catch(() => {
         if (!cancelled) {
@@ -439,12 +480,43 @@ function TaskCardComponent({
             setTaskTags([]);
           }
           setDependencyCount(0);
+          setIncompleteDependencyTitles([]);
         }
       });
     return () => {
       cancelled = true;
     };
-  }, [isOverlay, task.id, task.updated_at, tagsFromBoard]);
+  }, [allTasks, isOverlay, task.id, task.updated_at, tagsFromBoard]);
+
+  useEffect(() => {
+    if (isOverlay || environmentMode !== "ssh") {
+      setSshReviewEvidenceLimited(false);
+      setLastArtifactCaptureMode(null);
+      return;
+    }
+    let cancelled = false;
+    void listCodexSessions()
+      .then((sessions) => {
+        if (cancelled) {
+          return;
+        }
+        const latest = sessions
+          .filter((session) => session.task_id === task.id)
+          .sort((a, b) => b.last_updated_at.localeCompare(a.last_updated_at))[0];
+        const mode = latest?.artifact_capture_mode ?? null;
+        setLastArtifactCaptureMode(mode);
+        setSshReviewEvidenceLimited(mode != null ? isArtifactCaptureLimited(mode) : true);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setLastArtifactCaptureMode(null);
+          setSshReviewEvidenceLimited(true);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [environmentMode, isOverlay, task.id, task.last_codex_session_id, task.updated_at]);
 
   const refreshDeliveryBadges = async () => {
     try {
@@ -454,6 +526,11 @@ function TaskCardComponent({
       ]);
       setTaskTags(nextTags);
       setDependencyCount(deps.length);
+      const incomplete = deps
+        .map((dep) => allTasks.find((item) => item.id === dep.depends_on_task_id))
+        .filter((item): item is Task => Boolean(item) && item.status !== "completed")
+        .map((item) => item.title);
+      setIncompleteDependencyTitles(incomplete);
       onTaskTagsChange?.(
         task.id,
         nextTags.map((tag) => tag.id),
@@ -660,56 +737,16 @@ function TaskCardComponent({
     }
   };
 
-  const primaryCtaButtonClass = (() => {
-    switch (primaryCta.tone) {
-      case "danger":
-        return "flex items-center gap-1 px-2 py-0.5 text-xs bg-red-600 text-white rounded hover:bg-red-700 transition-colors disabled:opacity-50";
-      case "warning":
-        return "flex items-center gap-1 px-2 py-0.5 text-xs bg-amber-500 text-black rounded hover:bg-amber-400 transition-colors disabled:opacity-50";
-      case "muted":
-        return "flex items-center gap-1 px-2 py-0.5 text-xs bg-green-600 text-white rounded opacity-50";
-      case "primary":
-      default:
-        return "flex items-center gap-1 px-2 py-0.5 text-xs bg-green-600 text-white rounded hover:bg-green-700 transition-colors disabled:opacity-50";
-    }
-  })();
-
-  const primaryCtaIcon = (() => {
-    switch (primaryCta.kind) {
-      case "stop":
-        return executionActions.loading === "stop" ? (
-          <Square className="h-3 w-3" />
-        ) : (
-          <span className="inline-block w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
-        );
-      case "starting":
-      case "running_locked":
-        return <Loader2 className="h-3 w-3 animate-spin" />;
-      case "review":
-        return reviewActions.loading || isReviewRunning ? (
-          <Loader2 className="h-3 w-3 animate-spin" />
-        ) : (
-          <ScrollText className="h-3 w-3" />
-        );
-      case "blocked":
-        return <AlertTriangle className="h-3 w-3" />;
-      case "commit":
-        return openingCommitDialog ? (
-          <Loader2 className="h-3 w-3 animate-spin" />
-        ) : (
-          <GitBranch className="h-3 w-3" />
-        );
-      case "acceptance":
-        return testerAcceptanceLoading ? (
-          <Loader2 className="h-3 w-3 animate-spin" />
-        ) : (
-          <ClipboardCheck className="h-3 w-3" />
-        );
-      case "run":
-      default:
-        return <Play className="h-3 w-3" />;
-    }
-  })();
+  const primaryCtaButtonClass = taskCardPrimaryCtaButtonClass(primaryCta.tone);
+  const primaryCtaIcon = renderTaskCardPrimaryCtaIcon({
+    primaryCta,
+    stopLoading: executionActions.loading === "stop",
+    reviewLoading: Boolean(reviewActions.loading),
+    reviewRunning: isReviewRunning,
+    commitLoading: openingCommitDialog,
+    acceptanceLoading: testerAcceptanceLoading,
+    runLoading: executionActions.loading === "run" || executionActions.loading === "continue",
+  });
 
   const handleContextMenu = (e: React.MouseEvent<HTMLDivElement>) => {
     if (isOverlay) return;
@@ -781,7 +818,45 @@ function TaskCardComponent({
 
   const handleContinueConversation = async (prompt: string) => {
     if (!task.last_codex_session_id) return;
-    await executionActions.continueTask(prompt);
+    try {
+      const sessions = await listCodexSessions();
+      const candidates = sessions.filter(
+        (session) => session.task_id === task.id && session.session_kind === "execution",
+      );
+      const match =
+        candidates.find(
+          (session) =>
+            session.session_id === task.last_codex_session_id ||
+            session.cli_session_id === task.last_codex_session_id ||
+            session.session_record_id === task.last_codex_session_id,
+        ) ?? candidates.sort((a, b) => b.last_updated_at.localeCompare(a.last_updated_at))[0];
+      if (!match) {
+        throw new Error("找不到可继续的会话记录");
+      }
+      const preview = await prepareCodexSessionResume(match.session_record_id);
+      if (!preview.can_resume || !preview.resolved_session_id) {
+        throw new Error(preview.resume_message ?? "该对话当前不可继续");
+      }
+      await executionActions.continueTask(prompt);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      executionStartErrorRef.current = message;
+      console.error("Failed to continue conversation:", error);
+    }
+  };
+
+  const handleAiResolveConflicts = async () => {
+    setContextMenu(null);
+    setResolvingConflicts(true);
+    try {
+      await aiResolveTaskGitConflicts(task.id, "pre_commit");
+      const state = await getTaskCommitActionState(task.id);
+      setCommitActionState(state);
+    } catch (error) {
+      console.error("Failed to resolve git conflicts:", error);
+    } finally {
+      setResolvingConflicts(false);
+    }
   };
 
   const refreshPipelineSteps = async () => {
@@ -1418,50 +1493,21 @@ function TaskCardComponent({
         </div>
         {/* Primary CTA — driven by resolveTaskPrimaryCta */}
         {shouldShowTaskActionBar && (
-          <div className="flex items-center gap-1 mt-2 pt-2 border-t border-border/50">
-            {primaryCta.kind === "run" && !task.assignee_id ? (
-              <span
-                className="text-xs text-muted-foreground/50"
-                title={primaryCta.reason ?? "请先指派员工"}
-              >
-                <Play className="h-3 w-3 inline mr-0.5" />
-                未指派
-              </span>
-            ) : primaryCta.kind === "review" && !task.reviewer_id ? (
-              <span
-                className="text-xs text-muted-foreground/50"
-                title={primaryCta.reason ?? "请先指定审查员"}
-              >
-                <ScrollText className="h-3 w-3 inline mr-0.5" />
-                未指定审查员
-              </span>
-            ) : primaryCta.kind === "starting" ? (
-              <button
-                type="button"
-                disabled
-                className="flex items-center gap-1 px-2 py-0.5 text-xs bg-violet-600 text-white rounded opacity-90"
-                title={backgroundRunLabel ?? primaryCta.reason ?? "后台启动中"}
-              >
-                <Loader2 className="h-3 w-3 animate-spin" />
-                {primaryCta.label}
-              </button>
-            ) : (
-              <button
-                type="button"
-                onClick={(e) => void handlePrimaryCtaClick(e)}
-                disabled={primaryCta.disabled || isActionLoading}
-                title={
-                  primaryCta.kind === "review" && task.reviewer_id
-                    ? `由 ${reviewer?.name ?? "审查员"} 发起代码审核`
-                    : (primaryCta.reason ?? primaryCta.label)
-                }
-                className={primaryCtaButtonClass}
-              >
-                {primaryCtaIcon}
-                {primaryCta.label}
-              </button>
-            )}
-          </div>
+          <TaskCardPrimaryCtaStrip
+            primaryCta={primaryCta}
+            taskStatus={task.status}
+            hasAssignee={Boolean(task.assignee_id)}
+            hasReviewer={Boolean(task.reviewer_id)}
+            reviewerName={reviewer?.name}
+            backgroundRunLabel={backgroundRunLabel}
+            isActionLoading={isActionLoading}
+            environmentMode={environmentMode}
+            sshReviewEvidenceLimited={sshReviewEvidenceLimited}
+            lastArtifactCaptureMode={lastArtifactCaptureMode}
+            icon={primaryCtaIcon}
+            buttonClassName={primaryCtaButtonClass}
+            onPrimaryClick={(event) => void handlePrimaryCtaClick(event)}
+          />
         )}
       </div>
       {!isOverlay && showDetail && (
@@ -1658,6 +1704,23 @@ function TaskCardComponent({
                     <Bot className="h-4 w-4" />
                   )}
                   {aiCommitting ? "AI 提交中" : "AI 提交"}
+                </button>
+              )}
+              {commitActionState?.has_unmerged && (
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => void handleAiResolveConflicts()}
+                  disabled={resolvingConflicts || isActionLoading || hasActiveSession}
+                  title="使用 AI 尝试解决当前未合并冲突"
+                  className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-left hover:bg-accent hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-50"
+                >
+                  {resolvingConflicts ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <AlertTriangle className="h-4 w-4" />
+                  )}
+                  {resolvingConflicts ? "解冲突中…" : "AI 解冲突"}
                 </button>
               )}
               {aiCommitEntry?.phase === "error" && aiCommitEntry.error && (

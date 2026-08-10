@@ -1,0 +1,33 @@
+{
+  "id": "p1-trust-delivery",
+  "name": "p1-trust-delivery",
+  "title": "P1 可信与交付完整",
+  "description": "P1: 备份语义、SSH产物、休眠API UI、Claude SSH、角色说明、续聊复核",
+  "status": "completed",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "P2",
+  "creator": "wenyuantc",
+  "assignee": "wenyuantc",
+  "createdAt": "2026-08-10",
+  "completedAt": "2026-08-10",
+  "branch": null,
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [
+    "08-10-p1-backup-semantics",
+    "08-10-p1-ssh-artifact-parity",
+    "08-10-p1-dormant-api-ui",
+    "08-10-p1-claude-ssh-label",
+    "08-10-p1-role-docs",
+    "08-10-p1-continue-chat-audit"
+  ],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {}
+}

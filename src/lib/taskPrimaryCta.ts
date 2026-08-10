@@ -43,6 +43,19 @@ export interface ResolveTaskPrimaryCtaInput {
   automationStatus?: string | null;
   /** Raw pipeline_active — distinguishes orchestration labels. */
   pipelineActive?: boolean;
+  /**
+   * Assignee has another task's execution/review session running.
+   * This task itself is idle — still runnable (multi-task), but copy must clarify.
+   */
+  assigneeBusyOnOtherTask?: boolean;
+  /** Incomplete dependency tasks block run (and backend also rejects complete). */
+  hasIncompleteDependencies?: boolean;
+  incompleteDependencySummary?: string | null;
+  /**
+   * SSH session artifacts are limited — local-diff-based review is unreliable.
+   * When true and status is review (idle), disable starting review from CTA.
+   */
+  sshReviewEvidenceLimited?: boolean;
 }
 
 const FIX_AUTOMATION_STATUSES = new Set([
@@ -94,6 +107,10 @@ export function resolveTaskPrimaryCta(input: ResolveTaskPrimaryCtaInput): TaskPr
     canGenerateAcceptance,
     automationStatus,
     pipelineActive,
+    assigneeBusyOnOtherTask = false,
+    hasIncompleteDependencies = false,
+    incompleteDependencySummary = null,
+    sshReviewEvidenceLimited = false,
   } = input;
 
   const backgroundBusy = backgroundPlanning || backgroundStarting;
@@ -150,6 +167,16 @@ export function resolveTaskPrimaryCta(input: ResolveTaskPrimaryCtaInput): TaskPr
         tone: "warning",
       };
     }
+    if (sshReviewEvidenceLimited) {
+      return {
+        kind: "review",
+        label: "审核",
+        disabled: true,
+        reason:
+          "SSH 产物捕获受限，本地 diff/快照可能不完整；请在远程主机核对变更后再审核，或改用本地完整产物模式",
+        tone: "warning",
+      };
+    }
     return {
       kind: "review",
       label: "审核",
@@ -202,11 +229,43 @@ export function resolveTaskPrimaryCta(input: ResolveTaskPrimaryCtaInput): TaskPr
   }
 
   // 9. Default run (todo / in_progress / …)
+  if (!hasAssignee) {
+    return {
+      kind: "run",
+      label: "运行",
+      disabled: true,
+      reason: "请先指派员工",
+      tone: "primary",
+    };
+  }
+
+  if (hasIncompleteDependencies) {
+    return {
+      kind: "run",
+      label: "运行",
+      disabled: true,
+      reason: incompleteDependencySummary
+        ? `依赖未完成：${incompleteDependencySummary}`
+        : "依赖任务尚未完成，无法运行",
+      tone: "primary",
+    };
+  }
+
+  if (assigneeBusyOnOtherTask) {
+    return {
+      kind: "run",
+      label: "并行运行",
+      disabled: false,
+      reason: "同员工另有任务运行中，仍可并行启动本任务",
+      tone: "primary",
+    };
+  }
+
   return {
     kind: "run",
     label: "运行",
-    disabled: !hasAssignee,
-    reason: hasAssignee ? "运行任务" : "请先指派员工",
+    disabled: false,
+    reason: "运行任务",
     tone: "primary",
   };
 }

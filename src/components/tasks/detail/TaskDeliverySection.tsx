@@ -5,6 +5,7 @@ import type { Milestone, Tag, Task, TaskDependency } from "@/lib/types";
 import {
   addTaskDependency,
   createTag,
+  deleteTag,
   listMilestones,
   listTags,
   listTaskDependencies,
@@ -136,6 +137,19 @@ export function TaskDeliverySection({
         tag_ids: taskTags.filter((tag) => tag.id !== tagId).map((tag) => tag.id),
       });
       setTaskTagsState(next);
+    } catch (error) {
+      onError?.(error instanceof Error ? error.message : String(error));
+    } finally {
+      setTagBusy(false);
+    }
+  };
+
+  const handleDeleteProjectTag = async (tagId: string) => {
+    setTagBusy(true);
+    try {
+      await deleteTag(tagId);
+      setProjectTags((current) => current.filter((tag) => tag.id !== tagId));
+      setTaskTagsState((current) => current.filter((tag) => tag.id !== tagId));
     } catch (error) {
       onError?.(error instanceof Error ? error.message : String(error));
     } finally {
@@ -294,6 +308,31 @@ export function TaskDeliverySection({
             创建并添加
           </button>
         </div>
+        {projectTags.length > 0 && (
+          <div className="rounded-md border border-border/70 bg-muted/20 px-2 py-1.5">
+            <p className="mb-1 text-[11px] text-muted-foreground">项目标签（删除会从项目移除）</p>
+            <div className="flex flex-wrap gap-1.5">
+              {projectTags.map((tag) => (
+                <Badge key={tag.id} variant="outline" className="gap-1 pr-1">
+                  <span
+                    className="h-2 w-2 rounded-full"
+                    style={{ backgroundColor: tag.color || "var(--primary)" }}
+                  />
+                  {tag.name}
+                  <button
+                    type="button"
+                    disabled={tagBusy}
+                    onClick={() => void handleDeleteProjectTag(tag.id)}
+                    className="rounded-full p-0.5 hover:bg-destructive/10 hover:text-destructive"
+                    title="删除项目标签"
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
+                </Badge>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
 
       <div className="space-y-2">
@@ -320,7 +359,7 @@ export function TaskDeliverySection({
                   {incomplete && (
                     <p className="mt-0.5 flex items-center gap-1 text-[11px] text-amber-700 dark:text-amber-200">
                       <AlertTriangle className="h-3 w-3 shrink-0" />
-                      依赖任务尚未完成
+                      依赖未完成：无法运行或标记完成
                     </p>
                   )}
                 </div>

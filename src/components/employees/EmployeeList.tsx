@@ -9,12 +9,14 @@ interface EmployeeListProps {
   projectId?: string;
   highlightedEmployeeId?: string | null;
   highlightedEmployeeNonce?: number | null;
+  onCreateEmployee?: () => void;
 }
 
 export function EmployeeList({
   projectId,
   highlightedEmployeeId,
   highlightedEmployeeNonce,
+  onCreateEmployee,
 }: EmployeeListProps) {
   const { employees, fetchEmployees } = useEmployeeStore();
   const { tasks, fetchTasks } = useTaskStore();
@@ -122,10 +124,21 @@ export function EmployeeList({
       </div>
 
       {filtered.length === 0 && (
-        <div className="text-center py-12 text-muted-foreground text-sm">
-          {filter === "all"
-            ? "暂无员工"
-            : `没有${filter === "online" ? "在线" : filter === "busy" ? "忙碌" : filter === "offline" ? "离线" : "错误"}员工`}
+        <div className="flex flex-col items-center justify-center gap-3 py-12 text-center">
+          <p className="text-sm text-muted-foreground">
+            {filter === "all"
+              ? "暂无员工。创建 AI 员工并绑定项目后即可运行任务。"
+              : `没有${filter === "online" ? "在线" : filter === "busy" ? "忙碌" : filter === "offline" ? "离线" : "错误"}员工`}
+          </p>
+          {filter === "all" && onCreateEmployee && (
+            <button
+              type="button"
+              onClick={onCreateEmployee}
+              className="rounded-md bg-primary px-3 py-1.5 text-sm text-primary-foreground hover:bg-primary/90"
+            >
+              添加员工
+            </button>
+          )}
         </div>
       )}
     </div>

@@ -273,6 +273,13 @@ export function GitAutomationSettingsTab({
           </p>
         </div>
 
+        {!testerAutomationEnabled && (
+          <div className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs leading-5 text-amber-900 dark:text-amber-100">
+            当前未启用。推荐开启后，任务执行完成会自动进入测试员验收，再继续审核；否则看起来「测试员没有作用」。
+            也可在看板顶部查看提示入口。
+          </div>
+        )}
+
         <label className="flex items-start gap-3 rounded-md border border-border px-3 py-2">
           <input
             type="checkbox"

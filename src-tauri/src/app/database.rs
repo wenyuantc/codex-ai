@@ -801,13 +801,13 @@ pub fn get_database_backup_scope() -> crate::db::models::DatabaseBackupScope {
             "已应用的数据库迁移版本记录".to_string(),
         ],
         excludes: vec![
-            "任务附件文件目录（图片/文档本体）".to_string(),
+            "任务附件文件目录：应用数据目录下的 task-attachments/（图片/文档本体）".to_string(),
             "密钥环中的 SSH 密码/私钥口令等敏感密钥".to_string(),
-            "应用配置目录中的 AI Prompt 模板 JSON".to_string(),
-            "应用配置目录中的 MCP 服务器 JSON".to_string(),
+            "应用配置目录中的 ai-prompt-templates.json（AI 提示词模板）".to_string(),
+            "应用配置目录中的 mcp-servers.json（MCP 服务器配置）".to_string(),
             "窗口尺寸等本地 UI 状态".to_string(),
         ],
-        note: "当前「导出 SQL」仅覆盖数据库本体，不等于完整灾备。若需完整恢复，请额外备份配置目录与附件目录。".to_string(),
+        note: "「导出 SQL」仅覆盖数据库本体，不等于完整灾备。恢复 SQL 后，提示词模板、MCP 配置、附件文件与密钥不会自动还原；请额外备份应用配置目录与 task-attachments/，或在设置页用「打开数据库目录」定位相邻数据。".to_string(),
     }
 }
 

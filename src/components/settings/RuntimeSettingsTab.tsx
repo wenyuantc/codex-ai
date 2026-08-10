@@ -735,7 +735,7 @@ export function RuntimeSettingsTab({
             </h3>
             <p className="text-xs text-muted-foreground">
               {isRemoteMode
-                ? "SSH 模式下 Claude 任务会在远端通过 Claude CLI 执行，本地 SDK 配置不会应用到当前 SSH 目标。"
+                ? "SSH 模式下 Claude 不支持应用内远程安装/检测；需在远端主机自行安装 Claude CLI。本地 SDK 配置不会应用到当前 SSH 目标。"
                 : "Claude SDK 用于运行 Anthropic Claude 模型的任务与 AI 功能。"}
             </p>
           </div>
@@ -746,14 +746,19 @@ export function RuntimeSettingsTab({
                 : "bg-slate-100 text-slate-700"
             }`}
           >
-            {isRemoteMode ? "本地设置已禁用" : claudeHealth?.sdk_installed ? "已安装" : "未安装"}
+            {isRemoteMode
+              ? "仅本地 / 无远程安装"
+              : claudeHealth?.sdk_installed
+                ? "已安装"
+                : "未安装"}
           </span>
         </div>
 
         {isRemoteMode ? (
           <div className="rounded-md border border-dashed border-border px-3 py-3 text-sm text-muted-foreground">
-            当前 SSH 配置不会读取本机 Claude SDK 设置。请在远端主机安装并配置 Claude CLI 后，再运行
-            Claude 员工任务。
+            Claude 在 SSH 模式下为「仅本地配置」：应用不会在远端安装或校验 Claude
+            SDK。请在远端主机安装并配置 Claude CLI 后，再运行 Claude
+            员工任务；否则请切换到本地模式使用本机 SDK。
           </div>
         ) : (
           <div className="mt-4 space-y-4">

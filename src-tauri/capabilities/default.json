@@ -20,9 +20,6 @@
           "sidecar": false
         }
       ]
-    },
-    "shell:allow-kill",
-    "shell:allow-stdin-write",
-    "shell:allow-execute"
+    }
   ]
 }

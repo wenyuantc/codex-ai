@@ -21,6 +21,7 @@ import {
   getCodexSessionFileChangeDetail,
   getTaskExecutionChangeHistory,
   getTaskLatestReview,
+  listTaskDependencies,
   openTaskAttachment,
   resumeTaskPipeline,
   retryTaskPipelineStep,
@@ -117,6 +118,7 @@ export function TaskDetailDialog({
   const persistedAutomationState = useTaskStore((state) => state.automationStates[task.id]);
   const {
     employees,
+    employeeRuntime,
     fetchEmployees,
     updateEmployeeStatus,
     clearTaskCodexOutput,
@@ -152,6 +154,7 @@ export function TaskDetailDialog({
   const [pipelineActionLoading, setPipelineActionLoading] = useState(false);
   const [pipelineError, setPipelineError] = useState<string | null>(null);
   const [pipelineNotice, setPipelineNotice] = useState<string | null>(null);
+  const [incompleteDependencyTitles, setIncompleteDependencyTitles] = useState<string[]>([]);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [deletingTask, setDeletingTask] = useState(false);
   const [attachmentLoading, setAttachmentLoading] = useState(false);
@@ -335,6 +338,15 @@ export function TaskDetailDialog({
     !hasActiveSession && (commitActionState?.can_commit || commitActionState?.can_ai_commit),
   );
   const pipelineRunning = isTaskPipelineRunning(persistedAutomationState ?? null);
+  const assigneeOtherSessions =
+    assigneeId && employeeRuntime[assigneeId]
+      ? employeeRuntime[assigneeId].sessions.filter(
+          (session) =>
+            session.task_id &&
+            session.task_id !== task.id &&
+            (session.session_kind === "execution" || session.session_kind === "review"),
+        )
+      : [];
   const primaryCta = resolveTaskPrimaryCta({
     status,
     executionActive: isRunning,
@@ -348,6 +360,14 @@ export function TaskDetailDialog({
     canGenerateAcceptance: canGenerateTesterAcceptance,
     automationStatus: resolvedAutomationState.status,
     pipelineActive: pipelineRunning,
+    assigneeBusyOnOtherTask: assigneeOtherSessions.length > 0,
+    hasIncompleteDependencies: incompleteDependencyTitles.length > 0,
+    incompleteDependencySummary:
+      incompleteDependencyTitles.length === 0
+        ? null
+        : incompleteDependencyTitles.length <= 2
+          ? incompleteDependencyTitles.join("、")
+          : `${incompleteDependencyTitles.slice(0, 2).join("、")} 等`,
   });
   const primaryActionLoading =
     executionActions.loading !== null ||
@@ -375,6 +395,15 @@ export function TaskDetailDialog({
       fetchEmployees();
       void fetchAttachments(task.id);
       void fetchTaskAutomationState(task.id);
+      void listTaskDependencies(task.id)
+        .then((deps) => {
+          const incomplete = deps
+            .map((dep) => storeTasks.find((item) => item.id === dep.depends_on_task_id))
+            .filter((item): item is Task => Boolean(item) && item.status !== "completed")
+            .map((item) => item.title);
+          setIncompleteDependencyTitles(incomplete);
+        })
+        .catch(() => setIncompleteDependencyTitles([]));
       setPipelineLoading(true);
       setPipelineError(null);
       setPipelineNotice(null);

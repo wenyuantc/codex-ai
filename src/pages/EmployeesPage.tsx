@@ -38,6 +38,7 @@ export function EmployeesPage() {
         projectId={currentProjectId}
         highlightedEmployeeId={highlightedEmployeeId}
         highlightedEmployeeNonce={highlightedEmployeeNonce}
+        onCreateEmployee={() => setShowCreate(true)}
       />
       <CreateEmployeeDialog
         open={showCreate}
