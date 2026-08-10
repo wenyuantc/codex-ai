@@ -69,3 +69,25 @@ Dashboard report R1: configurable 7d/30d/8w trends + milestone remaining series;
 ### Status
 
 [OK] **Completed**
+
+
+## Session 4: P3 i18n I2
+
+**Date**: 2026-08-10
+**Task**: P3 i18n I2
+**Branch**: `main`
+
+### Summary
+
+i18next zh-CN/en framework, main-path extraction, activity single-source, leftovers for deep dialogs; send_input still pending.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `a1dd67f` | (see git log) |
+| `16ad2a7` | (see git log) |
+
+### Status
+
+[OK] **Completed**
