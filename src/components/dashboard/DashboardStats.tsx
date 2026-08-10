@@ -1,49 +1,52 @@
-import { useDashboardStore } from "@/stores/dashboardStore";
+import { useTranslation } from "react-i18next";
 import { BellRing, FolderKanban, ListTodo, TriangleAlert, TrendingUp, Users } from "lucide-react";
+
+import { useDashboardStore } from "@/stores/dashboardStore";
 import { Card } from "@/components/ui/card";
 
 export function DashboardStats() {
+  const { t } = useTranslation("dashboard");
   const stats = useDashboardStore((state) => state.stats);
 
   const cards = [
     {
       icon: FolderKanban,
-      label: "活跃项目",
+      label: t("stats.activeProjects"),
       value: stats?.activeProjects ?? 0,
       color: "text-blue-500",
       bg: "bg-blue-500/10",
     },
     {
       icon: ListTodo,
-      label: "总任务数",
+      label: t("stats.totalTasks"),
       value: stats?.totalTasks ?? 0,
       color: "text-orange-500",
       bg: "bg-orange-500/10",
     },
     {
       icon: Users,
-      label: "在线员工",
+      label: t("stats.onlineEmployees"),
       value: `${stats?.onlineEmployees ?? 0} / ${stats?.totalEmployees ?? 0}`,
       color: "text-green-500",
       bg: "bg-green-500/10",
     },
     {
       icon: TrendingUp,
-      label: "完成率",
+      label: t("stats.completionRate"),
       value: `${stats?.completionRate ?? 0}%`,
       color: "text-purple-500",
       bg: "bg-purple-500/10",
     },
     {
       icon: BellRing,
-      label: "未读通知",
+      label: t("stats.unreadNotifications"),
       value: stats?.unreadNotifications ?? 0,
       color: "text-sky-500",
       bg: "bg-sky-500/10",
     },
     {
       icon: TriangleAlert,
-      label: "高优先级告警",
+      label: t("stats.highSeverityAlerts"),
       value: stats?.highSeverityNotifications ?? 0,
       color: "text-rose-500",
       bg: "bg-rose-500/10",

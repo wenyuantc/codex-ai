@@ -1,0 +1,8 @@
+{
+  "title": "回收站",
+  "empty": "回收站为空",
+  "restore": "恢复",
+  "permanentDelete": "永久删除",
+  "deletedTasks": "已删除任务",
+  "deletedProjects": "已删除项目"
+}

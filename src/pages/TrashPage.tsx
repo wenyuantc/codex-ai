@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { TrashedTaskList } from "@/components/trash/TrashedTaskList";
 import { TrashedProjectList } from "@/components/trash/TrashedProjectList";
 import { useTaskStore } from "@/stores/taskStore";
@@ -8,6 +9,7 @@ import { Trash2 } from "lucide-react";
 type TrashTab = "tasks" | "projects";
 
 export function TrashPage() {
+  const { t } = useTranslation("trash");
   const [tab, setTab] = useState<TrashTab>("tasks");
   const { trashedTasks, fetchTrashedTasks } = useTaskStore();
   const { trashedProjects, fetchTrashedProjects } = useProjectStore();
@@ -30,7 +32,7 @@ export function TrashPage() {
     <div className="flex flex-col gap-6 p-6">
       <div className="flex items-center gap-3">
         <Trash2 className="h-6 w-6 text-muted-foreground" />
-        <h1 className="text-xl font-semibold text-foreground">回收站</h1>
+        <h1 className="text-xl font-semibold text-foreground">{t("title")}</h1>
       </div>
 
       <div className="flex gap-2 border-b border-border">
@@ -43,7 +45,7 @@ export function TrashPage() {
               : "border-transparent text-muted-foreground hover:text-foreground"
           }`}
         >
-          已删除任务
+          {t("deletedTasks")}
           {trashedTasks.length > 0 && (
             <span className="ml-1.5 rounded-full bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
               {trashedTasks.length}
@@ -59,7 +61,7 @@ export function TrashPage() {
               : "border-transparent text-muted-foreground hover:text-foreground"
           }`}
         >
-          已删除项目
+          {t("deletedProjects")}
           {trashedProjects.length > 0 && (
             <span className="ml-1.5 rounded-full bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
               {trashedProjects.length}

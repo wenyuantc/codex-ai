@@ -2,6 +2,7 @@ import { useHotkeys } from "react-hotkeys-hook";
 import { Kbd } from "@/components/keyboard/Kbd";
 
 import { useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { ChevronLeft, ChevronRight, Loader2, RefreshCw } from "lucide-react";
 import { useLocation, useSearchParams } from "react-router-dom";
 
@@ -19,6 +20,7 @@ import { startGrok, stopGrokSession } from "@/lib/grok";
 import { startOpenCode, stopOpenCodeSession } from "@/lib/opencode";
 import type { AiProvider, CodexSessionListItem, CodexSessionResumeStatus } from "@/lib/types";
 import { AI_PROVIDER_OPTIONS, normalizeAiProvider } from "@/lib/types";
+import i18n from "@/lib/i18n";
 import { formatDate, isArtifactCaptureLimited } from "@/lib/utils";
 import { useEmployeeStore } from "@/stores/employeeStore";
 import { useProjectStore } from "@/stores/projectStore";
@@ -62,21 +64,21 @@ function aiProviderBadgeVariant(provider: AiProvider): "default" | "secondary" |
 }
 
 function formatSessionKind(kind: CodexSessionListItem["session_kind"]) {
-  return kind === "review" ? "审核" : "执行";
+  return kind === "review" ? i18n.t("sessions:kindReview") : i18n.t("sessions:kindExecution");
 }
 
 function formatSessionStatus(status: string) {
   switch (status) {
     case "pending":
-      return "待启动";
+      return i18n.t("sessions:statusPending");
     case "running":
-      return "运行中";
+      return i18n.t("sessions:statusRunning");
     case "stopping":
-      return "停止中";
+      return i18n.t("sessions:statusStopping");
     case "exited":
-      return "已结束";
+      return i18n.t("sessions:statusExited");
     case "failed":
-      return "失败";
+      return i18n.t("sessions:statusFailed");
     default:
       return status;
   }
@@ -85,17 +87,17 @@ function formatSessionStatus(status: string) {
 function formatResumeStatus(status: CodexSessionResumeStatus) {
   switch (status) {
     case "ready":
-      return "可继续";
+      return i18n.t("sessions:resumeReady");
     case "running":
-      return "占用中";
+      return i18n.t("sessions:resumeRunning");
     case "missing_employee":
-      return "缺少员工";
+      return i18n.t("sessions:resumeMissingEmployee");
     case "missing_cli_session":
-      return "不可恢复";
+      return i18n.t("sessions:resumeMissingCli");
     case "stopping":
-      return "停止中";
+      return i18n.t("sessions:resumeStopping");
     case "invalid":
-      return "无效";
+      return i18n.t("sessions:resumeInvalid");
     default:
       return status;
   }
@@ -132,8 +134,9 @@ function buildLogTarget(session: {
 }): SessionLogTarget {
   return {
     sessionRecordId: session.session_record_id ?? null,
-    sessionId: session.resolved_session_id ?? session.session_id ?? "未知",
-    displayName: session.display_name ?? "未命名对话",
+    sessionId:
+      session.resolved_session_id ?? session.session_id ?? i18n.t("sessions:unknownSession"),
+    displayName: session.display_name ?? i18n.t("sessions:unnamedSession"),
     employeeId: session.employee_id ?? null,
     employeeName: session.employee_name ?? null,
     taskId: session.task_id ?? null,
@@ -143,6 +146,7 @@ function buildLogTarget(session: {
 }
 
 export function SessionsPage() {
+  const { t } = useTranslation(["sessions", "common"]);
   const location = useLocation();
   const [searchParams] = useSearchParams();
   const employees = useEmployeeStore((state) => state.employees);
@@ -386,7 +390,7 @@ export function SessionsPage() {
       setSessions(sessionItems);
       return sessionItems;
     } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : "读取对话列表失败");
+      setErrorMessage(error instanceof Error ? error.message : t("loadFailed"));
       return [];
     } finally {
       setLoading(false);
@@ -440,9 +444,9 @@ export function SessionsPage() {
         await refreshEmployeeRuntimeStatus(session.employee_id);
       }
       await loadSessions(true);
-      setInfoMessage(`已请求停止对话 ${session.session_id}。`);
+      setInfoMessage(t("stopRequested", { sessionId: session.session_id }));
     } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : "停止对话失败");
+      setErrorMessage(error instanceof Error ? error.message : t("stopFailed"));
     } finally {
       setStoppingSessionId(null);
     }
@@ -460,7 +464,7 @@ export function SessionsPage() {
     try {
       const preview = await prepareCodexSessionResume(continueSession.session_record_id);
       if (!preview.can_resume || !preview.resolved_session_id || !preview.employee_id) {
-        setErrorMessage(preview.resume_message ?? "该对话当前不可继续");
+        setErrorMessage(preview.resume_message ?? t("continueUnavailable"));
         return;
       }
 
@@ -512,7 +516,7 @@ export function SessionsPage() {
             sessionRecordId: null,
           };
       setActiveSession(nextLogTarget);
-      setInfoMessage(`消息已发送到对话 ${preview.resolved_session_id}。`);
+      setInfoMessage(t("messageSent", { sessionId: preview.resolved_session_id }));
       setContinueDialogOpen(false);
       setContinueSession(null);
       setLogTarget(nextLogTarget);
@@ -524,7 +528,7 @@ export function SessionsPage() {
           await updateEmployeeStatus(continueSession.employee_id, "error");
         }
       }
-      setErrorMessage(error instanceof Error ? error.message : "发送续聊消息失败");
+      setErrorMessage(error instanceof Error ? error.message : t("continueFailed"));
     } finally {
       setContinueSubmitting(false);
     }
@@ -535,10 +539,13 @@ export function SessionsPage() {
       <div className="space-y-4">
         <div className="flex items-center justify-between gap-3">
           <div>
-            <h2 className="text-lg font-semibold">对话列表</h2>
+            <h2 className="text-lg font-semibold">{t("listTitle")}</h2>
             <p className="text-sm text-muted-foreground">
-              当前仅展示{environmentMode === "ssh" ? " SSH " : "本地 "}执行链路下
-              {currentProjectName ? `项目“${currentProjectName}”` : "全部项目"}的对话。
+              {t(environmentMode === "ssh" ? "scopeSsh" : "scopeLocal", {
+                scope: currentProjectName
+                  ? t("scopeProject", { name: currentProjectName })
+                  : t("scopeAllProjects"),
+              })}
             </p>
           </div>
           <Button
@@ -552,7 +559,7 @@ export function SessionsPage() {
             ) : (
               <RefreshCw className="mr-2 h-4 w-4" />
             )}
-            刷新
+            {t("refresh")}
             <Kbd variant="subtle" size="xs" className="ml-1.5">
               R
             </Kbd>
@@ -561,8 +568,7 @@ export function SessionsPage() {
 
         {activeSession && (
           <div className="rounded-lg border border-primary/20 bg-primary/5 px-3 py-2 text-sm text-primary">
-            当前最近一次续聊绑定到对话 <span className="font-mono">{activeSession.sessionId}</span>
-            ，执行后会自动弹出终端日志。
+            {t("activeContinueHint", { sessionId: activeSession.sessionId })}
           </div>
         )}
 
@@ -583,24 +589,24 @@ export function SessionsPage() {
             <div className="grid gap-3 md:grid-cols-3">
               <div className="space-y-2">
                 <label className="text-sm font-medium text-foreground" htmlFor="session-id-search">
-                  对话 ID 搜索
+                  {t("sessionIdSearch")}
                 </label>
                 <Input
                   id="session-id-search"
                   value={sessionIdQuery}
                   onChange={(event) => setSessionIdQuery(event.target.value)}
-                  placeholder="输入对话 ID、记录 ID 或 CLI 对话 ID"
+                  placeholder={t("sessionIdPlaceholder")}
                 />
               </div>
               <div className="space-y-2">
                 <label className="text-sm font-medium text-foreground" htmlFor="task-id-search">
-                  任务 ID 搜索
+                  {t("taskIdSearch")}
                 </label>
                 <Input
                   id="task-id-search"
                   value={taskIdQuery}
                   onChange={(event) => setTaskIdQuery(event.target.value)}
-                  placeholder="输入关联任务 ID"
+                  placeholder={t("taskIdPlaceholder")}
                 />
               </div>
               <div className="space-y-2">
@@ -608,53 +614,53 @@ export function SessionsPage() {
                   className="text-sm font-medium text-foreground"
                   htmlFor="session-content-search"
                 >
-                  内容搜索
+                  {t("contentSearch")}
                 </label>
                 <Input
                   id="session-content-search"
                   value={contentQuery}
                   onChange={(event) => setContentQuery(event.target.value)}
-                  placeholder="搜索对话名称、摘要、最近事件内容、任务、项目、员工"
+                  placeholder={t("contentPlaceholder")}
                 />
               </div>
             </div>
 
             <div className="grid gap-3 md:grid-cols-5">
               <div className="space-y-2">
-                <label className="text-sm font-medium">状态</label>
+                <label className="text-sm font-medium">{t("status")}</label>
                 <select
                   className="h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
                   value={statusFilter}
                   onChange={(e) => setStatusFilter(e.target.value)}
                 >
-                  <option value="all">全部状态</option>
-                  <option value="pending">待启动</option>
-                  <option value="running">运行中</option>
-                  <option value="stopping">停止中</option>
-                  <option value="exited">已结束</option>
-                  <option value="failed">失败</option>
+                  <option value="all">{t("allStatuses")}</option>
+                  <option value="pending">{t("statusPending")}</option>
+                  <option value="running">{t("statusRunning")}</option>
+                  <option value="stopping">{t("statusStopping")}</option>
+                  <option value="exited">{t("statusExited")}</option>
+                  <option value="failed">{t("statusFailed")}</option>
                 </select>
               </div>
               <div className="space-y-2">
-                <label className="text-sm font-medium">类型</label>
+                <label className="text-sm font-medium">{t("kind")}</label>
                 <select
                   className="h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
                   value={kindFilter}
                   onChange={(e) => setKindFilter(e.target.value)}
                 >
-                  <option value="all">全部类型</option>
-                  <option value="execution">执行</option>
-                  <option value="review">审核</option>
+                  <option value="all">{t("allKinds")}</option>
+                  <option value="execution">{t("kindExecution")}</option>
+                  <option value="review">{t("kindReview")}</option>
                 </select>
               </div>
               <div className="space-y-2">
-                <label className="text-sm font-medium">引擎</label>
+                <label className="text-sm font-medium">{t("provider")}</label>
                 <select
                   className="h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
                   value={providerFilter}
                   onChange={(e) => setProviderFilter(e.target.value)}
                 >
-                  <option value="all">全部引擎</option>
+                  <option value="all">{t("allProviders")}</option>
                   {AI_PROVIDER_OPTIONS.map((option) => (
                     <option key={option.value} value={option.value}>
                       {option.label}
@@ -663,13 +669,13 @@ export function SessionsPage() {
                 </select>
               </div>
               <div className="space-y-2">
-                <label className="text-sm font-medium">员工</label>
+                <label className="text-sm font-medium">{t("employee")}</label>
                 <select
                   className="h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
                   value={employeeFilter}
                   onChange={(e) => setEmployeeFilter(e.target.value)}
                 >
-                  <option value="all">全部员工</option>
+                  <option value="all">{t("allEmployees")}</option>
                   {employees.map((employee) => (
                     <option key={employee.id} value={employee.id}>
                       {employee.name}
@@ -684,7 +690,7 @@ export function SessionsPage() {
                     checked={failedOnly}
                     onChange={(e) => setFailedOnly(e.target.checked)}
                   />
-                  仅失败诊断
+                  {t("failedOnly")}
                 </label>
               </div>
             </div>
@@ -693,24 +699,24 @@ export function SessionsPage() {
               {loading ? (
                 <div className="flex h-[28rem] items-center justify-center text-sm text-muted-foreground">
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  正在加载对话...
+                  {t("loading")}
                 </div>
               ) : filteredSessions.length === 0 ? (
                 <div className="flex h-[28rem] items-center justify-center text-sm text-muted-foreground">
-                  没有符合当前搜索条件的对话
+                  {t("emptyFiltered")}
                 </div>
               ) : (
                 <div className="overflow-x-auto">
                   <table className="min-w-full text-sm">
                     <thead className="bg-muted/40 text-left">
                       <tr className="border-b border-border">
-                        <th className="px-4 py-3 font-medium">对话</th>
-                        <th className="px-4 py-3 font-medium">状态</th>
-                        <th className="px-4 py-3 font-medium">AI 提供商</th>
-                        <th className="px-4 py-3 font-medium">最近更新时间</th>
-                        <th className="px-4 py-3 font-medium">关联任务</th>
-                        <th className="px-4 py-3 font-medium">员工</th>
-                        <th className="px-4 py-3 font-medium">操作</th>
+                        <th className="px-4 py-3 font-medium">{t("colSession")}</th>
+                        <th className="px-4 py-3 font-medium">{t("colStatus")}</th>
+                        <th className="px-4 py-3 font-medium">{t("colProvider")}</th>
+                        <th className="px-4 py-3 font-medium">{t("colUpdated")}</th>
+                        <th className="px-4 py-3 font-medium">{t("colTask")}</th>
+                        <th className="px-4 py-3 font-medium">{t("colEmployee")}</th>
+                        <th className="px-4 py-3 font-medium">{t("colActions")}</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -737,7 +743,7 @@ export function SessionsPage() {
                               )}
                               {session.content_preview && (
                                 <div className="max-w-md text-xs text-muted-foreground/80">
-                                  内容：{session.content_preview}
+                                  {t("contentPrefix", { preview: session.content_preview })}
                                 </div>
                               )}
                             </div>
@@ -753,7 +759,9 @@ export function SessionsPage() {
                               <Badge
                                 variant={session.execution_target === "ssh" ? "default" : "outline"}
                               >
-                                {session.execution_target === "ssh" ? "SSH" : "本地"}
+                                {session.execution_target === "ssh"
+                                  ? t("common:sshShort")
+                                  : t("common:localShort")}
                               </Badge>
                               <Badge variant={resumeBadgeVariant(session.resume_status)}>
                                 {formatResumeStatus(session.resume_status)}
@@ -774,24 +782,24 @@ export function SessionsPage() {
                           </td>
                           <td className="px-4 py-3">
                             <div className="space-y-1 text-xs">
-                              <div>{session.task_title ?? "无关联任务"}</div>
+                              <div>{session.task_title ?? t("noLinkedTask")}</div>
                               <div className="text-muted-foreground">
-                                任务ID：
+                                {t("taskIdPrefix")}
                                 <span className="ml-1 font-mono">{session.task_id ?? "-"}</span>
                               </div>
                               <div className="text-muted-foreground">
-                                {session.project_name ?? "无关联项目"}
+                                {session.project_name ?? t("noLinkedProject")}
                               </div>
                               {session.target_host_label && (
                                 <div className="text-muted-foreground">
-                                  主机：{session.target_host_label}
+                                  {t("hostPrefix", { host: session.target_host_label })}
                                 </div>
                               )}
                             </div>
                           </td>
                           <td className="px-4 py-3">
                             <div className="space-y-1 text-xs">
-                              <div>{session.employee_name ?? "未绑定"}</div>
+                              <div>{session.employee_name ?? t("unboundEmployee")}</div>
                               {session.working_dir && (
                                 <div className="max-w-56 break-all text-muted-foreground">
                                   {session.working_dir}
@@ -814,7 +822,7 @@ export function SessionsPage() {
                                   variant="secondary"
                                   onClick={() => openChangeDialog(session)}
                                 >
-                                  查看改动
+                                  {t("changes")}
                                 </Button>
                               )}
                               {(session.status === "running" || session.status === "stopping") && (
@@ -831,10 +839,10 @@ export function SessionsPage() {
                                   {stoppingSessionId === session.session_record_id ? (
                                     <>
                                       <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
-                                      停止中
+                                      {t("stopping")}
                                     </>
                                   ) : (
-                                    "停止对话"
+                                    t("stop")
                                   )}
                                 </Button>
                               )}
@@ -843,9 +851,9 @@ export function SessionsPage() {
                                 size="sm"
                                 onClick={() => openContinueDialog(session)}
                                 disabled={!session.can_resume}
-                                title={session.resume_message ?? "继续对话"}
+                                title={session.resume_message ?? t("continue")}
                               >
-                                继续对话
+                                {t("continue")}
                               </Button>
                               <Button
                                 type="button"
@@ -854,7 +862,7 @@ export function SessionsPage() {
                                 onClick={() => openLogDialog(session)}
                                 disabled={!session.task_id && !session.employee_id}
                               >
-                                查看日志
+                                {t("viewLog")}
                               </Button>
                               {session.resume_message && (
                                 <div className="text-xs text-muted-foreground">
@@ -874,12 +882,18 @@ export function SessionsPage() {
             <div className="flex items-center justify-between gap-3">
               <span className="text-xs text-muted-foreground">
                 {filteredSessions.length === 0
-                  ? "暂无分页数据"
-                  : `显示 ${rangeStart}-${rangeEnd} 条，共 ${filteredSessions.length} 条`}
+                  ? t("paginationEmpty")
+                  : t("paginationRange", {
+                      start: rangeStart,
+                      end: rangeEnd,
+                      total: filteredSessions.length,
+                    })}
               </span>
               <div className="flex items-center gap-2">
                 <span className="text-xs text-muted-foreground">
-                  {filteredSessions.length === 0 ? "第 0 / 0 页" : `第 ${page} / ${totalPages} 页`}
+                  {filteredSessions.length === 0
+                    ? t("paginationPageEmpty")
+                    : t("paginationPage", { page, totalPages })}
                 </span>
                 <Button
                   variant="outline"
@@ -888,7 +902,7 @@ export function SessionsPage() {
                   disabled={loading || page <= 1}
                 >
                   <ChevronLeft className="h-3.5 w-3.5" />
-                  上一页
+                  {t("prevPage")}
                 </Button>
                 <Button
                   variant="outline"
@@ -896,7 +910,7 @@ export function SessionsPage() {
                   onClick={() => setPage((current) => current + 1)}
                   disabled={loading || filteredSessions.length === 0 || page >= totalPages}
                 >
-                  下一页
+                  {t("nextPage")}
                   <ChevronRight className="h-3.5 w-3.5" />
                 </Button>
               </div>

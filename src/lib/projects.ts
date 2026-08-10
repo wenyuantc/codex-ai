@@ -1,4 +1,5 @@
 import type { EnvironmentMode, Project, ProjectType } from "./types";
+import i18n from "@/lib/i18n";
 
 export const DEFAULT_ENVIRONMENT_MODE: EnvironmentMode = "local";
 
@@ -28,7 +29,11 @@ export function normalizeProject(
 }
 
 export function getProjectTypeLabel(projectType: ProjectType | null | undefined): string {
-  return normalizeProjectType(projectType) === "ssh" ? "SSH 项目" : "本地项目";
+  return i18n.t(
+    normalizeProjectType(projectType) === "ssh"
+      ? "common:projectType.ssh"
+      : "common:projectType.local",
+  );
 }
 
 export function getProjectWorkingDir(
@@ -85,5 +90,7 @@ export function filterProjectsByScope(
 }
 
 export function getEnvironmentModeLabel(environmentMode: EnvironmentMode): string {
-  return environmentMode === "ssh" ? "SSH 模式" : "本地模式";
+  return i18n.t(
+    environmentMode === "ssh" ? "common:environmentMode.ssh" : "common:environmentMode.local",
+  );
 }

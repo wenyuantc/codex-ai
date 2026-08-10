@@ -1,14 +1,17 @@
 import { useEffect, useCallback, useState } from "react";
+import { useTranslation } from "react-i18next";
+import { Activity, RefreshCw } from "lucide-react";
+
 import { useDashboardStore } from "@/stores/dashboardStore";
 import { useProjectStore } from "@/stores/projectStore";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { Activity, RefreshCw } from "lucide-react";
 import { ActivityListDialog } from "./ActivityListDialog";
 import { ActivityLogItem } from "./ActivityLogItem";
 
 export function ActivityFeed() {
+  const { t } = useTranslation("dashboard");
   const { recentActivities, fetchRecentActivities } = useDashboardStore();
   const currentProjectId = useProjectStore((state) => state.currentProject?.id);
   const currentProjectName = useProjectStore((state) => state.currentProject?.name);
@@ -35,18 +38,18 @@ export function ActivityFeed() {
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-2">
           <Activity className="h-4 w-4 text-muted-foreground" />
-          <h3 className="text-sm font-semibold">最近活动</h3>
+          <h3 className="text-sm font-semibold">{t("recentActivity")}</h3>
         </div>
         <div className="flex items-center gap-1">
           <Button variant="ghost" size="sm" onClick={() => setDialogOpen(true)}>
-            查看更多
+            {t("viewMore")}
           </Button>
           <Button
             variant="ghost"
             size="icon-sm"
             onClick={refresh}
-            title="刷新最近活动"
-            aria-label="刷新最近活动"
+            title={t("refreshActivity")}
+            aria-label={t("refreshActivity")}
           >
             <RefreshCw className="h-3.5 w-3.5 text-muted-foreground" />
           </Button>
@@ -54,7 +57,9 @@ export function ActivityFeed() {
       </div>
 
       {recentActivities.length === 0 ? (
-        <div className="text-sm text-muted-foreground text-center py-8">暂无活动记录</div>
+        <div className="text-sm text-muted-foreground text-center py-8">
+          {t("noActivityRecords")}
+        </div>
       ) : (
         <ScrollArea className="flex-1 max-h-[400px]">
           <div className="space-y-2 pr-3">

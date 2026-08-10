@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { confirm, message, open, save } from "@tauri-apps/plugin-dialog";
 import { useSearchParams } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 
 import { DatabaseSettingsTab } from "@/components/settings/DatabaseSettingsTab";
 import { GitAutomationSettingsTab } from "@/components/settings/GitAutomationSettingsTab";
@@ -60,6 +61,8 @@ import {
   type OpenCodeModelInfo,
   type RemoteOpenCodeHealthCheck,
 } from "@/lib/opencode";
+import { changeAppLocale } from "@/lib/i18n";
+import { getLocalePreference, type AppLocale } from "@/lib/i18n/locale";
 import { getEnvironmentModeLabel } from "@/lib/projects";
 import {
   normalizeAiProvider,
@@ -90,13 +93,13 @@ import { useProjectStore } from "@/stores/projectStore";
 
 const DATABASE_FILE_FILTERS = [{ name: "SQL 备份", extensions: ["sql"] }];
 
-const SETTINGS_TABS: Array<{ value: SettingsTabValue; label: string }> = [
-  { value: "runtime", label: "界面与运行" },
-  { value: "git", label: "Git 与自动质控" },
-  { value: "prompts", label: "提示词模板" },
-  { value: "mcp", label: "MCP 管理" },
-  { value: "ssh", label: "SSH 配置" },
-  { value: "database", label: "数据库维护" },
+const SETTINGS_TAB_KEYS: Array<{ value: SettingsTabValue; labelKey: string }> = [
+  { value: "runtime", labelKey: "settings:tabs.runtime" },
+  { value: "git", labelKey: "settings:tabs.git" },
+  { value: "prompts", labelKey: "settings:tabs.prompts" },
+  { value: "mcp", labelKey: "settings:tabs.mcp" },
+  { value: "ssh", labelKey: "settings:tabs.ssh" },
+  { value: "database", labelKey: "settings:tabs.database" },
 ];
 
 const isTauriRuntime =
@@ -164,6 +167,7 @@ function buildBackupDefaultPath(health: CodexHealthCheck | null) {
 }
 
 export function SettingsPage() {
+  const { t } = useTranslation("settings");
   const [searchParams, setSearchParams] = useSearchParams();
   const environmentMode = useProjectStore((state) => state.environmentMode);
   const sshConfigs = useProjectStore((state) => state.sshConfigs);
@@ -173,6 +177,7 @@ export function SettingsPage() {
   const fetchSshConfigs = useProjectStore((state) => state.fetchSshConfigs);
 
   const [themeMode, setThemeMode] = useState<ThemeMode>(getThemePreference);
+  const [locale, setLocale] = useState<AppLocale>(getLocalePreference);
   const [codexHealth, setCodexHealth] = useState<CodexHealthCheck | RemoteCodexHealthCheck | null>(
     null,
   );
@@ -553,6 +558,10 @@ export function SettingsPage() {
   }, [themeMode]);
 
   useEffect(() => {
+    void changeAppLocale(locale);
+  }, [locale]);
+
+  useEffect(() => {
     void fetchSshConfigs();
   }, [fetchSshConfigs]);
 
@@ -596,7 +605,7 @@ export function SettingsPage() {
   };
 
   const handleTabChange = (value: string) => {
-    if (!SETTINGS_TABS.some((tab) => tab.value === value)) {
+    if (!SETTINGS_TAB_KEYS.some((tab) => tab.value === value)) {
       return;
     }
 
@@ -1076,9 +1085,9 @@ export function SettingsPage() {
       <Tabs value={activeTab} onValueChange={handleTabChange} className="gap-6">
         <div className="overflow-x-auto overflow-y-hidden [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
           <TabsList variant="line" className="min-w-max justify-start">
-            {SETTINGS_TABS.map((tab) => (
+            {SETTINGS_TAB_KEYS.map((tab) => (
               <TabsTrigger key={tab.value} value={tab.value}>
-                {tab.label}
+                {t(tab.labelKey)}
               </TabsTrigger>
             ))}
           </TabsList>
@@ -1106,6 +1115,8 @@ export function SettingsPage() {
             nodePathOverride={nodePathOverride}
             themeMode={themeMode}
             onThemeModeChange={setThemeMode}
+            locale={locale}
+            onLocaleChange={setLocale}
             onTaskSdkEnabledChange={setTaskSdkEnabled}
             onOneShotSdkEnabledChange={setOneShotSdkEnabled}
             onOneShotPreferredProviderChange={(provider) => {

@@ -2,6 +2,7 @@ import { useLocation, useNavigate } from "react-router-dom";
 import { Laptop, Moon, ServerCog, Sun } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useHotkeys } from "react-hotkeys-hook";
+import { useTranslation } from "react-i18next";
 import { GLOBAL_SHORTCUTS, shortcutDisplay, shortcutKeys } from "@/lib/shortcuts";
 import { useProjectStore } from "@/stores/projectStore";
 import {
@@ -25,19 +26,22 @@ import { NotificationCenter } from "@/components/layout/NotificationCenter";
 
 const ALL_PROJECTS_VALUE = "__all_projects__";
 
-const pageTitles: Record<string, string> = {
-  "/": "仪表盘",
-  "/projects": "项目管理",
-  "/kanban": "看板管理",
-  "/employees": "员工管理",
-  "/sessions": "对话管理",
-  "/settings": "系统设置",
+const pageTitleKeys: Record<string, string> = {
+  "/": "nav:dashboard",
+  "/projects": "nav:projects",
+  "/kanban": "nav:kanban",
+  "/employees": "nav:employees",
+  "/sessions": "nav:sessions",
+  "/settings": "nav:settingsFull",
+  "/trash": "nav:trash",
 };
 
 export function Header() {
+  const { t } = useTranslation(["nav", "common"]);
   const location = useLocation();
   const navigate = useNavigate();
-  const title = pageTitles[location.pathname] || "AI员工协作系统";
+  const titleKey = pageTitleKeys[location.pathname];
+  const title = titleKey ? t(titleKey) : t("common:appName");
   const {
     projects,
     currentProject,
@@ -137,7 +141,7 @@ export function Header() {
               onClick={() => void handleEnvironmentModeChange("local")}
             >
               <Laptop className="h-3.5 w-3.5" />
-              本地
+              {t("common:localShort")}
             </Button>
             <Button
               type="button"
@@ -147,7 +151,7 @@ export function Header() {
               onClick={() => void handleEnvironmentModeChange("ssh")}
             >
               <ServerCog className="h-3.5 w-3.5" />
-              SSH
+              {t("common:sshShort")}
             </Button>
           </div>
         </div>
@@ -163,16 +167,16 @@ export function Header() {
             }}
           >
             <SelectTrigger className="w-[260px] bg-background">
-              <SelectValue placeholder="选择 SSH 主机">
+              <SelectValue placeholder={t("common:selectSshHost")}>
                 {(value) => {
                   if (!value) {
-                    return "选择 SSH 主机";
+                    return t("common:selectSshHost");
                   }
 
                   const sshConfig = sshConfigs.find((config) => config.id === value);
                   return sshConfig
                     ? `${sshConfig.name} (${sshConfig.username}@${sshConfig.host})`
-                    : "选择 SSH 主机";
+                    : t("common:selectSshHost");
                 }}
               </SelectValue>
             </SelectTrigger>
@@ -202,15 +206,18 @@ export function Header() {
               <SelectValue>
                 {(value) => {
                   if (!value || value === ALL_PROJECTS_VALUE) {
-                    return "全部项目";
+                    return t("common:allProjects");
                   }
 
-                  return projects.find((project) => project.id === value)?.name ?? "全部项目";
+                  return (
+                    projects.find((project) => project.id === value)?.name ??
+                    t("common:allProjects")
+                  );
                 }}
               </SelectValue>
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value={ALL_PROJECTS_VALUE}>全部项目</SelectItem>
+              <SelectItem value={ALL_PROJECTS_VALUE}>{t("common:allProjects")}</SelectItem>
               {projects.map((project) => (
                 <SelectItem key={project.id} value={project.id}>
                   {project.name}
@@ -224,7 +231,7 @@ export function Header() {
           onClick={toggleTheme}
           className="p-2 rounded-md hover:bg-accent transition-colors"
           title={
-            (dark ? "切换亮色模式" : "切换暗色模式") +
+            (dark ? t("common:switchToLight") : t("common:switchToDark")) +
             " (" +
             shortcutDisplay(GLOBAL_SHORTCUTS[1]) +
             ")"

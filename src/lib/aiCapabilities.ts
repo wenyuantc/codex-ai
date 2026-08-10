@@ -1,15 +1,12 @@
 import { getAiProviderCapabilities, type AiProviderCapabilities } from "@/lib/backend";
+import i18n from "@/lib/i18n";
 import type { AiProvider } from "@/lib/types";
 
 export type EngineCapabilityKey = "start" | "stop" | "restart" | "send_input" | "resume";
 
-const CAPABILITY_LABELS: Record<EngineCapabilityKey, string> = {
-  start: "启动",
-  stop: "停止",
-  restart: "重启",
-  send_input: "会话中输入",
-  resume: "续聊",
-};
+function capabilityLabel(capability: EngineCapabilityKey): string {
+  return i18n.t(`errors:capability.${capability}`);
+}
 
 let cache: AiProviderCapabilities[] | null = null;
 let loadPromise: Promise<AiProviderCapabilities[]> | null = null;
@@ -78,23 +75,23 @@ export function capabilityDisabledReason(
   capability: EngineCapabilityKey,
 ): string | null {
   if (loadFailed && !capabilities) {
-    return "能力信息加载失败，操作已禁用";
+    return i18n.t("errors:capabilityLoadFailed");
   }
   const item = getCap(capabilities, provider);
   if (!item) {
-    return "当前引擎能力未知，操作已禁用";
+    return i18n.t("errors:capabilityUnknown");
   }
   if (item[capability]) {
     return null;
   }
-  const label = CAPABILITY_LABELS[capability];
+  const label = capabilityLabel(capability);
   if (capability === "send_input") {
-    return item.notes?.trim() || `当前引擎不支持${label}（非交互模式）`;
+    return item.notes?.trim() || i18n.t("errors:capabilityUnsupportedNonInteractive", { label });
   }
   if (capability === "restart") {
-    return item.notes?.trim() || `当前引擎不支持${label}`;
+    return item.notes?.trim() || i18n.t("errors:capabilityUnsupported", { label });
   }
-  return item.notes?.trim() || `当前引擎不支持${label}`;
+  return item.notes?.trim() || i18n.t("errors:capabilityUnsupported", { label });
 }
 
 export function clearAiProviderCapabilitiesCache(): void {

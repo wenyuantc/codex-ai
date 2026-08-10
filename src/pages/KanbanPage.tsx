@@ -1,5 +1,6 @@
 import { useHotkeys } from "react-hotkeys-hook";
 import { Kbd } from "@/components/keyboard/Kbd";
+import { useTranslation } from "react-i18next";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
@@ -25,6 +26,7 @@ import {
 import { filterKanbanTaskIds, type TaskTagMap } from "@/lib/kanbanFilters";
 import type { CodexSessionKind, Milestone, Tag } from "@/lib/types";
 import { PRIORITIES, TASK_STATUSES } from "@/lib/types";
+import { getPriorityLabel, getStatusLabel } from "@/lib/utils";
 import { useTaskStore } from "@/stores/taskStore";
 import { useProjectStore } from "@/stores/projectStore";
 import { useEmployeeStore } from "@/stores/employeeStore";
@@ -33,6 +35,7 @@ const FILTER_ALL = "all";
 const FILTER_UNASSIGNED = "__unassigned__";
 
 export function KanbanPage() {
+  const { t } = useTranslation("kanban");
   const [searchParams, setSearchParams] = useSearchParams();
   const { fetchTasks, tasks } = useTaskStore();
   const currentProjectId = useProjectStore((state) => state.currentProject?.id);
@@ -229,7 +232,7 @@ export function KanbanPage() {
 
   const handleBatchUpdate = async () => {
     if (selectedTaskIds.length === 0 || !batchStatus) {
-      setBatchMessage("请选择任务并指定目标状态。");
+      setBatchMessage(t("batchNeedSelection"));
       return;
     }
     setBatchLoading(true);
@@ -238,7 +241,7 @@ export function KanbanPage() {
       await batchUpdateTasks({ task_ids: selectedTaskIds, status: batchStatus });
       await fetchTasks(currentProjectId);
       setSelectedTaskIds([]);
-      setBatchMessage(`已批量更新 ${selectedTaskIds.length} 个任务状态。`);
+      setBatchMessage(t("batchUpdated", { count: selectedTaskIds.length }));
     } catch (error) {
       setBatchMessage(error instanceof Error ? error.message : String(error));
     } finally {
@@ -250,30 +253,30 @@ export function KanbanPage() {
     <div className="h-full flex flex-col">
       <div className="mb-4 space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <h2 className="text-lg font-semibold">看板列表</h2>
+          <h2 className="text-lg font-semibold">{t("listTitle")}</h2>
           <div className="flex flex-wrap items-center gap-2">
             <Button
               variant={overdueOnly ? "default" : "outline"}
               onClick={() => setOverdueOnly((current) => !current)}
             >
-              {overdueOnly ? "仅逾期" : "含未逾期"}
+              {overdueOnly ? t("overdueOnly") : t("includeNotOverdue")}
             </Button>
             <Button
               variant={blockedOnly ? "default" : "outline"}
               onClick={() => setBlockedOnly((current) => !current)}
             >
-              {blockedOnly ? "仅阻塞" : "含未阻塞"}
+              {blockedOnly ? t("blockedOnly") : t("includeNotBlocked")}
             </Button>
             <Button onClick={() => setShowCreateDialog(true)}>
               <Plus className="h-4 w-4" />
-              新建任务
+              {t("createTask")}
               <Kbd variant="primary" size="xs" className="ml-1.5">
                 N
               </Kbd>
             </Button>
             <Button variant="outline" onClick={() => setShowArchiveDialog(true)}>
               <Archive className="h-4 w-4" />
-              归档管理
+              {t("archiveManage")}
               <Kbd variant="subtle" size="xs" className="ml-1.5">
                 A
               </Kbd>
@@ -284,11 +287,11 @@ export function KanbanPage() {
         {testerAutomationEnabled === false && !testerTipDismissed && (
           <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-950 dark:text-amber-100">
             <p>
-              测试员自动化当前关闭：任务做完不会自动验收。可在
+              {t("testerTip")}
               <Link className="mx-1 underline" to="/settings?section=git">
-                设置 → Git 与自动质控
+                {t("testerTipLink")}
               </Link>
-              开启「启用测试员自动化」。
+              {t("testerTipSuffix")}
             </p>
             <Button
               variant="ghost"
@@ -299,7 +302,7 @@ export function KanbanPage() {
                 setTesterTipDismissed(true);
               }}
             >
-              知道了
+              {t("gotIt")}
             </Button>
           </div>
         )}
@@ -307,7 +310,7 @@ export function KanbanPage() {
         <div className="flex flex-wrap items-center gap-2">
           <Input
             className="h-9 w-48"
-            placeholder="搜索标题/描述"
+            placeholder={t("searchPlaceholder")}
             value={keyword}
             onChange={(e) => setKeyword(e.target.value)}
           />
@@ -316,17 +319,17 @@ export function KanbanPage() {
             onValueChange={(value) => setMilestoneFilter(value ?? FILTER_ALL)}
           >
             <SelectTrigger className="h-9 w-40">
-              <SelectValue placeholder="里程碑">
+              <SelectValue placeholder={t("milestone")}>
                 {(value) => {
                   if (!value || value === FILTER_ALL) {
-                    return "全部里程碑";
+                    return t("allMilestones");
                   }
-                  return milestones.find((item) => item.id === value)?.name ?? "里程碑";
+                  return milestones.find((item) => item.id === value)?.name ?? t("milestone");
                 }}
               </SelectValue>
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value={FILTER_ALL}>全部里程碑</SelectItem>
+              <SelectItem value={FILTER_ALL}>{t("allMilestones")}</SelectItem>
               {milestones.map((item) => (
                 <SelectItem key={item.id} value={item.id}>
                   {item.name}
@@ -336,17 +339,17 @@ export function KanbanPage() {
           </Select>
           <Select value={tagFilter} onValueChange={(value) => setTagFilter(value ?? FILTER_ALL)}>
             <SelectTrigger className="h-9 w-36">
-              <SelectValue placeholder="标签">
+              <SelectValue placeholder={t("tag")}>
                 {(value) => {
                   if (!value || value === FILTER_ALL) {
-                    return "全部标签";
+                    return t("allTags");
                   }
-                  return tags.find((item) => item.id === value)?.name ?? "标签";
+                  return tags.find((item) => item.id === value)?.name ?? t("tag");
                 }}
               </SelectValue>
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value={FILTER_ALL}>全部标签</SelectItem>
+              <SelectItem value={FILTER_ALL}>{t("allTags")}</SelectItem>
               {tags.map((item) => (
                 <SelectItem key={item.id} value={item.id}>
                   {item.name}
@@ -359,20 +362,20 @@ export function KanbanPage() {
             onValueChange={(value) => setPriorityFilter(value ?? FILTER_ALL)}
           >
             <SelectTrigger className="h-9 w-32">
-              <SelectValue placeholder="优先级">
+              <SelectValue placeholder={t("priority")}>
                 {(value) => {
                   if (!value || value === FILTER_ALL) {
-                    return "全部优先级";
+                    return t("allPriorities");
                   }
-                  return PRIORITIES.find((item) => item.value === value)?.label ?? "优先级";
+                  return value ? getPriorityLabel(String(value)) : t("priority");
                 }}
               </SelectValue>
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value={FILTER_ALL}>全部优先级</SelectItem>
+              <SelectItem value={FILTER_ALL}>{t("allPriorities")}</SelectItem>
               {PRIORITIES.map((item) => (
                 <SelectItem key={item.value} value={item.value}>
-                  {item.label}
+                  {getPriorityLabel(item.value)}
                 </SelectItem>
               ))}
             </SelectContent>
@@ -382,21 +385,21 @@ export function KanbanPage() {
             onValueChange={(value) => setAssigneeFilter(value ?? FILTER_ALL)}
           >
             <SelectTrigger className="h-9 w-36">
-              <SelectValue placeholder="执行人">
+              <SelectValue placeholder={t("assignee")}>
                 {(value) => {
                   if (!value || value === FILTER_ALL) {
-                    return "全部执行人";
+                    return t("allAssignees");
                   }
                   if (value === FILTER_UNASSIGNED) {
-                    return "未指派";
+                    return t("unassigned");
                   }
-                  return projectEmployees.find((item) => item.id === value)?.name ?? "执行人";
+                  return projectEmployees.find((item) => item.id === value)?.name ?? t("assignee");
                 }}
               </SelectValue>
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value={FILTER_ALL}>全部执行人</SelectItem>
-              <SelectItem value={FILTER_UNASSIGNED}>未指派</SelectItem>
+              <SelectItem value={FILTER_ALL}>{t("allAssignees")}</SelectItem>
+              <SelectItem value={FILTER_UNASSIGNED}>{t("unassigned")}</SelectItem>
               {projectEmployees.map((item) => (
                 <SelectItem key={item.id} value={item.id}>
                   {item.name}
@@ -409,18 +412,16 @@ export function KanbanPage() {
             onValueChange={(value) => setBatchStatus(value ?? "")}
           >
             <SelectTrigger className="h-9 w-36">
-              <SelectValue placeholder="批量改状态">
+              <SelectValue placeholder={t("batchStatus")}>
                 {(value) =>
-                  typeof value === "string" && value
-                    ? (TASK_STATUSES.find((item) => item.value === value)?.label ?? value)
-                    : "批量改状态"
+                  typeof value === "string" && value ? getStatusLabel(value) : t("batchStatus")
                 }
               </SelectValue>
             </SelectTrigger>
             <SelectContent>
               {TASK_STATUSES.map((item) => (
                 <SelectItem key={item.value} value={item.value}>
-                  {item.label}
+                  {getStatusLabel(item.value)}
                 </SelectItem>
               ))}
             </SelectContent>
@@ -431,14 +432,14 @@ export function KanbanPage() {
             disabled={batchLoading}
             onClick={() => {
               setSelectedTaskIds(filteredTaskIds);
-              setBatchMessage(`已选中当前筛选下 ${filteredTaskIds.length} 个任务。`);
+              setBatchMessage(t("batchSelected", { count: filteredTaskIds.length }));
             }}
           >
             <CheckSquare className="h-4 w-4" />
-            全选筛选结果
+            {t("selectAllFiltered")}
           </Button>
           <Button size="sm" disabled={batchLoading} onClick={() => void handleBatchUpdate()}>
-            批量更新 ({selectedTaskIds.length})
+            {t("batchUpdate", { count: selectedTaskIds.length })}
           </Button>
           {batchMessage && <span className="text-xs text-muted-foreground">{batchMessage}</span>}
         </div>
@@ -483,17 +484,13 @@ export function KanbanPage() {
           />
         ) : (
           <div className="flex h-full flex-col items-center justify-center gap-3 rounded-lg border border-dashed border-border text-sm text-muted-foreground">
-            <p>
-              {environmentMode === "ssh"
-                ? "当前 SSH 视图还没有项目，请先到项目管理创建 SSH 项目。"
-                : "当前没有可展示的本地项目。"}
-            </p>
+            <p>{environmentMode === "ssh" ? t("emptySshProjects") : t("emptyLocalProjects")}</p>
             <div className="flex flex-wrap items-center justify-center gap-2">
               <Link
                 to="/projects"
                 className="rounded-md bg-primary px-3 py-1.5 text-sm text-primary-foreground hover:bg-primary/90"
               >
-                去创建项目
+                {t("goCreateProject")}
               </Link>
               {currentProjectId && (
                 <button
@@ -501,7 +498,7 @@ export function KanbanPage() {
                   onClick={() => setShowCreateDialog(true)}
                   className="rounded-md border border-border px-3 py-1.5 text-sm hover:bg-accent"
                 >
-                  新建任务
+                  {t("createTask")}
                 </button>
               )}
             </div>

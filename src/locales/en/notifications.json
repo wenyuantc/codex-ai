@@ -1,0 +1,34 @@
+{
+  "title": "Notifications",
+  "empty": "No notifications",
+  "emptyDetail": "No notifications yet. Reviews, run failures, and health issues will appear here.",
+  "triggeredAt": "Triggered at: {{time}}",
+  "markRead": "Mark read",
+  "markAllRead": "Mark all read",
+  "resolve": "Resolve",
+  "sticky": "Sticky",
+  "transient": "Transient",
+  "unread": "Unread",
+  "recommendation": "Suggestion: {{text}}",
+  "viewDetails": "View details",
+  "openAria": "Open notification center",
+  "unreadSr": "{{count}} unread notifications",
+  "pendingDescription": "{{count}} notifications need attention",
+  "noPendingDescription": "No pending notifications",
+  "severity": {
+    "info": "Info",
+    "success": "Resolved",
+    "warning": "Warning",
+    "error": "Error",
+    "critical": "Critical"
+  },
+  "types": {
+    "review_pending": "Review pending",
+    "run_failed": "Run failed",
+    "run_completed": "Run completed",
+    "task_completed": "Task completed",
+    "sdk_unavailable": "SDK unavailable",
+    "database_error": "Database error",
+    "ssh_config_error": "SSH error"
+  }
+}

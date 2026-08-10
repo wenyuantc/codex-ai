@@ -1,0 +1,15 @@
+{
+  "capabilityLoadFailed": "Failed to load capabilities; action disabled",
+  "capabilityUnknown": "Engine capabilities unknown; action disabled",
+  "capabilityUnsupported": "This engine does not support {{label}}",
+  "capabilityUnsupportedNonInteractive": "This engine does not support {{label}} (non-interactive)",
+  "capability": {
+    "start": "start",
+    "stop": "stop",
+    "restart": "restart",
+    "send_input": "mid-session input",
+    "resume": "resume"
+  },
+  "generic": "Something went wrong. Please try again.",
+  "rustUnmappedNote": "These backend errors are shown as-is until a stable frontend mapping exists"
+}

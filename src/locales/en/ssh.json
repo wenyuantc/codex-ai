@@ -1,0 +1,16 @@
+{
+  "trustBannerTitle": "SSH mode · review evidence may be incomplete:",
+  "trustBanner": "In remote mode, the local app usually keeps session metadata only; full diffs / file snapshots may not be returned. Combine remote git status when reviewing — do not treat local details as complete evidence.",
+  "trustBannerHint": "See the limited-capture notice in the session changes dialog; upgrading the remote Codex SDK (ssh_full) improves capture.",
+  "openSettings": "Open settings",
+  "artifactLimitedTitle": "Remote change details limited",
+  "artifactLimitedTitleSsh": "Remote change details limited (SSH)",
+  "artifactLimitedBody": "During remote execution, the local database usually keeps conversation metadata only; full file snapshots may be unavailable. You can still view logs, continue the session, or inspect git status on the remote host. Upgrade the remote Codex SDK (ssh_full) or review on the remote machine for fuller details.",
+  "artifactLimitedWhyLabel": "Why limited:",
+  "artifactLimitedWhy": "This is SSH remote execution. The local database mainly stores session metadata; full file diffs / snapshots may not sync back.",
+  "artifactLimitedCanLabel": "You can still:",
+  "artifactLimitedCan": "View session logs, continue the conversation, and check git status / diff on the remote host.",
+  "artifactLimitedHowLabel": "How to get fuller details:",
+  "artifactLimitedHow": "Upgrade the remote Codex SDK to enable ssh_full capture when available, or review changes directly on the remote machine.",
+  "artifactLimited": "Remote session change details are limited; review evidence may be incomplete."
+}

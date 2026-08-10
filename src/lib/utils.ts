@@ -6,6 +6,9 @@ import type {
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
 
+import i18n from "@/lib/i18n";
+import { getDateLocale, getLocalePreference } from "@/lib/i18n/locale";
+
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
@@ -25,7 +28,7 @@ export function parseDateValue(dateStr: string): Date | null {
 
 export function formatDate(dateStr: string): string {
   const parsed = parseDateValue(dateStr);
-  return parsed ? parsed.toLocaleString("zh-CN") : dateStr;
+  return parsed ? parsed.toLocaleString(getDateLocale(getLocalePreference())) : dateStr;
 }
 
 /** YYYY-MM-DD prefix from a stored due_date (date-only or datetime). */
@@ -62,12 +65,16 @@ export function formatDuration(totalSeconds: number | null | undefined): string 
   const seconds = safeSeconds % 60;
 
   if (hours > 0) {
-    return minutes > 0 ? `${hours}小时${minutes}分钟` : `${hours}小时`;
+    return minutes > 0
+      ? i18n.t("common:hoursMinutes", { hours, minutes })
+      : i18n.t("common:hours", { count: hours });
   }
   if (minutes > 0) {
-    return seconds > 0 ? `${minutes}分钟${seconds}秒` : `${minutes}分钟`;
+    return seconds > 0
+      ? i18n.t("common:minutesSeconds", { minutes, seconds })
+      : i18n.t("common:minutes", { count: minutes });
   }
-  return `${seconds}秒`;
+  return i18n.t("common:seconds", { count: seconds });
 }
 
 export function getTaskElapsedSeconds(
@@ -102,176 +109,14 @@ export function getStatusColor(status: string): string {
 }
 
 export function getStatusLabel(status: string): string {
-  const labels: Record<string, string> = {
-    todo: "待办",
-    in_progress: "进行中",
-    review: "审核中",
-    completed: "已完成",
-    blocked: "已阻塞",
-    online: "在线",
-    busy: "忙碌",
-    offline: "离线",
-    error: "错误",
-    active: "活跃",
-    archived: "已归档",
-  };
-  return labels[status] || status;
+  return i18n.t(`common:status.${status}`, { defaultValue: status });
 }
 
 export function getActivityActionLabel(action: string): string {
-  const labels: Record<string, string> = {
-    task_created: "创建任务",
-    task_status_changed: "任务状态变更",
-    task_deleted: "删除任务",
-    task_due_date_set: "设置任务截止日期",
-    task_blocked_reason_set: "设置任务阻塞原因",
-    task_tag_added: "添加任务标签",
-    task_dependency_added: "添加任务依赖",
-    task_dependency_removed: "移除任务依赖",
-    milestone_created: "创建里程碑",
-    milestone_deleted: "删除里程碑",
-    tag_deleted: "删除标签",
-    task_timer_started: "任务开始计时",
-    task_timer_completed: "任务计时完成",
-    task_timer_stopped: "任务停止计时",
-    task_timer_reopened: "任务重新打开",
-    task_execution_started: "开始任务会话",
-    task_execution_resumed: "继续任务会话",
-    task_automation_enabled: "开启自动质控",
-    task_automation_disabled: "关闭自动质控",
-    task_automation_review_started: "自动质控开始审核",
-    task_automation_fix_started: "自动质控开始修复",
-    task_automation_commit_started: "自动质控开始提交代码",
-    task_automation_commit_completed: "自动质控提交代码完成",
-    task_automation_commit_failed: "自动质控提交代码失败",
-    task_automation_completed: "自动质控闭环完成",
-    task_automation_blocked: "自动质控阻塞",
-    task_automation_manual_control: "自动质控转人工处理",
-    task_automation_skip_disabled: "自动质控因配置关闭而跳过",
-    task_automation_restart_requested: "重启自动质控",
-    task_automation_settings_updated: "自动质控设置更新",
-    git_preferences_updated: "Git 偏好设置更新",
-    task_review_requested: "请求代码审核",
-    task_review_started: "开始代码审核",
-    task_review_completed: "代码审核完成",
-    task_review_failed: "代码审核失败",
-    task_coordinator_changed: "更新任务协调员",
-    task_plan_generated: "协调员生成计划",
-    task_pipeline_plan_saved: "保存编排工作包",
-    task_pipeline_started: "开始按计划编排",
-    task_pipeline_step_started: "编排步骤开始",
-    task_pipeline_step_completed: "编排步骤完成",
-    task_pipeline_step_failed: "编排步骤失败",
-    task_pipeline_step_manual_run: "手动运行编排步骤",
-    task_pipeline_step_manual_stop: "手动停止编排步骤",
-    task_pipeline_completed: "编排全部完成",
-    task_pipeline_aborted: "编排转人工",
-    task_pipeline_resumed: "编排转自动",
-    task_tester_acceptance_generated: "测试员生成验收清单",
-    task_tester_acceptance_started: "开始测试验收",
-    task_tester_acceptance_passed: "测试验收通过",
-    task_tester_acceptance_failed: "测试验收失败",
-    task_tester_command_failed: "测试命令失败",
-    task_tester_skipped: "跳过测试员阶段",
-    task_tester_checklist_updated: "更新验收清单",
-    task_plan_saved: "保存任务计划",
-    task_worktree_enabled: "开启任务 Worktree 模式",
-    task_git_context_ready: "任务代码等待自动提交",
-    task_git_context_prepared: "Git 执行上下文已准备",
-    task_git_context_prepare_failed: "Git 执行上下文准备失败",
-    task_git_context_drift_detected: "Git 执行上下文已失效",
-    task_git_context_reconciled: "Git 执行上下文已修复",
-    task_git_stage_all: "暂存任务全部改动",
-    task_project_git_stage_all: "暂存任务主仓库全部改动",
-    task_git_committed: "提交任务代码",
-    task_project_git_committed: "提交任务主仓库代码",
-    task_ai_commit_started: "任务 AI 提交开始",
-    task_ai_commit_completed: "任务 AI 提交完成",
-    task_ai_commit_failed: "任务 AI 提交失败",
-    task_ai_conflict_resolve_started: "AI 解冲突开始",
-    task_ai_conflict_resolve_completed: "AI 解冲突完成",
-    task_ai_conflict_resolve_failed: "AI 解冲突失败",
-    git_action_requested: "Git 高风险操作待确认",
-    git_action_confirmed: "Git 高风险操作已执行",
-    git_action_cancelled: "Git 高风险操作已取消",
-    git_action_rejected: "Git 高风险操作已拒绝",
-    task_merge_ready: "任务变更已进入待合并",
-    task_worktree_cleanup_completed: "任务工作树清理完成",
-    project_git_file_opened: "浏览工作区文件",
-    project_git_file_previewed: "预览工作区文件",
-    project_git_worktrees_viewed: "查看 Worktree 列表",
-    project_git_worktree_file_previewed: "预览 Worktree 文件",
-    project_git_commit_history_viewed: "浏览项目提交历史",
-    project_git_commit_detail_viewed: "查看提交详情",
-    project_git_commit_file_previewed: "预览提交文件对比",
-    project_git_file_staged: "暂存工作区文件",
-    project_git_file_unstaged: "取消暂存工作区文件",
-    project_git_stage_all: "暂存全部工作区文件",
-    project_git_unstage_all: "取消暂存全部工作区文件",
-    project_git_worktree_file_staged: "暂存 Worktree 文件",
-    project_git_worktree_file_unstaged: "取消暂存 Worktree 文件",
-    project_git_worktree_stage_all: "暂存 Worktree 全部文件",
-    project_git_worktree_unstage_all: "取消暂存 Worktree 全部文件",
-    project_git_worktree_rollback_files: "回滚 Worktree 选中文件",
-    project_git_worktree_rollback_all: "回滚 Worktree 全部变更",
-    project_git_committed: "创建项目提交",
-    project_git_worktree_committed: "创建 Worktree 提交",
-    project_git_commit_message_generated: "AI 生成提交信息",
-    project_git_worktree_commit_message_generated: "AI 生成 Worktree 提交信息",
-    project_git_worktree_merged: "合并 Worktree 到目标分支",
-    ai_prompt_optimized: "AI 生成提示词",
-    ai_prompt_templates_updated: "AI 提示词模板已更新",
-    ai_prompt_templates_reset: "AI 提示词模板已重置",
-    project_git_pushed: "推送项目分支",
-    project_git_pulled: "拉取项目分支",
-    project_git_rollback_files: "回滚项目选中文件",
-    project_git_rollback_all: "回滚项目全部变更",
-    project_git_branch_checked_out: "切换项目分支",
-    project_git_branch_created: "创建项目分支",
-    project_git_branch_deleted: "删除项目分支",
-    project_git_branches_merged: "合并项目分支",
-    project_git_worktree_removed: "删除 Git Worktree",
-    project_deleted: "删除项目",
-    project_permanently_deleted: "永久删除项目",
-    task_permanently_deleted: "永久删除任务",
-    environment_mode_switched: "切换SSH模式",
-    ssh_host_selected: "切换SSH主机",
-    employee_project_membership_conflict_migrated: "员工项目归属冲突已迁移",
-    ssh_config_created: "新增SSH配置",
-    ssh_config_updated: "更新SSH配置",
-    ssh_config_deleted: "删除SSH配置",
-    git_runtime_installed: "本地 Git 运行时已安装",
-    git_runtime_install_failed: "本地 Git 运行时安装失败",
-    grok_cli_installed: "安装 Grok CLI",
-    remote_sdk_installed: "远程安装SDK",
-    remote_opencode_sdk_installed: "远程安装 OpenCode SDK",
-    remote_opencode_validated: "远程校验 OpenCode",
-    remote_grok_cli_installed: "远程安装 Grok CLI",
-    remote_git_runtime_installed: "远程 Git 运行时已安装",
-    remote_git_runtime_install_failed: "远程 Git 运行时安装失败",
-    opencode_sdk_server_started: "OpenCode SDK 已启动",
-    opencode_sdk_server_start_failed: "OpenCode SDK 启动失败",
-    opencode_runtime_config_failed: "OpenCode 运行时配置失败",
-    opencode_runtime_config_restore_failed: "OpenCode 运行时配置恢复失败",
-    remote_codex_validated: "远程校验Codex",
-    remote_codex_verified: "远程校验Codex",
-    remote_task_attachments_synced: "同步远程任务附件",
-    remote_task_session_started: "启动远程任务会话",
-    remote_session_artifact_captured: "远程会话变更明细已保存",
-    remote_session_artifact_limited: "远程会话变更明细受限",
-    remote_artifact_capture_limited: "远程会话变更明细受限",
-    global_search_navigated: "使用全局搜索跳转",
-    tasks_batch_updated: "批量更新任务",
-    tasks_json_exported: "导出任务 JSON",
-    tasks_json_imported: "导入任务 JSON",
-    mcp_servers_updated: "更新 MCP 配置",
-    mcp_servers_reset: "重置 MCP 配置",
-    task_mcp_binding_updated: "更新任务 MCP 绑定",
-    notification_created: "创建通知提醒",
-    notification_resolved: "通知已恢复",
-    session_events_purged: "清理会话事件",
-  };
-  return labels[action] || action;
+  if (!action) {
+    return action;
+  }
+  return i18n.t(`activity:actions.${action}`, { defaultValue: action });
 }
 
 export function isArtifactCaptureLimited(mode: ArtifactCaptureMode): boolean {
@@ -314,24 +159,11 @@ export function getPriorityColor(priority: string): string {
 }
 
 export function getPriorityLabel(priority: string): string {
-  const labels: Record<string, string> = {
-    low: "低",
-    medium: "中",
-    high: "高",
-    urgent: "紧急",
-  };
-  return labels[priority] || priority;
+  return i18n.t(`common:priority.${priority}`, { defaultValue: priority });
 }
 
 export function getEmployeeRoleLabel(role: string): string {
-  const labels: Record<string, string> = {
-    developer: "开发者",
-    reviewer: "审查员",
-    tester: "测试员",
-    coordinator: "协调员",
-  };
-
-  return labels[role] || role;
+  return i18n.t(`common:role.${role}`, { defaultValue: role });
 }
 
 export interface TaskAutomationDisplayState {
@@ -344,14 +176,8 @@ export interface TaskAutomationDisplayState {
 }
 
 export function getAcceptanceStatusLabel(status: string | null | undefined): string {
-  if (!status) return "未跑";
-  const labels: Record<string, string> = {
-    running: "运行中",
-    passed: "通过",
-    failed: "失败",
-    skipped: "已跳过",
-  };
-  return labels[status] || status;
+  if (!status) return i18n.t("common:acceptanceIdle");
+  return i18n.t(`common:acceptance.${status}`, { defaultValue: status });
 }
 
 export function getAcceptanceStatusClassName(status: string | null | undefined): string {
@@ -370,36 +196,7 @@ export function getAcceptanceStatusClassName(status: string | null | undefined):
 }
 
 export function getTaskAutomationStatusLabel(status: string): string {
-  const labels: Record<string, string> = {
-    disabled: "未开启",
-    enabled: "已开启",
-    idle: "待命",
-    launching_review: "启动审核中",
-    waiting_review: "自动审核中",
-    launching_fix: "启动修复中",
-    waiting_execution: "自动修复中",
-    committing_code: "正在提交代码",
-    review_launch_failed: "审核启动失败",
-    fix_launch_failed: "修复启动失败",
-    commit_failed: "提交失败",
-    review_started: "自动审核中",
-    fix_started: "自动修复中",
-    launching_tester: "启动测试验收中",
-    waiting_tester: "测试验收中",
-    tester_failed: "测试验收失败",
-    tester_launch_failed: "测试验收启动失败",
-    completed: "闭环完成",
-    blocked: "已阻塞",
-    manual_control: "转人工处理",
-    skip_disabled: "因配置关闭而跳过",
-    pipeline_launching_step: "编排启动步骤中",
-    pipeline_waiting_step: "编排执行中",
-    pipeline_manual_launching_step: "手动编排启动中",
-    pipeline_manual_waiting_step: "手动编排执行中",
-    pipeline_step_failed: "编排步骤失败",
-  };
-
-  return labels[status] || status;
+  return i18n.t(`common:automation.${status}`, { defaultValue: status });
 }
 
 const ACTIVE_REVIEW_AUTOMATION_PHASES = new Set(["launching_review", "waiting_review"]);
@@ -503,13 +300,13 @@ export function getTaskAutomationDisplayState(
 }
 
 export function timeAgo(dateStr: string | null): string {
-  if (!dateStr) return "未知";
+  if (!dateStr) return i18n.t("common:unknown");
   const diff = Date.now() - new Date(dateStr + "Z").getTime();
   const minutes = Math.floor(diff / 60000);
-  if (minutes < 1) return "刚刚";
-  if (minutes < 60) return `${minutes} 分钟前`;
+  if (minutes < 1) return i18n.t("common:justNow");
+  if (minutes < 60) return i18n.t("common:minutesAgo", { count: minutes });
   const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours} 小时前`;
+  if (hours < 24) return i18n.t("common:hoursAgo", { count: hours });
   const days = Math.floor(hours / 24);
-  return `${days} 天前`;
+  return i18n.t("common:daysAgo", { count: days });
 }

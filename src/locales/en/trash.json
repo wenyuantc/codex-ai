@@ -1,0 +1,8 @@
+{
+  "title": "Trash",
+  "empty": "Trash is empty",
+  "restore": "Restore",
+  "permanentDelete": "Delete permanently",
+  "deletedTasks": "Deleted tasks",
+  "deletedProjects": "Deleted projects"
+}

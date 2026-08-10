@@ -1,0 +1,9 @@
+{
+  "title": "Projects",
+  "empty": "No projects yet",
+  "create": "New project",
+  "open": "Open project",
+  "listTitle": "Projects",
+  "scopeLocal": "Showing local projects only.",
+  "scopeSsh": "Showing SSH projects only."
+}

@@ -1,6 +1,8 @@
 import type { ReactNode } from "react";
 import { Component } from "react";
 
+import i18n from "@/lib/i18n";
+
 interface ErrorBoundaryProps {
   children: ReactNode;
   fallbackTitle?: string;
@@ -28,10 +30,11 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
     if (this.state.error) {
       return (
         <div className="rounded-lg border border-destructive/30 bg-destructive/10 p-4 text-sm text-destructive">
-          <p className="font-medium">{this.props.fallbackTitle ?? "界面渲染失败"}</p>
+          <p className="font-medium">
+            {this.props.fallbackTitle ?? i18n.t("common:renderFailedTitle")}
+          </p>
           <p className="mt-1 text-xs leading-5">
-            {this.props.fallbackDescription ??
-              "捕获到了运行时异常，请把下面的错误信息发给我继续定位。"}
+            {this.props.fallbackDescription ?? i18n.t("common:renderFailedDescription")}
           </p>
           <pre className="mt-3 overflow-x-auto whitespace-pre-wrap rounded-md bg-background/70 p-3 text-[11px] leading-5 text-foreground">
             {this.state.error.stack || this.state.error.message}

@@ -1,4 +1,5 @@
 import { Loader2, Monitor, Moon, RefreshCw, ShieldAlert, Sun, type LucideIcon } from "lucide-react";
+import { useTranslation } from "react-i18next";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -32,6 +33,7 @@ import type {
   OpenCodeModelInfo,
   RemoteOpenCodeHealthCheck,
 } from "@/lib/opencode";
+import { type AppLocale } from "@/lib/i18n/locale";
 import { type ThemeMode } from "@/lib/theme";
 import { formatDate } from "@/lib/utils";
 
@@ -57,6 +59,8 @@ interface RuntimeSettingsTabProps {
   nodePathOverride: string;
   themeMode: ThemeMode;
   onThemeModeChange: (mode: ThemeMode) => void;
+  locale: AppLocale;
+  onLocaleChange: (locale: AppLocale) => void;
   onTaskSdkEnabledChange: (value: boolean) => void;
   onOneShotSdkEnabledChange: (value: boolean) => void;
   onOneShotPreferredProviderChange: (value: AiProvider) => void;
@@ -122,10 +126,15 @@ interface RuntimeSettingsTabProps {
   onGrokRefresh: () => void;
 }
 
-const themeOptions: { value: ThemeMode; label: string; icon: LucideIcon }[] = [
-  { value: "light", label: "亮色", icon: Sun },
-  { value: "dark", label: "暗色", icon: Moon },
-  { value: "system", label: "跟随系统", icon: Monitor },
+const themeOptionDefs: { value: ThemeMode; labelKey: string; icon: LucideIcon }[] = [
+  { value: "light", labelKey: "settings:theme.light", icon: Sun },
+  { value: "dark", labelKey: "settings:theme.dark", icon: Moon },
+  { value: "system", labelKey: "settings:theme.system", icon: Monitor },
+];
+
+const localeOptions: { value: AppLocale; labelKey: string }[] = [
+  { value: "zh-CN", labelKey: "settings:language.zhCN" },
+  { value: "en", labelKey: "settings:language.en" },
 ];
 
 const CLAUDE_DEFAULT_THINKING_BUDGET_OPTIONS = CLAUDE_THINKING_BUDGET_OPTIONS.filter(
@@ -153,6 +162,8 @@ export function RuntimeSettingsTab({
   nodePathOverride,
   themeMode,
   onThemeModeChange,
+  locale,
+  onLocaleChange,
   onTaskSdkEnabledChange,
   onOneShotSdkEnabledChange,
   onOneShotPreferredProviderChange,
@@ -217,6 +228,7 @@ export function RuntimeSettingsTab({
   onGrokInstall,
   onGrokRefresh,
 }: RuntimeSettingsTabProps) {
+  const { t } = useTranslation(["settings", "common"]);
   const taskProviderLabel =
     codexHealth?.task_execution_effective_provider === "sdk" ? "SDK" : "exec（自动回退）";
   const oneShotProviderLabel =
@@ -309,10 +321,10 @@ export function RuntimeSettingsTab({
     <div className="space-y-6">
       <div className="space-y-4 rounded-lg border border-border bg-card p-4">
         <div>
-          <h3 className="mb-1 text-sm font-medium">主题模式</h3>
-          <p className="mb-3 text-xs text-muted-foreground">选择应用的显示主题</p>
+          <h3 className="mb-1 text-sm font-medium">{t("settings:theme.title")}</h3>
+          <p className="mb-3 text-xs text-muted-foreground">{t("settings:theme.description")}</p>
           <div className="flex flex-wrap gap-2">
-            {themeOptions.map((option) => (
+            {themeOptionDefs.map((option) => (
               <button
                 key={option.value}
                 type="button"
@@ -324,7 +336,28 @@ export function RuntimeSettingsTab({
                 }`}
               >
                 <option.icon className="h-4 w-4" />
-                {option.label}
+                {t(option.labelKey)}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="border-t border-border pt-4">
+          <h3 className="mb-1 text-sm font-medium">{t("settings:language.title")}</h3>
+          <p className="mb-3 text-xs text-muted-foreground">{t("settings:language.description")}</p>
+          <div className="flex flex-wrap gap-2">
+            {localeOptions.map((option) => (
+              <button
+                key={option.value}
+                type="button"
+                onClick={() => onLocaleChange(option.value)}
+                className={`rounded-md border px-3 py-1.5 text-sm transition-colors ${
+                  locale === option.value
+                    ? "border-primary bg-primary/10 text-primary"
+                    : "border-input hover:bg-accent"
+                }`}
+              >
+                {t(option.labelKey)}
               </button>
             ))}
           </div>

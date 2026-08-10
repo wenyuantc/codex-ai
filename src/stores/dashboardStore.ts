@@ -3,6 +3,7 @@ import { create } from "zustand";
 import { getDashboardStats, listActivityLogs, type ListActivityLogsInput } from "@/lib/backend";
 import { TASK_STATUSES, type ActivityLog, type EnvironmentMode } from "@/lib/types";
 import { getActivityActionLabel, getStatusLabel } from "@/lib/utils";
+import { getDateLocale, getLocalePreference } from "@/lib/i18n/locale";
 
 interface DashboardStats {
   totalProjects: number;
@@ -90,7 +91,10 @@ export function getKeywordMatchedStatuses(keyword: string) {
 
 export function getAvailableActivityActions(actions: string[]) {
   return Array.from(new Set(actions)).sort((left, right) =>
-    getActivityActionLabel(left).localeCompare(getActivityActionLabel(right), "zh-CN"),
+    getActivityActionLabel(left).localeCompare(
+      getActivityActionLabel(right),
+      getDateLocale(getLocalePreference()),
+    ),
   );
 }
 

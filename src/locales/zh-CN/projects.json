@@ -1,0 +1,9 @@
+{
+  "title": "项目管理",
+  "empty": "暂无项目",
+  "create": "新建项目",
+  "open": "打开项目",
+  "listTitle": "项目列表",
+  "scopeLocal": "当前只显示本地项目。",
+  "scopeSsh": "当前只显示 SSH 项目。"
+}

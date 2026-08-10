@@ -1,13 +1,18 @@
 import type { DashboardTrendRange } from "@/lib/backend";
+import i18n from "@/lib/i18n";
 
-export const DASHBOARD_TREND_RANGE_OPTIONS: {
+export const DASHBOARD_TREND_RANGE_VALUES: DashboardTrendRange[] = ["7d", "30d", "8w"];
+
+export function getDashboardTrendRangeOptions(): {
   value: DashboardTrendRange;
   label: string;
-}[] = [
-  { value: "7d", label: "近 7 日" },
-  { value: "30d", label: "近 30 日" },
-  { value: "8w", label: "近 8 周" },
-];
+}[] {
+  return [
+    { value: "7d", label: i18n.t("dashboard:report.range7d") },
+    { value: "30d", label: i18n.t("dashboard:report.range30d") },
+    { value: "8w", label: i18n.t("dashboard:report.range8w") },
+  ];
+}
 
 export function normalizeTrendRange(value: string | null | undefined): DashboardTrendRange {
   if (value === "30d" || value === "8w") {
@@ -19,11 +24,11 @@ export function normalizeTrendRange(value: string | null | undefined): Dashboard
 export function trendRangeChartTitle(range: DashboardTrendRange): string {
   switch (range) {
     case "30d":
-      return "近 30 日完成趋势";
+      return i18n.t("dashboard:report.trend30d");
     case "8w":
-      return "近 8 周完成趋势";
+      return i18n.t("dashboard:report.trend8w");
     default:
-      return "近 7 日完成趋势";
+      return i18n.t("dashboard:report.trend7d");
   }
 }
 

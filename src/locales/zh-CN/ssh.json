@@ -1,0 +1,16 @@
+{
+  "trustBannerTitle": "SSH 模式 · 审查依据可能不完整：",
+  "trustBanner": "远程执行时，本地通常只保留会话元数据；完整 diff / 文件快照可能未回传。审核与变更判断请结合远程主机 git 状态，勿将本地明细视为完整证据。",
+  "trustBannerHint": "可在会话变更对话框查看受限说明；升级远程 Codex SDK（ssh_full）可改善采集。",
+  "openSettings": "打开设置",
+  "artifactLimitedTitle": "远程变更明细受限",
+  "artifactLimitedTitleSsh": "远程变更明细受限（SSH）",
+  "artifactLimitedBody": "远程执行时，本地数据库通常只保留对话元数据；完整文件快照可能不可用。仍可查看日志、继续对话，或在远程主机检查 git 状态。升级远程 Codex SDK（ssh_full）或到远程机器审阅可获得更完整明细。",
+  "artifactLimitedWhyLabel": "为何受限：",
+  "artifactLimitedWhy": "当前为 SSH 远程执行。本地数据库主要保存会话元数据；完整文件 diff / 快照不一定会回传到本机。",
+  "artifactLimitedCanLabel": "你仍可以：",
+  "artifactLimitedCan": "查看会话日志、继续对话，并在远程主机上检查 git status / diff。",
+  "artifactLimitedHowLabel": "如何获得更完整明细：",
+  "artifactLimitedHow": "升级远程 Codex SDK 以启用 ssh_full 采集（可用时），或直接在远程机器上审阅变更。",
+  "artifactLimited": "远程会话变更明细受限，审查依据可能不完整。"
+}

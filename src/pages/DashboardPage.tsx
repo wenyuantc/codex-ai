@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type ChangeEvent } from "react";
+import { useTranslation } from "react-i18next";
 import { Download, Loader2, Upload } from "lucide-react";
 
 import { useDashboardStore } from "@/stores/dashboardStore";
@@ -18,7 +19,7 @@ import {
   type DashboardTrendRange,
 } from "@/lib/backend";
 import {
-  DASHBOARD_TREND_RANGE_OPTIONS,
+  getDashboardTrendRangeOptions,
   normalizeTrendRange,
   shortTrendPointLabel,
   trendRangeChartTitle,
@@ -27,6 +28,7 @@ import { TASK_STATUSES } from "@/lib/types";
 import { getStatusLabel, getStatusColor } from "@/lib/utils";
 
 export function DashboardPage() {
+  const { t } = useTranslation("dashboard");
   const { stats, fetchStats } = useDashboardStore();
   const currentProjectId = useProjectStore((state) => state.currentProject?.id);
   const environmentMode = useProjectStore((state) => state.environmentMode);
@@ -107,7 +109,10 @@ export function DashboardPage() {
       anchor.click();
       URL.revokeObjectURL(url);
       setIoMessage(
-        `已导出 ${result.task_count} 条任务 JSON${result.truncated ? "（已截断至上限）" : ""}。`,
+        t("io.exportedJson", {
+          count: result.task_count,
+          truncated: result.truncated ? t("io.exportedJsonTruncated") : "",
+        }),
       );
     } catch (error) {
       setIoMessage(error instanceof Error ? error.message : String(error));
@@ -131,7 +136,7 @@ export function DashboardPage() {
       anchor.download = `tasks-export-${new Date().toISOString().slice(0, 10)}.csv`;
       anchor.click();
       URL.revokeObjectURL(url);
-      setIoMessage(`已导出 ${result.row_count} 行任务 CSV。`);
+      setIoMessage(t("io.exportedCsv", { count: result.row_count }));
     } catch (error) {
       setIoMessage(error instanceof Error ? error.message : String(error));
     } finally {
@@ -141,7 +146,7 @@ export function DashboardPage() {
 
   const handleImportClick = () => {
     if (!currentProjectId) {
-      setIoMessage("请先选择目标项目，再导入任务 JSON。");
+      setIoMessage(t("io.selectProjectFirst"));
       return;
     }
     importInputRef.current?.click();
@@ -154,7 +159,7 @@ export function DashboardPage() {
       return;
     }
     if (!currentProjectId) {
-      setIoMessage("请先选择目标项目，再导入任务 JSON。");
+      setIoMessage(t("io.selectProjectFirst"));
       return;
     }
 
@@ -168,12 +173,15 @@ export function DashboardPage() {
         conflictStrategy: "create_new",
       });
       if (result.failed > 0) {
-        const firstError = result.errors[0]?.message ?? "校验失败";
+        const firstError = result.errors[0]?.message ?? t("io.validationFailed");
         setIoMessage(
-          `导入失败：${firstError}${result.failed > 1 ? ` 等 ${result.failed} 条错误` : ""}`,
+          t("io.importFailed", {
+            error: firstError,
+            more: result.failed > 1 ? t("io.importFailedMore", { count: result.failed }) : "",
+          }),
         );
       } else {
-        setIoMessage(`导入完成：新建 ${result.created} 条，跳过 ${result.skipped} 条。`);
+        setIoMessage(t("io.importDone", { created: result.created, skipped: result.skipped }));
         void fetchStats(environmentMode, selectedSshConfigId, currentProjectId);
         void loadReport();
       }
@@ -207,7 +215,7 @@ export function DashboardPage() {
           ) : (
             <Upload className="h-4 w-4" />
           )}
-          导入任务 JSON
+          {t("io.importJson")}
         </Button>
         <Button
           variant="outline"
@@ -220,7 +228,7 @@ export function DashboardPage() {
           ) : (
             <Download className="h-4 w-4" />
           )}
-          导出任务 JSON
+          {t("io.exportJson")}
         </Button>
         <Button
           variant="outline"
@@ -233,7 +241,7 @@ export function DashboardPage() {
           ) : (
             <Download className="h-4 w-4" />
           )}
-          导出任务 CSV
+          {t("io.exportCsv")}
         </Button>
         {ioMessage && <p className="text-[11px] text-muted-foreground">{ioMessage}</p>}
       </div>
@@ -242,7 +250,7 @@ export function DashboardPage() {
       {reportError && (
         <Card className="flex flex-wrap items-center justify-between gap-3 border-destructive/40 p-4">
           <div className="space-y-1">
-            <h3 className="text-sm font-semibold text-destructive">增强报表加载失败</h3>
+            <h3 className="text-sm font-semibold text-destructive">{t("report.loadFailed")}</h3>
             <p className="text-xs text-muted-foreground">{reportError}</p>
           </div>
           <Button
@@ -252,7 +260,7 @@ export function DashboardPage() {
             onClick={() => void loadReport()}
           >
             {reportLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-            重试
+            {t("report.retry")}
           </Button>
         </Card>
       )}
@@ -260,7 +268,7 @@ export function DashboardPage() {
       {reportLoading && !report && !reportError && (
         <Card className="flex items-center gap-2 p-4 text-xs text-muted-foreground">
           <Loader2 className="h-4 w-4 animate-spin" />
-          正在加载增强报表…
+          {t("report.loading")}
         </Card>
       )}
 
@@ -268,16 +276,20 @@ export function DashboardPage() {
         <Card className="p-4 space-y-4">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div className="space-y-1">
-              <h3 className="text-sm font-semibold">增强报表</h3>
+              <h3 className="text-sm font-semibold">{t("report.title")}</h3>
               <p className="text-xs text-muted-foreground">
-                完成率 {report.completion_rate.toFixed(1)}% · 逾期 {report.overdue_tasks} · 阻塞{" "}
-                {report.blocked_tasks} · 老化进行中 {report.aging_in_progress ?? 0}（超过{" "}
-                {report.aging_days ?? 7} 天）
+                {t("report.summary", {
+                  rate: report.completion_rate.toFixed(1),
+                  overdue: report.overdue_tasks,
+                  blocked: report.blocked_tasks,
+                  aging: report.aging_in_progress ?? 0,
+                  days: report.aging_days ?? 7,
+                })}
               </p>
             </div>
             <div className="flex flex-wrap items-center gap-2">
               <div className="flex items-center gap-1 rounded-md border p-0.5">
-                {DASHBOARD_TREND_RANGE_OPTIONS.map((option) => (
+                {getDashboardTrendRangeOptions().map((option) => (
                   <Button
                     key={option.value}
                     type="button"
@@ -292,7 +304,7 @@ export function DashboardPage() {
                 ))}
               </div>
               <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                里程碑
+                {t("report.milestone")}
                 <select
                   className="h-7 max-w-[12rem] rounded-md border bg-background px-2 text-xs text-foreground"
                   value={selectedMilestoneValue}
@@ -303,7 +315,7 @@ export function DashboardPage() {
                   }}
                 >
                   {(report.milestones?.length ?? 0) === 0 ? (
-                    <option value="">无可用里程碑</option>
+                    <option value="">{t("report.noMilestones")}</option>
                   ) : (
                     report.milestones.map((milestone) => (
                       <option key={milestone.id} value={milestone.id}>
@@ -349,12 +361,14 @@ export function DashboardPage() {
               </div>
             </div>
             <div>
-              <p className="mb-2 text-xs font-medium text-muted-foreground">里程碑剩余任务</p>
+              <p className="mb-2 text-xs font-medium text-muted-foreground">
+                {t("report.burndownTitle")}
+              </p>
               {report.milestone_burndown_empty_reason ||
               (report.milestone_burndown?.length ?? 0) === 0 ? (
                 <div className="flex h-28 items-center rounded-md border border-dashed px-3">
                   <p className="text-xs text-muted-foreground">
-                    {report.milestone_burndown_empty_reason ?? "暂无可展示的剩余任务趋势。"}
+                    {report.milestone_burndown_empty_reason ?? t("report.burndownEmpty")}
                   </p>
                 </div>
               ) : (
@@ -373,7 +387,10 @@ export function DashboardPage() {
                             style={{
                               height: point.remaining > 0 ? `${Math.max(height, 8)}%` : "0%",
                             }}
-                            title={`${point.label}: 剩余 ${point.remaining}`}
+                            title={t("report.remainingTitle", {
+                              label: point.label,
+                              remaining: point.remaining,
+                            })}
                           />
                         </div>
                         <span className="text-[10px] text-muted-foreground">{point.label}</span>
@@ -385,11 +402,11 @@ export function DashboardPage() {
             </div>
             <div className="lg:col-span-2">
               <p className="mb-2 text-xs font-medium text-muted-foreground">
-                成员负载（进行中 vs 已完成）
+                {t("report.workloadTitle")}
               </p>
               <div className="max-h-28 space-y-1.5 overflow-auto">
                 {report.employee_workload.length === 0 && (
-                  <p className="text-xs text-muted-foreground">暂无员工数据</p>
+                  <p className="text-xs text-muted-foreground">{t("report.noEmployees")}</p>
                 )}
                 {report.employee_workload.map((item) => (
                   <div
@@ -398,7 +415,10 @@ export function DashboardPage() {
                   >
                     <span className="truncate font-medium">{item.employee_name}</span>
                     <span className="shrink-0 text-muted-foreground">
-                      活跃 {item.active_tasks} · 完成 {item.completed_tasks}
+                      {t("report.workloadRow", {
+                        active: item.active_tasks,
+                        completed: item.completed_tasks,
+                      })}
                     </span>
                   </div>
                 ))}
@@ -411,7 +431,7 @@ export function DashboardPage() {
       {/* Task Distribution */}
       {stats?.tasksByStatus && (
         <Card className="p-4">
-          <h3 className="text-sm font-semibold mb-3">任务分布</h3>
+          <h3 className="text-sm font-semibold mb-3">{t("taskDistribution")}</h3>
           <div className="grid grid-cols-[repeat(auto-fit,minmax(4.75rem,1fr))] items-end gap-3">
             {taskDistribution.map(({ status, count }) => {
               const height = maxTaskCount > 0 ? (count / maxTaskCount) * 100 : 0;
@@ -421,7 +441,7 @@ export function DashboardPage() {
                 <div
                   key={status.value}
                   className="flex min-w-0 flex-col items-center gap-1"
-                  title={`${label}: ${count} 个任务`}
+                  title={t("taskCountTitle", { label, count })}
                 >
                   <span className="text-sm font-bold">{count}</span>
                   <div className="flex h-[clamp(5rem,16vw,7rem)] w-full items-end justify-center rounded-sm bg-muted/30 px-1">

@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { listEmployeeMetrics, listEmployees, listProjects } from "@/lib/backend";
+import { getDateLocale, getLocalePreference } from "@/lib/i18n/locale";
 import { filterProjectsByScope } from "@/lib/projects";
 import type { EnvironmentMode } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -34,17 +36,14 @@ interface SortState {
 
 interface SortHeaderProps {
   label: string;
+  sortAriaLabel: string;
   sortKey: SortKey;
   sort: SortState;
   align?: "left" | "right";
   onSort: (key: SortKey) => void;
 }
 
-const PERIOD_OPTIONS: { value: PerformancePeriod; label: string }[] = [
-  { value: "7", label: "近7天" },
-  { value: "30", label: "近30天" },
-  { value: "90", label: "近90天" },
-];
+const PERIOD_VALUES: PerformancePeriod[] = ["7", "30", "90"];
 
 const DEFAULT_SORT_DIRECTIONS: Record<SortKey, SortDirection> = {
   employee_name: "asc",
@@ -52,10 +51,6 @@ const DEFAULT_SORT_DIRECTIONS: Record<SortKey, SortDirection> = {
   average_completion_time: "asc",
   success_rate: "desc",
 };
-
-function getPeriodLabel(value: PerformancePeriod) {
-  return PERIOD_OPTIONS.find((option) => option.value === value)?.label ?? value;
-}
 
 function compareNullableNumbers(
   left: number | null,
@@ -78,7 +73,10 @@ function compareNullableNumbers(
 function compareRows(left: PerformanceRow, right: PerformanceRow, sort: SortState) {
   let result: number;
   if (sort.key === "employee_name") {
-    result = left.employee_name.localeCompare(right.employee_name, "zh-CN");
+    result = left.employee_name.localeCompare(
+      right.employee_name,
+      getDateLocale(getLocalePreference()),
+    );
   } else if (sort.key === "tasks_completed") {
     result = left.tasks_completed - right.tasks_completed;
   } else if (sort.key === "average_completion_time") {
@@ -92,7 +90,10 @@ function compareRows(left: PerformanceRow, right: PerformanceRow, sort: SortStat
   }
 
   if (result === 0) {
-    return left.employee_name.localeCompare(right.employee_name, "zh-CN");
+    return left.employee_name.localeCompare(
+      right.employee_name,
+      getDateLocale(getLocalePreference()),
+    );
   }
 
   if (sort.key === "average_completion_time" || sort.key === "success_rate") {
@@ -102,7 +103,14 @@ function compareRows(left: PerformanceRow, right: PerformanceRow, sort: SortStat
   return sort.direction === "asc" ? result : -result;
 }
 
-function SortHeader({ label, sortKey, sort, align = "left", onSort }: SortHeaderProps) {
+function SortHeader({
+  label,
+  sortAriaLabel,
+  sortKey,
+  sort,
+  align = "left",
+  onSort,
+}: SortHeaderProps) {
   const active = sort.key === sortKey;
   const Icon = active ? (sort.direction === "asc" ? ArrowUp : ArrowDown) : ArrowUpDown;
 
@@ -116,7 +124,7 @@ function SortHeader({ label, sortKey, sort, align = "left", onSort }: SortHeader
         align === "right" && "ml-auto",
       )}
       onClick={() => onSort(sortKey)}
-      aria-label={`按${label}排序`}
+      aria-label={sortAriaLabel}
     >
       {label}
       <Icon className="h-3 w-3" />
@@ -186,12 +194,19 @@ async function loadPerformanceRows(
 }
 
 export function EmployeePerformanceChart() {
+  const { t } = useTranslation("dashboard");
   const [data, setData] = useState<PerformanceRow[]>([]);
   const [period, setPeriod] = useState<PerformancePeriod>("30");
   const [sort, setSort] = useState<SortState>({ key: "tasks_completed", direction: "desc" });
   const currentProjectId = useProjectStore((state) => state.currentProject?.id);
   const environmentMode = useProjectStore((state) => state.environmentMode);
   const selectedSshConfigId = useProjectStore((state) => state.selectedSshConfigId);
+
+  const periodLabel = (value: PerformancePeriod) => {
+    if (value === "7") return t("performance.period7");
+    if (value === "90") return t("performance.period90");
+    return t("performance.period30");
+  };
 
   useEffect(() => {
     let active = true;
@@ -240,7 +255,7 @@ export function EmployeePerformanceChart() {
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-2">
           <BarChart3 className="h-4 w-4 text-muted-foreground" />
-          <h3 className="text-sm font-semibold">员工绩效</h3>
+          <h3 className="text-sm font-semibold">{t("performance.title")}</h3>
         </div>
         <Select<PerformancePeriod>
           value={period}
@@ -254,15 +269,15 @@ export function EmployeePerformanceChart() {
             <SelectValue>
               {(value) =>
                 typeof value === "string"
-                  ? getPeriodLabel(value as PerformancePeriod)
-                  : getPeriodLabel(period)
+                  ? periodLabel(value as PerformancePeriod)
+                  : periodLabel(period)
               }
             </SelectValue>
           </SelectTrigger>
           <SelectContent>
-            {PERIOD_OPTIONS.map((option) => (
-              <SelectItem key={option.value} value={option.value}>
-                {option.label}
+            {PERIOD_VALUES.map((value) => (
+              <SelectItem key={value} value={value}>
+                {periodLabel(value)}
               </SelectItem>
             ))}
           </SelectContent>
@@ -270,7 +285,9 @@ export function EmployeePerformanceChart() {
       </div>
 
       {sortedData.length === 0 ? (
-        <div className="text-sm text-muted-foreground text-center py-8">暂无绩效数据</div>
+        <div className="text-sm text-muted-foreground text-center py-8">
+          {t("performance.empty")}
+        </div>
       ) : (
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
@@ -278,7 +295,8 @@ export function EmployeePerformanceChart() {
               <tr className="border-b border-border">
                 <th className="py-2 px-2 text-left">
                   <SortHeader
-                    label="员工"
+                    label={t("performance.employee")}
+                    sortAriaLabel={t("performance.sortBy", { label: t("performance.employee") })}
                     sortKey="employee_name"
                     sort={sort}
                     onSort={updateSort}
@@ -286,7 +304,10 @@ export function EmployeePerformanceChart() {
                 </th>
                 <th className="py-2 px-2 text-right">
                   <SortHeader
-                    label="完成任务"
+                    label={t("performance.tasksCompleted")}
+                    sortAriaLabel={t("performance.sortBy", {
+                      label: t("performance.tasksCompleted"),
+                    })}
                     sortKey="tasks_completed"
                     sort={sort}
                     align="right"
@@ -295,7 +316,8 @@ export function EmployeePerformanceChart() {
                 </th>
                 <th className="py-2 px-2 text-right">
                   <SortHeader
-                    label="平均耗时"
+                    label={t("performance.avgTime")}
+                    sortAriaLabel={t("performance.sortBy", { label: t("performance.avgTime") })}
                     sortKey="average_completion_time"
                     sort={sort}
                     align="right"
@@ -304,7 +326,8 @@ export function EmployeePerformanceChart() {
                 </th>
                 <th className="py-2 px-2 text-right">
                   <SortHeader
-                    label="成功率"
+                    label={t("performance.successRate")}
+                    sortAriaLabel={t("performance.sortBy", { label: t("performance.successRate") })}
                     sortKey="success_rate"
                     sort={sort}
                     align="right"

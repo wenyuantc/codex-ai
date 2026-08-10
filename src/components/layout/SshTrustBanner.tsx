@@ -1,5 +1,6 @@
 import { Link } from "react-router-dom";
 import { AlertTriangle } from "lucide-react";
+import { useTranslation } from "react-i18next";
 
 import { cn } from "@/lib/utils";
 
@@ -13,6 +14,8 @@ interface SshTrustBannerProps {
  * Session-level limited capture still uses SshArtifactLimitedNotice.
  */
 export function SshTrustBanner({ className }: SshTrustBannerProps) {
+  const { t } = useTranslation("ssh");
+
   return (
     <div
       className={cn(
@@ -26,17 +29,16 @@ export function SshTrustBanner({ className }: SshTrustBannerProps) {
         <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-700 dark:text-amber-200" />
         <div className="min-w-0 flex-1 space-y-0.5">
           <p>
-            <span className="font-medium">SSH 模式 · 审查依据可能不完整：</span>
-            远程执行时，本地通常只保留会话元数据；完整 diff /
-            文件快照可能未回传。审核与变更判断请结合远程主机 git 状态，勿将本地明细视为完整证据。
+            <span className="font-medium">{t("trustBannerTitle")}</span>
+            {t("trustBanner")}
           </p>
           <p className="text-amber-900/85 dark:text-amber-100/85">
-            可在会话变更对话框查看受限说明；升级远程 Codex SDK（ssh_full）可改善采集。
+            {t("trustBannerHint")}
             <Link
               to="/settings"
               className="ml-1 font-medium text-amber-950 underline underline-offset-2 hover:text-amber-800 dark:text-amber-50 dark:hover:text-amber-100"
             >
-              打开设置
+              {t("openSettings")}
             </Link>
           </p>
         </div>

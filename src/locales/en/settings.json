@@ -1,0 +1,23 @@
+{
+  "tabs": {
+    "runtime": "UI & Runtime",
+    "git": "Git & Auto QC",
+    "prompts": "Prompt templates",
+    "mcp": "MCP",
+    "ssh": "SSH",
+    "database": "Database"
+  },
+  "theme": {
+    "title": "Theme",
+    "description": "Choose the app display theme",
+    "light": "Light",
+    "dark": "Dark",
+    "system": "System"
+  },
+  "language": {
+    "title": "Language",
+    "description": "Choose the UI language (persists across restarts)",
+    "zhCN": "简体中文",
+    "en": "English"
+  }
+}

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import { CheckCircle2, Circle, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -37,6 +38,7 @@ function writeDismissed() {
 }
 
 export function OnboardingChecklist() {
+  const { t } = useTranslation("dashboard");
   const navigate = useNavigate();
   const environmentMode = useProjectStore((state) => state.environmentMode);
   const projects = useProjectStore((state) => state.projects);
@@ -79,10 +81,10 @@ export function OnboardingChecklist() {
     const list: ChecklistStep[] = [
       {
         id: "sdk",
-        title: "检查 AI SDK / CLI",
-        description: "确认 Codex（或其他引擎）可用，才能运行任务。",
+        title: t("onboarding.checkSdkTitle"),
+        description: t("onboarding.checkSdkDescription"),
         done: sdkReady === true,
-        actionLabel: "打开运行时设置",
+        actionLabel: t("onboarding.checkSdkAction"),
         onAction: () => navigate("/settings?section=sdk"),
       },
     ];
@@ -90,10 +92,10 @@ export function OnboardingChecklist() {
     if (environmentMode === "ssh") {
       list.push({
         id: "ssh",
-        title: "配置 SSH 主机",
-        description: "SSH 模式下需要至少一台可用远程主机。",
+        title: t("onboarding.sshTitle"),
+        description: t("onboarding.sshDescription"),
         done: hasSshConfig,
-        actionLabel: "配置 SSH",
+        actionLabel: t("onboarding.sshAction"),
         onAction: () => navigate("/settings?section=ssh"),
       });
     }
@@ -101,32 +103,35 @@ export function OnboardingChecklist() {
     list.push(
       {
         id: "project",
-        title: "创建项目",
-        description: environmentMode === "ssh" ? "添加一个 SSH 类型项目。" : "添加一个本地项目。",
+        title: t("onboarding.projectTitle"),
+        description:
+          environmentMode === "ssh"
+            ? t("onboarding.projectDescriptionSsh")
+            : t("onboarding.projectDescriptionLocal"),
         done: hasProject,
-        actionLabel: "去项目管理",
+        actionLabel: t("onboarding.projectAction"),
         onAction: () => navigate("/projects"),
       },
       {
         id: "employee",
-        title: "创建 AI 员工",
-        description: "为项目绑定开发/审核/测试/协调员角色。",
+        title: t("onboarding.employeeTitle"),
+        description: t("onboarding.employeeDescription"),
         done: hasEmployee,
-        actionLabel: "去员工管理",
+        actionLabel: t("onboarding.employeeAction"),
         onAction: () => navigate("/employees"),
       },
       {
         id: "task",
-        title: "创建并运行首个任务",
-        description: "在看板新建任务，指派员工后即可运行。",
+        title: t("onboarding.taskTitle"),
+        description: t("onboarding.taskDescription"),
         done: hasTask,
-        actionLabel: "打开看板",
+        actionLabel: t("onboarding.taskAction"),
         onAction: () => navigate("/kanban"),
       },
     );
 
     return list;
-  }, [environmentMode, hasEmployee, hasProject, hasSshConfig, hasTask, navigate, sdkReady]);
+  }, [environmentMode, hasEmployee, hasProject, hasSshConfig, hasTask, navigate, sdkReady, t]);
 
   const allDone = steps.every((step) => step.done);
   const completedCount = steps.filter((step) => step.done).length;
@@ -139,15 +144,13 @@ export function OnboardingChecklist() {
     return (
       <Card className="flex items-start justify-between gap-3 border-emerald-500/30 bg-emerald-500/5 p-4">
         <div className="space-y-1">
-          <h3 className="text-sm font-semibold">首次设置已完成</h3>
-          <p className="text-xs text-muted-foreground">
-            可以在看板继续创建任务，或在设置中开启测试员自动化与自动质控。
-          </p>
+          <h3 className="text-sm font-semibold">{t("onboarding.doneTitle")}</h3>
+          <p className="text-xs text-muted-foreground">{t("onboarding.doneDescription")}</p>
         </div>
         <Button
           variant="ghost"
           size="sm"
-          aria-label="关闭首次引导"
+          aria-label={t("onboarding.closeAria")}
           onClick={() => {
             writeDismissed();
             setDismissed(true);
@@ -163,16 +166,18 @@ export function OnboardingChecklist() {
     <Card className="space-y-3 p-4">
       <div className="flex items-start justify-between gap-3">
         <div className="space-y-1">
-          <h3 className="text-sm font-semibold">开始使用 Codex AI</h3>
+          <h3 className="text-sm font-semibold">{t("onboarding.startTitle")}</h3>
           <p className="text-xs text-muted-foreground">
-            完成以下步骤即可跑通「项目 → 员工 → 任务 → AI 执行」主路径（{completedCount}/
-            {steps.length}）
+            {t("onboarding.startDescription", {
+              completed: completedCount,
+              total: steps.length,
+            })}
           </p>
         </div>
         <Button
           variant="ghost"
           size="sm"
-          aria-label="关闭首次引导"
+          aria-label={t("onboarding.closeAria")}
           onClick={() => {
             writeDismissed();
             setDismissed(true);

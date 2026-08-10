@@ -12,22 +12,24 @@ import {
   Bot,
   Trash2,
 } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { cn } from "@/lib/utils";
 import { useHotkeys } from "react-hotkeys-hook";
 import { Kbd } from "@/components/keyboard/Kbd";
 import { GLOBAL_SHORTCUTS, NAV_SHORTCUTS, shortcutDisplay, shortcutKeys } from "@/lib/shortcuts";
 
 const navItems = [
-  { to: "/", icon: LayoutDashboard, label: "仪表盘" },
-  { to: "/projects", icon: FolderKanban, label: "项目管理" },
-  { to: "/kanban", icon: Columns3, label: "看板管理" },
-  { to: "/sessions", icon: MessagesSquare, label: "对话管理" },
-  { to: "/employees", icon: Users, label: "员工管理" },
-  { to: "/settings", icon: Settings, label: "设置" },
-  { to: "/trash", icon: Trash2, label: "回收站" },
-];
+  { to: "/", icon: LayoutDashboard, labelKey: "nav:dashboard" },
+  { to: "/projects", icon: FolderKanban, labelKey: "nav:projects" },
+  { to: "/kanban", icon: Columns3, labelKey: "nav:kanban" },
+  { to: "/sessions", icon: MessagesSquare, labelKey: "nav:sessions" },
+  { to: "/employees", icon: Users, labelKey: "nav:employees" },
+  { to: "/settings", icon: Settings, labelKey: "nav:settings" },
+  { to: "/trash", icon: Trash2, labelKey: "nav:trash" },
+] as const;
 
 export function Sidebar() {
+  const { t } = useTranslation(["nav", "common"]);
   const [collapsed, setCollapsed] = useState(false);
 
   useHotkeys(shortcutKeys(GLOBAL_SHORTCUTS[2]), (e) => {
@@ -48,7 +50,7 @@ export function Sidebar() {
         <Bot className="h-6 w-6 text-sidebar-primary shrink-0" />
         {!collapsed && (
           <span className="truncate text-sm font-semibold tracking-tight text-sidebar-foreground">
-            AI员工协作系统
+            {t("common:appName")}
           </span>
         )}
       </div>
@@ -75,7 +77,7 @@ export function Sidebar() {
                   <item.icon className="h-4 w-4 shrink-0" />
                   {!collapsed && (
                     <>
-                      <span className="flex-1 truncate">{item.label}</span>
+                      <span className="flex-1 truncate">{t(item.labelKey)}</span>
                       {shortcut && (
                         <Kbd
                           variant="subtle"
