@@ -1,5 +1,41 @@
 # 任务列表
 
+# 下一波 · 2026-08-11 产品缺口
+
+> 依据：[docs/analysis/08-product-gap-2026-08-11.md](docs/analysis/08-product-gap-2026-08-11.md)（代码实读，每条附 `文件:行号` 证据）
+> 主题：**AI 跑起来之后，用户看不见成本、管不住并发、复用不了经验**
+
+## N-P0 · 可度量 + 可批量
+
+- [ ] **成本可见性（A1）**：`codex_sessions` 无任何 token 消耗列（v43 的 `thinking_budget_tokens` 是预算上限不是消耗）；全库唯一 usage 解析在 `grok/process/stream.rs:812` 且只刷日志不落库。补 migration v45 加 `input/output/total/reasoning_tokens`（nullable，无值即未知不假装 0）→ 四引擎 `process/stream.rs` 解析 → 任务详情 + 仪表盘趋势。**一期只做 token 用量，不做金额换算**（各引擎计费口径不同，会误导）
+- [ ] **并发闸门 + 运行队列（B1）**：后端 grep `semaphore`/`max_concurrent`/`cron` 零命中，但产品支持员工多任务并发 = 同时 N 个 AI 进程裸奔。在 `engine/` 共享内核加全局并发上限（设置页可配，默认 2–3）+ 超限排队 + 看板「排队中（第 N 位）」+ 批量运行选中任务。**队列状态需持久化**，否则重启丢失（参照 `task_automation_state` 的 resume 模式）
+
+## N-P1 · 低成本高频
+
+- [ ] **会话日志复制/导出（A2）**：`CodexTerminal.tsx` 有虚拟化/过滤/清空/输入条，但无复制无导出，跑挂了只能截图
+- [ ] **应用自动更新（D1）**：`Cargo.toml` 无 `tauri-plugin-updater`；CI 已在 tag 打好三平台包，但用户永远不知道有新版。发版链路最后一公里
+- [x] **文档校准（D2）**：README 引擎矩阵与 `app/database.rs` 真源矛盾（Claude/OpenCode 的 send_input 与 restart 都写错）、表数/迁移数/命令数/测试数四项失真、`app/session_events_retention.rs` 整个模块未被任何文档记录 —— 2026-08-11 已修正
+
+## N-P2 · 复用与审查深度
+
+- [ ] **任务模板（B2）**：`prompt_templates.rs` 是 AI 功能提示词模板，不是任务模板；重复性任务（给 20 个模块补 i18n）要手工建 20 次。可复用 `export/import_tasks_json` 的版本化 envelope + `batch_update_tasks` 的选中机制
+- [ ] **审查行级定位（C1）**：`app/review.rs` 只解析整体 verdict + 阻塞数 + 摘要，无行级定位；用户得自己翻 diff 找问题在哪。已有 `codex_session_file_change_details` + Monaco 可锚定
+
+## N-P3 · 技术债
+
+- [ ] **拆分 `TaskDetailDialog`（2014 行）/ `TaskCard`（1929 行）**：`01-domain-capability-matrix.md` §7 自认「未关闭且加剧」，是所有任务操作入口
+- [ ] 后端新热点：`app/tasks.rs` 3096 行 / `opencode/process/mod.rs` 2888 行 / `app/remote.rs` 2460 行
+- [ ] 前端测试仍只覆盖 `src/lib` + `src/stores` 纯函数（9 文件 104 断言），组件与交互层零回归网
+
+### 本波明确不做（新增）
+
+- **hunk 级暂存** —— AI 场景下整文件接受/回滚是主流，自研 patch 编辑器成本高收益低
+- **token → 金额换算** —— 各引擎计费口径不同，一期只做用量
+
+---
+
+# 上一波 · 2026-08-10 收口（保留备查）
+
 ## P0 · 主路径可用（先让已有能力被用上）
 
 - [x] 首次使用引导：仪表盘/空项目态提供 checklist（SDK 健康检查 → 可选配置 SSH → 创建项目 → 创建员工 → 创建并运行首个任务），每步可跳转到对应页面/弹窗
@@ -27,7 +63,7 @@
 
 ## P3 · 战略扩展（暂缓，除非单独立项）
 
-- [ ] 真·会话中 send_input（已复核仍不支持：四引擎能力矩阵均为 false；本波不开放 UI）
+- [x] 真·会话中 send_input（已落地：Codex/Claude/OpenCode 走 SDK bridge 保留 stdin；Grok 为 headless CLI，B1 豁免保持 false）
 - [x] 任务 CSV 导出 UI（仪表盘已增加导出入口）
 - [x] i18n 完整框架（zh-CN + en；主路径已抽取；深对话框/Git/设置正文见 leftovers，U1 后再扫）
 - [x] 更强报表（仪表盘 R1：可配 7d/30d/8w 趋势 + 里程碑剩余序列；Issues 同步仍明确不做）
