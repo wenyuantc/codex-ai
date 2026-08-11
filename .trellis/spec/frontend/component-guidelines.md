@@ -70,6 +70,12 @@ Reference implementations:
 - Feature hooks live beside the feature (`src/components/tasks/hooks/*`) when they encapsulate multi-step actions.
 - Use portals only when needed (e.g. drag overlay / menus in `TaskCard`).
 
+## Live session input (`SessionInputBar`)
+
+- Single shared bar: `src/components/sessions/SessionInputBar.tsx` — wire it under live terminals in TaskLog / SessionLog / EmployeeRunningSessions (and review panel if showing a live session). Do not fork per-host composers.
+- Gate with `can(provider, "send_input")` + live session presence; fail-closed while capabilities are loading (no false "unsupported" flash).
+- Copy lives in `sessions` i18n namespace (`zh-CN` + `en`); dispatch via `src/lib/{codex,claude,opencode,grok}.ts` send helpers — never invent a resume/new-session path from the bar.
+
 ## Task primary path (trust UX)
 
 - **One primary CTA per task surface**: resolve with pure `resolveTaskPrimaryCta` in `src/lib/taskPrimaryCta.ts` — do not fork if/else tables in `TaskCard` vs `TaskDetailDialog`.

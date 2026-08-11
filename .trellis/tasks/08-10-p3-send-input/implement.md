@@ -6,13 +6,14 @@
 
 ## Checklist
 
-1. [ ] Research each engine CLI/SDK for mid-session input; record exemption evidence if impossible
-2. [ ] Kernel: retain stdin on interactive sessions; tests for handle lifecycle
-3. [ ] Codex path first → matrix true + working `send_codex_input`
-4. [ ] Claude / OpenCode / Grok adapters; flip matrix or document B1 exemption
-5. [ ] Frontend `SessionInputBar` + wire three terminal hosts; capability gating
-6. [ ] Update `docs/analysis/01-domain-capability-matrix.md` honesty notes
-7. [ ] format:check + clippy + tests
+1. [x] Research each engine CLI/SDK for mid-session input; record exemption evidence if impossible
+2. [x] Kernel: retain stdin on interactive sessions; tests for handle lifecycle
+3. [x] Codex path first → matrix true + working `send_codex_input`
+4. [x] Claude / OpenCode / Grok adapters; flip matrix or document B1 exemption
+5. [x] Frontend `SessionInputBar` + wire three terminal hosts; capability gating
+6. [x] Update `docs/analysis/01-domain-capability-matrix.md` honesty notes
+7. [x] format:check + clippy + tests
+8. [x] Interactive `awaitFollowups` (default) vs pipeline `false` so live terminals stay input-capable
 
 ## Validation
 
