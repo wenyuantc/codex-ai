@@ -820,9 +820,9 @@ pub fn get_ai_provider_capabilities() -> Vec<crate::db::models::AiProviderCapabi
             start: true,
             stop: true,
             restart: true,
-            send_input: false,
+            send_input: true,
             resume: true,
-            notes: "支持启动/停止/续聊；重启=停止当前运行后重新启动（非 CLI resume 旧会话）。会话为非交互批处理，不支持会话中发送输入。".to_string(),
+            notes: "支持启动/停止/续聊/会话中输入（SDK 通道保留 stdin，运行中可 send_codex_input）；重启=停止当前运行后重新启动（非 CLI resume 旧会话）。CLI 批处理通道无 stdin，发送会返回明确错误。".to_string(),
         },
         crate::db::models::AiProviderCapabilities {
             provider: "claude".to_string(),
@@ -830,9 +830,9 @@ pub fn get_ai_provider_capabilities() -> Vec<crate::db::models::AiProviderCapabi
             start: true,
             stop: true,
             restart: true,
-            send_input: false,
+            send_input: true,
             resume: true,
-            notes: "支持启动/停止/续聊；重启=停止当前运行后重新启动（非 CLI resume 旧会话）。会话为非交互批处理，不支持会话中发送输入。".to_string(),
+            notes: "支持启动/停止/续聊/会话中输入（SDK bridge 保留 stdin）；重启=停止当前运行后重新启动（非 CLI resume 旧会话）。CLI 批处理通道不支持会话中输入。".to_string(),
         },
         crate::db::models::AiProviderCapabilities {
             provider: "opencode".to_string(),
@@ -840,9 +840,9 @@ pub fn get_ai_provider_capabilities() -> Vec<crate::db::models::AiProviderCapabi
             start: true,
             stop: true,
             restart: true,
-            send_input: false,
+            send_input: true,
             resume: true,
-            notes: "支持启动/停止/续聊；重启=停止当前运行后重新启动（非 CLI resume 旧会话）。会话为非交互批处理，不支持会话中发送输入。".to_string(),
+            notes: "支持启动/停止/续聊/会话中输入（SDK bridge 保留 stdin，同一 OpenCode session 上追加 prompt）；重启=停止当前运行后重新启动（非 CLI resume 旧会话）。".to_string(),
         },
         crate::db::models::AiProviderCapabilities {
             provider: "grok".to_string(),
@@ -852,7 +852,7 @@ pub fn get_ai_provider_capabilities() -> Vec<crate::db::models::AiProviderCapabi
             restart: true,
             send_input: false,
             resume: true,
-            notes: "支持启动/停止/续聊；重启=停止当前运行后重新启动（非 CLI resume 旧会话）。会话为非交互批处理，不支持会话中发送输入。".to_string(),
+            notes: "支持启动/停止/续聊；重启=停止当前运行后重新启动（非 CLI resume 旧会话）。Grok 为 headless CLI（-p + Stdio::null），无会话中可写 stdin（B1 豁免）。".to_string(),
         },
     ]
 }
@@ -882,23 +882,44 @@ mod ai_provider_capabilities_tests {
                 "{} should support restart (stop live + start)",
                 item.provider
             );
-            assert!(
-                !item.send_input,
-                "{} must not claim send_input (non-interactive)",
-                item.provider
-            );
             assert!(item.resume, "{} should support resume", item.provider);
             assert!(
                 !item.notes.trim().is_empty(),
                 "{} notes must be non-empty",
                 item.provider
             );
-            assert!(
-                item.notes.contains("非交互") || item.notes.contains("不支持会话中发送输入"),
-                "{} notes should explain non-interactive / no mid-session input",
-                item.provider
-            );
         }
+
+        let by_provider: std::collections::HashMap<&str, &crate::db::models::AiProviderCapabilities> =
+            caps.iter().map(|c| (c.provider.as_str(), c)).collect();
+
+        assert!(
+            by_provider["codex"].send_input,
+            "codex must expose real mid-session send_input"
+        );
+        assert!(
+            by_provider["claude"].send_input,
+            "claude must expose real mid-session send_input"
+        );
+        assert!(
+            by_provider["opencode"].send_input,
+            "opencode must expose real mid-session send_input"
+        );
+        assert!(
+            !by_provider["grok"].send_input,
+            "grok remains B1-exempt (headless CLI, no stdin)"
+        );
+        assert!(
+            by_provider["grok"].notes.contains("B1")
+                || by_provider["grok"].notes.contains("Stdio::null")
+                || by_provider["grok"].notes.contains("不支持会话中"),
+            "grok notes should document B1 / no mid-session stdin"
+        );
+        assert!(
+            by_provider["codex"].notes.contains("stdin")
+                || by_provider["codex"].notes.contains("会话中输入"),
+            "codex notes should mention mid-session input path"
+        );
     }
 }
 

@@ -23,7 +23,7 @@ use crate::app::{
     sync_task_image_attachments_to_remote, update_codex_session_record,
     validate_runtime_working_dir, ARTIFACT_CAPTURE_MODE_LOCAL_FULL, ARTIFACT_CAPTURE_MODE_SSH_FULL,
     ARTIFACT_CAPTURE_MODE_SSH_GIT_STATUS, ARTIFACT_CAPTURE_MODE_SSH_NONE, EXECUTION_TARGET_LOCAL,
-    EXECUTION_TARGET_SSH,
+    EXECUTION_TARGET_SSH, should_await_session_followups,
 };
 use crate::codex::{
     ensure_sdk_runtime_layout, inspect_sdk_runtime, load_codex_settings,
@@ -1168,9 +1168,12 @@ pub async fn start_codex_with_manager(
         }
     };
 
+    let mut retained_stdin = None;
     match provider {
         CodexExecutionProvider::Sdk => {
-            let payload = serde_json::to_vec(&serde_json::json!({
+            let await_followups =
+                should_await_session_followups(&pool, task_id.as_deref()).await;
+            let payload = serde_json::json!({
                 "mode": "session",
                 "prompt": prompt.clone(),
                 "input": build_sdk_input_items(&prompt, &image_paths),
@@ -1179,16 +1182,20 @@ pub async fn start_codex_with_manager(
                 "codexPathOverride": sdk_codex_path_override.clone(),
                 "workingDirectory": run_cwd.clone(),
                 "resumeSessionId": resume_session_id.clone(),
-            }))
-            .map_err(|error| format!("Failed to serialize Codex SDK session payload: {}", error))?;
+                "awaitFollowups": await_followups,
+            });
+            let bytes = crate::engine::encode_ndjson_line(&payload).map_err(|error| {
+                format!("Failed to serialize Codex SDK session payload: {}", error)
+            })?;
 
             if let Some(mut stdin) = child.stdin.take() {
-                stdin.write_all(&payload).await.map_err(|error| {
-                    format!("Failed to write Codex SDK session payload: {}", error)
-                })?;
-                stdin.shutdown().await.map_err(|error| {
-                    format!("Failed to close Codex SDK session stdin: {}", error)
-                })?;
+                crate::engine::write_stdin_bytes(&mut stdin, &bytes)
+                    .await
+                    .map_err(|error| {
+                        format!("Failed to write Codex SDK session payload: {}", error)
+                    })?;
+                // Keep stdin open for mid-session follow-ups (send_codex_input).
+                retained_stdin = Some(stdin);
             }
         }
         CodexExecutionProvider::Cli => {
@@ -1213,7 +1220,12 @@ pub async fn start_codex_with_manager(
             ))
         });
 
-    let child_handle = Arc::new(tokio::sync::Mutex::new(CodexChild::new(child)));
+    let child_handle = Arc::new(tokio::sync::Mutex::new(CodexChild::with_stdio_and_stdin(
+        child,
+        None,
+        None,
+        retained_stdin,
+    )));
 
     {
         let mut manager = manager_state.lock().map_err(|e| e.to_string())?;
@@ -1388,19 +1400,154 @@ pub async fn restart_codex(
 
 #[tauri::command]
 pub async fn send_codex_input(
+    app: AppHandle,
     state: State<'_, Arc<Mutex<CodexManager>>>,
     employee_id: String,
-    _input: String,
+    input: String,
 ) -> Result<(), String> {
-    let manager = state.lock().map_err(|e| e.to_string())?;
-    if manager.has_employee_processes(&employee_id) {
-        Err("当前引擎为非交互批处理模式，不支持会话中发送输入。请停止后重新启动任务。".to_string())
-    } else {
-        Err(format!(
-            "员工 {} 当前没有运行中的 Codex 会话，且不支持会话中发送输入。",
-            employee_id
-        ))
+    let processes = {
+        let manager = state.lock().map_err(|e| e.to_string())?;
+        if !manager.has_employee_processes(&employee_id) {
+            return Err(format!(
+                "员工 {} 当前没有运行中的 Codex 会话，无法发送输入。",
+                employee_id
+            ));
+        }
+        manager.get_employee_processes(&employee_id)
+    };
+
+    // Prefer an SDK session with a live stdin; fall back to any process for a clear error.
+    let mut last_error = None;
+    for process in processes {
+        if process.extra.provider != CodexExecutionProvider::Sdk {
+            last_error = Some(
+                "当前运行中的 Codex 会话为 CLI 批处理通道，不支持会话中发送输入。请改用 SDK 模式或停止后重新启动。"
+                    .to_string(),
+            );
+            continue;
+        }
+        {
+            let mut child = process.child.lock().await;
+            if !child.has_stdin() {
+                last_error = Some(
+                    "当前 Codex SDK 会话没有可写的 stdin（可能已结束首轮或未保留交互通道）。"
+                        .to_string(),
+                );
+                continue;
+            }
+            child.write_followup_input(&input).await?;
+        }
+        let pool = sqlite_pool(&app).await?;
+        emit_session_terminal_line(
+            &app,
+            &pool,
+            &process.session_record_id,
+            &process.employee_id,
+            process.task_id.as_deref(),
+            process.session_kind,
+            format!("[USER_INPUT] {}", input.trim()),
+        )
+        .await;
+        return Ok(());
     }
+
+    Err(last_error.unwrap_or_else(|| {
+        format!(
+            "员工 {} 当前没有可写入的 Codex 会话 stdin。",
+            employee_id
+        )
+    }))
+}
+
+/// Close retained stdin so interactive bridges leave "wait for input" and exit (exit 0),
+/// allowing orchestration / the next task step to observe process completion.
+#[tauri::command]
+pub async fn finish_codex_input(
+    app: AppHandle,
+    state: State<'_, Arc<Mutex<CodexManager>>>,
+    employee_id: String,
+) -> Result<(), String> {
+    let processes = {
+        let manager = state.lock().map_err(|e| e.to_string())?;
+        if !manager.has_employee_processes(&employee_id) {
+            return Err(format!(
+                "员工 {} 当前没有运行中的 Codex 会话，无法结束会话。",
+                employee_id
+            ));
+        }
+        manager.get_employee_processes(&employee_id)
+    };
+
+    let mut last_error = None;
+    for process in processes {
+        if process.extra.provider != CodexExecutionProvider::Sdk {
+            last_error = Some(
+                "当前运行中的 Codex 会话为 CLI 批处理通道，请使用停止会话。".to_string(),
+            );
+            continue;
+        }
+        {
+            let mut child = process.child.lock().await;
+            if !child.has_stdin() {
+                last_error = Some("当前 Codex 会话没有可关闭的交互 stdin。".to_string());
+                continue;
+            }
+            child.close_stdin().await?;
+        }
+        let pool = sqlite_pool(&app).await?;
+        emit_session_terminal_line(
+            &app,
+            &pool,
+            &process.session_record_id,
+            &process.employee_id,
+            process.task_id.as_deref(),
+            process.session_kind,
+            "[END_SESSION] closed interactive stdin; waiting for process exit".to_string(),
+        )
+        .await;
+        return Ok(());
+    }
+
+    Err(last_error.unwrap_or_else(|| {
+        format!("员工 {} 当前没有可结束的 Codex 会话 stdin。", employee_id)
+    }))
+}
+
+/// When the terminal log UI opens, enable post-turn wait-for-input on a live SDK session.
+#[tauri::command]
+pub async fn set_codex_await_followups(
+    state: State<'_, Arc<Mutex<CodexManager>>>,
+    employee_id: String,
+    enabled: bool,
+) -> Result<(), String> {
+    let processes = {
+        let manager = state.lock().map_err(|e| e.to_string())?;
+        if !manager.has_employee_processes(&employee_id) {
+            return Err(format!(
+                "员工 {} 当前没有运行中的 Codex 会话。",
+                employee_id
+            ));
+        }
+        manager.get_employee_processes(&employee_id)
+    };
+
+    let mut last_error = None;
+    for process in processes {
+        if process.extra.provider != CodexExecutionProvider::Sdk {
+            last_error = Some("当前 Codex 会话为 CLI 通道，无法切换会话中等待输入。".to_string());
+            continue;
+        }
+        let mut child = process.child.lock().await;
+        if !child.has_stdin() {
+            last_error = Some("当前 Codex 会话没有可写的交互 stdin。".to_string());
+            continue;
+        }
+        return child.write_await_followups_control(enabled).await;
+    }
+
+    Err(last_error.unwrap_or_else(|| {
+        format!("员工 {} 当前没有可写入的 Codex 会话 stdin。", employee_id)
+    }))
 }
 
 async fn should_use_sdk_for_session(app: &AppHandle) -> bool {

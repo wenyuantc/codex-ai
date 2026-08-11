@@ -2,8 +2,8 @@
 
 > 功能 × 本地/SSH × 引擎 覆盖表（代码事实 + 部分 UI 推断）
 >
-> **最后校准**：2026-08-07，随 `08-05-product-capability-roadmap`（9 个子任务全部归档）收尾更新。
-> 上一版基线为 2026-07-27，本次修订点集中在 §3 测试员、§4 四引擎、§5 验收阶段、§6 MCP/报表/导入导出/前端测试、§7 缺口重估。
+> **最后校准**：2026-08-11，随 `08-10-p3-send-input`（真会话 send_input）更新 §4 能力矩阵与诚实边界。
+> 上一版基线为 2026-08-07（`08-05-product-capability-roadmap` 收尾）。
 
 ## 图例
 
@@ -74,7 +74,7 @@
 | 健康检查 / 安装 SDK | ✅ | ✅ | ✅ | ✅ |
 | start / stop / stop_session | ✅ | ✅ | ✅ | ✅ |
 | restart\* | ✅ | ✅ | ✅ | ✅ |
-| send input（会话中 stdin） | ❌ | ❌ | ❌ | ❌ |
+| send input（会话中 stdin） | ✅ SDK | ✅ SDK | ✅ SDK bridge | ❌ B1（headless `-p` + `Stdio::null`） |
 | resume 会话 | ✅ | ✅ | ✅ | ✅ |
 | AI 辅助命令簇\*\* | ✅（命令注册在 codex 命名空间） | — | — | — |
 | 会话落库统一表 | ✅ | ✅ | ✅ | ✅ |
@@ -87,7 +87,7 @@
 
 \*\* AI 辅助（指派、复杂度、计划、拆分、评论、优化 prompt、commit message、协调员计划、测试验收）command 注册在 `codex::` 命名空间，由当前员工/设置决定实际 provider 行为——**能力入口在 Codex 模块，不等于仅 Codex 引擎**（运行时路由见 `determine_effective_provider`）。
 
-**诚实边界**：`send_input` 四引擎统一为 `false`——会话是非交互批处理，没有可写 stdin 路径；UI 相关控件必须走 `can(provider, cap)` 门控并给中文禁用理由，矩阵加载失败时 fail-closed。
+**诚实边界（2026-08-11）**：`send_input` 在 Codex / Claude / OpenCode 为 `true`（SDK bridge 保留可写 stdin；交互会话默认 `awaitFollowups`：首轮结束后进程保持存活并等待后续输入；编排/流水线 mid-flight 设 `awaitFollowups:false` 以便 drain 后立即退出推进自动化。CLI 批处理通道无 stdin 时命令返回明确错误）。进程退出后需 resume/新会话，不用假 send_input。Grok 为 B1 豁免 `false`（headless CLI，`Stdio::null`，证据见 `.trellis/tasks/08-10-p3-send-input/notes-b1-grok.md`）。UI 控件必须走 `can(provider, cap)` 门控；矩阵加载失败时 fail-closed。
 
 ## 5. 验收、代码审查与自动质控
 

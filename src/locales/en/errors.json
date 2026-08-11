@@ -1,8 +1,11 @@
 {
   "capabilityLoadFailed": "Failed to load capabilities; action disabled",
+  "capabilityLoadFailedWithDetail": "Failed to load capabilities: {{detail}}",
   "capabilityUnknown": "Engine capabilities unknown; action disabled",
   "capabilityUnsupported": "This engine does not support {{label}}",
   "capabilityUnsupportedNonInteractive": "This engine does not support {{label}} (non-interactive)",
+  "capabilityUnsupportedSuffix": " (unsupported)",
+  "capabilityRestartHint": "Stop the current run, then start again (not CLI resume of an old session)",
   "capability": {
     "start": "start",
     "stop": "stop",

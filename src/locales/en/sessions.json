@@ -69,5 +69,20 @@
   "loadFailed": "Failed to load sessions",
   "continueUnavailable": "This session cannot be continued right now",
   "messageSent": "Message sent to session {{sessionId}}.",
-  "continueFailed": "Failed to send continue message"
+  "continueFailed": "Failed to send continue message",
+  "inputPlaceholder": "Send to the current session…",
+  "inputSend": "Send",
+  "inputSendFailed": "Failed to send",
+  "inputFinish": "End session",
+  "inputFinishFailed": "Failed to end session",
+  "inputFinishHint": "End the current session so the process exits and the task can continue",
+  "inputFinishUnsupported": "This engine does not support mid-session input, so the interactive session cannot be ended this way",
+  "inputUnsupported": "This engine does not support mid-session input",
+  "inputNotLive": "Session ended — use Resume or start a new session",
+  "inputMissingEmployee": "Missing employee; cannot send input",
+  "inputLiveHint": "Log open: send follow-ups; End session or close this window to continue. Without the log open, the session exits automatically",
+  "terminalEmpty": "No output yet",
+  "terminalClear": "Clear log",
+  "terminalUserInputPrefix": "[User input]",
+  "terminalEndSession": "[End session] Closed interactive input; waiting for process exit to continue the task"
 }

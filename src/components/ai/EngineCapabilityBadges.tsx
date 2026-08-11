@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 
 import { Badge } from "@/components/ui/badge";
 import { getCachedAiProviderCapabilities, loadAiProviderCapabilities } from "@/lib/aiCapabilities";
@@ -14,10 +15,12 @@ interface EngineCapabilityBadgesProps {
 function CapBadge({
   supported,
   label,
+  unsupportedSuffix,
   title,
 }: {
   supported: boolean;
   label: string;
+  unsupportedSuffix: string;
   title?: string;
 }) {
   return (
@@ -27,7 +30,7 @@ function CapBadge({
       className={!supported ? "opacity-80" : undefined}
     >
       {label}
-      {supported ? "" : "（不支持）"}
+      {supported ? "" : unsupportedSuffix}
     </Badge>
   );
 }
@@ -37,6 +40,7 @@ export function EngineCapabilityBadges({
   compact = false,
   className = "",
 }: EngineCapabilityBadgesProps) {
+  const { t } = useTranslation("errors");
   const [capabilities, setCapabilities] = useState<AiProviderCapabilities[]>(
     () => getCachedAiProviderCapabilities() ?? [],
   );
@@ -50,18 +54,19 @@ export function EngineCapabilityBadges({
       })
       .catch((error) => {
         setCapabilities([]);
-        setLoadError(error instanceof Error ? error.message : "能力信息加载失败");
+        setLoadError(error instanceof Error ? error.message : t("capabilityLoadFailed"));
       });
-  }, []);
+  }, [t]);
 
   const items = provider ? capabilities.filter((item) => item.provider === provider) : capabilities;
+  const unsupportedSuffix = t("capabilityUnsupportedSuffix");
 
   if (loadError && items.length === 0) {
     return (
       <div
         className={`rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs text-destructive ${className}`}
       >
-        能力信息加载失败：{loadError}
+        {t("capabilityLoadFailedWithDetail", { detail: loadError })}
       </div>
     );
   }
@@ -89,27 +94,47 @@ export function EngineCapabilityBadges({
               )}
             </div>
             <div className="flex flex-wrap gap-1">
-              <CapBadge supported={item.start} label="启动" title={notesTitle} />
-              <CapBadge supported={item.stop} label="停止" title={notesTitle} />
+              <CapBadge
+                supported={item.start}
+                label={t("capability.start")}
+                unsupportedSuffix={unsupportedSuffix}
+                title={notesTitle}
+              />
+              <CapBadge
+                supported={item.stop}
+                label={t("capability.stop")}
+                unsupportedSuffix={unsupportedSuffix}
+                title={notesTitle}
+              />
               <CapBadge
                 supported={item.restart}
-                label="重启"
+                label={t("capability.restart")}
+                unsupportedSuffix={unsupportedSuffix}
                 title={
                   item.restart
-                    ? "停止当前运行后重新启动任务（非恢复旧 CLI 会话）"
-                    : notesTitle || "当前引擎不支持重启"
+                    ? t("capabilityRestartHint")
+                    : notesTitle || t("capabilityUnsupported", { label: t("capability.restart") })
                 }
               />
               <CapBadge
                 supported={item.send_input}
-                label="输入"
+                label={t("capability.send_input")}
+                unsupportedSuffix={unsupportedSuffix}
                 title={
                   item.send_input
                     ? notesTitle
-                    : notesTitle || "当前引擎不支持会话中输入（非交互模式）"
+                    : notesTitle ||
+                      t("capabilityUnsupportedNonInteractive", {
+                        label: t("capability.send_input"),
+                      })
                 }
               />
-              <CapBadge supported={item.resume} label="续聊" title={notesTitle} />
+              <CapBadge
+                supported={item.resume}
+                label={t("capability.resume")}
+                unsupportedSuffix={unsupportedSuffix}
+                title={notesTitle}
+              />
             </div>
           </div>
         );

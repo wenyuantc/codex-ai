@@ -1,8 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
 
-import { getCodexSessionLogLines } from "@/lib/backend";
-import type { Employee, EmployeeRunningSession } from "@/lib/types";
-import { formatDate } from "@/lib/utils";
 import { CodexTerminal } from "@/components/codex/CodexTerminal";
 import {
   Dialog,
@@ -11,6 +8,10 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { useSessionLogAwaitFollowups } from "@/hooks/useSessionLogAwaitFollowups";
+import { getCodexSessionLogLines } from "@/lib/backend";
+import type { Employee, EmployeeRunningSession } from "@/lib/types";
+import { formatDate } from "@/lib/utils";
 import { useEmployeeStore } from "@/stores/employeeStore";
 
 interface EmployeeRunningSessionsDialogProps {
@@ -108,6 +109,14 @@ export function EmployeeRunningSessionsDialog({
     }
   }, [open]);
 
+  const primaryProvider = sortedSessions[0]?.ai_provider ?? employee.ai_provider ?? null;
+  useSessionLogAwaitFollowups(
+    open,
+    employee.id,
+    primaryProvider,
+    open && sortedSessions.length > 0,
+  );
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="w-[min(96vw,88rem)] max-w-[min(96vw,88rem)] sm:max-w-[min(96vw,88rem)]">
@@ -156,7 +165,13 @@ export function EmployeeRunningSessionsDialog({
                 </div>
 
                 <div className="[&_div[data-slot='scroll-area']]:h-56">
-                  <CodexTerminal sessionRecordId={session.session_record_id} />
+                  <CodexTerminal
+                    sessionRecordId={session.session_record_id}
+                    showInputBar
+                    inputEmployeeId={employee.id}
+                    inputProvider={session.ai_provider ?? employee.ai_provider}
+                    inputSessionLive
+                  />
                 </div>
               </section>
             ))}

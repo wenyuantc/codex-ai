@@ -25,17 +25,89 @@ function emitMultiline(text) {
     .forEach((line) => emit(line));
 }
 
-async function readInput() {
-  let raw = "";
-  for await (const chunk of stdin) {
-    raw += chunk.toString();
-  }
+function createLineReader() {
+  const queue = [];
+  let pending = null;
+  let buffer = "";
+  let ended = false;
 
-  if (!raw.trim()) {
-    throw new Error("missing input payload");
-  }
+  const deliver = (line) => {
+    if (pending) {
+      const resolve = pending;
+      pending = null;
+      resolve(line);
+    } else if (line != null) {
+      queue.push(line);
+    }
+  };
 
-  return JSON.parse(raw);
+  stdin.setEncoding("utf8");
+  stdin.on("data", (chunk) => {
+    buffer += chunk;
+    while (true) {
+      const newline = buffer.indexOf("\n");
+      if (newline < 0) break;
+      const line = buffer.slice(0, newline).trim();
+      buffer = buffer.slice(newline + 1);
+      if (line) deliver(line);
+    }
+  });
+  stdin.on("end", () => {
+    ended = true;
+    if (buffer.trim()) {
+      const line = buffer.trim();
+      buffer = "";
+      deliver(line);
+    }
+    deliver(null);
+  });
+  stdin.on("error", () => {
+    ended = true;
+    deliver(null);
+  });
+
+  return {
+    async nextLine() {
+      if (queue.length > 0) return queue.shift();
+      if (ended) return null;
+      return new Promise((resolve) => {
+        pending = resolve;
+      });
+    },
+    tryNextLine() {
+      return queue.length > 0 ? queue.shift() : null;
+    },
+  };
+}
+
+function extractFollowupPrompt(payload) {
+  if (!payload || typeof payload !== "object") return null;
+  if (
+    payload.type === "end" ||
+    payload.type === "await_followups" ||
+    payload.type === "awaitFollowups"
+  ) {
+    return null;
+  }
+  if (typeof payload.prompt === "string" && payload.prompt.trim()) {
+    return payload.prompt.trim();
+  }
+  return null;
+}
+
+function isAwaitFollowupsControl(payload) {
+  return (
+    payload &&
+    typeof payload === "object" &&
+    (payload.type === "await_followups" || payload.type === "awaitFollowups")
+  );
+}
+
+function applyAwaitFollowupsControl(payload, current) {
+  if (!isAwaitFollowupsControl(payload)) return current;
+  if (typeof payload.enabled === "boolean") return payload.enabled;
+  if (typeof payload.value === "boolean") return payload.value;
+  return true;
 }
 
 function normalizeFileChangeKind(kind) {
@@ -158,6 +230,7 @@ async function runSession(payload) {
 
   const fileChanges = new Map();
   const agentMessages = new Map();
+  let sessionId = payload.resumeSessionId || null;
 
   emit("[SDK] 任务已提交，等待 Claude 响应...");
 
@@ -165,6 +238,7 @@ async function runSession(payload) {
     switch (message.type) {
       case "system":
         if (message.subtype === "init" && message.session_id) {
+          sessionId = message.session_id;
           emit(`session id: ${message.session_id}`);
         }
         break;
@@ -252,6 +326,7 @@ async function runSession(payload) {
           emitError(`[ERROR] 执行过程中出错`);
         }
         if (message.session_id) {
+          sessionId = message.session_id;
           emit(`session id: ${message.session_id}`);
         }
         break;
@@ -260,6 +335,8 @@ async function runSession(payload) {
         break;
     }
   }
+
+  return sessionId;
 }
 
 async function runOneShot(payload) {
@@ -311,11 +388,82 @@ async function runOneShot(payload) {
 async function main() {
   let mode = "one_shot";
   try {
-    const payload = await readInput();
+    const lineReader = createLineReader();
+    const firstLine = await lineReader.nextLine();
+    if (!firstLine) {
+      throw new Error("missing input payload");
+    }
+    const payload = JSON.parse(firstLine);
     mode = payload.mode === "session" ? "session" : "one_shot";
 
     if (mode === "session") {
-      await runSession(payload);
+      // Task-linked default false (auto-exit). Log UI can enable via await_followups control.
+      let shouldAwait = payload.awaitFollowups === true;
+
+      const runFollowupFromLine = async (sessionId, line) => {
+        let followup;
+        try {
+          followup = JSON.parse(line);
+        } catch (error) {
+          emitError(`[ERROR] 无法解析会话输入: ${error?.message || error}`);
+          return sessionId;
+        }
+        if (isAwaitFollowupsControl(followup)) {
+          shouldAwait = applyAwaitFollowupsControl(followup, shouldAwait);
+          return sessionId;
+        }
+        const prompt = extractFollowupPrompt(followup);
+        if (!prompt) {
+          return sessionId;
+        }
+        if (!sessionId) {
+          emitError("[ERROR] 缺少 session id，无法继续会话中输入");
+          return sessionId;
+        }
+        emit("[SDK] 收到会话中输入，继续执行...");
+        return await runSession({
+          ...payload,
+          prompt,
+          imagePaths: [],
+          resumeSessionId: sessionId,
+        });
+      };
+
+      const drainQueuedFollowups = async (sessionId) => {
+        let current = sessionId;
+        while (true) {
+          const queued = lineReader.tryNextLine();
+          if (!queued) break;
+          current = await runFollowupFromLine(current, queued);
+        }
+        return current;
+      };
+
+      let sessionId = await runSession(payload);
+      sessionId = await drainQueuedFollowups(sessionId);
+
+      if (!shouldAwait) {
+        // Open stdin listeners keep the event loop alive; must exit so automation
+        // observes process end (do not rely on main() return while stdin is open).
+        exit(0);
+      }
+
+      emit("[SDK] 等待会话中输入...");
+      while (true) {
+        const line = await lineReader.nextLine();
+        if (!line) {
+          exit(0);
+        }
+        sessionId = await runFollowupFromLine(sessionId, line);
+        if (!shouldAwait) {
+          exit(0);
+        }
+        sessionId = await drainQueuedFollowups(sessionId);
+        if (!shouldAwait) {
+          exit(0);
+        }
+        emit("[SDK] 等待会话中输入...");
+      }
     } else {
       await runOneShot(payload);
     }

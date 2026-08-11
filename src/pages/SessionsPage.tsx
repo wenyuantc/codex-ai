@@ -131,6 +131,7 @@ function buildLogTarget(session: {
   task_id?: string | null;
   task_title?: string | null;
   session_kind?: CodexSessionListItem["session_kind"] | null;
+  ai_provider?: string | null;
 }): SessionLogTarget {
   return {
     sessionRecordId: session.session_record_id ?? null,
@@ -142,6 +143,7 @@ function buildLogTarget(session: {
     taskId: session.task_id ?? null,
     taskTitle: session.task_title ?? null,
     sessionKind: session.session_kind ?? null,
+    aiProvider: session.ai_provider ?? null,
   };
 }
 

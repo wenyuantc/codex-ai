@@ -14,8 +14,8 @@ use crate::app::{
     fetch_codex_session_by_id, fetch_ssh_config_record_by_id, insert_activity_log,
     insert_codex_session_event, insert_codex_session_event_with_id, insert_codex_session_record,
     inspect_remote_opencode_runtime, now_sqlite, remote_path_join, remote_shell_path_expression,
-    sqlite_pool, update_codex_session_record, validate_runtime_working_dir, EXECUTION_TARGET_LOCAL,
-    EXECUTION_TARGET_SSH,
+    should_await_session_followups, sqlite_pool, update_codex_session_record,
+    validate_runtime_working_dir, EXECUTION_TARGET_LOCAL, EXECUTION_TARGET_SSH,
 };
 use crate::db::models::SshConfigRecord;
 use crate::codex::{CodexExecutionProvider, CodexSessionKind, ExecutionChangeBaseline};
@@ -2066,6 +2066,7 @@ pub async fn start_opencode_with_manager(
         resume_session_id,
         image_paths: image_paths_resolved,
         install_dir: local_install_dir.clone(),
+        await_followups: should_await_session_followups(&pool, task_id.as_deref()).await,
     };
 
     let (child, cleanup_paths) = if is_ssh {
@@ -2248,6 +2249,126 @@ pub(crate) async fn stop_opencode_for_automation_restart<R: Runtime>(
         message,
     )
     .await
+}
+
+#[tauri::command]
+pub async fn send_opencode_input(
+    app: AppHandle,
+    state: State<'_, Arc<Mutex<OpenCodeManager>>>,
+    employee_id: String,
+    input: String,
+) -> Result<(), String> {
+    let processes = {
+        let manager = state.lock().await;
+        manager.get_employee_processes(&employee_id)
+    };
+    if processes.is_empty() {
+        return Err(format!(
+            "员工 {employee_id} 当前没有运行中的 OpenCode 会话，无法发送输入。"
+        ));
+    }
+
+    let mut last_error = None;
+    for process in processes {
+        {
+            let mut child = process.child.lock().await;
+            if !child.has_stdin() {
+                last_error = Some("当前 OpenCode 会话没有可写的 stdin。".to_string());
+                continue;
+            }
+            child.write_followup_input(&input).await?;
+        }
+        let pool = sqlite_pool(&app).await?;
+        emit_session_terminal_line(
+            &app,
+            &pool,
+            &process.session_record_id,
+            &process.employee_id,
+            process.task_id.as_deref(),
+            process.session_kind,
+            format!("[USER_INPUT] {}", input.trim()),
+        )
+        .await;
+        return Ok(());
+    }
+
+    Err(last_error.unwrap_or_else(|| {
+        format!("员工 {employee_id} 当前没有可写入的 OpenCode 会话 stdin。")
+    }))
+}
+
+#[tauri::command]
+pub async fn finish_opencode_input(
+    app: AppHandle,
+    state: State<'_, Arc<Mutex<OpenCodeManager>>>,
+    employee_id: String,
+) -> Result<(), String> {
+    let processes = {
+        let manager = state.lock().await;
+        manager.get_employee_processes(&employee_id)
+    };
+    if processes.is_empty() {
+        return Err(format!(
+            "员工 {employee_id} 当前没有运行中的 OpenCode 会话，无法结束会话。"
+        ));
+    }
+
+    let mut last_error = None;
+    for process in processes {
+        {
+            let mut child = process.child.lock().await;
+            if !child.has_stdin() {
+                last_error = Some("当前 OpenCode 会话没有可关闭的交互 stdin。".to_string());
+                continue;
+            }
+            child.close_stdin().await?;
+        }
+        let pool = sqlite_pool(&app).await?;
+        emit_session_terminal_line(
+            &app,
+            &pool,
+            &process.session_record_id,
+            &process.employee_id,
+            process.task_id.as_deref(),
+            process.session_kind,
+            "[END_SESSION] closed interactive stdin; waiting for process exit".to_string(),
+        )
+        .await;
+        return Ok(());
+    }
+
+    Err(last_error.unwrap_or_else(|| {
+        format!("员工 {employee_id} 当前没有可结束的 OpenCode 会话 stdin。")
+    }))
+}
+
+#[tauri::command]
+pub async fn set_opencode_await_followups(
+    state: State<'_, Arc<Mutex<OpenCodeManager>>>,
+    employee_id: String,
+    enabled: bool,
+) -> Result<(), String> {
+    let processes = {
+        let manager = state.lock().await;
+        manager.get_employee_processes(&employee_id)
+    };
+    if processes.is_empty() {
+        return Err(format!("员工 {employee_id} 当前没有运行中的 OpenCode 会话。"));
+    }
+
+    let mut last_error = None;
+    for process in processes {
+        let mut child = process.child.lock().await;
+        if !child.has_stdin() {
+            last_error = Some("当前 OpenCode 会话没有可写的交互 stdin。".to_string());
+            continue;
+        }
+        return child.write_await_followups_control(enabled).await;
+    }
+
+    Err(last_error.unwrap_or_else(|| {
+        format!("员工 {employee_id} 当前没有可写入的 OpenCode 会话 stdin。")
+    }))
 }
 
 #[tauri::command]
