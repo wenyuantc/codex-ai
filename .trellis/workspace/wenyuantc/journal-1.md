@@ -107,8 +107,29 @@ i18next zh-CN/en framework, main-path extraction, activity single-source, leftov
 
 | Hash | Message |
 |------|---------|
-| `2aac559` | (see git log) |
-| `1f890b3` | (see git log) |
+  | `2aac559` | (see git log) |
+  | `1f890b3` | (see git log) |
+
+### Status
+
+[OK] **Completed**
+
+
+## Session 6: P3 i18n 深层对话框抽取
+
+**Date**: 2026-08-11
+**Task**: i18n deep-dialog leftovers（承接 Session 4）
+**Branch**: `main`
+
+### Summary
+
+承接上轮未提交的深层对话框 i18n 抽取：Git 组件、项目 Git 动作/分支/提交详情/文件预览/里程碑、会话/搜索/员工角色提示全部走 locale；新增 search/tasks 命名空间；修复 EmployeeCard 缺失 `</span>` 闭合、Create/EditEmployeeDialog 角色下拉改用 labelKey、两处 useEffect 补 `t` 依赖。验证：tsc/build(Node22)/lint(仅存量警告)/format/clippy 全绿，en/zh 键对等，无残留硬编码中文。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `6fb9214` | feat(i18n): 深层对话框文案抽取，新增 search/tasks 命名空间 |
 
 ### Status
 
