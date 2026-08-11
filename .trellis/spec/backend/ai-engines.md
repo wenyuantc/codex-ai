@@ -9,7 +9,8 @@
 | Module | Responsibility |
 |--------|----------------|
 | `engine/context.rs` | `ExecutionContext` + `resolve_*_execution_context` / one-shot working dir (engine label injected into Chinese errors) |
-| `engine/child.rs` | `EngineChild` + `EngineProcessHandle` trait (killpg / kill / try_wait / stdio) |
+| `engine/child.rs` | `EngineChild` + `EngineProcessHandle` trait (killpg / kill / try_wait / stdio); optional retained `ChildStdin` for interactive sessions |
+| `engine/stdin.rs` | NDJSON follow-up framing (`encode_session_followup_input`) + `write_stdin_bytes` (flush, keep pipe open) |
 | `engine/manager.rs` | `ProcessManager<SessionKind, Extra>` + `ManagedProcess` + `EngineProcessRegistry` trait |
 | `engine/status.rs` | `resolve_final_session_status` (stopping / exit 0 / failed) |
 
@@ -55,9 +56,80 @@ Single source of truth: `app/database.rs::get_ai_provider_capabilities` (fronten
 |------------|---------|
 | `start` / `stop` / `resume` | Per-engine session lifecycle (all four engines) |
 | `restart` | Stop live managed processes for the employee, then call that engine's `start_*` (**not** CLI resume of the old session id) |
-| `send_input` | Mid-session stdin. **Currently false for all engines** — sessions are non-interactive batch runs. Do not set `true` until a real writable stdin path exists; never advertise a capability that always fails. |
+| `send_input` | Mid-session stdin to a **live** process. **Codex / Claude / OpenCode = true** (SDK bridge keeps stdin; NDJSON `{"type":"input","prompt":...}` follow-ups). **Grok = false** (B1: headless `-p` + `Stdio::null`; see task notes). Do not set `true` without a verifiable write path; never advertise a capability that always fails. CLI-only Codex/Claude sessions may still reject at command time with a clear Chinese error. |
 
 UI rules: Settings shows the four-engine comparison; any control for restart/send_input must gate on the matrix (`can(provider, cap)`) with Chinese disabled reasons. Prefer fail-closed when the matrix fails to load.
+
+## Mid-session `send_input` (code-spec)
+
+### 1. Scope / Trigger
+Real mid-session stdin to a **live** managed process. Never implement via resume / new session / restart. Flip matrix `send_input: true` only after a verifiable write path exists for that engine.
+
+### 2. Signatures
+| Command | Args | Result |
+|---------|------|--------|
+| `send_codex_input` | `employee_id: String`, `input: String` | `Result<(), String>` |
+| `send_claude_input` | same | same |
+| `send_opencode_input` | same | same |
+| `send_grok_input` | same | **always** `Err` (B1 honesty) |
+| `finish_codex_input` / `finish_claude_input` / `finish_opencode_input` | `employee_id: String` | Close retained stdin (EOF) so interactive wait exits; process ends → orchestration can advance |
+
+Frontend wrappers: `send*` / `finish*` in `src/lib/{codex,claude,opencode,grok}.ts`. Shared UI: `SessionInputBar` — **Send** queues follow-up; **结束会话 / End session** closes stdin. Hosts: TaskLog / SessionLog / EmployeeRunningSessions (+ review panel).
+
+### 3. Contracts
+- **Framing** (Codex / Claude / OpenCode SDK bridges): one NDJSON line `{"type":"input","prompt":"<trimmed>"}` + `\n`; pipe stays open (`engine/stdin.rs`).
+- **Terminal echo tags** (stable, localized in UI via `formatTerminalLine`): `[USER_INPUT] …` on send; `[END_SESSION] …` on finish/end-session.
+- **Retention**: interactive SDK session mode keeps `ChildStdin` on `EngineChild`; batch / CLI / one-shot may still use `Stdio::null()` or close after bootstrap.
+- **`awaitFollowups` bootstrap + runtime control** (Codex / Claude / OpenCode):
+  - Bootstrap via `resolve_await_session_followups(task_id)`: free employee session (no task) → `true`; **task-linked → `false`** (auto-exit if log never opens).
+  - Runtime NDJSON control `{"type":"await_followups","enabled":true|false}` (commands `set_*_await_followups`): when **terminal log UI opens** on a live session, frontend enables wait; after turn the bridge emits `[SDK] 等待会话中输入...` and blocks on `nextLine()`.
+  - When **log UI closes** while still live, frontend calls `finish_*_input` (close stdin / EOF) so the process exits and the task continues — same as End session.
+  - Mid-turn `send_input` still queues follow-ups before exit/wait.
+  - Do **not** advertise post-exit `send_input`. After exit, use resume/start.
+  - Do **not** rely on `main()` return while stdin listeners are registered — always `exit(0)` after the chosen mode finishes.
+- **Stop path**: `EngineChild::kill` closes retained stdin (EOF to bridge wait loop) then kills the child; stop commands also `kill_process_group`.
+- **Grok B1**: headless `grok -p` + `Stdio::null`; matrix stays `false`; command returns Chinese reason (live vs no-session variants). Evidence: task `notes-b1-grok.md`.
+
+### 4. Validation & Error Matrix
+| Case | Behavior |
+|------|----------|
+| Blank / whitespace-only input | Reject in encoder (`输入内容不能为空`) before write |
+| No live employee process | Chinese "没有运行中的 … 会话" |
+| Live but no writable stdin / wrong channel (e.g. Codex CLI batch) | Chinese channel-specific reason; do not flip matrix for that channel |
+| Grok any call | Always fail with B1 message; never resume-to-fake |
+| Capabilities still loading (UI) | Fail-closed: bar disabled, **no** false "unsupported" flash |
+| Session ended (not live) | UI bar stays visible, disabled; copy explains resume/new session |
+
+### 5. Good / Base / Bad Cases
+- Good: free employee session (no task) → after turn, wait for follow-ups / End session
+- Good: task-linked start (with or without log open) → `awaitFollowups:false` → drain then exit → task/orchestration advances without manual End session
+- Base: Grok live session → matrix `false`; UI disabled with reason; `send_grok_input` errors honestly
+- Bad: matrix `true` while command is stub/`Stdio::null`; UI enabled without live session; faking send via `resume_*`; task run that waits on stdin when the log was never opened
+
+### 6. Tests Required
+- `engine/stdin.rs`: follow-up NDJSON shape + blank reject
+- `EngineChild` stdin retain / write lifecycle
+- Grok: live-unsupported + no-session error strings (`grok_send_input_error`)
+- Capability matrix unit coverage for `send_input` flags
+- `resolve_await_session_followups` (task-linked → false; no task → true)
+- `is_orchestration_awaiting_session_exit` phase table (pipeline + review-fix + interactive)
+
+### 7. Wrong vs Correct
+#### Wrong
+```rust
+// Advertise support while stdin is null / stub always fails
+send_input: true  // in get_ai_provider_capabilities for grok
+// Or: on send_input, call start_*/resume_* to "continue" the chat
+// Or: task-linked idle run awaits stdin (stuck unless user opens log / End session)
+```
+#### Correct
+```rust
+// Matrix matches a real live-process write path; unsupported engines stay false
+send_input: false  // grok — B1
+// send_*_input only writes retained stdin on the live ManagedProcess
+// Free session: awaitFollowups true → wait on nextLine after turn
+// Task-linked: awaitFollowups false → drain then exit(0)
+```
 
 ## Lifecycle Expectations
 
@@ -237,3 +309,4 @@ match one_shot_provider.as_str() {
 - Gating a provider on `if !is_remote` inside `normalize_one_shot_provider` — that silently rewrites the user's choice to `codex` instead of surfacing a reason. Gate on runtime availability and report it, don't rewrite the provider.
 - Passing `None` for `ssh_config` into `capture_execution_change_baseline` on an SSH path — baseline capture then fails at runtime with a generic error while the code looks correct.
 - Hard-failing an execution target with 「尚未实现」. Either implement the channel or return a specific Chinese reason the user can act on (missing Node, SDK not installed, missing `ssh_config_id`).
+- Session SDK bridge returning from `main()` after drain while stdin stays open (listeners keep the event loop alive → process never exits → automation stuck on `[执行中]`). Always `exit(0)` after the drain-then-exit window.

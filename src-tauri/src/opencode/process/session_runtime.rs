@@ -23,6 +23,8 @@ pub struct OpenCodeBridgeConfig {
     pub resume_session_id: Option<String>,
     pub image_paths: Vec<String>,
     pub install_dir: PathBuf,
+    /// Interactive default true; pipeline/automation mid-flight sets false.
+    pub await_followups: bool,
 }
 
 pub struct OpenCodeServerBridgeConfig {
@@ -45,6 +47,7 @@ pub fn serialize_opencode_bridge_config(config: &OpenCodeBridgeConfig) -> Result
         "systemPrompt": config.system_prompt,
         "resumeSessionId": config.resume_session_id,
         "imagePaths": config.image_paths,
+        "awaitFollowups": config.await_followups,
     });
     serde_json::to_string(&config_json).map_err(|error| format!("序列化 bridge 配置失败: {error}"))
 }
@@ -76,9 +79,14 @@ pub async fn launch_opencode_bridge(
     let stdout = child.stdout.take();
     let stderr = child.stderr.take();
 
-    write_bridge_stdin(stdin, &serialize_opencode_bridge_config(config)?).await?;
+    let stdin = write_bridge_stdin_keep(stdin, &serialize_opencode_bridge_config(config)?).await?;
 
-    Ok(OpenCodeChild::with_stdio(child, stdout, stderr))
+    Ok(OpenCodeChild::with_stdio_and_stdin(
+        child,
+        stdout,
+        stderr,
+        Some(stdin),
+    ))
 }
 
 pub async fn launch_opencode_bridge_via_ssh<R: Runtime>(
@@ -109,18 +117,21 @@ pub async fn launch_opencode_bridge_via_ssh<R: Runtime>(
     let stdout = child.stdout.take();
     let stderr = child.stderr.take();
 
-    if let Err(error) =
-        write_bridge_stdin(stdin, &serialize_opencode_bridge_config(config)?).await
+    let stdin = match write_bridge_stdin_keep(stdin, &serialize_opencode_bridge_config(config)?)
+        .await
     {
-        let _ = child.kill().await;
-        if let Some(path) = askpass_path.as_ref() {
-            let _ = std::fs::remove_file(path);
+        Ok(stdin) => stdin,
+        Err(error) => {
+            let _ = child.kill().await;
+            if let Some(path) = askpass_path.as_ref() {
+                let _ = std::fs::remove_file(path);
+            }
+            return Err(error);
         }
-        return Err(error);
-    }
+    };
 
     Ok((
-        OpenCodeChild::with_stdio(child, stdout, stderr),
+        OpenCodeChild::with_stdio_and_stdin(child, stdout, stderr, Some(stdin)),
         askpass_path.into_iter().collect(),
     ))
 }
@@ -165,6 +176,18 @@ pub async fn launch_opencode_server_bridge(
     write_bridge_stdin(stdin, &config_str).await?;
 
     Ok(OpenCodeChild::with_stdio(child, stdout, stderr))
+}
+
+async fn write_bridge_stdin_keep(
+    mut stdin: tokio::process::ChildStdin,
+    config_str: &str,
+) -> Result<tokio::process::ChildStdin, String> {
+    let mut payload = config_str.as_bytes().to_vec();
+    if !payload.ends_with(b"\n") {
+        payload.push(b'\n');
+    }
+    crate::engine::write_stdin_bytes(&mut stdin, &payload).await?;
+    Ok(stdin)
 }
 
 async fn write_bridge_stdin(

@@ -91,3 +91,25 @@ i18next zh-CN/en framework, main-path extraction, activity single-source, leftov
 ### Status
 
 [OK] **Completed**
+
+
+## Session 5: P3 send_input 真会话输入
+
+**Date**: 2026-08-11
+**Task**: P3 send_input 真会话输入
+**Branch**: `cursor/p3-send-input-planning`
+
+### Summary
+
+实现 Codex/Claude/OpenCode 真会话 send_input 与结束会话；打开终端日志时等待输入，未打开则自动退出推进任务；Grok B1 豁免；补齐 i18n 与 spec。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `2aac559` | (see git log) |
+| `1f890b3` | (see git log) |
+
+### Status
+
+[OK] **Completed**

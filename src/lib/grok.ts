@@ -89,6 +89,10 @@ export async function restartGrok(
   });
 }
 
+export async function sendGrokInput(employeeId: string, input: string): Promise<void> {
+  await invoke("send_grok_input", { employeeId, input });
+}
+
 export function onGrokOutput(callback: (output: GrokOutput) => void): Promise<() => void> {
   return listen<GrokOutput>("grok-stdout", (event) => {
     callback(event.payload);

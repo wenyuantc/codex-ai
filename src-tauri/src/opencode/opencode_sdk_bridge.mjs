@@ -77,24 +77,89 @@ function findFreePort(host) {
   });
 }
 
-function readInput() {
-  return new Promise((resolve, reject) => {
-    let input = "";
-    process.stdin.setEncoding("utf-8");
-    process.stdin.on("data", (chunk) => {
-      input += chunk;
-    });
-    process.stdin.on("end", () => {
-      try {
-        resolve(JSON.parse(input));
-      } catch (error) {
-        reject(new Error(`解析输入失败: ${error.message}`));
-      }
-    });
-    process.stdin.on("error", (error) => {
-      reject(new Error(`读取输入失败: ${error.message}`));
-    });
+function createLineReader() {
+  const queue = [];
+  let pending = null;
+  let buffer = "";
+  let ended = false;
+
+  const deliver = (line) => {
+    if (pending) {
+      const resolve = pending;
+      pending = null;
+      resolve(line);
+    } else if (line != null) {
+      queue.push(line);
+    }
+  };
+
+  process.stdin.setEncoding("utf-8");
+  process.stdin.on("data", (chunk) => {
+    buffer += chunk;
+    while (true) {
+      const newline = buffer.indexOf("\n");
+      if (newline < 0) break;
+      const line = buffer.slice(0, newline).trim();
+      buffer = buffer.slice(newline + 1);
+      if (line) deliver(line);
+    }
   });
+  process.stdin.on("end", () => {
+    ended = true;
+    if (buffer.trim()) {
+      const line = buffer.trim();
+      buffer = "";
+      deliver(line);
+    }
+    deliver(null);
+  });
+  process.stdin.on("error", () => {
+    ended = true;
+    deliver(null);
+  });
+
+  return {
+    async nextLine() {
+      if (queue.length > 0) return queue.shift();
+      if (ended) return null;
+      return new Promise((resolve) => {
+        pending = resolve;
+      });
+    },
+    tryNextLine() {
+      return queue.length > 0 ? queue.shift() : null;
+    },
+  };
+}
+
+function extractFollowupPrompt(payload) {
+  if (!payload || typeof payload !== "object") return null;
+  if (
+    payload.type === "end" ||
+    payload.type === "await_followups" ||
+    payload.type === "awaitFollowups"
+  ) {
+    return null;
+  }
+  if (typeof payload.prompt === "string" && payload.prompt.trim()) {
+    return payload.prompt.trim();
+  }
+  return null;
+}
+
+function isAwaitFollowupsControl(payload) {
+  return (
+    payload &&
+    typeof payload === "object" &&
+    (payload.type === "await_followups" || payload.type === "awaitFollowups")
+  );
+}
+
+function applyAwaitFollowupsControl(payload, current) {
+  if (!isAwaitFollowupsControl(payload)) return current;
+  if (typeof payload.enabled === "boolean") return payload.enabled;
+  if (typeof payload.value === "boolean") return payload.value;
+  return true;
 }
 
 function summarizeFileChange(change) {
@@ -435,7 +500,7 @@ async function runSession(client, config) {
       }
       emit("error", { message: formatSdkError(result.error).slice(0, 500) });
       emit("done", { session_id: sessionId });
-      return;
+      return sessionId;
     }
 
     const message = result?.data || result;
@@ -445,7 +510,7 @@ async function runSession(client, config) {
       }
       emit("error", { message: formatSdkError(message.info.error).slice(0, 500) });
       emit("done", { session_id: sessionId });
-      return;
+      return sessionId;
     }
 
     const textOutput = await collectPromptText(client, sessionId, config, result, beforeCursor);
@@ -457,12 +522,48 @@ async function runSession(client, config) {
     }
 
     emit("done", { session_id: sessionId });
+    return sessionId;
   } catch (error) {
     if (isOpencodeConfigContentError(error)) {
       throw error;
     }
     emit("error", { message: formatSdkError(error).slice(0, 500) });
     emit("done", { session_id: sessionId });
+    return sessionId;
+  } finally {
+    if (heartbeat) clearInterval(heartbeat);
+  }
+}
+
+async function runFollowupPrompt(client, sessionId, config, prompt) {
+  const followConfig = { ...config, prompt };
+  let heartbeat = null;
+  try {
+    const beforeCursor = await fetchMessageCursor(client, sessionId, config);
+    heartbeat = setInterval(() => {
+      emit("info", { message: "OpenCode 仍在执行，等待响应..." });
+    }, 30000);
+    emit("info", { message: "收到会话中输入，继续执行..." });
+    const result = await promptSession(client, sessionId, followConfig, false);
+    if (result?.error) {
+      emit("error", { message: formatSdkError(result.error).slice(0, 500) });
+      return;
+    }
+    const message = result?.data || result;
+    if (message?.info?.error) {
+      emit("error", { message: formatSdkError(message.info.error).slice(0, 500) });
+      return;
+    }
+    const textOutput = await collectPromptText(
+      client,
+      sessionId,
+      followConfig,
+      result,
+      beforeCursor,
+    );
+    if (textOutput) {
+      emitTextOutput(textOutput);
+    }
   } finally {
     if (heartbeat) clearInterval(heartbeat);
   }
@@ -509,7 +610,12 @@ async function runOneShot(client, config) {
 
 async function main() {
   try {
-    const config = await readInput();
+    const lineReader = createLineReader();
+    const firstLine = await lineReader.nextLine();
+    if (!firstLine) {
+      throw new Error("missing input payload");
+    }
+    const config = JSON.parse(firstLine);
 
     const { mode, model, host, port, workingDirectory, reasoningEffort } = config;
 
@@ -538,6 +644,70 @@ async function main() {
       emit("info", { message: `OpenCode SDK 新实例已启动 (${started.server.url})` });
     };
 
+    // Task-linked default false (auto-exit). Log UI can enable via await_followups control.
+    let shouldAwait = config.awaitFollowups === true;
+
+    const drainSessionFollowups = async (sessionId) => {
+      if (!sessionId) return;
+      while (true) {
+        const queued = lineReader.tryNextLine();
+        if (!queued) break;
+        let followup;
+        try {
+          followup = JSON.parse(queued);
+        } catch (error) {
+          emit("error", { message: `无法解析会话输入: ${error.message}` });
+          continue;
+        }
+        if (isAwaitFollowupsControl(followup)) {
+          shouldAwait = applyAwaitFollowupsControl(followup, shouldAwait);
+          continue;
+        }
+        const prompt = extractFollowupPrompt(followup);
+        if (!prompt) continue;
+        await runFollowupPrompt(client, sessionId, config, prompt);
+      }
+    };
+
+    const awaitSessionFollowups = async (sessionId) => {
+      if (!sessionId) return;
+      await drainSessionFollowups(sessionId);
+      if (!shouldAwait) {
+        return;
+      }
+      emit("info", { message: "[SDK] 等待会话中输入..." });
+      while (true) {
+        const line = await lineReader.nextLine();
+        if (!line) {
+          break;
+        }
+        let followup;
+        try {
+          followup = JSON.parse(line);
+        } catch (error) {
+          emit("error", { message: `无法解析会话输入: ${error.message}` });
+          continue;
+        }
+        if (isAwaitFollowupsControl(followup)) {
+          shouldAwait = applyAwaitFollowupsControl(followup, shouldAwait);
+          if (!shouldAwait) {
+            break;
+          }
+          continue;
+        }
+        const prompt = extractFollowupPrompt(followup);
+        if (!prompt) {
+          continue;
+        }
+        await runFollowupPrompt(client, sessionId, config, prompt);
+        await drainSessionFollowups(sessionId);
+        if (!shouldAwait) {
+          break;
+        }
+        emit("info", { message: "[SDK] 等待会话中输入..." });
+      }
+    };
+
     const runRequestedMode = async () => {
       if (mode === "list-providers") {
         const raw = await client.config.providers();
@@ -560,7 +730,8 @@ async function main() {
         emit("providers", { providers: modelList, defaults });
         emit("done", { session_id: null });
       } else if (mode === "session" || mode === "resume_session") {
-        await runSession(client, config);
+        const sessionId = await runSession(client, config);
+        await awaitSessionFollowups(sessionId);
       } else {
         await runOneShot(client, config);
       }
@@ -611,7 +782,10 @@ async function main() {
     emit("done", { session_id: null });
   }
 
-  // Force exit so the parent Rust process sees stdout EOF
+  // Force exit so the parent Rust process sees stdout EOF.
+  // Interactive awaitFollowups already returned after stdin EOF; automation mode
+  // drained then returned. Open stdin listeners still keep the event loop alive
+  // unless we exit explicitly (do not rely on main() return while stdin is open).
   process.exit(0);
 }
 

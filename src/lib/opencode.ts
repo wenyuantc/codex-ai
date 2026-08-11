@@ -169,6 +169,18 @@ export function restartOpenCode(params: {
   return invoke<void>("restart_opencode", params);
 }
 
+export function sendOpenCodeInput(employeeId: string, input: string): Promise<void> {
+  return invoke<void>("send_opencode_input", { employeeId, input });
+}
+
+export function finishOpenCodeInput(employeeId: string): Promise<void> {
+  return invoke<void>("finish_opencode_input", { employeeId });
+}
+
+export function setOpenCodeAwaitFollowups(employeeId: string, enabled: boolean): Promise<void> {
+  return invoke<void>("set_opencode_await_followups", { employeeId, enabled });
+}
+
 // ---- Event Listeners ----
 
 export function onOpenCodeOutput(

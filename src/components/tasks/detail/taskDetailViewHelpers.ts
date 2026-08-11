@@ -1,8 +1,41 @@
+import i18n from "@/lib/i18n";
 import type { TaskExecutionChangeHistoryItem } from "@/lib/types";
+
+const USER_INPUT_TAG = "[USER_INPUT]";
+const END_SESSION_TAG = "[END_SESSION]";
+
+/** Localize stable mid-session terminal tags emitted by Rust. */
+export function formatTerminalLine(line: string): string {
+  if (line.startsWith(`${USER_INPUT_TAG} `)) {
+    return `${i18n.t("sessions:terminalUserInputPrefix")} ${line.slice(USER_INPUT_TAG.length + 1)}`;
+  }
+  if (line.startsWith(USER_INPUT_TAG)) {
+    return i18n.t("sessions:terminalUserInputPrefix");
+  }
+  if (line.startsWith(END_SESSION_TAG)) {
+    return i18n.t("sessions:terminalEndSession");
+  }
+  // Legacy Chinese tags from earlier builds
+  if (line.startsWith("[用户输入] ")) {
+    return `${i18n.t("sessions:terminalUserInputPrefix")} ${line.slice("[用户输入] ".length)}`;
+  }
+  if (line.startsWith("[结束会话]")) {
+    return i18n.t("sessions:terminalEndSession");
+  }
+  return line;
+}
 
 export function getLineColor(line: string): string {
   if (line.startsWith("[ERROR]")) return "text-red-400";
   if (line.startsWith("[EXIT]")) return "text-yellow-400";
+  if (
+    line.startsWith(USER_INPUT_TAG) ||
+    line.startsWith(END_SESSION_TAG) ||
+    line.startsWith("[用户输入]") ||
+    line.startsWith("[结束会话]")
+  ) {
+    return "text-sky-300";
+  }
   if (line.startsWith("[思考]")) return "text-zinc-500";
   if (
     line.startsWith("[命令]") ||

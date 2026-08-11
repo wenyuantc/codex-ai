@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useRef } from "react";
+import { useTranslation } from "react-i18next";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { Eraser } from "lucide-react";
 
-import { getLineColor } from "@/components/tasks/detail/taskDetailViewHelpers";
+import { formatTerminalLine, getLineColor } from "@/components/tasks/detail/taskDetailViewHelpers";
+import { SessionInputBar } from "@/components/sessions/SessionInputBar";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import type { CodexSessionKind } from "@/lib/types";
 import { buildTaskLogKey, useEmployeeStore } from "@/stores/employeeStore";
@@ -24,11 +26,19 @@ interface CodexTerminalProps {
   className?: string;
   /** Override scroll area height class (default h-36). */
   heightClassName?: string;
+  /** Mid-session input bar (TaskLog / SessionLog / EmployeeRunningSessions). */
+  inputEmployeeId?: string | null;
+  inputProvider?: string | null;
+  inputSessionLive?: boolean;
+  showInputBar?: boolean;
 }
 
 interface TerminalLine {
   key: string;
+  /** Localized display text */
   line: string;
+  /** Raw backend line (stable tags) for color rules */
+  sourceLine: string;
 }
 
 export function CodexTerminal({
@@ -39,37 +49,43 @@ export function CodexTerminal({
   hideClear = false,
   className = "",
   heightClassName = "h-36",
+  inputEmployeeId = null,
+  inputProvider = null,
+  inputSessionLive = true,
+  showInputBar = false,
 }: CodexTerminalProps) {
+  const { t, i18n } = useTranslation("sessions");
   const clearTaskCodexOutput = useEmployeeStore((s) => s.clearTaskCodexOutput);
   const clearSessionCodexOutput = useEmployeeStore((s) => s.clearSessionCodexOutput);
   const taskLogs = useEmployeeStore((s) => s.taskLogs);
   const sessionLogs = useEmployeeStore((s) => s.sessionLogs);
 
   const output: TerminalLine[] = useMemo(() => {
+    const toItem = (key: string, sourceLine: string): TerminalLine => ({
+      key,
+      sourceLine,
+      line: formatTerminalLine(sourceLine),
+    });
     if (lines) {
-      return lines.map((line, index) => ({
-        key: `filter:${index}:${line.slice(0, 48)}`,
-        line,
-      }));
+      return lines.map((line, index) => toItem(`filter:${index}:${line.slice(0, 48)}`, line));
     }
     if (sessionRecordId) {
-      return (sessionLogs[sessionRecordId] ?? []).map((entry) => ({
-        key: entry.event_id,
-        line: entry.line,
-      }));
+      return (sessionLogs[sessionRecordId] ?? []).map((entry) =>
+        toItem(entry.event_id, entry.line),
+      );
     }
     if (taskId) {
-      return (taskLogs[buildTaskLogKey(taskId, sessionKind)] ?? []).map((line, index) => ({
-        key: `${index}:${line}`,
-        line,
-      }));
+      return (taskLogs[buildTaskLogKey(taskId, sessionKind)] ?? []).map((line, index) =>
+        toItem(`${index}:${line}`, line),
+      );
     }
     return [];
-  }, [lines, sessionLogs, sessionRecordId, taskId, taskLogs, sessionKind]);
+  }, [lines, sessionLogs, sessionRecordId, taskId, taskLogs, sessionKind, i18n.language]);
 
   const scrollParentRef = useRef<HTMLDivElement | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const shouldVirtualize = output.length >= VIRTUALIZE_THRESHOLD;
+  const bodyRoundedClass = showInputBar ? "rounded-none" : "rounded-b";
 
   const virtualizer = useVirtualizer({
     count: shouldVirtualize ? output.length : 0,
@@ -109,7 +125,7 @@ export function CodexTerminal({
               }
             }}
             className="p-0.5 text-zinc-500 hover:text-zinc-300 transition-colors"
-            title="清空日志"
+            title={t("terminalClear")}
           >
             <Eraser className="h-3 w-3" />
           </button>
@@ -118,10 +134,10 @@ export function CodexTerminal({
       {shouldVirtualize ? (
         <div
           ref={scrollParentRef}
-          className={`${heightClassName} overflow-y-auto bg-black rounded-b p-2 font-mono text-xs`}
+          className={`${heightClassName} overflow-y-auto bg-black ${bodyRoundedClass} p-2 font-mono text-xs`}
         >
           {output.length === 0 ? (
-            <div className="text-zinc-600">暂无输出</div>
+            <div className="text-zinc-600">{t("terminalEmpty")}</div>
           ) : (
             <div className="relative w-full" style={{ height: `${virtualizer.getTotalSize()}px` }}>
               {virtualizer.getVirtualItems().map((virtualRow) => {
@@ -134,7 +150,7 @@ export function CodexTerminal({
                     key={item.key}
                     data-index={virtualRow.index}
                     ref={virtualizer.measureElement}
-                    className={`absolute left-0 top-0 w-full whitespace-pre-wrap ${getLineColor(item.line)}`}
+                    className={`absolute left-0 top-0 w-full whitespace-pre-wrap ${getLineColor(item.sourceLine)}`}
                     style={{ transform: `translateY(${virtualRow.start}px)` }}
                   >
                     {item.line}
@@ -145,13 +161,16 @@ export function CodexTerminal({
           )}
         </div>
       ) : (
-        <ScrollArea className={`${heightClassName} bg-black rounded-b`}>
+        <ScrollArea className={`${heightClassName} bg-black ${bodyRoundedClass}`}>
           <div className="p-2 font-mono text-xs space-y-0.5">
             {output.length === 0 ? (
-              <div className="text-zinc-600">暂无输出</div>
+              <div className="text-zinc-600">{t("terminalEmpty")}</div>
             ) : (
               output.map((item) => (
-                <div key={item.key} className={`whitespace-pre-wrap ${getLineColor(item.line)}`}>
+                <div
+                  key={item.key}
+                  className={`whitespace-pre-wrap ${getLineColor(item.sourceLine)}`}
+                >
                   {item.line}
                 </div>
               ))
@@ -160,6 +179,13 @@ export function CodexTerminal({
           </div>
         </ScrollArea>
       )}
+      {showInputBar ? (
+        <SessionInputBar
+          employeeId={inputEmployeeId}
+          provider={inputProvider}
+          sessionLive={inputSessionLive}
+        />
+      ) : null}
     </div>
   );
 }

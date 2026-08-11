@@ -402,6 +402,56 @@ pub(crate) async fn fetch_task_automation_state_record(
     .map_err(|error| format!("Failed to fetch task automation state: {}", error))
 }
 
+/// Phases where orchestration advances only after the live session process exits.
+/// Kept for phase-table unit tests and future await-policy hooks (await_followups
+/// currently keys off task_id + terminal-log UI control messages).
+#[cfg_attr(not(test), allow(dead_code))]
+pub(crate) fn is_orchestration_awaiting_session_exit(
+    phase: &str,
+    pipeline_active: bool,
+) -> bool {
+    if pipeline_active
+        && matches!(
+            phase,
+            "pipeline_launching_step"
+                | "pipeline_waiting_step"
+                | "pipeline_manual_launching_step"
+                | "pipeline_manual_waiting_step"
+        )
+    {
+        return true;
+    }
+    matches!(
+        phase,
+        TASK_AUTOMATION_PHASE_LAUNCHING_REVIEW
+            | TASK_AUTOMATION_PHASE_WAITING_REVIEW
+            | TASK_AUTOMATION_PHASE_LAUNCHING_FIX
+            | TASK_AUTOMATION_PHASE_WAITING_EXECUTION
+            | "launching_tester"
+            | "waiting_tester"
+    )
+}
+
+/// Whether the SDK bridge should block on stdin after the first turn.
+///
+/// - No `task_id` (free employee session): await follow-ups until End session / Stop.
+/// - Any task-linked run: **do not wait** — auto-exit after the turn so progress does
+///   not require opening the terminal log. Mid-turn `send_input` can still queue
+///   follow-ups before exit; orchestration also relies on process exit.
+pub(crate) async fn should_await_session_followups(
+    _pool: &SqlitePool,
+    task_id: Option<&str>,
+) -> bool {
+    resolve_await_session_followups(task_id)
+}
+
+pub(crate) fn resolve_await_session_followups(task_id: Option<&str>) -> bool {
+    task_id
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .is_none()
+}
+
 pub(crate) fn decode_task_automation_state(
     record: TaskAutomationStateRecord,
 ) -> Result<TaskAutomationState, String> {
@@ -2734,6 +2784,65 @@ pub async fn list_task_comments<R: Runtime>(
 ) -> Result<Vec<Comment>, String> {
     let pool = sqlite_pool(&app).await?;
     fetch_task_comments(&pool, &task_id).await
+}
+
+#[cfg(test)]
+mod await_followups_phase_tests {
+    use super::{is_orchestration_awaiting_session_exit, resolve_await_session_followups};
+
+    #[test]
+    fn task_linked_runs_auto_exit_without_waiting() {
+        assert!(!resolve_await_session_followups(Some("task-1")));
+        assert!(!resolve_await_session_followups(Some("  task-1  ")));
+        assert!(resolve_await_session_followups(None));
+        assert!(resolve_await_session_followups(Some("")));
+        assert!(resolve_await_session_followups(Some("   ")));
+    }
+
+    #[test]
+    fn pipeline_mid_flight_requires_exit() {
+        assert!(is_orchestration_awaiting_session_exit(
+            "pipeline_launching_step",
+            true
+        ));
+        assert!(is_orchestration_awaiting_session_exit(
+            "pipeline_waiting_step",
+            true
+        ));
+        assert!(is_orchestration_awaiting_session_exit(
+            "pipeline_manual_launching_step",
+            true
+        ));
+        assert!(is_orchestration_awaiting_session_exit(
+            "pipeline_manual_waiting_step",
+            true
+        ));
+        assert!(!is_orchestration_awaiting_session_exit(
+            "pipeline_waiting_step",
+            false
+        ));
+    }
+
+    #[test]
+    fn review_fix_mid_flight_requires_exit() {
+        assert!(is_orchestration_awaiting_session_exit("launching_review", false));
+        assert!(is_orchestration_awaiting_session_exit("waiting_review", false));
+        assert!(is_orchestration_awaiting_session_exit("launching_fix", false));
+        assert!(is_orchestration_awaiting_session_exit(
+            "waiting_execution",
+            false
+        ));
+        assert!(is_orchestration_awaiting_session_exit("launching_tester", false));
+        assert!(is_orchestration_awaiting_session_exit("waiting_tester", false));
+    }
+
+    #[test]
+    fn interactive_phases_await_followups() {
+        assert!(!is_orchestration_awaiting_session_exit("idle", false));
+        assert!(!is_orchestration_awaiting_session_exit("manual_control", false));
+        assert!(!is_orchestration_awaiting_session_exit("completed", false));
+        assert!(!is_orchestration_awaiting_session_exit("blocked", false));
+    }
 }
 
 #[cfg(test)]

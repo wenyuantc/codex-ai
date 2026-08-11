@@ -8,7 +8,9 @@ import type {
 import { Button } from "@/components/ui/button";
 import { CodexTerminal } from "@/components/codex/CodexTerminal";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { useSessionLogAwaitFollowups } from "@/hooks/useSessionLogAwaitFollowups";
 import { formatDate } from "@/lib/utils";
+import { useEmployeeStore } from "@/stores/employeeStore";
 import { DetailSection, DetailStat } from "./DetailSection";
 import { TaskFileChangeHistoryPanel } from "./TaskFileChangeHistoryPanel";
 import { getSessionStatusLabel } from "./taskDetailViewHelpers";
@@ -62,6 +64,27 @@ export function TaskReviewPanel({
   onRefreshHistory,
   onOpenChangeDetail,
 }: TaskReviewPanelProps) {
+  const employees = useEmployeeStore((s) => s.employees);
+  const employeeRuntime = useEmployeeStore((s) => s.employeeRuntime);
+  const reviewer = employees.find((item) => item.id === reviewerId);
+  const reviewLive = Boolean(
+    employeeRuntime[reviewerId]?.sessions?.some(
+      (session) => session.task_id === taskId && session.session_kind === "review",
+    ),
+  );
+  const reviewProvider =
+    employeeRuntime[reviewerId]?.sessions?.find(
+      (session) => session.task_id === taskId && session.session_kind === "review",
+    )?.ai_provider ??
+    reviewer?.ai_provider ??
+    null;
+  const reviewTerminalLive = reviewLive || isReviewActive;
+  useSessionLogAwaitFollowups(
+    Boolean(reviewerId) && (isReviewActive || hasReviewOutput),
+    reviewerId,
+    reviewProvider,
+    reviewTerminalLive,
+  );
   return (
     <div className="space-y-4">
       <DetailSection
@@ -129,7 +152,14 @@ export function TaskReviewPanel({
                   {isReviewActive ? "运行中" : "最近一次审核输出"}
                 </span>
               </div>
-              <CodexTerminal taskId={taskId} sessionKind="review" />
+              <CodexTerminal
+                taskId={taskId}
+                sessionKind="review"
+                showInputBar
+                inputEmployeeId={reviewerId}
+                inputProvider={reviewProvider}
+                inputSessionLive={reviewLive || isReviewActive}
+              />
             </div>
           )}
         </div>

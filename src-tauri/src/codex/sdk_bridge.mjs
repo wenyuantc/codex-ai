@@ -71,17 +71,127 @@ function emitMultiline(text) {
     .forEach((line) => emit(line));
 }
 
-async function readInput() {
-  let raw = "";
-  for await (const chunk of stdin) {
-    raw += chunk.toString();
-  }
+function createLineReader() {
+  const queue = [];
+  let pending = null;
+  let buffer = "";
+  let ended = false;
 
-  if (!raw.trim()) {
-    throw new Error("missing input payload");
-  }
+  const flushLines = () => {
+    while (true) {
+      const newline = buffer.indexOf("\n");
+      if (newline < 0) {
+        break;
+      }
+      const line = buffer.slice(0, newline).trim();
+      buffer = buffer.slice(newline + 1);
+      if (!line) {
+        continue;
+      }
+      if (pending) {
+        const resolve = pending;
+        pending = null;
+        resolve(line);
+      } else {
+        queue.push(line);
+      }
+    }
+  };
 
-  return JSON.parse(raw);
+  stdin.setEncoding("utf8");
+  stdin.on("data", (chunk) => {
+    buffer += chunk;
+    flushLines();
+  });
+  stdin.on("end", () => {
+    ended = true;
+    if (buffer.trim()) {
+      const line = buffer.trim();
+      buffer = "";
+      if (pending) {
+        const resolve = pending;
+        pending = null;
+        resolve(line);
+      } else {
+        queue.push(line);
+      }
+    }
+    if (pending) {
+      const resolve = pending;
+      pending = null;
+      resolve(null);
+    }
+  });
+  stdin.on("error", () => {
+    ended = true;
+    if (pending) {
+      const resolve = pending;
+      pending = null;
+      resolve(null);
+    }
+  });
+
+  return {
+    async nextLine() {
+      if (queue.length > 0) {
+        return queue.shift();
+      }
+      if (ended) {
+        return null;
+      }
+      return new Promise((resolve) => {
+        pending = resolve;
+      });
+    },
+    tryNextLine() {
+      return queue.length > 0 ? queue.shift() : null;
+    },
+  };
+}
+
+function parseJsonLine(line) {
+  return JSON.parse(line);
+}
+
+function extractFollowupPrompt(payload) {
+  if (!payload || typeof payload !== "object") {
+    return null;
+  }
+  if (
+    payload.type === "end" ||
+    payload.type === "await_followups" ||
+    payload.type === "awaitFollowups"
+  ) {
+    return null;
+  }
+  if (typeof payload.prompt === "string" && payload.prompt.trim()) {
+    return payload.prompt.trim();
+  }
+  if (Array.isArray(payload.input) && payload.input.length > 0) {
+    return payload.input;
+  }
+  return null;
+}
+
+function isAwaitFollowupsControl(payload) {
+  return (
+    payload &&
+    typeof payload === "object" &&
+    (payload.type === "await_followups" || payload.type === "awaitFollowups")
+  );
+}
+
+function applyAwaitFollowupsControl(payload, current) {
+  if (!isAwaitFollowupsControl(payload)) {
+    return current;
+  }
+  if (typeof payload.enabled === "boolean") {
+    return payload.enabled;
+  }
+  if (typeof payload.value === "boolean") {
+    return payload.value;
+  }
+  return true;
 }
 
 function summarizeFileChange(item) {
@@ -316,8 +426,17 @@ async function runSession(thread, input) {
 async function main() {
   let mode = "one_shot";
   try {
-    const payload = await readInput();
+    // Session mode uses NDJSON lines and may keep stdin open for mid-session follow-ups.
+    // One-shot historically sent a JSON blob then closed stdin (EOF); line reader also
+    // flushes a final buffer on end so missing trailing newlines still parse.
+    const lineReader = createLineReader();
+    const firstLine = await lineReader.nextLine();
+    if (!firstLine) {
+      throw new Error("missing input payload");
+    }
+    const payload = parseJsonLine(firstLine);
     mode = payload.mode === "session" ? "session" : "one_shot";
+
     const input = normalizeInput(payload);
     const codexPathOverride =
       typeof payload.codexPathOverride === "string" && payload.codexPathOverride.trim()
@@ -355,8 +474,77 @@ async function main() {
         : codex.startThread(threadOptions);
 
     if (mode === "session") {
+      // Task-linked default is false (auto-exit). Terminal log UI can send
+      // {"type":"await_followups","enabled":true} to wait for user input instead.
+      let shouldAwait = payload.awaitFollowups === true;
+
+      const drainQueuedFollowups = async () => {
+        while (true) {
+          const queued = lineReader.tryNextLine();
+          if (!queued) {
+            break;
+          }
+          let followup;
+          try {
+            followup = parseJsonLine(queued);
+          } catch (error) {
+            emitError(`[ERROR] 无法解析会话输入: ${error?.message || error}`);
+            continue;
+          }
+          if (isAwaitFollowupsControl(followup)) {
+            shouldAwait = applyAwaitFollowupsControl(followup, shouldAwait);
+            continue;
+          }
+          const nextInput = extractFollowupPrompt(followup);
+          if (!nextInput) {
+            continue;
+          }
+          emit("[SDK] 收到会话中输入，继续执行...");
+          await runSession(thread, nextInput);
+        }
+      };
+
       await runSession(thread, input);
-      return;
+      await drainQueuedFollowups();
+
+      if (!shouldAwait) {
+        // Open stdin listeners keep the event loop alive; must exit so automation
+        // observes process end (do not rely on main() return while stdin is open).
+        exit(0);
+      }
+
+      emit("[SDK] 等待会话中输入...");
+      while (true) {
+        const line = await lineReader.nextLine();
+        if (!line) {
+          exit(0);
+        }
+        let followup;
+        try {
+          followup = parseJsonLine(line);
+        } catch (error) {
+          emitError(`[ERROR] 无法解析会话输入: ${error?.message || error}`);
+          continue;
+        }
+        if (isAwaitFollowupsControl(followup)) {
+          shouldAwait = applyAwaitFollowupsControl(followup, shouldAwait);
+          if (!shouldAwait) {
+            exit(0);
+          }
+          continue;
+        }
+        const nextInput = extractFollowupPrompt(followup);
+        if (!nextInput) {
+          continue;
+        }
+        emit("[SDK] 收到会话中输入，继续执行...");
+        await runSession(thread, nextInput);
+        await drainQueuedFollowups();
+        if (!shouldAwait) {
+          exit(0);
+        }
+        emit("[SDK] 等待会话中输入...");
+      }
     }
 
     const result = await thread.run(input);

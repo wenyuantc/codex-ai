@@ -11,8 +11,9 @@ use crate::app::{
     build_remote_shell_command, build_ssh_command, fetch_ssh_config_record_by_id,
     insert_activity_log, insert_codex_session_event, insert_codex_session_event_with_id,
     insert_codex_session_record, now_sqlite, remote_shell_path_expression,
-    shell_escape_single_quoted, sqlite_pool, update_codex_session_record,
-    validate_runtime_working_dir, EXECUTION_TARGET_LOCAL, EXECUTION_TARGET_SSH,
+    shell_escape_single_quoted, should_await_session_followups, sqlite_pool,
+    update_codex_session_record, validate_runtime_working_dir, EXECUTION_TARGET_LOCAL,
+    EXECUTION_TARGET_SSH,
 };
 use crate::claude::{
     ensure_claude_sdk_runtime_layout, inspect_claude_sdk_runtime, load_claude_settings,
@@ -1286,8 +1287,10 @@ pub async fn start_claude_with_manager(
         }
     }
 
+    let mut retained_stdin = None;
     if provider == ClaudeExecutionProvider::Sdk {
-        let payload = match serde_json::to_vec(&serde_json::json!({
+        let await_followups = should_await_session_followups(&pool, task_id.as_deref()).await;
+        let payload = match serde_json::to_value(serde_json::json!({
             "mode": "session",
             "prompt": prompt.clone(),
             "imagePaths": image_paths.clone(),
@@ -1297,6 +1300,7 @@ pub async fn start_claude_with_manager(
             "workingDirectory": run_cwd.clone(),
             "resumeSessionId": resume_session_id.clone(),
             "claudePathOverride": claude_settings.cli_path_override.clone(),
+            "awaitFollowups": await_followups,
         })) {
             Ok(payload) => payload,
             Err(error) => {
@@ -1317,8 +1321,28 @@ pub async fn start_claude_with_manager(
             }
         };
 
+        let bytes = match crate::engine::encode_ndjson_line(&payload) {
+            Ok(bytes) => bytes,
+            Err(error) => {
+                let message = format!("序列化 Claude SDK 会话参数失败: {error}");
+                let _ = child.kill().await;
+                cleanup_process_artifacts(&cleanup_paths);
+                finalize_claude_launch_failure(
+                    &app,
+                    &pool,
+                    &session_record.id,
+                    task_git_context_id.as_deref(),
+                    git_context_marked_running,
+                    "spawn_failed",
+                    &message,
+                )
+                .await;
+                return Err(message);
+            }
+        };
+
         if let Some(mut stdin) = child.stdin.take() {
-            if let Err(error) = stdin.write_all(&payload).await {
+            if let Err(error) = crate::engine::write_stdin_bytes(&mut stdin, &bytes).await {
                 let message = format!("写入 Claude SDK 会话参数失败: {error}");
                 let _ = child.kill().await;
                 cleanup_process_artifacts(&cleanup_paths);
@@ -1334,22 +1358,7 @@ pub async fn start_claude_with_manager(
                 .await;
                 return Err(message);
             }
-            if let Err(error) = stdin.shutdown().await {
-                let message = format!("关闭 Claude SDK stdin 失败: {error}");
-                let _ = child.kill().await;
-                cleanup_process_artifacts(&cleanup_paths);
-                finalize_claude_launch_failure(
-                    &app,
-                    &pool,
-                    &session_record.id,
-                    task_git_context_id.as_deref(),
-                    git_context_marked_running,
-                    "spawn_failed",
-                    &message,
-                )
-                .await;
-                return Err(message);
-            }
+            retained_stdin = Some(stdin);
         }
     }
 
@@ -1433,7 +1442,7 @@ pub async fn start_claude_with_manager(
 
     let sdk_file_change_store: SdkFileChangeStore = Arc::new(Mutex::new(HashMap::new()));
 
-    let claude_child = ClaudeChild::new(child);
+    let claude_child = ClaudeChild::with_stdio_and_stdin(child, None, None, retained_stdin);
     let child_arc = Arc::new(tokio::sync::Mutex::new(claude_child));
 
     {
@@ -1589,6 +1598,127 @@ pub(crate) async fn stop_claude_for_automation_restart<R: Runtime>(
         message,
     )
     .await
+}
+
+#[tauri::command]
+pub async fn send_claude_input(
+    app: AppHandle,
+    state: State<'_, Arc<tokio::sync::Mutex<ClaudeManager>>>,
+    employee_id: String,
+    input: String,
+) -> Result<(), String> {
+    let processes = {
+        let manager = state.lock().await;
+        manager.get_employee_processes(&employee_id)
+    };
+    if processes.is_empty() {
+        return Err(format!(
+            "员工 {employee_id} 当前没有运行中的 Claude 会话，无法发送输入。"
+        ));
+    }
+
+    let mut last_error = None;
+    for process in processes {
+        {
+            let mut child = process.child.lock().await;
+            if !child.has_stdin() {
+                last_error = Some(
+                    "当前 Claude 会话没有可写的 stdin（CLI 批处理通道或交互通道已关闭）。"
+                        .to_string(),
+                );
+                continue;
+            }
+            child.write_followup_input(&input).await?;
+        }
+        let pool = sqlite_pool(&app).await?;
+        emit_session_terminal_line(
+            &app,
+            &pool,
+            &process.session_record_id,
+            &process.employee_id,
+            process.task_id.as_deref(),
+            process.session_kind,
+            format!("[USER_INPUT] {}", input.trim()),
+        )
+        .await;
+        return Ok(());
+    }
+
+    Err(last_error.unwrap_or_else(|| {
+        format!("员工 {employee_id} 当前没有可写入的 Claude 会话 stdin。")
+    }))
+}
+
+#[tauri::command]
+pub async fn finish_claude_input(
+    app: AppHandle,
+    state: State<'_, Arc<tokio::sync::Mutex<ClaudeManager>>>,
+    employee_id: String,
+) -> Result<(), String> {
+    let processes = {
+        let manager = state.lock().await;
+        manager.get_employee_processes(&employee_id)
+    };
+    if processes.is_empty() {
+        return Err(format!(
+            "员工 {employee_id} 当前没有运行中的 Claude 会话，无法结束会话。"
+        ));
+    }
+
+    let mut last_error = None;
+    for process in processes {
+        {
+            let mut child = process.child.lock().await;
+            if !child.has_stdin() {
+                last_error = Some("当前 Claude 会话没有可关闭的交互 stdin。".to_string());
+                continue;
+            }
+            child.close_stdin().await?;
+        }
+        let pool = sqlite_pool(&app).await?;
+        emit_session_terminal_line(
+            &app,
+            &pool,
+            &process.session_record_id,
+            &process.employee_id,
+            process.task_id.as_deref(),
+            process.session_kind,
+            "[END_SESSION] closed interactive stdin; waiting for process exit".to_string(),
+        )
+        .await;
+        return Ok(());
+    }
+
+    Err(last_error
+        .unwrap_or_else(|| format!("员工 {employee_id} 当前没有可结束的 Claude 会话 stdin。")))
+}
+
+#[tauri::command]
+pub async fn set_claude_await_followups(
+    state: State<'_, Arc<tokio::sync::Mutex<ClaudeManager>>>,
+    employee_id: String,
+    enabled: bool,
+) -> Result<(), String> {
+    let processes = {
+        let manager = state.lock().await;
+        manager.get_employee_processes(&employee_id)
+    };
+    if processes.is_empty() {
+        return Err(format!("员工 {employee_id} 当前没有运行中的 Claude 会话。"));
+    }
+
+    let mut last_error = None;
+    for process in processes {
+        let mut child = process.child.lock().await;
+        if !child.has_stdin() {
+            last_error = Some("当前 Claude 会话没有可写的交互 stdin。".to_string());
+            continue;
+        }
+        return child.write_await_followups_control(enabled).await;
+    }
+
+    Err(last_error
+        .unwrap_or_else(|| format!("员工 {employee_id} 当前没有可写入的 Claude 会话 stdin。")))
 }
 
 #[tauri::command]

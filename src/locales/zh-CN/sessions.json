@@ -69,5 +69,20 @@
   "loadFailed": "读取对话列表失败",
   "continueUnavailable": "该对话当前不可继续",
   "messageSent": "消息已发送到对话 {{sessionId}}。",
-  "continueFailed": "发送续聊消息失败"
+  "continueFailed": "发送续聊消息失败",
+  "inputPlaceholder": "发送到当前会话…",
+  "inputSend": "发送",
+  "inputSendFailed": "发送失败",
+  "inputFinish": "结束会话",
+  "inputFinishFailed": "结束会话失败",
+  "inputFinishHint": "结束当前会话，进程退出后任务可进入下一步",
+  "inputFinishUnsupported": "当前引擎不支持会话中输入，无法结束交互会话",
+  "inputUnsupported": "当前引擎不支持会话中输入",
+  "inputNotLive": "会话已结束，请使用「继续对话」或重新开始",
+  "inputMissingEmployee": "缺少员工信息，无法发送输入",
+  "inputLiveHint": "已打开日志：可发送补充；点「结束会话」或关闭窗口后任务继续。未打开日志时会自动结束",
+  "terminalEmpty": "暂无输出",
+  "terminalClear": "清空日志",
+  "terminalUserInputPrefix": "[用户输入]",
+  "terminalEndSession": "[结束会话] 已关闭交互输入，等待进程退出以继续任务"
 }

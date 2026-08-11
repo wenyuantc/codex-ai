@@ -1,11 +1,18 @@
-use tokio::process::Child;
+use tokio::io::AsyncWriteExt;
+use tokio::process::{Child, ChildStdin, ChildStderr, ChildStdout};
+
+use super::stdin::{
+    encode_await_followups_control, encode_session_followup_input, write_stdin_bytes,
+};
 
 /// Shared subprocess handle for AI engine sessions (local or SSH-wrapped).
 pub struct EngineChild {
     child: Child,
     /// Optional pre-taken pipes (OpenCode may detach stdio at spawn time).
-    stdout: Option<tokio::process::ChildStdout>,
-    stderr: Option<tokio::process::ChildStderr>,
+    stdout: Option<ChildStdout>,
+    stderr: Option<ChildStderr>,
+    /// Kept open for mid-session follow-up input on interactive SDK bridges.
+    stdin: Option<ChildStdin>,
 }
 
 /// Minimal process-handle contract shared by engine children.
@@ -16,8 +23,8 @@ pub struct EngineChild {
 pub trait EngineProcessHandle {
     fn kill_process_group(&mut self) -> Result<(), String>;
     fn try_wait(&mut self) -> Result<Option<std::process::ExitStatus>, String>;
-    fn take_stdout(&mut self) -> Option<tokio::process::ChildStdout>;
-    fn take_stderr(&mut self) -> Option<tokio::process::ChildStderr>;
+    fn take_stdout(&mut self) -> Option<ChildStdout>;
+    fn take_stderr(&mut self) -> Option<ChildStderr>;
 }
 
 impl EngineChild {
@@ -26,20 +33,78 @@ impl EngineChild {
             child,
             stdout: None,
             stderr: None,
+            stdin: None,
         }
     }
 
     /// Construct with stdio handles already taken from the child (OpenCode pattern).
     pub fn with_stdio(
         child: Child,
-        stdout: Option<tokio::process::ChildStdout>,
-        stderr: Option<tokio::process::ChildStderr>,
+        stdout: Option<ChildStdout>,
+        stderr: Option<ChildStderr>,
     ) -> Self {
         Self {
             child,
             stdout,
             stderr,
+            stdin: None,
         }
+    }
+
+    /// Construct with stdout/stderr/stdin already taken from the child.
+    pub fn with_stdio_and_stdin(
+        child: Child,
+        stdout: Option<ChildStdout>,
+        stderr: Option<ChildStderr>,
+        stdin: Option<ChildStdin>,
+    ) -> Self {
+        Self {
+            child,
+            stdout,
+            stderr,
+            stdin,
+        }
+    }
+
+    pub fn take_stdin(&mut self) -> Option<ChildStdin> {
+        self.stdin.take().or_else(|| self.child.stdin.take())
+    }
+
+    pub fn has_stdin(&self) -> bool {
+        self.stdin.is_some() || self.child.stdin.is_some()
+    }
+
+    /// Write a framed follow-up input line without closing stdin.
+    pub async fn write_followup_input(&mut self, input: &str) -> Result<(), String> {
+        let bytes = encode_session_followup_input(input)?;
+        let stdin = self
+            .stdin
+            .as_mut()
+            .or(self.child.stdin.as_mut())
+            .ok_or_else(|| "当前会话没有可写的 stdin（非交互通道）".to_string())?;
+        write_stdin_bytes(stdin, &bytes).await
+    }
+
+    /// Toggle post-turn wait-for-input on the live SDK bridge (terminal log open/close).
+    pub async fn write_await_followups_control(&mut self, enabled: bool) -> Result<(), String> {
+        let bytes = encode_await_followups_control(enabled)?;
+        let stdin = self
+            .stdin
+            .as_mut()
+            .or(self.child.stdin.as_mut())
+            .ok_or_else(|| "当前会话没有可写的 stdin（非交互通道）".to_string())?;
+        write_stdin_bytes(stdin, &bytes).await
+    }
+
+    /// Close the retained stdin pipe (signals EOF to interactive bridges).
+    pub async fn close_stdin(&mut self) -> Result<(), String> {
+        if let Some(mut stdin) = self.take_stdin() {
+            stdin
+                .shutdown()
+                .await
+                .map_err(|error| format!("关闭会话 stdin 失败: {error}"))?;
+        }
+        Ok(())
     }
 
     #[cfg(unix)]
@@ -72,6 +137,7 @@ impl EngineChild {
     }
 
     pub async fn kill(&mut self) -> Result<(), String> {
+        let _ = self.close_stdin().await;
         match self.child.kill().await {
             Ok(()) => Ok(()),
             Err(error) => match error.raw_os_error() {
@@ -92,21 +158,21 @@ impl EngineChild {
         Ok(self.try_wait()?.and_then(|status| status.code()))
     }
 
-    pub fn take_stdout(&mut self) -> Option<tokio::process::ChildStdout> {
+    pub fn take_stdout(&mut self) -> Option<ChildStdout> {
         self.stdout.take().or_else(|| self.child.stdout.take())
     }
 
-    pub fn take_stderr(&mut self) -> Option<tokio::process::ChildStderr> {
+    pub fn take_stderr(&mut self) -> Option<ChildStderr> {
         self.stderr.take().or_else(|| self.child.stderr.take())
     }
 
     /// OpenCode historical alias for [`Self::take_stdout`].
-    pub fn stdout(&mut self) -> Option<tokio::process::ChildStdout> {
+    pub fn stdout(&mut self) -> Option<ChildStdout> {
         self.take_stdout()
     }
 
     /// OpenCode historical alias for [`Self::take_stderr`].
-    pub fn stderr(&mut self) -> Option<tokio::process::ChildStderr> {
+    pub fn stderr(&mut self) -> Option<ChildStderr> {
         self.take_stderr()
     }
 }
@@ -120,11 +186,11 @@ impl EngineProcessHandle for EngineChild {
         EngineChild::try_wait(self)
     }
 
-    fn take_stdout(&mut self) -> Option<tokio::process::ChildStdout> {
+    fn take_stdout(&mut self) -> Option<ChildStdout> {
         EngineChild::take_stdout(self)
     }
 
-    fn take_stderr(&mut self) -> Option<tokio::process::ChildStderr> {
+    fn take_stderr(&mut self) -> Option<ChildStderr> {
         EngineChild::take_stderr(self)
     }
 }
@@ -133,6 +199,7 @@ impl EngineProcessHandle for EngineChild {
 mod tests {
     use super::*;
     use std::process::Stdio;
+    use tokio::io::{AsyncBufReadExt, BufReader};
     use tokio::process::Command;
 
     #[test]
@@ -158,6 +225,61 @@ mod tests {
             }
             let _ = handle.kill_process_group();
             let _ = child.kill().await;
+        });
+    }
+
+    #[test]
+    fn retained_stdin_accepts_followup_writes() {
+        tauri::async_runtime::block_on(async {
+            let mut command = Command::new("sh");
+            command
+                .arg("-c")
+                .arg("IFS= read -r line; printf '%s\\n' \"$line\"")
+                .stdin(Stdio::piped())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::null());
+            let mut child = command.spawn().expect("spawn");
+            let stdin = child.stdin.take().expect("stdin");
+            let stdout = child.stdout.take().expect("stdout");
+            let mut engine = EngineChild::with_stdio_and_stdin(child, None, None, Some(stdin));
+            assert!(engine.has_stdin());
+            engine
+                .write_followup_input("ping from kernel")
+                .await
+                .expect("write");
+            engine.close_stdin().await.expect("close");
+
+            let mut reader = BufReader::new(stdout);
+            let mut line = String::new();
+            reader.read_line(&mut line).await.expect("read");
+            assert!(line.contains("ping from kernel"), "got {line:?}");
+
+            for _ in 0..50 {
+                if engine.try_wait().expect("try_wait").is_some() {
+                    break;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+            }
+        });
+    }
+
+    #[test]
+    fn write_followup_without_stdin_fails_clearly() {
+        tauri::async_runtime::block_on(async {
+            let mut command = Command::new("sh");
+            command
+                .arg("-c")
+                .arg("true")
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null());
+            let mut engine = EngineChild::new(command.spawn().expect("spawn"));
+            let error = engine
+                .write_followup_input("nope")
+                .await
+                .expect_err("should fail");
+            assert!(error.contains("stdin") || error.contains("非交互"));
+            let _ = engine.kill().await;
         });
     }
 }

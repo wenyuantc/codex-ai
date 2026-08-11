@@ -1,8 +1,11 @@
 {
   "capabilityLoadFailed": "能力信息加载失败，操作已禁用",
+  "capabilityLoadFailedWithDetail": "能力信息加载失败：{{detail}}",
   "capabilityUnknown": "当前引擎能力未知，操作已禁用",
   "capabilityUnsupported": "当前引擎不支持{{label}}",
   "capabilityUnsupportedNonInteractive": "当前引擎不支持{{label}}（非交互模式）",
+  "capabilityUnsupportedSuffix": "（不支持）",
+  "capabilityRestartHint": "停止当前运行后重新启动任务（非恢复旧 CLI 会话）",
   "capability": {
     "start": "启动",
     "stop": "停止",

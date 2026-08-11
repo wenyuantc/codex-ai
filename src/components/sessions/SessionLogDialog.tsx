@@ -9,6 +9,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { useSessionLogAwaitFollowups } from "@/hooks/useSessionLogAwaitFollowups";
 import { getCodexSessionLogLines } from "@/lib/backend";
 import type { CodexSessionKind } from "@/lib/types";
 import { buildTaskLogKey, useEmployeeStore } from "@/stores/employeeStore";
@@ -22,6 +23,7 @@ interface SessionLogTarget {
   taskId: string | null;
   taskTitle: string | null;
   sessionKind: CodexSessionKind | null;
+  aiProvider?: string | null;
 }
 
 interface SessionLogDialogProps {
@@ -34,6 +36,8 @@ export function SessionLogDialog({ open, session, onOpenChange }: SessionLogDial
   const hydrateSessionLog = useEmployeeStore((state) => state.hydrateSessionLog);
   const sessionLogs = useEmployeeStore((state) => state.sessionLogs);
   const taskLogs = useEmployeeStore((state) => state.taskLogs);
+  const employees = useEmployeeStore((state) => state.employees);
+  const employeeRuntime = useEmployeeStore((state) => state.employeeRuntime);
   const [loadingHistory, setLoadingHistory] = useState(false);
   const [historyError, setHistoryError] = useState<string | null>(null);
   const [loadedSessionHistories, setLoadedSessionHistories] = useState<Record<string, boolean>>({});
@@ -110,6 +114,26 @@ export function SessionLogDialog({ open, session, onOpenChange }: SessionLogDial
     ? `匹配 ${filteredLines.length} / ${rawLines.length} 行`
     : `共 ${rawLines.length} 行`;
 
+  const inputContext = useMemo(() => {
+    const employeeId = session?.employeeId ?? null;
+    const employee = employeeId ? employees.find((item) => item.id === employeeId) : null;
+    const runtimeSessions = employeeId ? (employeeRuntime[employeeId]?.sessions ?? []) : [];
+    const liveSession = sessionRecordId
+      ? runtimeSessions.find((item) => item.session_record_id === sessionRecordId)
+      : undefined;
+    const provider =
+      session?.aiProvider ?? liveSession?.ai_provider ?? employee?.ai_provider ?? null;
+    const live = Boolean(liveSession);
+    return { employeeId, provider, live };
+  }, [employeeRuntime, employees, session?.aiProvider, session?.employeeId, sessionRecordId]);
+
+  useSessionLogAwaitFollowups(
+    open,
+    inputContext.employeeId,
+    inputContext.provider,
+    inputContext.live,
+  );
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
@@ -170,12 +194,23 @@ export function SessionLogDialog({ open, session, onOpenChange }: SessionLogDial
             {trimmedKeyword ? (
               <CodexTerminal lines={filteredLines} hideClear heightClassName="h-[28rem]" />
             ) : sessionRecordId ? (
-              <CodexTerminal sessionRecordId={sessionRecordId} heightClassName="h-[28rem]" />
+              <CodexTerminal
+                sessionRecordId={sessionRecordId}
+                heightClassName="h-[28rem]"
+                showInputBar
+                inputEmployeeId={inputContext.employeeId}
+                inputProvider={inputContext.provider}
+                inputSessionLive={inputContext.live}
+              />
             ) : session?.taskId ? (
               <CodexTerminal
                 taskId={session.taskId}
                 sessionKind={session.sessionKind ?? "execution"}
                 heightClassName="h-[28rem]"
+                showInputBar
+                inputEmployeeId={inputContext.employeeId}
+                inputProvider={inputContext.provider}
+                inputSessionLive={inputContext.live}
               />
             ) : null}
           </div>

@@ -1310,6 +1310,29 @@ pub(crate) async fn stop_grok_for_automation_restart<R: Runtime>(
     .await
 }
 
+/// Honest B1 failure messages for mid-session send (never fakes via resume/start).
+fn grok_send_input_error(employee_id: &str, has_live: bool) -> String {
+    if has_live {
+        "Grok 为 headless CLI（-p / Stdio::null），没有会话中可写 stdin 路径。请停止后重新启动或使用续聊。"
+            .to_string()
+    } else {
+        format!("员工 {employee_id} 当前没有运行中的 Grok 会话，且 Grok 不支持会话中发送输入。")
+    }
+}
+
+#[tauri::command]
+pub async fn send_grok_input(
+    state: State<'_, Arc<tokio::sync::Mutex<GrokManager>>>,
+    employee_id: String,
+    _input: String,
+) -> Result<(), String> {
+    let has_live = {
+        let manager = state.lock().await;
+        manager.has_employee_processes(&employee_id)
+    };
+    Err(grok_send_input_error(&employee_id, has_live))
+}
+
 #[tauri::command]
 pub async fn stop_grok_session(
     app: AppHandle,
@@ -1408,6 +1431,21 @@ pub async fn restart_grok(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn send_grok_input_unsupported_when_live() {
+        let error = grok_send_input_error("emp-1", true);
+        assert!(error.contains("Stdio::null") || error.contains("headless"));
+        assert!(!error.contains("没有运行中"));
+    }
+
+    #[test]
+    fn send_grok_input_no_session_path() {
+        let error = grok_send_input_error("emp-missing", false);
+        assert!(error.contains("emp-missing"));
+        assert!(error.contains("没有运行中"));
+        assert!(error.contains("不支持会话中发送输入"));
+    }
 
     #[test]
     fn grok_cli_args_include_headless_contract() {

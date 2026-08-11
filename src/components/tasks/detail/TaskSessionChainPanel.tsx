@@ -174,6 +174,7 @@ function buildLogTarget(session: CodexSessionListItem): SessionLogTarget {
     taskId: session.task_id,
     taskTitle: session.task_title,
     sessionKind: session.session_kind,
+    aiProvider: session.ai_provider,
   };
 }
 

@@ -87,12 +87,12 @@ Four engines, each with the same internal shape — `manager.rs` + `settings.rs`
 
 | Engine | LOC | Capabilities (`app/database.rs::get_ai_provider_capabilities`) |
 |---|---|---|
-| `codex/` | 12.3k | start / stop / restart / resume; **no** mid-session `send_input` (non-interactive) |
-| `grok/` | 3.4k | start / stop / restart / resume; no mid-session `send_input` |
-| `claude/` | 3.3k | start / stop / restart / resume; no mid-session `send_input` |
-| `opencode/` | 3.2k | start / stop / restart / resume; no mid-session `send_input` (SDK server spawned at startup from `lib.rs`) |
+| `codex/` | 12.3k | start / stop / restart / resume; **`send_input=true`** (SDK bridge keeps stdin; CLI batch rejects) |
+| `claude/` | 3.3k | start / stop / restart / resume; **`send_input=true`** (SDK bridge keeps stdin; CLI batch rejects) |
+| `opencode/` | 3.2k | start / stop / restart / resume; **`send_input=true`** (SDK bridge keeps stdin; SDK server spawned at startup from `lib.rs`) |
+| `grok/` | 3.4k | start / stop / restart / resume; **`send_input=false`** (B1: headless `-p` + `Stdio::null`) |
 
-Capability matrix is the single UI truth source. `restart_*` = stop live processes then `start_*` (not CLI session resume). Do not advertise `send_input` until a real interactive stdin path exists.
+Capability matrix is the single UI truth source. `restart_*` = stop live processes then `start_*` (not CLI session resume). Only advertise `send_input` when a verifiable mid-session write path exists; Grok stays B1-exempt.
 
 **Shared process kernel** lives in `src-tauri/src/engine/` (`ExecutionContext`, `EngineChild` + `EngineProcessHandle`, `ProcessManager` + `EngineProcessRegistry`, `resolve_final_session_status`). Each engine re-exports/wraps that kernel; **keep `process/stream.rs` and launch/CLI args per engine**. When fixing a session-lifecycle / working-dir bug, prefer fixing the shared kernel first, then check engine-specific stream/launch paths. Codex-only extras: `cli.rs`, `mcp.rs`, `prompt_templates.rs`, `secret_store.rs`, `process/{ai_commands,changes,one_shot}.rs`, and `CodexProcessExtra` on managed processes.
 

@@ -89,6 +89,18 @@ export async function restartClaude(
   });
 }
 
+export async function sendClaudeInput(employeeId: string, input: string): Promise<void> {
+  await invoke("send_claude_input", { employeeId, input });
+}
+
+export async function finishClaudeInput(employeeId: string): Promise<void> {
+  await invoke("finish_claude_input", { employeeId });
+}
+
+export async function setClaudeAwaitFollowups(employeeId: string, enabled: boolean): Promise<void> {
+  await invoke("set_claude_await_followups", { employeeId, enabled });
+}
+
 export function onClaudeOutput(callback: (output: ClaudeOutput) => void): Promise<() => void> {
   return listen<ClaudeOutput>("claude-stdout", (event) => {
     callback(event.payload);

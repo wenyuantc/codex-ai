@@ -121,6 +121,14 @@ export async function sendCodexInput(employeeId: string, input: string): Promise
   await invoke("send_codex_input", { employeeId, input });
 }
 
+export async function finishCodexInput(employeeId: string): Promise<void> {
+  await invoke("finish_codex_input", { employeeId });
+}
+
+export async function setCodexAwaitFollowups(employeeId: string, enabled: boolean): Promise<void> {
+  await invoke("set_codex_await_followups", { employeeId, enabled });
+}
+
 export function onCodexOutput(callback: (output: CodexOutput) => void) {
   return listen<CodexOutput>("codex-stdout", (event) => callback(event.payload));
 }
