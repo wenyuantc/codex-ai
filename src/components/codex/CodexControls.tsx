@@ -46,7 +46,7 @@ export function CodexControls({
   systemPrompt,
   aiProvider = "codex",
 }: CodexControlsProps) {
-  const { t } = useTranslation(["tasks", "common"]);
+  const { t } = useTranslation(["tasks", "common", "employees"]);
   const employeeRuntime = useEmployeeStore((state) => state.employeeRuntime[employeeId]);
   const allEmployeeRuntime = useEmployeeStore((state) => state.employeeRuntime);
   const updateEmployeeStatus = useEmployeeStore((state) => state.updateEmployeeStatus);
@@ -154,7 +154,7 @@ export function CodexControls({
   }, [eligibleTasks, selectedTaskId, showTaskDialog]);
 
   const getProjectName = (task: Task) =>
-    projects.find((project) => project.id === task.project_id)?.name ?? "未命名项目";
+    projects.find((project) => project.id === task.project_id)?.name ?? t("unnamedProject");
 
   const getProjectRepoPath = (task: Task) =>
     getProjectWorkingDir(projects.find((project) => project.id === task.project_id)) ?? undefined;
@@ -329,13 +329,13 @@ export function CodexControls({
           ) : (
             <Play className="h-3 w-3" />
           )}
-          启动
+          {t("employees:start")}
         </button>
         {hasRunningSessions && (
           <button
             onClick={() => void handleStopAll()}
             disabled={actionLoading !== null}
-            title={`停止当前员工的 ${runningSessions.length} 个运行会话`}
+            title={t("employees:stopAllTitle", { count: runningSessions.length })}
             className="flex items-center gap-1 px-2 py-1 text-xs bg-red-600 text-white rounded hover:bg-red-700 disabled:opacity-50 transition-colors"
           >
             {actionLoading === "stop" ? (
@@ -343,7 +343,7 @@ export function CodexControls({
             ) : (
               <Square className="h-3 w-3" />
             )}
-            停止全部
+            {t("employees:stopAll")}
           </button>
         )}
       </div>

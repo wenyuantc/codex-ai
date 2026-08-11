@@ -1,9 +1,16 @@
 import type { ReactNode } from "react";
+import { useTranslation } from "react-i18next";
 import { Trash2 } from "lucide-react";
 
 import type { Employee, Task, TaskStatus } from "@/lib/types";
-import { ACTIVE_TASK_STATUSES, PRIORITIES, TASK_STATUSES } from "@/lib/types";
-import { formatDate, formatDuration, getTaskElapsedSeconds } from "@/lib/utils";
+import { ACTIVE_TASK_STATUSES, PRIORITIES } from "@/lib/types";
+import {
+  formatDate,
+  formatDuration,
+  getPriorityLabel,
+  getStatusLabel,
+  getTaskElapsedSeconds,
+} from "@/lib/utils";
 import { useSharedNow } from "@/hooks/useSharedNow";
 import { Button } from "@/components/ui/button";
 import {
@@ -112,6 +119,7 @@ export function TaskPropertiesSidebar({
   onDeliveryError,
   onDeleteRequest,
 }: TaskPropertiesSidebarProps) {
+  const { t } = useTranslation(["tasks", "common"]);
   const timerNow = useSharedNow(Boolean(timeStartedAt));
   const elapsedSeconds = getTaskElapsedSeconds(
     {
@@ -121,17 +129,17 @@ export function TaskPropertiesSidebar({
     timerNow,
   );
   const timerStatus = timeStartedAt
-    ? "计时中"
+    ? t("detail.sidebar.timerRunning")
     : completedAt
-      ? "已完成"
+      ? t("detail.sidebar.timerCompleted")
       : timeSpentSeconds > 0
-        ? "待继续"
-        : "未开始";
+        ? t("detail.sidebar.timerPaused")
+        : t("detail.sidebar.timerNotStarted");
 
   return (
     <div className="flex flex-col gap-4 p-4">
-      <SidebarGroup label="属性">
-        <SidebarField label="状态">
+      <SidebarGroup label={t("detail.sidebar.properties")}>
+        <SidebarField label={t("detail.sidebar.status")}>
           <Select
             value={status}
             onValueChange={(value) => value && onStatusChange(value as TaskStatus)}
@@ -140,8 +148,8 @@ export function TaskPropertiesSidebar({
               <SelectValue>
                 {(value) =>
                   typeof value === "string"
-                    ? (TASK_STATUSES.find((item) => item.value === value)?.label ?? value)
-                    : "选择状态"
+                    ? getStatusLabel(value)
+                    : t("detail.sidebar.selectStatus")
                 }
               </SelectValue>
             </SelectTrigger>
@@ -149,40 +157,40 @@ export function TaskPropertiesSidebar({
               {/* Archived: keep current item so the controlled value stays valid. */}
               {status === "archived" && (
                 <SelectItem value="archived" disabled>
-                  已归档
+                  {getStatusLabel("archived")}
                 </SelectItem>
               )}
               {ACTIVE_TASK_STATUSES.map((item) => (
                 <SelectItem key={item.value} value={item.value}>
-                  {item.label}
+                  {getStatusLabel(item.value)}
                 </SelectItem>
               ))}
             </SelectContent>
           </Select>
         </SidebarField>
 
-        <SidebarField label="优先级">
+        <SidebarField label={t("detail.sidebar.priority")}>
           <Select value={priority} onValueChange={(value) => value && onPriorityChange(value)}>
             <SelectTrigger className="h-8 w-full rounded-md px-2 text-xs">
               <SelectValue>
                 {(value) =>
                   typeof value === "string"
-                    ? (PRIORITIES.find((item) => item.value === value)?.label ?? value)
-                    : "选择优先级"
+                    ? getPriorityLabel(value)
+                    : t("detail.sidebar.selectPriority")
                 }
               </SelectValue>
             </SelectTrigger>
             <SelectContent>
               {PRIORITIES.map((item) => (
                 <SelectItem key={item.value} value={item.value}>
-                  {item.label}
+                  {getPriorityLabel(item.value)}
                 </SelectItem>
               ))}
             </SelectContent>
           </Select>
         </SidebarField>
 
-        <SidebarField label="指派人">
+        <SidebarField label={t("detail.sidebar.assignee")}>
           <Select
             value={assigneeId || UNASSIGNED_VALUE}
             onValueChange={(value) =>
@@ -193,13 +201,13 @@ export function TaskPropertiesSidebar({
               <SelectValue>
                 {(value) =>
                   !value || value === UNASSIGNED_VALUE
-                    ? "未指派"
-                    : employeeDisplayName(employees, value) || "未指派"
+                    ? t("unassigned")
+                    : employeeDisplayName(employees, value) || t("unassigned")
                 }
               </SelectValue>
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value={UNASSIGNED_VALUE}>未指派</SelectItem>
+              <SelectItem value={UNASSIGNED_VALUE}>{t("unassigned")}</SelectItem>
               {employees.map((emp) => (
                 <SelectItem key={emp.id} value={emp.id}>
                   {emp.name} · {employeeProviderLabel(emp.ai_provider)}
@@ -209,7 +217,7 @@ export function TaskPropertiesSidebar({
           </Select>
         </SidebarField>
 
-        <SidebarField label="审查员">
+        <SidebarField label={t("detail.sidebar.reviewer")}>
           <Select
             value={reviewerId || UNASSIGNED_VALUE}
             onValueChange={(value) =>
@@ -220,13 +228,13 @@ export function TaskPropertiesSidebar({
               <SelectValue>
                 {(value) =>
                   !value || value === UNASSIGNED_VALUE
-                    ? "未指定"
-                    : employeeDisplayName(employees, value) || "未指定"
+                    ? t("detail.sidebar.unspecified")
+                    : employeeDisplayName(employees, value) || t("detail.sidebar.unspecified")
                 }
               </SelectValue>
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value={UNASSIGNED_VALUE}>未指定</SelectItem>
+              <SelectItem value={UNASSIGNED_VALUE}>{t("detail.sidebar.unspecified")}</SelectItem>
               {reviewerCandidates.map((emp) => (
                 <SelectItem key={emp.id} value={emp.id}>
                   {emp.name} · {employeeProviderLabel(emp.ai_provider)}
@@ -236,7 +244,7 @@ export function TaskPropertiesSidebar({
           </Select>
         </SidebarField>
 
-        <SidebarField label="协调员">
+        <SidebarField label={t("detail.sidebar.coordinator")}>
           <Select
             value={coordinatorId || UNASSIGNED_VALUE}
             onValueChange={(value) =>
@@ -247,13 +255,14 @@ export function TaskPropertiesSidebar({
               <SelectValue>
                 {(value) =>
                   !value || value === UNASSIGNED_VALUE
-                    ? "未指定"
-                    : employeeDisplayName(coordinatorCandidates, value) || "未指定"
+                    ? t("detail.sidebar.unspecified")
+                    : employeeDisplayName(coordinatorCandidates, value) ||
+                      t("detail.sidebar.unspecified")
                 }
               </SelectValue>
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value={UNASSIGNED_VALUE}>未指定</SelectItem>
+              <SelectItem value={UNASSIGNED_VALUE}>{t("detail.sidebar.unspecified")}</SelectItem>
               {coordinatorCandidates.map((emp) => (
                 <SelectItem key={emp.id} value={emp.id}>
                   {emp.name} · {employeeProviderLabel(emp.ai_provider)}
@@ -266,7 +275,7 @@ export function TaskPropertiesSidebar({
 
       <div className="border-t border-border/60" />
 
-      <SidebarGroup label="交付">
+      <SidebarGroup label={t("detail.sidebar.delivery")}>
         <TaskDeliverySection
           bare
           task={task}
@@ -282,26 +291,26 @@ export function TaskPropertiesSidebar({
 
       <div className="border-t border-border/60" />
 
-      <SidebarGroup label="耗时">
+      <SidebarGroup label={t("detail.sidebar.elapsed")}>
         <div className="space-y-1.5 text-xs">
           <div className="flex items-center justify-between gap-2">
-            <span className="text-muted-foreground">累计耗时</span>
+            <span className="text-muted-foreground">{t("detail.sidebar.totalElapsed")}</span>
             <span className="font-medium text-foreground">{formatDuration(elapsedSeconds)}</span>
           </div>
           <div className="flex items-center justify-between gap-2">
-            <span className="text-muted-foreground">计时状态</span>
+            <span className="text-muted-foreground">{t("detail.sidebar.timerStatus")}</span>
             <span className="font-medium text-foreground">{timerStatus}</span>
           </div>
           <div className="flex items-center justify-between gap-2">
-            <span className="text-muted-foreground">计时开始</span>
+            <span className="text-muted-foreground">{t("detail.sidebar.timerStartedAt")}</span>
             <span className="font-medium text-foreground">
-              {timeStartedAt ? formatDate(timeStartedAt) : "未开始"}
+              {timeStartedAt ? formatDate(timeStartedAt) : t("detail.sidebar.timerNotStarted")}
             </span>
           </div>
           <div className="flex items-center justify-between gap-2">
-            <span className="text-muted-foreground">完成时间</span>
+            <span className="text-muted-foreground">{t("detail.sidebar.completedAt")}</span>
             <span className="font-medium text-foreground">
-              {completedAt ? formatDate(completedAt) : "未完成"}
+              {completedAt ? formatDate(completedAt) : t("detail.sidebar.notCompleted")}
             </span>
           </div>
         </div>
@@ -315,11 +324,13 @@ export function TaskPropertiesSidebar({
         size="sm"
         onClick={onDeleteRequest}
         disabled={isRunning || deletingTask}
-        title={isRunning ? "运行中的任务不能删除，请先停止" : "删除任务"}
+        title={
+          isRunning ? t("detail.sidebar.deleteDisabledRunning") : t("detail.sidebar.deleteTask")
+        }
         className="w-full justify-start text-destructive hover:bg-destructive/10 hover:text-destructive"
       >
         <Trash2 />
-        删除任务
+        {t("detail.sidebar.deleteTask")}
       </Button>
     </div>
   );

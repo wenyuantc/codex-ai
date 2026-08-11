@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import {
   DndContext,
   DragEndEvent,
@@ -32,6 +33,7 @@ import { TaskCard } from "./TaskCard";
 import { TaskLogDialog } from "./TaskLogDialog";
 import { TaskDetailDialog } from "./TaskDetailDialog";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
+import { getStatusLabel } from "@/lib/utils";
 
 interface KanbanBoardProps {
   projectId?: string;
@@ -76,6 +78,7 @@ export function KanbanBoard({
   pendingLogRequest = null,
   onPendingLogRequestConsumed,
 }: KanbanBoardProps) {
+  const { t } = useTranslation("kanban");
   const { tasks, moveTask, updateTask, updateTaskStatus, fetchTasks } = useTaskStore();
   const employees = useEmployeeStore((s) => s.employees);
   const projects = useProjectStore((s) => s.projects);
@@ -364,7 +367,7 @@ export function KanbanBoard({
 
     if (targetStatus === "blocked") {
       const reason = window
-        .prompt("请填写阻塞原因（必填）：", currentTask.blocked_reason ?? "")
+        .prompt(t("blockedReasonPrompt"), currentTask.blocked_reason ?? "")
         ?.trim();
       if (!reason) {
         moveTask(taskId, originalStatus);
@@ -553,7 +556,7 @@ export function KanbanBoard({
             <KanbanColumn
               key={status.value}
               status={status.value}
-              label={status.label}
+              label={getStatusLabel(status.value)}
               color={status.color}
               tasks={getTasksByStatus(status.value)}
               highlightedTaskId={targetTaskId}
@@ -605,8 +608,8 @@ export function KanbanBoard({
 
       {targetTask && (
         <ErrorBoundary
-          fallbackTitle="任务详情渲染失败"
-          fallbackDescription="全局搜索定位到的任务详情弹窗出现运行时异常。"
+          fallbackTitle={t("taskDetailFallbackTitle")}
+          fallbackDescription={t("taskDetailFallbackDescription")}
         >
           <TaskDetailDialog
             task={targetTask}

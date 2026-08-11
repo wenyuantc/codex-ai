@@ -91,8 +91,6 @@ import {
 import { applyTheme, getThemePreference, type ThemeMode } from "@/lib/theme";
 import { useProjectStore } from "@/stores/projectStore";
 
-const DATABASE_FILE_FILTERS = [{ name: "SQL 备份", extensions: ["sql"] }];
-
 const SETTINGS_TAB_KEYS: Array<{ value: SettingsTabValue; labelKey: string }> = [
   { value: "runtime", labelKey: "settings:tabs.runtime" },
   { value: "git", labelKey: "settings:tabs.git" },
@@ -275,7 +273,7 @@ export function SettingsPage() {
   );
 
   const isRemoteMode = environmentMode === "ssh";
-  const remoteTargetName = selectedSshConfig?.name ?? "当前 SSH 配置";
+  const remoteTargetName = selectedSshConfig?.name ?? t("runtime.target.currentSshConfig");
   const passwordAuthBlocked = Boolean(
     isRemoteMode &&
     selectedSshConfig &&
@@ -286,7 +284,11 @@ export function SettingsPage() {
   const requestedSshConfigId = searchParams.get("sshConfigId");
   const selectedSshConfigSummary = selectedSshConfig
     ? `${selectedSshConfig.username}@${selectedSshConfig.host}:${selectedSshConfig.port}`
-    : "未选择 SSH 配置";
+    : t("runtime.target.noSshConfigSelected");
+  const databaseFileFilters = useMemo(
+    () => [{ name: t("page.databaseDialogs.fileFilterName"), extensions: ["sql"] }],
+    [t],
+  );
 
   function replaceSettingsSearchParams(tab: SettingsTabValue, sshConfigId?: string | null) {
     const nextSearchParams = new URLSearchParams(searchParams);
@@ -366,7 +368,7 @@ export function SettingsPage() {
         if (!selectedSshConfigId) {
           setCodexHealth(null);
           setCodexSettings(null);
-          setSdkActionError("当前没有可用的 SSH 配置，请先创建并选择 SSH 配置。");
+          setSdkActionError(t("page.messages.runtime.noSshConfigAvailable"));
           return;
         }
 
@@ -386,7 +388,9 @@ export function SettingsPage() {
       console.error("Failed to load codex settings state:", error);
       setCodexHealth(null);
       setCodexSettings(null);
-      setSdkActionError(error instanceof Error ? error.message : "读取 Codex 配置失败");
+      setSdkActionError(
+        error instanceof Error ? error.message : t("page.messages.runtime.loadCodexSettingsFailed"),
+      );
     } finally {
       setHealthLoading(false);
     }
@@ -415,7 +419,10 @@ export function SettingsPage() {
           sdk_installed: false,
           sdk_version: null,
           sdk_install_dir: "",
-          message: error instanceof Error ? error.message : "远程 OpenCode 健康检查失败",
+          message:
+            error instanceof Error
+              ? error.message
+              : t("page.messages.opencode.remoteHealthCheckFailed"),
           checked_at: new Date().toISOString().slice(0, 19).replace("T", " "),
         });
       }
@@ -488,7 +495,10 @@ export function SettingsPage() {
             available: false,
             version: null,
             auth_ok: null,
-            message: error instanceof Error ? error.message : "远程 Grok 健康检查失败",
+            message:
+              error instanceof Error
+                ? error.message
+                : t("page.messages.grok.remoteHealthCheckFailed"),
             checked_at: new Date().toISOString().slice(0, 19).replace("T", " "),
           });
         }
@@ -498,7 +508,9 @@ export function SettingsPage() {
     } catch (error) {
       console.error("Failed to load Grok settings:", error);
       setGrokHealth(null);
-      setGrokActionError(error instanceof Error ? error.message : "加载 Grok 设置失败");
+      setGrokActionError(
+        error instanceof Error ? error.message : t("page.messages.grok.loadSettingsFailed"),
+      );
     } finally {
       setGrokModelListLoading(false);
     }
@@ -506,7 +518,7 @@ export function SettingsPage() {
 
   async function handleInstallGrokCli() {
     if (isRemoteMode && !selectedSshConfigId) {
-      setGrokActionError("请先选择 SSH 配置后再安装远程 Grok CLI。");
+      setGrokActionError(t("page.messages.grok.selectSshConfigBeforeRemoteInstall"));
       setGrokActionMessage(null);
       return;
     }
@@ -522,13 +534,20 @@ export function SettingsPage() {
           : await installGrokCli();
       setGrokActionMessage(
         result.cli_version
-          ? `${isRemoteMode ? "远程" : "本地"} Grok CLI 安装完成，版本 ${result.cli_version}`
+          ? t(
+              isRemoteMode
+                ? "page.messages.grok.remoteCliInstalled"
+                : "page.messages.grok.localCliInstalled",
+              { version: result.cli_version },
+            )
           : result.message,
       );
       await loadGrokState();
     } catch (error) {
       console.error("Failed to install grok cli:", error);
-      setGrokActionError(error instanceof Error ? error.message : "安装 Grok CLI 失败");
+      setGrokActionError(
+        error instanceof Error ? error.message : t("page.messages.grok.installFailed"),
+      );
     } finally {
       setGrokActionLoading(null);
     }
@@ -544,10 +563,12 @@ export function SettingsPage() {
         default_reasoning_effort: grokDefaultEffort,
         cli_path_override: grokCliPathOverride.trim() || null,
       });
-      setGrokActionMessage("Grok 设置已保存");
+      setGrokActionMessage(t("page.messages.grok.settingsSaved"));
       await loadGrokState();
     } catch (error) {
-      setGrokActionError(error instanceof Error ? error.message : "保存 Grok 设置失败");
+      setGrokActionError(
+        error instanceof Error ? error.message : t("page.messages.grok.saveFailed"),
+      );
     } finally {
       setGrokActionLoading(null);
     }
@@ -631,7 +652,7 @@ export function SettingsPage() {
   async function handleSaveSdkSettings() {
     if (worktreeLocationMode === "custom_root" && !worktreeCustomRoot.trim()) {
       setSdkActionFeedbackKind("save");
-      setSdkActionError("自定义 Worktree 根目录不能为空。");
+      setSdkActionError(t("page.messages.runtime.customWorktreeRootRequired"));
       setSdkActionMessage(null);
       return;
     }
@@ -671,12 +692,18 @@ export function SettingsPage() {
           ? await updateRemoteCodexSettings(selectedSshConfigId, updates)
           : await updateCodexSettings(updates);
       setCodexSettings(nextSettings);
-      setSdkActionMessage(isRemoteMode ? `远程配置已保存到 ${remoteTargetName}` : "系统设置已保存");
+      setSdkActionMessage(
+        isRemoteMode
+          ? t("page.messages.runtime.remoteConfigSaved", { name: remoteTargetName })
+          : t("page.messages.runtime.systemSettingsSaved"),
+      );
       await loadRuntimeState();
       await refreshNotificationHealth();
     } catch (error) {
       console.error("Failed to save codex sdk settings:", error);
-      setSdkActionError(error instanceof Error ? error.message : "保存 Codex 配置失败");
+      setSdkActionError(
+        error instanceof Error ? error.message : t("page.messages.runtime.saveCodexConfigFailed"),
+      );
     } finally {
       setSdkActionLoading(null);
     }
@@ -685,7 +712,7 @@ export function SettingsPage() {
   async function handleInstallSdk() {
     if (isRemoteMode && !selectedSshConfigId) {
       setSdkActionFeedbackKind("install");
-      setSdkActionError("请先选择 SSH 配置后再安装远程 SDK。");
+      setSdkActionError(t("page.messages.runtime.selectSshConfigBeforeInstallRemoteSdk"));
       return;
     }
 
@@ -701,14 +728,21 @@ export function SettingsPage() {
           : await installCodexSdk();
       setSdkActionMessage(
         result.sdk_version
-          ? `${isRemoteMode ? "远程" : "本地"} SDK 安装完成，版本 ${result.sdk_version}`
+          ? t(
+              isRemoteMode
+                ? "page.messages.runtime.remoteSdkInstalled"
+                : "page.messages.runtime.localSdkInstalled",
+              { version: result.sdk_version },
+            )
           : result.message,
       );
       await loadRuntimeState();
       await refreshNotificationHealth();
     } catch (error) {
       console.error("Failed to install codex sdk:", error);
-      setSdkActionError(error instanceof Error ? error.message : "安装 Codex SDK 失败");
+      setSdkActionError(
+        error instanceof Error ? error.message : t("page.messages.runtime.installCodexSdkFailed"),
+      );
     } finally {
       setSdkActionLoading(null);
     }
@@ -716,7 +750,7 @@ export function SettingsPage() {
 
   async function handleSaveOpenCodeSettings() {
     if (isRemoteMode) {
-      setOpenCodeActionError("OpenCode SDK 配置仅适用于本地执行目标。");
+      setOpenCodeActionError(t("page.messages.opencode.localOnly"));
       setOpenCodeActionMessage(null);
       return;
     }
@@ -732,10 +766,12 @@ export function SettingsPage() {
         port: opencodePort,
         node_path_override: opencodeNodePathOverride.trim() || null,
       });
-      setOpenCodeActionMessage("OpenCode 设置已保存");
+      setOpenCodeActionMessage(t("page.messages.opencode.settingsSaved"));
       await loadOpenCodeState();
     } catch (error) {
-      setOpenCodeActionError(error instanceof Error ? error.message : "保存 OpenCode 设置失败");
+      setOpenCodeActionError(
+        error instanceof Error ? error.message : t("page.messages.opencode.saveFailed"),
+      );
     } finally {
       setOpenCodeActionLoading(null);
     }
@@ -762,7 +798,9 @@ export function SettingsPage() {
         setAiCommitModel(models[0].value);
       }
     } catch (error) {
-      setOpenCodeActionError(error instanceof Error ? error.message : "获取模型列表失败");
+      setOpenCodeActionError(
+        error instanceof Error ? error.message : t("page.messages.opencode.fetchModelsFailed"),
+      );
     } finally {
       setOpenCodeModelListLoading(false);
     }
@@ -770,7 +808,7 @@ export function SettingsPage() {
 
   async function handleInstallOpenCodeSdk() {
     if (isRemoteMode && !selectedSshConfigId) {
-      setOpenCodeActionError("请先选择 SSH 配置后再安装远程 OpenCode SDK。");
+      setOpenCodeActionError(t("page.messages.opencode.selectSshConfigBeforeRemoteInstall"));
       setOpenCodeActionMessage(null);
       return;
     }
@@ -783,21 +821,25 @@ export function SettingsPage() {
         const result = await installRemoteOpenCodeSdk(selectedSshConfigId);
         setOpenCodeActionMessage(
           result.sdk_version
-            ? `远程 OpenCode SDK 安装完成，版本 ${result.sdk_version}`
+            ? t("page.messages.opencode.remoteSdkInstalled", { version: result.sdk_version })
             : result.message,
         );
         await loadOpenCodeState();
       } else {
         const result = await installOpenCodeSdk();
         setOpenCodeActionMessage(
-          result.sdk_version ? `OpenCode SDK 安装完成，版本 ${result.sdk_version}` : result.message,
+          result.sdk_version
+            ? t("page.messages.opencode.localSdkInstalled", { version: result.sdk_version })
+            : result.message,
         );
         await loadOpenCodeState();
         // SDK newly installed, auto-fetch models
         await handleFetchOpenCodeModels();
       }
     } catch (error) {
-      setOpenCodeActionError(error instanceof Error ? error.message : "安装 OpenCode SDK 失败");
+      setOpenCodeActionError(
+        error instanceof Error ? error.message : t("page.messages.opencode.installFailed"),
+      );
     } finally {
       setOpenCodeActionLoading(null);
     }
@@ -805,7 +847,7 @@ export function SettingsPage() {
 
   async function handleSaveClaudeSettings() {
     if (isRemoteMode) {
-      setClaudeActionError("Claude SDK 配置仅适用于本地执行目标，SSH 目标会使用远端 Claude CLI。");
+      setClaudeActionError(t("page.messages.claude.localOnly"));
       setClaudeActionMessage(null);
       return;
     }
@@ -821,10 +863,12 @@ export function SettingsPage() {
         node_path_override: claudeNodePathOverride.trim() || null,
         cli_path_override: claudeCliPathOverride.trim() || null,
       });
-      setClaudeActionMessage("Claude 设置已保存");
+      setClaudeActionMessage(t("page.messages.claude.settingsSaved"));
       await loadClaudeState();
     } catch (error) {
-      setClaudeActionError(error instanceof Error ? error.message : "保存 Claude 设置失败");
+      setClaudeActionError(
+        error instanceof Error ? error.message : t("page.messages.claude.saveFailed"),
+      );
     } finally {
       setClaudeActionLoading(null);
     }
@@ -832,9 +876,7 @@ export function SettingsPage() {
 
   async function handleInstallClaudeSdk() {
     if (isRemoteMode) {
-      setClaudeActionError(
-        "Claude SDK 安装仅适用于本地执行目标，SSH 目标请在远端安装 Claude CLI。",
-      );
+      setClaudeActionError(t("page.messages.claude.installLocalOnly"));
       setClaudeActionMessage(null);
       return;
     }
@@ -845,11 +887,15 @@ export function SettingsPage() {
     try {
       const result = await installClaudeSdk();
       setClaudeActionMessage(
-        result.sdk_version ? `Claude SDK 安装完成，版本 ${result.sdk_version}` : result.message,
+        result.sdk_version
+          ? t("page.messages.claude.sdkInstalled", { version: result.sdk_version })
+          : result.message,
       );
       await loadClaudeState();
     } catch (error) {
-      setClaudeActionError(error instanceof Error ? error.message : "安装 Claude SDK 失败");
+      setClaudeActionError(
+        error instanceof Error ? error.message : t("page.messages.claude.installFailed"),
+      );
     } finally {
       setClaudeActionLoading(null);
     }
@@ -862,9 +908,9 @@ export function SettingsPage() {
 
     try {
       const destination = await save({
-        title: "导出 SQL 备份",
+        title: t("page.databaseDialogs.exportTitle"),
         defaultPath: buildBackupDefaultPath(codexHealth),
-        filters: DATABASE_FILE_FILTERS,
+        filters: databaseFileFilters,
       });
 
       if (!destination) {
@@ -875,7 +921,9 @@ export function SettingsPage() {
       setDatabaseActionMessage(result.message);
     } catch (error) {
       console.error("Failed to backup database:", error);
-      setDatabaseActionError(error instanceof Error ? error.message : "导出 SQL 备份失败");
+      setDatabaseActionError(
+        error instanceof Error ? error.message : t("page.messages.database.exportFailed"),
+      );
     } finally {
       setDatabaseActionLoading(null);
     }
@@ -890,7 +938,9 @@ export function SettingsPage() {
       await openDatabaseFolder();
     } catch (error) {
       console.error("Failed to open database folder:", error);
-      setDatabaseActionError(error instanceof Error ? error.message : "打开数据库文件夹失败");
+      setDatabaseActionError(
+        error instanceof Error ? error.message : t("page.messages.database.openFolderFailed"),
+      );
     } finally {
       setDatabaseActionLoading(null);
     }
@@ -902,23 +952,20 @@ export function SettingsPage() {
     setDatabaseActionMessage(null);
 
     try {
-      const confirmed = await confirm(
-        "导入 SQL 会先自动备份当前数据库，再清空现有数据库并执行导入 SQL。",
-        {
-          title: "导入 SQL 备份",
-          kind: "warning",
-        },
-      );
+      const confirmed = await confirm(t("page.databaseDialogs.importConfirmMessage"), {
+        title: t("page.databaseDialogs.importTitle"),
+        kind: "warning",
+      });
 
       if (!confirmed) {
         return;
       }
 
       const selected = await open({
-        title: "选择 SQL 备份文件",
+        title: t("page.databaseDialogs.selectBackupTitle"),
         directory: false,
         multiple: false,
-        filters: DATABASE_FILE_FILTERS,
+        filters: databaseFileFilters,
       });
 
       if (typeof selected !== "string") {
@@ -929,13 +976,21 @@ export function SettingsPage() {
       setDatabaseActionMessage(result.message);
       await loadRuntimeState();
       await refreshNotificationHealth();
-      await message(`${result.message}\n\n导入前自动备份：${result.backup_path}`, {
-        title: "SQL 导入完成",
-        kind: "info",
-      });
+      await message(
+        t("page.databaseDialogs.importCompleteMessage", {
+          message: result.message,
+          backupPath: result.backup_path,
+        }),
+        {
+          title: t("page.databaseDialogs.importCompleteTitle"),
+          kind: "info",
+        },
+      );
     } catch (error) {
       console.error("Failed to restore database:", error);
-      setDatabaseActionError(error instanceof Error ? error.message : "导入 SQL 备份失败");
+      setDatabaseActionError(
+        error instanceof Error ? error.message : t("page.messages.database.importFailed"),
+      );
     } finally {
       setDatabaseActionLoading(null);
     }
@@ -944,7 +999,7 @@ export function SettingsPage() {
   async function handleSelectPrivateKeyFile() {
     try {
       const selected = await open({
-        title: "选择私钥文件",
+        title: t("page.sshDialogs.selectPrivateKeyTitle"),
         directory: false,
         multiple: false,
         defaultPath: sshForm.privateKeyPath.trim() || undefined,
@@ -958,17 +1013,19 @@ export function SettingsPage() {
       setSshFormError(null);
     } catch (error) {
       console.error("Failed to select SSH private key file:", error);
-      setSshFormError(error instanceof Error ? error.message : "选择私钥文件失败");
+      setSshFormError(
+        error instanceof Error ? error.message : t("page.messages.ssh.selectPrivateKeyFailed"),
+      );
     }
   }
 
   async function handleSaveSshConfig() {
     if (!sshForm.name.trim() || !sshForm.host.trim() || !sshForm.username.trim()) {
-      setSshFormError("SSH 配置名称、主机和用户名不能为空。");
+      setSshFormError(t("page.messages.ssh.requiredFields"));
       return;
     }
     if (sshForm.authType === "key" && !sshForm.privateKeyPath.trim()) {
-      setSshFormError("密钥登录必须填写私钥路径。");
+      setSshFormError(t("page.messages.ssh.privateKeyRequired"));
       return;
     }
 
@@ -996,7 +1053,11 @@ export function SettingsPage() {
       setSelectedSshConfigId(sshConfig.id);
       setEditingSshConfigId(sshConfig.id);
       setSshForm(buildSshConfigFormState(sshConfig));
-      setSshFormMessage(editingSshConfigId ? "SSH 配置已更新。" : "SSH 配置已创建。");
+      setSshFormMessage(
+        editingSshConfigId
+          ? t("page.messages.ssh.configUpdated")
+          : t("page.messages.ssh.configCreated"),
+      );
       await refreshNotificationHealth(sshConfig.id);
 
       if (activeTab === "ssh") {
@@ -1004,7 +1065,7 @@ export function SettingsPage() {
       }
     } catch (error) {
       console.error("Failed to save SSH config:", error);
-      setSshFormError(error instanceof Error ? error.message : "保存 SSH 配置失败");
+      setSshFormError(error instanceof Error ? error.message : t("page.messages.ssh.saveFailed"));
     } finally {
       setSshFormLoading(null);
     }
@@ -1015,10 +1076,13 @@ export function SettingsPage() {
       return;
     }
 
-    const confirmed = await confirm(`确认删除 SSH 配置“${selectedSshConfig.name}”？`, {
-      title: "删除 SSH 配置",
-      kind: "warning",
-    });
+    const confirmed = await confirm(
+      t("page.sshDialogs.deleteConfirm", { name: selectedSshConfig.name }),
+      {
+        title: t("page.sshDialogs.deleteTitle"),
+        kind: "warning",
+      },
+    );
 
     if (!confirmed) {
       return;
@@ -1032,11 +1096,11 @@ export function SettingsPage() {
       await deleteSshConfigCommand(editingSshConfigId);
       await fetchSshConfigs();
       resetSshForm();
-      setSshFormMessage("SSH 配置已删除。");
+      setSshFormMessage(t("page.messages.ssh.configDeleted"));
       await refreshNotificationHealth(null);
     } catch (error) {
       console.error("Failed to delete SSH config:", error);
-      setSshFormError(error instanceof Error ? error.message : "删除 SSH 配置失败");
+      setSshFormError(error instanceof Error ? error.message : t("page.messages.ssh.deleteFailed"));
     } finally {
       setSshFormLoading(null);
     }
@@ -1054,20 +1118,24 @@ export function SettingsPage() {
     try {
       if (selectedSshConfig?.auth_type === "password") {
         const result = await useProjectStore.getState().runSshPasswordProbe(selectedSshConfigId);
-        setSshFormMessage(`测试连接结果：${result.message}`);
+        setSshFormMessage(t("page.messages.ssh.passwordProbeResult", { message: result.message }));
       } else {
         const health = await getRemoteHealthCheck(selectedSshConfigId);
         setSshFormMessage(
           health.codex_available
-            ? "测试连接成功，远程主机可访问。"
-            : `测试连接成功，但远程 Codex 当前不可用：${health.sdk_status_message}`,
+            ? t("page.messages.ssh.testConnectionSuccess")
+            : t("page.messages.ssh.testConnectionSuccessButCodexUnavailable", {
+                message: health.sdk_status_message,
+              }),
         );
       }
       await loadRuntimeState();
       await refreshNotificationHealth();
     } catch (error) {
       console.error("Failed to test SSH connection:", error);
-      setSshFormError(error instanceof Error ? error.message : "SSH 测试连接失败");
+      setSshFormError(
+        error instanceof Error ? error.message : t("page.messages.ssh.testConnectionFailed"),
+      );
     } finally {
       setSshFormLoading(null);
     }
@@ -1076,9 +1144,9 @@ export function SettingsPage() {
   return (
     <div className="max-w-5xl space-y-6">
       <div>
-        <h2 className="text-lg font-semibold">系统设置</h2>
+        <h2 className="text-lg font-semibold">{t("page.title")}</h2>
         <p className="text-sm text-muted-foreground">
-          当前处于 {getEnvironmentModeLabel(environmentMode)}，Codex 运行配置与 SSH 配置分开保存。
+          {t("page.description", { mode: getEnvironmentModeLabel(environmentMode) })}
         </p>
       </div>
 
@@ -1189,11 +1257,9 @@ export function SettingsPage() {
           />
 
           <div className="mt-6 rounded-lg border border-border bg-card p-4 space-y-2">
-            <h3 className="text-sm font-medium">四引擎能力对照</h3>
+            <h3 className="text-sm font-medium">{t("page.engineCapabilities.title")}</h3>
             <p className="text-xs text-muted-foreground">
-              Codex / Claude / Grok / OpenCode
-              均支持启动、停止、重启与续聊。重启语义为「停止当前运行后重新启动」，并非恢复旧 CLI
-              会话。四引擎均为非交互批处理，不支持会话中发送输入。
+              {t("page.engineCapabilities.description")}
             </p>
             <EngineCapabilityBadges />
           </div>

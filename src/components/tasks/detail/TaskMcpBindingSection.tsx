@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Loader2, Plug, Save } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -15,6 +16,7 @@ interface TaskMcpBindingSectionProps {
 }
 
 export function TaskMcpBindingSection({ taskId }: TaskMcpBindingSectionProps) {
+  const { t } = useTranslation("tasks");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -76,10 +78,10 @@ export function TaskMcpBindingSection({ taskId }: TaskMcpBindingSectionProps) {
       setEffectiveNames(binding.effective.map((server) => server.name));
       setMessage(
         binding.mode === "inherit"
-          ? "已保存：继承全局默认 MCP"
+          ? t("detail.mcp.savedInherit")
           : binding.server_ids.length === 0
-            ? "已保存：本任务显式禁用全部 MCP"
-            : `已保存：本任务启用 ${binding.effective.length} 个 MCP`,
+            ? t("detail.mcp.savedDisabledAll")
+            : t("detail.mcp.savedOverride", { count: binding.effective.length }),
       );
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -93,7 +95,7 @@ export function TaskMcpBindingSection({ taskId }: TaskMcpBindingSectionProps) {
       <section className="rounded-lg border border-border/60 bg-background/60 p-4">
         <div className="flex items-center gap-2 text-xs text-muted-foreground">
           <Loader2 className="h-3.5 w-3.5 animate-spin" />
-          加载任务 MCP 绑定…
+          {t("detail.mcp.loading")}
         </div>
       </section>
     );
@@ -105,12 +107,9 @@ export function TaskMcpBindingSection({ taskId }: TaskMcpBindingSectionProps) {
         <div className="space-y-1">
           <div className="flex items-center gap-2 text-sm font-medium text-foreground">
             <Plug className="h-4 w-4 text-primary" />
-            MCP 工具绑定
+            {t("detail.mcp.title")}
           </div>
-          <p className="text-[11px] text-muted-foreground">
-            控制本任务会话启用的 MCP
-            服务器。默认继承设置页中全局已启用的服务器；关闭继承后可多选或全不选（显式空集）。
-          </p>
+          <p className="text-[11px] text-muted-foreground">{t("detail.mcp.description")}</p>
         </div>
         <Button size="sm" variant="outline" onClick={() => void handleSave()} disabled={saving}>
           {saving ? (
@@ -118,7 +117,7 @@ export function TaskMcpBindingSection({ taskId }: TaskMcpBindingSectionProps) {
           ) : (
             <Save className="h-3.5 w-3.5" />
           )}
-          保存绑定
+          {t("detail.mcp.save")}
         </Button>
       </div>
 
@@ -136,15 +135,13 @@ export function TaskMcpBindingSection({ taskId }: TaskMcpBindingSectionProps) {
             }
           }}
         />
-        使用全局默认（设置页中 enabled 的服务器）
+        {t("detail.mcp.useGlobalDefault")}
       </label>
 
       {mode === "override" && (
         <div className="space-y-2 rounded-md border border-border bg-background/70 p-2">
           {catalog.length === 0 ? (
-            <p className="text-[11px] text-muted-foreground">
-              尚未配置 MCP 服务器，请先到「设置 → MCP 管理」添加。
-            </p>
+            <p className="text-[11px] text-muted-foreground">{t("detail.mcp.emptyCatalog")}</p>
           ) : (
             catalog.map((server) => (
               <label key={server.id} className="flex items-start gap-2 text-xs text-foreground">
@@ -158,7 +155,7 @@ export function TaskMcpBindingSection({ taskId }: TaskMcpBindingSectionProps) {
                   <span className="font-medium">{server.name}</span>
                   {!server.enabled && (
                     <span className="ml-1 text-[10px] text-muted-foreground">
-                      （全局未默认启用）
+                      {t("detail.mcp.globalNotEnabled")}
                     </span>
                   )}
                   <span className="block truncate text-[10px] text-muted-foreground">
@@ -168,24 +165,24 @@ export function TaskMcpBindingSection({ taskId }: TaskMcpBindingSectionProps) {
               </label>
             ))
           )}
-          <p className="text-[10px] text-muted-foreground">
-            全不选表示本任务显式禁用全部 MCP（与「继承全局」不同）。
-          </p>
+          <p className="text-[10px] text-muted-foreground">{t("detail.mcp.overrideHint")}</p>
         </div>
       )}
 
       <div className="rounded-md border border-border bg-background/50 px-2 py-1.5 text-[11px] text-muted-foreground">
-        当前将生效：
-        {effectiveNames.length === 0
-          ? "（无 MCP）"
-          : effectiveNames.map((name) => (
-              <span
-                key={name}
-                className="ml-1 inline-flex rounded bg-muted px-1.5 py-0.5 text-[10px] text-foreground"
-              >
-                {name}
-              </span>
-            ))}
+        <span>{t("detail.mcp.effectivePrefix")}</span>
+        {effectiveNames.length === 0 ? (
+          <span className="ml-1">{t("detail.mcp.noMcp")}</span>
+        ) : (
+          effectiveNames.map((name) => (
+            <span
+              key={name}
+              className="ml-1 inline-flex rounded bg-muted px-1.5 py-0.5 text-[10px] text-foreground"
+            >
+              {name}
+            </span>
+          ))
+        )}
       </div>
 
       {error && (

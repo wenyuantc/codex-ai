@@ -1,4 +1,5 @@
 import { Copy, FileText, Loader2, Play, ScrollText, Wrench } from "lucide-react";
+import { useTranslation } from "react-i18next";
 
 import type {
   CodexSessionFileChange,
@@ -64,6 +65,7 @@ export function TaskReviewPanel({
   onRefreshHistory,
   onOpenChangeDetail,
 }: TaskReviewPanelProps) {
+  const { t } = useTranslation("tasks");
   const employees = useEmployeeStore((s) => s.employees);
   const employeeRuntime = useEmployeeStore((s) => s.employeeRuntime);
   const reviewer = employees.find((item) => item.id === reviewerId);
@@ -89,8 +91,8 @@ export function TaskReviewPanel({
     <div className="space-y-4">
       <DetailSection
         icon={ScrollText}
-        title="代码审核"
-        description="发起审查员 reviewer 会话，结合下方 Codex 改动文件记录逐个查看代码 diff。"
+        title={t("detail.review.title")}
+        description={t("detail.review.description")}
         actions={
           <Button
             type="button"
@@ -100,16 +102,16 @@ export function TaskReviewPanel({
             className="bg-amber-500 text-black hover:bg-amber-400"
             title={
               isReviewActive
-                ? "审核进行中"
+                ? t("detail.review.titleInProgress")
                 : status !== "review"
-                  ? "仅“审核中”任务支持代码审核"
+                  ? t("detail.review.titleWrongStatus")
                   : !reviewerId
-                    ? "请先指定审查员"
-                    : "启动代码审核"
+                    ? t("detail.review.titleNoReviewer")
+                    : t("detail.review.titleStart")
             }
           >
             {reviewLoading || isReviewActive ? <Loader2 className="animate-spin" /> : <Play />}
-            {isReviewActive ? "审核中" : "审核代码"}
+            {isReviewActive ? t("detail.review.inProgress") : t("detail.review.start")}
           </Button>
         }
       >
@@ -127,18 +129,23 @@ export function TaskReviewPanel({
           )}
 
           <div className="grid gap-2 md:grid-cols-3">
-            <DetailStat label="审查员" value={reviewerName ?? "未指定"} />
             <DetailStat
-              label="当前状态"
+              label={t("detail.review.statReviewer")}
+              value={reviewerName ?? t("detail.review.none")}
+            />
+            <DetailStat
+              label={t("detail.review.statStatus")}
               value={getSessionStatusLabel(
                 isReviewActive ? "running" : latestReview?.session.status,
               )}
             />
             <DetailStat
-              label="最近会话"
+              label={t("detail.review.statLatestSession")}
               value={
                 <span className="font-mono">
-                  {latestReview?.session.cli_session_id ?? latestReview?.session.id ?? "暂无"}
+                  {latestReview?.session.cli_session_id ??
+                    latestReview?.session.id ??
+                    t("detail.review.none")}
                 </span>
               }
             />
@@ -147,9 +154,11 @@ export function TaskReviewPanel({
           {(isReviewActive || hasReviewOutput) && reviewerId && (
             <div className="space-y-2">
               <div className="flex items-center justify-between">
-                <p className="text-xs font-medium text-muted-foreground">审核会话日志</p>
+                <p className="text-xs font-medium text-muted-foreground">
+                  {t("detail.review.sessionLog")}
+                </p>
                 <span className="text-[11px] text-muted-foreground">
-                  {isReviewActive ? "运行中" : "最近一次审核输出"}
+                  {isReviewActive ? t("detail.review.running") : t("detail.review.latestOutput")}
                 </span>
               </div>
               <CodexTerminal
@@ -167,8 +176,8 @@ export function TaskReviewPanel({
 
       <DetailSection
         icon={FileText}
-        title="审核结果"
-        description="手动修复基于审核结果新建任务；自动质控则在原任务内闭环。"
+        title={t("detail.review.resultTitle")}
+        description={t("detail.review.resultDesc")}
         actions={
           <>
             {latestReviewLoading ? (
@@ -179,7 +188,7 @@ export function TaskReviewPanel({
                 onClick={onRefreshReview}
                 className="cursor-pointer text-[11px] text-primary hover:underline"
               >
-                刷新
+                {t("detail.labels.refresh")}
               </button>
             )}
             <Button
@@ -190,7 +199,7 @@ export function TaskReviewPanel({
               disabled={!latestReview?.report?.trim() || reviewLoading || isReviewActive}
             >
               <Copy />
-              复制
+              {t("detail.review.copy")}
             </Button>
             <Button
               type="button"
@@ -205,11 +214,11 @@ export function TaskReviewPanel({
                 isReviewActive
               }
               title={
-                !assigneeId ? "原任务未指派开发负责人" : "手动修复会新建一个修复任务并立即运行"
+                !assigneeId ? t("detail.review.noAssigneeTitle") : t("detail.review.createFixTitle")
               }
             >
               <Wrench />
-              新建修复任务
+              {t("detail.review.createFixTask")}
             </Button>
           </>
         }
@@ -223,13 +232,13 @@ export function TaskReviewPanel({
             </ScrollArea>
           ) : (
             <div className="rounded-md border border-dashed border-border/60 bg-background/70 px-3 py-6 text-center text-xs text-muted-foreground">
-              {latestReview ? "最近一次审核尚未产出结构化报告。" : "还没有代码审核结果。"}
+              {latestReview ? t("detail.review.noStructuredReport") : t("detail.review.noResult")}
             </div>
           )}
 
           {latestReview && (
             <div className="text-[11px] text-muted-foreground">
-              {latestReview.reviewer_name ?? "未知审查员"} ·{" "}
+              {latestReview.reviewer_name ?? t("detail.review.unknownReviewer")} ·{" "}
               {formatDate(latestReview.session.started_at)}
             </div>
           )}
@@ -237,12 +246,12 @@ export function TaskReviewPanel({
       </DetailSection>
 
       <TaskFileChangeHistoryPanel
-        title="Codex 改动文件审核"
-        description="这里按任务执行会话汇总 Codex 改动过的文件记录，点击文件可查看对应的代码 diff 与快照。"
+        title={t("detail.review.fileChangesTitle")}
+        description={t("detail.review.fileChangesDesc")}
         history={executionChangeHistory}
         loading={executionChangeHistoryLoading}
         error={executionChangeHistoryError}
-        emptyText="还没有可审核的 Codex 改动文件记录。"
+        emptyText={t("detail.review.fileChangesEmpty")}
         onRefresh={onRefreshHistory}
         onOpenChangeDetail={onOpenChangeDetail}
       />

@@ -456,6 +456,39 @@
     "noMembers": "暂无成员",
     "reconcileSuccess": "已修复 Git 上下文，当前状态：{{state}}",
     "rollbackAllTitle": "确认全局回滚",
-    "rollbackDescription": "此操作将丢弃所有本地未提交的变更，且无法撤销。请确认后再继续。"
+    "rollbackDescription": "此操作将丢弃所有本地未提交的变更，且无法撤销。请确认后再继续。",
+    "repoHealth": {
+      "sshConfigOk": "SSH 项目基本配置完整；请在远程主机确认仓库可用性。",
+      "sshConfigIncomplete": "SSH 项目配置不完整，请补齐 SSH 配置与远程目录。",
+      "pathMissing": "仓库路径不存在，请重新选择本地目录。",
+      "notGitRepo": "目录存在但不是 Git 仓库，Codex 会话启动前需要 .git。",
+      "repoOk": "仓库可用。当前分支：{{branch}}。{{worktree}}",
+      "branchUnknown": "未知",
+      "worktreeDirtyShort": "工作区有未提交变更。",
+      "worktreeCleanShort": "工作区干净。",
+      "checks": {
+        "ssh_config": "SSH 配置",
+        "remote_path": "远程仓库路径",
+        "remote_git": "远程 Git 预检",
+        "path_exists": "路径存在",
+        "is_directory": "是目录",
+        "is_git_repo": "Git 仓库",
+        "current_branch": "当前分支",
+        "worktree_dirty": "工作区状态"
+      },
+      "detail": {
+        "sshBound": "已绑定 SSH 配置",
+        "sshUnbound": "未绑定 SSH 配置",
+        "remotePathMissing": "未配置远程仓库目录",
+        "remoteGitHint": "SSH 仓库健康需连接远程主机验证；请在设置中测试 SSH，并在远程确认目录含 .git",
+        "pathMissing": "路径不存在: {{path}}",
+        "dirOk": "路径是可用目录",
+        "dirBad": "路径不是目录或不可访问",
+        "gitOk": "检测到 .git",
+        "gitMissing": "缺少 .git，不是 Git 仓库",
+        "worktreeDirtyLines": "工作区有未提交变更（{{count}} 行）",
+        "worktreeClean": "工作区干净"
+      }
+    }
   }
 }

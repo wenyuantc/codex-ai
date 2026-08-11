@@ -96,5 +96,7 @@
   "switchToLight": "切换亮色模式",
   "switchToDark": "切换暗色模式",
   "renderFailedTitle": "界面渲染失败",
-  "renderFailedDescription": "捕获到了运行时异常，请把下面的错误信息发给我继续定位。"
+  "renderFailedDescription": "捕获到了运行时异常，请把下面的错误信息发给我继续定位。",
+  "yes": "是",
+  "no": "否"
 }

@@ -4,14 +4,11 @@ import {
   CODEX_MODEL_OPTIONS,
   CLAUDE_MODEL_OPTIONS,
   GROK_MODEL_OPTIONS,
-  GROK_EFFORT_OPTIONS,
-  REASONING_EFFORT_OPTIONS,
-  CLAUDE_THINKING_BUDGET_OPTIONS,
-  OPENCODE_EFFORT_OPTIONS,
   normalizeClaudeModel,
   normalizeGrokModel,
   type Employee,
 } from "@/lib/types";
+import { getReasoningEffortLabel } from "@/lib/utils";
 import { useEmployeeStore } from "@/stores/employeeStore";
 import { EmployeeStatusBadge } from "./EmployeeStatusBadge";
 import { DeleteEmployeeDialog } from "./DeleteEmployeeDialog";
@@ -61,14 +58,6 @@ export function EmployeeCard({ employee, taskCount = 0, highlighted = false }: E
         : employee.ai_provider === "grok"
           ? GROK_MODEL_OPTIONS
           : CODEX_MODEL_OPTIONS;
-  const allEffortOptions =
-    employee.ai_provider === "claude"
-      ? CLAUDE_THINKING_BUDGET_OPTIONS
-      : employee.ai_provider === "opencode"
-        ? OPENCODE_EFFORT_OPTIONS
-        : employee.ai_provider === "grok"
-          ? GROK_EFFORT_OPTIONS
-          : REASONING_EFFORT_OPTIONS;
   const displayModel =
     employee.ai_provider === "claude"
       ? normalizeClaudeModel(employee.model)
@@ -77,9 +66,7 @@ export function EmployeeCard({ employee, taskCount = 0, highlighted = false }: E
         : employee.model;
   const modelLabel =
     allModelOptions.find((option) => option.value === displayModel)?.label ?? displayModel;
-  const reasoningLabel =
-    allEffortOptions.find((option) => option.value === employee.reasoning_effort)?.label ??
-    employee.reasoning_effort;
+  const reasoningLabel = getReasoningEffortLabel(employee.reasoning_effort, employee.ai_provider);
   const providerLabel =
     employee.ai_provider === "claude"
       ? "Claude"

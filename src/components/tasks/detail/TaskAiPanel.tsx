@@ -1,4 +1,5 @@
 import type { RefObject } from "react";
+import { useTranslation } from "react-i18next";
 import { Eraser, Loader2, Sparkles } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -53,24 +54,35 @@ export function TaskAiPanel({
   onClearLogs,
   onInsertPlan,
 }: TaskAiPanelProps) {
+  const { t } = useTranslation("tasks");
   const actions: AiAction[] = [
-    { key: "assignee", label: "AI建议指派", loading: aiLoading === "assignee", onClick: onSuggest },
+    {
+      key: "assignee",
+      label: t("detail.ai.suggestAssignee"),
+      loading: aiLoading === "assignee",
+      onClick: onSuggest,
+    },
     {
       key: "complexity",
-      label: "复杂度分析",
+      label: t("detail.ai.complexity"),
       loading: aiLoading === "complexity",
       onClick: onComplexity,
     },
     {
       key: "subtasks",
-      label: "AI拆分子任务",
+      label: t("detail.ai.splitSubtasks"),
       loading: aiLoading === "subtasks",
       onClick: onSplitSubtasks,
     },
-    { key: "plan", label: "AI生成计划", loading: planLoading, onClick: onGeneratePlan },
+    {
+      key: "plan",
+      label: t("detail.ai.generatePlan"),
+      loading: planLoading,
+      onClick: onGeneratePlan,
+    },
     {
       key: "comment",
-      label: "AI生成评论",
+      label: t("detail.ai.generateComment"),
       loading: aiLoading === "comment",
       onClick: onGenerateComment,
     },
@@ -101,12 +113,12 @@ export function TaskAiPanel({
               {(aiLoading !== null || planLoading) && (
                 <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-green-500" />
               )}
-              AI 执行日志
+              {t("detail.ai.logTitle")}
             </span>
             <button
               onClick={onClearLogs}
               className="cursor-pointer p-0.5 text-zinc-500 transition-colors hover:text-zinc-300"
-              title="清空日志"
+              title={t("detail.ai.clearLogs")}
             >
               <Eraser className="h-3 w-3" />
             </button>
@@ -114,7 +126,7 @@ export function TaskAiPanel({
           <ScrollArea className="h-40 overflow-hidden bg-black">
             <div className="space-y-0.5 p-2 font-mono text-xs">
               {aiLogs.length === 0 ? (
-                <div className="text-zinc-600">等待执行...</div>
+                <div className="text-zinc-600">{t("detail.ai.waiting")}</div>
               ) : (
                 aiLogs.map((line, index) => (
                   <div
@@ -133,14 +145,14 @@ export function TaskAiPanel({
 
       {aiResult && (
         <div className="rounded-lg border border-primary/20 bg-primary/5 px-3 py-2 text-xs text-muted-foreground">
-          <span className="font-medium text-primary">AI 结果：</span>
+          <span className="mr-1 font-medium text-primary">{t("detail.ai.resultPrefix")}</span>
           {aiResult}
         </div>
       )}
 
       {taskAiSuggestion && !aiResult && (
         <div className="rounded-lg border border-primary/20 bg-primary/5 px-3 py-2 text-xs text-muted-foreground">
-          <span className="font-medium text-primary">AI 建议：</span>
+          <span className="mr-1 font-medium text-primary">{t("detail.ai.suggestionPrefix")}</span>
           {taskAiSuggestion}
         </div>
       )}
@@ -161,12 +173,12 @@ export function TaskAiPanel({
         <div className="space-y-3 rounded-lg border border-primary/20 bg-primary/5 p-4">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div className="space-y-1">
-              <p className="text-xs font-medium text-primary">AI 计划预览</p>
-              <p className="text-[11px] text-muted-foreground">确认后可插入到任务详情描述中</p>
+              <p className="text-xs font-medium text-primary">{t("detail.ai.planPreview")}</p>
+              <p className="text-[11px] text-muted-foreground">{t("detail.ai.planPreviewHint")}</p>
             </div>
             <Button type="button" size="sm" onClick={onInsertPlan} disabled={insertSubmitting}>
               {insertSubmitting ? <Loader2 className="animate-spin" /> : null}
-              插入详情
+              {t("detail.ai.insertIntoDetails")}
             </Button>
           </div>
           <ScrollArea className="h-80 overflow-hidden rounded-md border border-border/60 bg-background/80">

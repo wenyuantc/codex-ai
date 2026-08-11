@@ -4,5 +4,12 @@
   "restore": "恢复",
   "permanentDelete": "永久删除",
   "deletedTasks": "已删除任务",
-  "deletedProjects": "已删除项目"
+  "deletedProjects": "已删除项目",
+  "deletedAt": "删除于 {{time}}",
+  "restoring": "恢复中...",
+  "deleting": "删除中...",
+  "confirmDeleteTaskTitle": "确认永久删除任务",
+  "confirmDeleteTaskDescription": "确认永久删除任务“{{name}}”吗？此操作不可恢复。",
+  "confirmDeleteProjectTitle": "确认永久删除项目",
+  "confirmDeleteProjectDescription": "确认永久删除项目“{{name}}”吗？此操作会同时删除其所有关联数据，且不可恢复。"
 }

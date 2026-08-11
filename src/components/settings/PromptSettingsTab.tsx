@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Loader2, RotateCcw, Save } from "lucide-react";
+import { useTranslation } from "react-i18next";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -11,6 +12,7 @@ import {
 import { cn } from "@/lib/utils";
 
 export function PromptSettingsTab() {
+  const { t } = useTranslation("settings");
   const [templates, setTemplates] = useState<AiPromptTemplate[]>([]);
   const [selectedScene, setSelectedScene] = useState<string | null>(null);
   const [draft, setDraft] = useState<AiPromptTemplate | null>(null);
@@ -24,24 +26,30 @@ export function PromptSettingsTab() {
     setError(null);
     try {
       const document = await getAiPromptTemplates();
-      setTemplates(document.templates);
+      const localized = document.templates.map((template) => ({
+        ...template,
+        label: t(`prompts.scenes.${template.scene}`, { defaultValue: template.label }),
+      }));
+      setTemplates(localized);
       const nextScene =
-        preferredScene && document.templates.some((template) => template.scene === preferredScene)
+        preferredScene && localized.some((template) => template.scene === preferredScene)
           ? preferredScene
-          : (document.templates[0]?.scene ?? null);
+          : (localized[0]?.scene ?? null);
       setSelectedScene(nextScene);
-      setDraft(document.templates.find((template) => template.scene === nextScene) ?? null);
+      setDraft(localized.find((template) => template.scene === nextScene) ?? null);
     } catch (loadError) {
       console.error("Failed to load AI prompt templates:", loadError);
-      setError(loadError instanceof Error ? loadError.message : "加载提示词模板失败");
+      setError(loadError instanceof Error ? loadError.message : t("prompts.errors.loadFailed"));
     } finally {
       setLoading(false);
     }
   }
 
   useEffect(() => {
-    void loadTemplates();
-  }, []);
+    void loadTemplates(selectedScene);
+    // Re-localize scene labels when UI language changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only reload on locale `t` identity change
+  }, [t]);
 
   function selectTemplate(scene: string) {
     const template = templates.find((item) => item.scene === scene) ?? null;
@@ -70,10 +78,10 @@ export function PromptSettingsTab() {
       const document = await updateAiPromptTemplates(nextTemplates);
       setTemplates(document.templates);
       setDraft(document.templates.find((template) => template.scene === draft.scene) ?? draft);
-      setMessage(`已保存「${draft.label}」`);
+      setMessage(t("prompts.messages.savedNamed", { label: draft.label }));
     } catch (saveError) {
       console.error("Failed to save AI prompt template:", saveError);
-      setError(saveError instanceof Error ? saveError.message : "保存提示词模板失败");
+      setError(saveError instanceof Error ? saveError.message : t("prompts.errors.saveFailed"));
     } finally {
       setActionLoading(null);
     }
@@ -89,14 +97,21 @@ export function PromptSettingsTab() {
     setError(null);
     try {
       const document = await resetAiPromptTemplates(selectedScene);
-      setTemplates(document.templates);
-      const restored =
-        document.templates.find((template) => template.scene === selectedScene) ?? null;
+      const localized = document.templates.map((template) => ({
+        ...template,
+        label: t(`prompts.scenes.${template.scene}`, { defaultValue: template.label }),
+      }));
+      setTemplates(localized);
+      const restored = localized.find((template) => template.scene === selectedScene) ?? null;
       setDraft(restored ? { ...restored } : null);
-      setMessage(restored ? `已重置「${restored.label}」为默认` : "已重置当前模板");
+      setMessage(
+        restored
+          ? t("prompts.messages.resetNamedToDefault", { label: restored.label })
+          : t("prompts.messages.resetCurrent"),
+      );
     } catch (resetError) {
       console.error("Failed to reset AI prompt template:", resetError);
-      setError(resetError instanceof Error ? resetError.message : "重置提示词模板失败");
+      setError(resetError instanceof Error ? resetError.message : t("prompts.errors.resetFailed"));
     } finally {
       setActionLoading(null);
     }
@@ -108,14 +123,20 @@ export function PromptSettingsTab() {
     setError(null);
     try {
       const document = await resetAiPromptTemplates(null);
-      setTemplates(document.templates);
-      const nextScene = selectedScene ?? document.templates[0]?.scene ?? null;
+      const localized = document.templates.map((template) => ({
+        ...template,
+        label: t(`prompts.scenes.${template.scene}`, { defaultValue: template.label }),
+      }));
+      setTemplates(localized);
+      const nextScene = selectedScene ?? localized[0]?.scene ?? null;
       setSelectedScene(nextScene);
-      setDraft(document.templates.find((template) => template.scene === nextScene) ?? null);
-      setMessage("已重置全部提示词模板为默认");
+      setDraft(localized.find((template) => template.scene === nextScene) ?? null);
+      setMessage(t("prompts.messages.resetAll"));
     } catch (resetError) {
       console.error("Failed to reset all AI prompt templates:", resetError);
-      setError(resetError instanceof Error ? resetError.message : "重置全部提示词模板失败");
+      setError(
+        resetError instanceof Error ? resetError.message : t("prompts.errors.resetAllFailed"),
+      );
     } finally {
       setActionLoading(null);
     }
@@ -125,7 +146,7 @@ export function PromptSettingsTab() {
     return (
       <div className="flex items-center gap-2 rounded-lg border border-border bg-card px-4 py-8 text-sm text-muted-foreground">
         <Loader2 className="h-4 w-4 animate-spin" />
-        正在加载提示词模板…
+        {t("prompts.states.loading")}
       </div>
     );
   }
@@ -135,11 +156,8 @@ export function PromptSettingsTab() {
       <div className="rounded-lg border border-border bg-card p-4">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <h3 className="text-sm font-medium">AI 提示词模板</h3>
-            <p className="mt-1 text-xs text-muted-foreground">
-              配置各场景的输出目标与补充要求。保存后会写入本地
-              `ai-prompt-templates.json`，并在生成提示词时优先使用。
-            </p>
+            <h3 className="text-sm font-medium">{t("prompts.title")}</h3>
+            <p className="mt-1 text-xs text-muted-foreground">{t("prompts.description")}</p>
           </div>
           <Button
             variant="outline"
@@ -152,7 +170,7 @@ export function PromptSettingsTab() {
             ) : (
               <RotateCcw className="h-4 w-4" />
             )}
-            全部重置
+            {t("prompts.actions.resetAll")}
           </Button>
         </div>
       </div>
@@ -172,7 +190,9 @@ export function PromptSettingsTab() {
                     : "text-foreground hover:bg-accent",
                 )}
               >
-                <div className="font-medium">{template.label}</div>
+                <div className="font-medium">
+                  {t(`prompts.scenes.${template.scene}`, { defaultValue: template.label })}
+                </div>
                 <div
                   className={cn(
                     "mt-0.5 text-[11px]",
@@ -192,7 +212,9 @@ export function PromptSettingsTab() {
           {draft ? (
             <>
               <div className="space-y-1">
-                <label className="text-xs text-muted-foreground">显示名称</label>
+                <label className="text-xs text-muted-foreground">
+                  {t("prompts.fields.displayName")}
+                </label>
                 <input
                   value={draft.label}
                   onChange={(event) => updateDraft({ label: event.target.value })}
@@ -201,7 +223,9 @@ export function PromptSettingsTab() {
               </div>
 
               <div className="space-y-1">
-                <label className="text-xs text-muted-foreground">输出目标 (output_goal)</label>
+                <label className="text-xs text-muted-foreground">
+                  {t("prompts.fields.outputGoal")}
+                </label>
                 <textarea
                   value={draft.output_goal}
                   onChange={(event) => updateDraft({ output_goal: event.target.value })}
@@ -212,7 +236,7 @@ export function PromptSettingsTab() {
 
               <div className="space-y-1">
                 <label className="text-xs text-muted-foreground">
-                  场景补充要求 (scene_requirement)
+                  {t("prompts.fields.sceneRequirement")}
                 </label>
                 <textarea
                   value={draft.scene_requirement}
@@ -229,7 +253,7 @@ export function PromptSettingsTab() {
                   ) : (
                     <Save className="h-4 w-4" />
                   )}
-                  保存当前模板
+                  {t("prompts.actions.saveCurrent")}
                 </Button>
                 <Button
                   variant="outline"
@@ -241,12 +265,12 @@ export function PromptSettingsTab() {
                   ) : (
                     <RotateCcw className="h-4 w-4" />
                   )}
-                  重置当前
+                  {t("prompts.actions.resetCurrent")}
                 </Button>
               </div>
             </>
           ) : (
-            <p className="text-sm text-muted-foreground">暂无可用模板</p>
+            <p className="text-sm text-muted-foreground">{t("prompts.states.empty")}</p>
           )}
 
           {message && <p className="text-xs text-green-700">{message}</p>}

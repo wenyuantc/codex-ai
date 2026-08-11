@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Loader2, RefreshCw } from "lucide-react";
 
 import { SessionContinueDialog } from "@/components/sessions/SessionContinueDialog";
@@ -22,7 +23,7 @@ import { formatDate, isArtifactCaptureLimited } from "@/lib/utils";
 import { useEmployeeStore } from "@/stores/employeeStore";
 import { getSessionStatusLabel } from "./taskDetailViewHelpers";
 
-type ChainRole = "执行" | "审核" | "修复";
+type ChainRole = "execute" | "review" | "fix";
 
 interface ChainItem {
   session: CodexSessionListItem;
@@ -72,20 +73,20 @@ function resumeBadgeVariant(
   }
 }
 
-function formatResumeStatus(status: CodexSessionResumeStatus) {
+function formatResumeStatus(status: CodexSessionResumeStatus, translate: (key: string) => string) {
   switch (status) {
     case "ready":
-      return "可继续";
+      return translate("detail.chain.resume.ready");
     case "running":
-      return "占用中";
+      return translate("detail.chain.resume.running");
     case "missing_employee":
-      return "缺少员工";
+      return translate("detail.chain.resume.missingEmployee");
     case "missing_cli_session":
-      return "不可恢复";
+      return translate("detail.chain.resume.missingCliSession");
     case "stopping":
-      return "停止中";
+      return translate("detail.chain.resume.stopping");
     case "invalid":
-      return "无效";
+      return translate("detail.chain.resume.invalid");
     default:
       return status;
   }
@@ -93,13 +94,25 @@ function formatResumeStatus(status: CodexSessionResumeStatus) {
 
 function roleBadgeClassName(role: ChainRole) {
   switch (role) {
-    case "审核":
+    case "review":
       return "border-blue-500/30 bg-blue-500/10 text-blue-700";
-    case "修复":
+    case "fix":
       return "border-amber-500/30 bg-amber-500/10 text-amber-800";
-    case "执行":
+    case "execute":
     default:
       return "border-emerald-500/30 bg-emerald-500/10 text-emerald-700";
+  }
+}
+
+function formatChainRole(role: ChainRole, translate: (key: string) => string) {
+  switch (role) {
+    case "review":
+      return translate("detail.chain.role.review");
+    case "fix":
+      return translate("detail.chain.role.fix");
+    case "execute":
+    default:
+      return translate("detail.chain.role.execute");
   }
 }
 
@@ -117,8 +130,8 @@ function parseTime(value: string | null | undefined) {
 
 /**
  * Build execution → review → fix timeline labels.
- * Review sessions → 审核. Execution sessions → 执行, unless they follow a failed
- * review or sit near task_automation_fix_started activity → 修复.
+ * Review sessions → review. Execution sessions → execute, unless they follow a
+ * failed review or sit near task_automation_fix_started activity → fix.
  */
 export function buildTaskSessionChain(
   sessions: CodexSessionListItem[],
@@ -134,7 +147,7 @@ export function buildTaskSessionChain(
 
   return sorted.map((session, index) => {
     if (session.session_kind === "review") {
-      return { session, role: "审核" as const };
+      return { session, role: "review" as const };
     }
 
     const previous = index > 0 ? sorted[index - 1] : null;
@@ -157,10 +170,10 @@ export function buildTaskSessionChain(
     });
 
     if (followsFailedReview || hasFixActivityNearSession) {
-      return { session, role: "修复" as const };
+      return { session, role: "fix" as const };
     }
 
-    return { session, role: "执行" as const };
+    return { session, role: "execute" as const };
   });
 }
 
@@ -179,6 +192,7 @@ function buildLogTarget(session: CodexSessionListItem): SessionLogTarget {
 }
 
 export function TaskSessionChainPanel({ taskId, active = true }: TaskSessionChainPanelProps) {
+  const { t } = useTranslation("tasks");
   const employees = useEmployeeStore((state) => state.employees);
   const fetchEmployees = useEmployeeStore((state) => state.fetchEmployees);
   const updateEmployeeStatus = useEmployeeStore((state) => state.updateEmployeeStatus);
@@ -233,7 +247,7 @@ export function TaskSessionChainPanel({ taskId, active = true }: TaskSessionChai
       }
       setSessions([]);
       setFixLogs([]);
-      setError(loadError instanceof Error ? loadError.message : "加载执行链路失败");
+      setError(loadError instanceof Error ? loadError.message : t("detail.chain.loadFailed"));
     } finally {
       if (requestIdRef.current === requestId) {
         setLoading(false);
@@ -263,7 +277,7 @@ export function TaskSessionChainPanel({ taskId, active = true }: TaskSessionChai
     try {
       const preview = await prepareCodexSessionResume(continueSession.session_record_id);
       if (!preview.can_resume || !preview.resolved_session_id || !preview.employee_id) {
-        setError(preview.resume_message ?? "该对话当前不可继续");
+        setError(preview.resume_message ?? t("detail.chain.cannotContinue"));
         return;
       }
 
@@ -302,10 +316,12 @@ export function TaskSessionChainPanel({ taskId, active = true }: TaskSessionChai
       await refreshEmployeeRuntimeStatus(preview.employee_id);
       setContinueDialogOpen(false);
       setContinueSession(null);
-      setInfoMessage("已继续对话。");
+      setInfoMessage(t("detail.chain.continued"));
       await loadChain();
     } catch (continueError) {
-      setError(continueError instanceof Error ? continueError.message : "继续对话失败");
+      setError(
+        continueError instanceof Error ? continueError.message : t("detail.chain.continueFailed"),
+      );
     } finally {
       setContinueSubmitting(false);
     }
@@ -335,10 +351,10 @@ export function TaskSessionChainPanel({ taskId, active = true }: TaskSessionChai
       if (session.employee_id) {
         await refreshEmployeeRuntimeStatus(session.employee_id);
       }
-      setInfoMessage(`已请求停止对话 ${session.session_id}。`);
+      setInfoMessage(t("detail.chain.stopRequested", { sessionId: session.session_id }));
       await loadChain();
     } catch (stopError) {
-      setError(stopError instanceof Error ? stopError.message : "停止对话失败");
+      setError(stopError instanceof Error ? stopError.message : t("detail.chain.stopFailed"));
     } finally {
       setStoppingSessionId(null);
     }
@@ -349,10 +365,8 @@ export function TaskSessionChainPanel({ taskId, active = true }: TaskSessionChai
       <div className="space-y-4">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="space-y-1">
-            <p className="text-sm font-medium">执行链路</p>
-            <p className="text-[11px] text-muted-foreground">
-              按时间展示本任务的执行 → 审核 → 修复会话链；可打开日志或继续对话。
-            </p>
+            <p className="text-sm font-medium">{t("detail.chain.title")}</p>
+            <p className="text-[11px] text-muted-foreground">{t("detail.chain.description")}</p>
           </div>
           <Button
             type="button"
@@ -366,7 +380,7 @@ export function TaskSessionChainPanel({ taskId, active = true }: TaskSessionChai
             ) : (
               <RefreshCw className="mr-1 h-3.5 w-3.5" />
             )}
-            刷新
+            {t("detail.chain.refresh")}
           </Button>
         </div>
 
@@ -384,11 +398,11 @@ export function TaskSessionChainPanel({ taskId, active = true }: TaskSessionChai
 
         {loading && chain.length === 0 ? (
           <div className="rounded-lg border border-dashed border-border/60 px-3 py-8 text-center text-xs text-muted-foreground">
-            正在加载执行链路...
+            {t("detail.chain.loading")}
           </div>
         ) : chain.length === 0 ? (
           <div className="rounded-lg border border-dashed border-border/60 px-3 py-8 text-center text-xs text-muted-foreground">
-            当前任务还没有关联的 Codex / Claude / OpenCode 会话。
+            {t("detail.chain.empty")}
           </div>
         ) : (
           <ol className="relative space-y-0 border-l border-border/80 pl-4">
@@ -396,9 +410,9 @@ export function TaskSessionChainPanel({ taskId, active = true }: TaskSessionChai
               <li key={session.session_record_id} className="relative pb-5 last:pb-0">
                 <span
                   className={`absolute -left-[1.29rem] top-1.5 h-2.5 w-2.5 rounded-full border-2 border-background ${
-                    role === "审核"
+                    role === "review"
                       ? "bg-blue-500"
-                      : role === "修复"
+                      : role === "fix"
                         ? "bg-amber-500"
                         : "bg-emerald-500"
                   }`}
@@ -409,24 +423,28 @@ export function TaskSessionChainPanel({ taskId, active = true }: TaskSessionChai
                     <span
                       className={`rounded-md border px-1.5 py-0.5 text-[11px] font-medium ${roleBadgeClassName(role)}`}
                     >
-                      {role}
+                      {formatChainRole(role, t)}
                     </span>
                     <Badge variant={aiProviderBadgeVariant(session.ai_provider)}>
                       {formatAiProviderLabel(session.ai_provider)}
                     </Badge>
                     <Badge variant={session.execution_target === "ssh" ? "default" : "outline"}>
-                      {session.execution_target === "ssh" ? "SSH" : "本地"}
+                      {session.execution_target === "ssh" ? "SSH" : t("detail.labels.local")}
                     </Badge>
                     <span className="text-[11px] text-muted-foreground">
                       {getSessionStatusLabel(session.status)}
                     </span>
                     <Badge variant={resumeBadgeVariant(session.resume_status)}>
-                      {formatResumeStatus(session.resume_status)}
+                      {formatResumeStatus(session.resume_status, t)}
                     </Badge>
                     <span className="text-[11px] text-muted-foreground">
                       {formatDate(session.last_updated_at)}
                     </span>
-                    {index === 0 && <span className="text-[11px] text-muted-foreground">起点</span>}
+                    {index === 0 && (
+                      <span className="text-[11px] text-muted-foreground">
+                        {t("detail.chain.origin")}
+                      </span>
+                    )}
                   </div>
 
                   <div className="mt-2 space-y-1 text-xs">
@@ -435,8 +453,12 @@ export function TaskSessionChainPanel({ taskId, active = true }: TaskSessionChai
                       {session.session_id}
                     </div>
                     <div className="text-[11px] text-muted-foreground">
-                      员工：{session.employee_name ?? "未绑定"}
-                      {session.target_host_label ? ` · 主机：${session.target_host_label}` : ""}
+                      {t("detail.chain.employee", {
+                        name: session.employee_name ?? t("detail.labels.unbound"),
+                      })}
+                      {session.target_host_label
+                        ? t("detail.chain.host", { host: session.target_host_label })
+                        : ""}
                     </div>
                     {session.summary && (
                       <p className="text-[11px] text-muted-foreground line-clamp-2">
@@ -465,7 +487,7 @@ export function TaskSessionChainPanel({ taskId, active = true }: TaskSessionChai
                       }}
                       disabled={!session.task_id && !session.employee_id}
                     >
-                      查看日志
+                      {t("detail.chain.viewLogs")}
                     </Button>
                     <Button
                       type="button"
@@ -477,9 +499,9 @@ export function TaskSessionChainPanel({ taskId, active = true }: TaskSessionChai
                         setInfoMessage(null);
                       }}
                       disabled={!session.can_resume}
-                      title={session.resume_message ?? "继续对话"}
+                      title={session.resume_message ?? t("detail.chain.continue")}
                     >
-                      继续对话
+                      {t("detail.chain.continue")}
                     </Button>
                     {(session.status === "running" || session.status === "stopping") && (
                       <Button
@@ -495,10 +517,10 @@ export function TaskSessionChainPanel({ taskId, active = true }: TaskSessionChai
                         {stoppingSessionId === session.session_record_id ? (
                           <>
                             <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
-                            停止中
+                            {t("detail.chain.stopping")}
                           </>
                         ) : (
-                          "停止对话"
+                          t("detail.chain.stop")
                         )}
                       </Button>
                     )}

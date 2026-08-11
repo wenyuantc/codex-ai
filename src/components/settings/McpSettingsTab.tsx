@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Loader2, Plus, RefreshCw, Save, Trash2 } from "lucide-react";
+import { useTranslation } from "react-i18next";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -11,6 +12,8 @@ import {
   updateMcpServers,
   type McpServerConfig,
 } from "@/lib/backend";
+
+const EXAMPLE_FILESYSTEM_ID = "example-filesystem";
 
 function createEmptyServer(): McpServerConfig {
   return {
@@ -24,7 +27,24 @@ function createEmptyServer(): McpServerConfig {
   };
 }
 
+function localizeExampleServers(
+  servers: McpServerConfig[],
+  t: (key: string) => string,
+): McpServerConfig[] {
+  return servers.map((server) => {
+    if (server.id !== EXAMPLE_FILESYSTEM_ID) {
+      return server;
+    }
+    return {
+      ...server,
+      name: t("mcp.exampleFilesystem.name"),
+      notes: t("mcp.exampleFilesystem.notes"),
+    };
+  });
+}
+
 export function McpSettingsTab() {
+  const { t } = useTranslation("settings");
   const [servers, setServers] = useState<McpServerConfig[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -37,7 +57,7 @@ export function McpSettingsTab() {
     setError(null);
     try {
       const doc = await getMcpServers();
-      setServers(doc.servers);
+      setServers(localizeExampleServers(doc.servers, t));
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -47,7 +67,8 @@ export function McpSettingsTab() {
 
   useEffect(() => {
     void load();
-  }, []);
+    // Reload when locale changes so example name/notes follow UI language.
+  }, [t]);
 
   const updateServer = (id: string, patch: Partial<McpServerConfig>) => {
     setServers((current) =>
@@ -61,8 +82,8 @@ export function McpSettingsTab() {
     setMessage(null);
     try {
       const doc = await updateMcpServers(servers);
-      setServers(doc.servers);
-      setMessage("MCP 配置已保存（应用配置目录 mcp-servers.json）。");
+      setServers(localizeExampleServers(doc.servers, t));
+      setMessage(t("mcp.messages.saved"));
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -76,8 +97,8 @@ export function McpSettingsTab() {
     setMessage(null);
     try {
       const doc = await resetMcpServers();
-      setServers(doc.servers);
-      setMessage("已重置为默认示例配置。");
+      setServers(localizeExampleServers(doc.servers, t));
+      setMessage(t("mcp.messages.reset"));
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -91,7 +112,7 @@ export function McpSettingsTab() {
       const text = await exportMcpServersSnippet();
       setSnippet(text);
       await navigator.clipboard?.writeText(text);
-      setMessage("已生成导出片段，并尝试复制到剪贴板。");
+      setMessage(t("mcp.messages.exported"));
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     }
@@ -101,7 +122,7 @@ export function McpSettingsTab() {
     return (
       <div className="flex items-center gap-2 text-sm text-muted-foreground">
         <Loader2 className="h-4 w-4 animate-spin" />
-        加载 MCP 配置…
+        {t("mcp.states.loading")}
       </div>
     );
   }
@@ -109,26 +130,23 @@ export function McpSettingsTab() {
   return (
     <div className="space-y-4">
       <div className="rounded-lg border border-border bg-card p-4 space-y-2">
-        <h3 className="text-sm font-medium">MCP 服务器管理</h3>
-        <p className="text-xs text-muted-foreground">
-          在此维护 MCP Server 清单，可导出为 JSON 片段合并到 Codex/Claude 等引擎配置。
-          配置保存在应用配置目录（不在 SQL 备份范围内）。
-        </p>
+        <h3 className="text-sm font-medium">{t("mcp.title")}</h3>
+        <p className="text-xs text-muted-foreground">{t("mcp.description")}</p>
         <div className="flex flex-wrap gap-2">
           <Button size="sm" onClick={() => setServers((c) => [...c, createEmptyServer()])}>
             <Plus className="h-4 w-4" />
-            添加服务器
+            {t("mcp.actions.addServer")}
           </Button>
           <Button size="sm" variant="outline" onClick={() => void handleSave()} disabled={saving}>
             {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-            保存
+            {t("mcp.actions.save")}
           </Button>
           <Button size="sm" variant="outline" onClick={() => void handleExport()}>
-            导出片段
+            {t("mcp.actions.exportSnippet")}
           </Button>
           <Button size="sm" variant="ghost" onClick={() => void handleReset()} disabled={saving}>
             <RefreshCw className="h-4 w-4" />
-            重置示例
+            {t("mcp.actions.resetExample")}
           </Button>
         </div>
         {message && <p className="text-xs text-green-700 dark:text-green-300">{message}</p>}
@@ -137,7 +155,7 @@ export function McpSettingsTab() {
 
       <div className="space-y-3">
         {servers.length === 0 && (
-          <p className="text-sm text-muted-foreground">暂无 MCP 服务器，请点击「添加服务器」。</p>
+          <p className="text-sm text-muted-foreground">{t("mcp.states.empty")}</p>
         )}
         {servers.map((server) => (
           <div key={server.id} className="space-y-3 rounded-lg border border-border bg-card p-4">
@@ -148,7 +166,7 @@ export function McpSettingsTab() {
                   checked={server.enabled}
                   onChange={(e) => updateServer(server.id, { enabled: e.target.checked })}
                 />
-                启用
+                {t("mcp.fields.enabled")}
               </label>
               <Button
                 size="sm"
@@ -156,23 +174,23 @@ export function McpSettingsTab() {
                 onClick={() => setServers((c) => c.filter((s) => s.id !== server.id))}
               >
                 <Trash2 className="h-4 w-4" />
-                删除
+                {t("mcp.actions.delete")}
               </Button>
             </div>
             <div className="grid gap-2 sm:grid-cols-2">
               <Input
-                placeholder="名称"
+                placeholder={t("mcp.fields.namePlaceholder")}
                 value={server.name}
                 onChange={(e) => updateServer(server.id, { name: e.target.value })}
               />
               <Input
-                placeholder="启动命令（如 npx / uvx / 绝对路径）"
+                placeholder={t("mcp.fields.commandPlaceholder")}
                 value={server.command}
                 onChange={(e) => updateServer(server.id, { command: e.target.value })}
               />
             </div>
             <Input
-              placeholder="参数（空格分隔）"
+              placeholder={t("mcp.fields.argsPlaceholder")}
               value={server.args.join(" ")}
               onChange={(e) =>
                 updateServer(server.id, {
@@ -184,7 +202,7 @@ export function McpSettingsTab() {
               }
             />
             <Textarea
-              placeholder="备注（可选）"
+              placeholder={t("mcp.fields.notesPlaceholder")}
               value={server.notes ?? ""}
               onChange={(e) => updateServer(server.id, { notes: e.target.value })}
               rows={2}
@@ -195,7 +213,7 @@ export function McpSettingsTab() {
 
       {snippet && (
         <div className="rounded-lg border border-border bg-muted/30 p-3">
-          <p className="mb-2 text-xs font-medium">导出片段预览</p>
+          <p className="mb-2 text-xs font-medium">{t("mcp.preview.title")}</p>
           <pre className="max-h-64 overflow-auto whitespace-pre-wrap text-[11px] font-mono">
             {snippet}
           </pre>

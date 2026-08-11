@@ -456,6 +456,39 @@
     "noMembers": "No members",
     "reconcileSuccess": "Fixed the Git context; current state: {{state}}",
     "rollbackAllTitle": "Roll back all changes",
-    "rollbackDescription": "This discards all uncommitted local changes and cannot be undone. Please confirm before continuing."
+    "rollbackDescription": "This discards all uncommitted local changes and cannot be undone. Please confirm before continuing.",
+    "repoHealth": {
+      "sshConfigOk": "SSH project config looks complete; confirm the repo on the remote host.",
+      "sshConfigIncomplete": "SSH project config is incomplete; add SSH config and remote path.",
+      "pathMissing": "Repo path does not exist; choose a local directory again.",
+      "notGitRepo": "Directory exists but is not a Git repo; .git is required before Codex sessions.",
+      "repoOk": "Repo is usable. Current branch: {{branch}}. {{worktree}}",
+      "branchUnknown": "unknown",
+      "worktreeDirtyShort": "Working tree has uncommitted changes.",
+      "worktreeCleanShort": "Working tree is clean.",
+      "checks": {
+        "ssh_config": "SSH config",
+        "remote_path": "Remote repo path",
+        "remote_git": "Remote Git preflight",
+        "path_exists": "Path exists",
+        "is_directory": "Is a directory",
+        "is_git_repo": "Git repository",
+        "current_branch": "Current branch",
+        "worktree_dirty": "Working tree"
+      },
+      "detail": {
+        "sshBound": "SSH config bound",
+        "sshUnbound": "No SSH config bound",
+        "remotePathMissing": "Remote repo path not set",
+        "remoteGitHint": "SSH repo health needs a remote check; test SSH in Settings and confirm the remote path has .git",
+        "pathMissing": "Path does not exist: {{path}}",
+        "dirOk": "Path is a usable directory",
+        "dirBad": "Path is not a directory or is inaccessible",
+        "gitOk": ".git detected",
+        "gitMissing": "Missing .git; not a Git repository",
+        "worktreeDirtyLines": "Working tree has uncommitted changes ({{count}} lines)",
+        "worktreeClean": "Working tree is clean"
+      }
+    }
   }
 }

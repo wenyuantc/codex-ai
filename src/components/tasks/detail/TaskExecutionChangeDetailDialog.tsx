@@ -1,4 +1,5 @@
 import type { CodexSessionFileChangeDetail } from "@/lib/types";
+import { useTranslation } from "react-i18next";
 import {
   Dialog,
   DialogContent,
@@ -53,12 +54,13 @@ function SnapshotMeta({
   status: "text" | "missing" | "binary" | "unavailable";
   truncated: boolean;
 }) {
+  const { t } = useTranslation("tasks");
   return (
     <div className="rounded-md border border-border/70 bg-muted/30 px-3 py-2 text-xs">
       <div className="font-medium text-foreground">{label}</div>
       <div className="mt-1 text-muted-foreground">
         {getExecutionSnapshotStatusLabel(status)}
-        {truncated ? " · 已截断" : ""}
+        {truncated ? ` ${t("detail.labels.truncatedSuffix")}` : ""}
       </div>
     </div>
   );
@@ -71,6 +73,7 @@ export function TaskExecutionChangeDetailDialog({
   detail,
   onOpenChange,
 }: TaskExecutionChangeDetailDialogProps) {
+  const { t } = useTranslation("tasks");
   const hasBeforeText = detail?.before_status === "text" && detail.before_text !== null;
   const hasAfterText = detail?.after_status === "text" && detail.after_text !== null;
   const hasDiffText = detail?.diff_text !== null && detail?.diff_text !== undefined;
@@ -90,16 +93,14 @@ export function TaskExecutionChangeDetailDialog({
           <DialogTitle>
             {detail
               ? `${getExecutionChangeTypeLabel(detail.change.change_type)} ${detail.change.path}`
-              : "文件变更详情"}
+              : t("detail.changeDetail.titleFallback")}
           </DialogTitle>
-          <DialogDescription>
-            查看该次执行会话记录下来的文件快照与 diff 预览。旧记录可能只有文件路径，没有文本快照。
-          </DialogDescription>
+          <DialogDescription>{t("detail.changeDetail.description")}</DialogDescription>
         </DialogHeader>
 
         {loading ? (
           <div className="rounded-md border border-dashed border-border px-3 py-8 text-center text-sm text-muted-foreground">
-            正在加载文件变更详情...
+            {t("detail.changeDetail.loading")}
           </div>
         ) : error ? (
           <div className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-3 text-sm text-destructive">
@@ -107,7 +108,7 @@ export function TaskExecutionChangeDetailDialog({
           </div>
         ) : !detail ? (
           <div className="rounded-md border border-dashed border-border px-3 py-8 text-center text-sm text-muted-foreground">
-            暂无可展示的文件详情。
+            {t("detail.changeDetail.empty")}
           </div>
         ) : (
           <div className="space-y-4">
@@ -128,20 +129,26 @@ export function TaskExecutionChangeDetailDialog({
 
             <div className="grid gap-2 md:grid-cols-2">
               <div className="rounded-md border border-border/70 bg-muted/20 px-3 py-2 text-xs">
-                <div className="font-medium text-foreground">绝对路径</div>
+                <div className="font-medium text-foreground">
+                  {t("detail.changeDetail.absolutePath")}
+                </div>
                 <div className="mt-1 break-all font-mono text-muted-foreground">
-                  {detail.absolute_path ?? "未记录"}
+                  {detail.absolute_path ?? t("detail.labels.notRecorded")}
                 </div>
               </div>
               <div className="rounded-md border border-border/70 bg-muted/20 px-3 py-2 text-xs">
-                <div className="font-medium text-foreground">工作目录</div>
+                <div className="font-medium text-foreground">
+                  {t("detail.changeDetail.workingDir")}
+                </div>
                 <div className="mt-1 break-all font-mono text-muted-foreground">
-                  {detail.working_dir ?? "未记录"}
+                  {detail.working_dir ?? t("detail.labels.notRecorded")}
                 </div>
               </div>
               {detail.change.previous_path && (
                 <div className="rounded-md border border-border/70 bg-muted/20 px-3 py-2 text-xs md:col-span-2">
-                  <div className="font-medium text-foreground">原路径</div>
+                  <div className="font-medium text-foreground">
+                    {t("detail.changeDetail.previousPath")}
+                  </div>
                   <div className="mt-1 whitespace-pre-wrap break-all font-mono text-muted-foreground">
                     {detail.change.previous_path}
                     {detail.previous_absolute_path ? `\n${detail.previous_absolute_path}` : ""}
@@ -160,12 +167,12 @@ export function TaskExecutionChangeDetailDialog({
               <>
                 <div className="grid gap-2 md:grid-cols-2">
                   <SnapshotMeta
-                    label="变更前快照"
+                    label={t("detail.changeDetail.beforeSnapshot")}
                     status={detail.before_status}
                     truncated={detail.before_truncated}
                   />
                   <SnapshotMeta
-                    label="变更后快照"
+                    label={t("detail.changeDetail.afterSnapshot")}
                     status={detail.after_status}
                     truncated={detail.after_truncated}
                   />
@@ -173,7 +180,7 @@ export function TaskExecutionChangeDetailDialog({
 
                 {detail.diff_truncated && (
                   <div className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-800">
-                    当前 diff 预览可能已截断，或基于截断后的文本快照生成。
+                    {t("detail.changeDetail.diffTruncated")}
                   </div>
                 )}
 
@@ -181,13 +188,13 @@ export function TaskExecutionChangeDetailDialog({
                   <Tabs defaultValue={defaultTab}>
                     <TabsList className="grid w-full grid-cols-3">
                       <TabsTrigger value="diff" disabled={!hasDiffText}>
-                        Diff 预览
+                        {t("detail.changeDetail.tabDiff")}
                       </TabsTrigger>
                       <TabsTrigger value="before" disabled={!hasBeforeText}>
-                        变更前
+                        {t("detail.changeDetail.tabBefore")}
                       </TabsTrigger>
                       <TabsTrigger value="after" disabled={!hasAfterText}>
-                        变更后
+                        {t("detail.changeDetail.tabAfter")}
                       </TabsTrigger>
                     </TabsList>
 
@@ -196,7 +203,7 @@ export function TaskExecutionChangeDetailDialog({
                         <CodePreview text={detail.diff_text ?? ""} diffMode />
                       ) : (
                         <div className="rounded-md border border-dashed border-border px-3 py-6 text-center text-xs text-muted-foreground">
-                          当前记录没有可展示的文本 diff。
+                          {t("detail.changeDetail.noDiff")}
                         </div>
                       )}
                     </TabsContent>
@@ -206,7 +213,7 @@ export function TaskExecutionChangeDetailDialog({
                         <CodePreview text={detail.before_text ?? ""} />
                       ) : (
                         <div className="rounded-md border border-dashed border-border px-3 py-6 text-center text-xs text-muted-foreground">
-                          当前记录没有保存变更前的文本内容。
+                          {t("detail.changeDetail.noBefore")}
                         </div>
                       )}
                     </TabsContent>
@@ -216,14 +223,14 @@ export function TaskExecutionChangeDetailDialog({
                         <CodePreview text={detail.after_text ?? ""} />
                       ) : (
                         <div className="rounded-md border border-dashed border-border px-3 py-6 text-center text-xs text-muted-foreground">
-                          当前记录没有保存变更后的文本内容。
+                          {t("detail.changeDetail.noAfter")}
                         </div>
                       )}
                     </TabsContent>
                   </Tabs>
                 ) : (
                   <div className="rounded-md border border-dashed border-border px-3 py-6 text-center text-xs text-muted-foreground">
-                    这条记录没有可展示的文本内容，通常是二进制文件、不可读文件，或那次会话没有保留文本快照。
+                    {t("detail.changeDetail.noTextContent")}
                   </div>
                 )}
               </>

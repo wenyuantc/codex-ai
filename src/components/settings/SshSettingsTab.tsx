@@ -1,4 +1,5 @@
 import { FolderOpen, Loader2, Plus, ServerCog, Trash2 } from "lucide-react";
+import { useTranslation } from "react-i18next";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -13,12 +14,6 @@ import { type SshAuthType, type SshConfig } from "@/lib/types";
 import { formatDate } from "@/lib/utils";
 
 import type { SshConfigFormState } from "./shared";
-
-const KNOWN_HOSTS_OPTIONS = [
-  { value: "accept-new", label: "首次连接自动接受" },
-  { value: "strict", label: "严格校验" },
-  { value: "off", label: "关闭校验（不推荐）" },
-];
 
 interface SshSettingsTabProps {
   isTauriRuntime: boolean;
@@ -59,23 +54,27 @@ export function SshSettingsTab({
   onTestConnection,
   onDelete,
 }: SshSettingsTabProps) {
+  const { t } = useTranslation("settings");
+  const knownHostsOptions = [
+    { value: "accept-new", label: t("ssh.knownHosts.acceptNew") },
+    { value: "strict", label: t("ssh.knownHosts.strict") },
+    { value: "off", label: t("ssh.knownHosts.off") },
+  ];
   const selectedSshConfigSummary = selectedSshConfig
     ? `${selectedSshConfig.username}@${selectedSshConfig.host}:${selectedSshConfig.port}`
-    : "未选择 SSH 配置";
+    : t("ssh.list.noSelection");
 
   return (
     <div className="space-y-6">
       <div className="space-y-4 rounded-lg border border-border bg-card p-4">
         <div className="flex items-center justify-between gap-4">
           <div>
-            <h3 className="text-sm font-medium">SSH 配置管理</h3>
-            <p className="text-xs text-muted-foreground">
-              支持多个 SSH 配置；SSH 项目会固定绑定其中一项配置和一个远程仓库目录。
-            </p>
+            <h3 className="text-sm font-medium">{t("ssh.title")}</h3>
+            <p className="text-xs text-muted-foreground">{t("ssh.description")}</p>
           </div>
           <Button variant="outline" onClick={onResetForm}>
             <Plus className="mr-1 h-4 w-4" />
-            新建配置
+            {t("ssh.actions.newConfig")}
           </Button>
         </div>
 
@@ -85,10 +84,10 @@ export function SshSettingsTab({
               {sshConfigsLoading ? (
                 <div className="flex h-28 items-center justify-center text-sm text-muted-foreground">
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  正在读取 SSH 配置...
+                  {t("ssh.list.loading")}
                 </div>
               ) : sshConfigs.length === 0 ? (
-                <div className="px-3 py-6 text-sm text-muted-foreground">当前还没有 SSH 配置。</div>
+                <div className="px-3 py-6 text-sm text-muted-foreground">{t("ssh.list.empty")}</div>
               ) : (
                 sshConfigs.map((config) => (
                   <button
@@ -105,11 +104,15 @@ export function SshSettingsTab({
                     </div>
                     <div className="mt-2 flex flex-wrap gap-2 text-[11px]">
                       <span className="rounded bg-secondary px-1.5 py-0.5 text-secondary-foreground">
-                        {config.auth_type === "password" ? "密码登录" : "密钥登录"}
+                        {t(
+                          config.auth_type === "password"
+                            ? "ssh.badges.passwordLogin"
+                            : "ssh.badges.keyLogin",
+                        )}
                       </span>
                       {config.last_checked_at && (
                         <span className="rounded border border-border px-1.5 py-0.5 text-muted-foreground">
-                          检测于 {formatDate(config.last_checked_at)}
+                          {t("ssh.list.checkedAt", { date: formatDate(config.last_checked_at) })}
                         </span>
                       )}
                     </div>
@@ -123,60 +126,74 @@ export function SshSettingsTab({
             <div className="flex items-center justify-between gap-3">
               <div>
                 <h4 className="text-sm font-medium">
-                  {editingSshConfigId ? "编辑 SSH 配置" : "新建 SSH 配置"}
+                  {t(editingSshConfigId ? "ssh.form.editTitle" : "ssh.form.createTitle")}
                 </h4>
                 <p className="text-xs text-muted-foreground">
-                  {editingSshConfigId
-                    ? "更新后会保留当前配置引用。"
-                    : "保存后可用于 SSH 项目和远程运行设置。"}
+                  {t(
+                    editingSshConfigId ? "ssh.form.editDescription" : "ssh.form.createDescription",
+                  )}
                 </p>
               </div>
               {selectedSshConfig && (
                 <span className="rounded bg-secondary px-2 py-1 text-xs text-secondary-foreground">
-                  {selectedSshConfig.auth_type === "password" ? "密码认证" : "密钥认证"}
+                  {t(
+                    selectedSshConfig.auth_type === "password"
+                      ? "ssh.badges.passwordAuth"
+                      : "ssh.badges.keyAuth",
+                  )}
                 </span>
               )}
             </div>
 
             <div className="grid gap-3 md:grid-cols-2">
               <div>
-                <label className="text-xs font-medium text-muted-foreground">配置名称 *</label>
+                <label className="text-xs font-medium text-muted-foreground">
+                  {t("ssh.form.configName")}
+                </label>
                 <Input
                   value={sshForm.name}
                   onChange={(event) => onFormChange({ name: event.target.value })}
-                  placeholder="生产主机"
+                  placeholder={t("ssh.form.placeholders.configName")}
                   className="mt-1"
                 />
               </div>
               <div>
-                <label className="text-xs font-medium text-muted-foreground">主机 *</label>
+                <label className="text-xs font-medium text-muted-foreground">
+                  {t("ssh.form.host")}
+                </label>
                 <Input
                   value={sshForm.host}
                   onChange={(event) => onFormChange({ host: event.target.value })}
-                  placeholder="10.0.0.12"
+                  placeholder={t("ssh.form.placeholders.host")}
                   className="mt-1"
                 />
               </div>
               <div>
-                <label className="text-xs font-medium text-muted-foreground">端口</label>
+                <label className="text-xs font-medium text-muted-foreground">
+                  {t("ssh.form.port")}
+                </label>
                 <Input
                   value={sshForm.port}
                   onChange={(event) => onFormChange({ port: event.target.value })}
-                  placeholder="22"
+                  placeholder={t("ssh.form.placeholders.port")}
                   className="mt-1"
                 />
               </div>
               <div>
-                <label className="text-xs font-medium text-muted-foreground">用户名 *</label>
+                <label className="text-xs font-medium text-muted-foreground">
+                  {t("ssh.form.username")}
+                </label>
                 <Input
                   value={sshForm.username}
                   onChange={(event) => onFormChange({ username: event.target.value })}
-                  placeholder="deploy"
+                  placeholder={t("ssh.form.placeholders.username")}
                   className="mt-1"
                 />
               </div>
               <div>
-                <label className="text-xs font-medium text-muted-foreground">认证方式</label>
+                <label className="text-xs font-medium text-muted-foreground">
+                  {t("ssh.form.authType")}
+                </label>
                 <Select<SshAuthType>
                   value={sshForm.authType}
                   onValueChange={(value) => {
@@ -189,14 +206,14 @@ export function SshSettingsTab({
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="key">密钥登录</SelectItem>
-                    <SelectItem value="password">账号密码登录</SelectItem>
+                    <SelectItem value="key">{t("ssh.badges.keyLogin")}</SelectItem>
+                    <SelectItem value="password">{t("ssh.badges.passwordLogin")}</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
               <div>
                 <label className="text-xs font-medium text-muted-foreground">
-                  Known Hosts 策略
+                  {t("ssh.form.knownHostsPolicy")}
                 </label>
                 <Select
                   value={sshForm.knownHostsMode}
@@ -206,7 +223,7 @@ export function SshSettingsTab({
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    {KNOWN_HOSTS_OPTIONS.map((option) => (
+                    {knownHostsOptions.map((option) => (
                       <SelectItem key={option.value} value={option.value}>
                         {option.label}
                       </SelectItem>
@@ -219,12 +236,14 @@ export function SshSettingsTab({
             {sshForm.authType === "key" ? (
               <div className="grid gap-3 md:grid-cols-2">
                 <div>
-                  <label className="text-xs font-medium text-muted-foreground">私钥路径 *</label>
+                  <label className="text-xs font-medium text-muted-foreground">
+                    {t("ssh.form.privateKeyPath")}
+                  </label>
                   <div className="mt-1 flex gap-2">
                     <Input
                       value={sshForm.privateKeyPath}
                       onChange={(event) => onFormChange({ privateKeyPath: event.target.value })}
-                      placeholder="~/.ssh/id_ed25519"
+                      placeholder={t("ssh.form.placeholders.privateKeyPath")}
                       className="flex-1"
                     />
                     <Button
@@ -232,16 +251,20 @@ export function SshSettingsTab({
                       variant="outline"
                       onClick={onSelectPrivateKeyFile}
                       disabled={!isTauriRuntime}
-                      title={isTauriRuntime ? "选择私钥文件" : "仅桌面端支持选择私钥文件"}
+                      title={t(
+                        isTauriRuntime
+                          ? "ssh.desktop.selectPrivateKeyTitle"
+                          : "ssh.desktop.selectPrivateKeyDesktopOnly",
+                      )}
                     >
                       <FolderOpen className="h-4 w-4" />
-                      选择
+                      {t("ssh.actions.choose")}
                     </Button>
                   </div>
                 </div>
                 <div>
                   <label className="text-xs font-medium text-muted-foreground">
-                    Passphrase（可选）
+                    {t("ssh.form.passphrase")}
                   </label>
                   <Input
                     type="password"
@@ -249,8 +272,8 @@ export function SshSettingsTab({
                     onChange={(event) => onFormChange({ passphrase: event.target.value })}
                     placeholder={
                       selectedSshConfig?.passphrase_configured
-                        ? "留空表示保持现有 passphrase"
-                        : "可选"
+                        ? t("ssh.form.placeholders.passphraseKeepExisting")
+                        : t("ssh.form.placeholders.passphraseOptional")
                     }
                     className="mt-1"
                   />
@@ -259,22 +282,24 @@ export function SshSettingsTab({
             ) : (
               <div className="grid gap-3 md:grid-cols-2">
                 <div>
-                  <label className="text-xs font-medium text-muted-foreground">密码</label>
+                  <label className="text-xs font-medium text-muted-foreground">
+                    {t("ssh.form.password")}
+                  </label>
                   <Input
                     type="password"
                     value={sshForm.password}
                     onChange={(event) => onFormChange({ password: event.target.value })}
                     placeholder={
                       selectedSshConfig?.password_configured
-                        ? "留空表示保持现有密码"
-                        : "输入登录密码"
+                        ? t("ssh.form.placeholders.passwordKeepExisting")
+                        : t("ssh.form.placeholders.passwordEnter")
                     }
                     className="mt-1"
                   />
                 </div>
                 <div>
                   <label className="text-xs font-medium text-muted-foreground">
-                    Passphrase（可选）
+                    {t("ssh.form.passphrase")}
                   </label>
                   <Input
                     type="password"
@@ -282,8 +307,8 @@ export function SshSettingsTab({
                     onChange={(event) => onFormChange({ passphrase: event.target.value })}
                     placeholder={
                       selectedSshConfig?.passphrase_configured
-                        ? "留空表示保持现有 passphrase"
-                        : "可选"
+                        ? t("ssh.form.placeholders.passphraseKeepExisting")
+                        : t("ssh.form.placeholders.passphraseOptional")
                     }
                     className="mt-1"
                   />
@@ -293,10 +318,12 @@ export function SshSettingsTab({
 
             {selectedSshConfig && (
               <div className="rounded-md border border-border bg-muted/30 px-3 py-3 text-xs text-muted-foreground">
-                <div className="font-medium text-foreground">当前配置状态</div>
-                <div className="mt-1">主机：{selectedSshConfigSummary}</div>
+                <div className="font-medium text-foreground">{t("ssh.status.title")}</div>
                 <div className="mt-1">
-                  连接测试：
+                  {t("ssh.status.host")}:{selectedSshConfigSummary}
+                </div>
+                <div className="mt-1">
+                  {t("ssh.status.connectionTest")}:
                   {(
                     selectedSshConfig.auth_type === "password"
                       ? selectedSshConfig.password_probe_status
@@ -307,7 +334,7 @@ export function SshSettingsTab({
                           ? selectedSshConfig.password_probe_status
                           : selectedSshConfig.last_check_status
                       }`
-                    : " 未检测"}
+                    : ` ${t("ssh.status.notTested")}`}
                 </div>
                 {(selectedSshConfig.auth_type === "password"
                   ? selectedSshConfig.password_probe_message
@@ -324,7 +351,7 @@ export function SshSettingsTab({
             <div className="flex flex-wrap gap-2">
               <Button onClick={onSave} disabled={sshFormLoading !== null}>
                 {sshFormLoading === "save" ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-                {editingSshConfigId ? "保存 SSH 配置" : "创建 SSH 配置"}
+                {t(editingSshConfigId ? "ssh.actions.saveConfig" : "ssh.actions.createConfig")}
               </Button>
               <Button
                 variant="outline"
@@ -336,7 +363,7 @@ export function SshSettingsTab({
                 ) : (
                   <ServerCog className="h-4 w-4" />
                 )}
-                测试连接
+                {t("ssh.actions.testConnection")}
               </Button>
               <Button
                 variant="destructive"
@@ -348,7 +375,7 @@ export function SshSettingsTab({
                 ) : (
                   <Trash2 className="h-4 w-4" />
                 )}
-                删除配置
+                {t("ssh.actions.deleteConfig")}
               </Button>
             </div>
 

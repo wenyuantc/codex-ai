@@ -34,6 +34,7 @@ import type {
   RemoteOpenCodeHealthCheck,
 } from "@/lib/opencode";
 import { type AppLocale } from "@/lib/i18n/locale";
+import { mapRuntimeStatusMessage } from "@/lib/i18n/mapRuntimeStatusMessage";
 import { type ThemeMode } from "@/lib/theme";
 import { formatDate } from "@/lib/utils";
 
@@ -137,9 +138,32 @@ const localeOptions: { value: AppLocale; labelKey: string }[] = [
   { value: "en", labelKey: "settings:language.en" },
 ];
 
-const CLAUDE_DEFAULT_THINKING_BUDGET_OPTIONS = CLAUDE_THINKING_BUDGET_OPTIONS.filter(
-  (option) => option.value !== "auto",
-);
+const CODEX_MODEL_OPTION_KEY_BY_VALUE: Record<string, string> = {
+  "gpt-5.6-sol": "gpt56Sol",
+  "gpt-5.6-terra": "gpt56Terra",
+  "gpt-5.6-luna": "gpt56Luna",
+  "gpt-5.5": "gpt55",
+  "gpt-5.4": "gpt54",
+  "gpt-5.2-codex": "gpt52Codex",
+  "gpt-5.1-codex-max": "gpt51CodexMax",
+  "gpt-5.4-mini": "gpt54Mini",
+  "gpt-5.3-codex": "gpt53Codex",
+  "gpt-5.3-codex-spark": "gpt53CodexSpark",
+  "gpt-5.2": "gpt52",
+  "gpt-5.1-codex-mini": "gpt51CodexMini",
+};
+
+const CLAUDE_MODEL_OPTION_KEY_BY_VALUE: Record<string, string> = {
+  opus: "opus",
+  "opus[1m]": "opus1m",
+  sonnet: "sonnet",
+  "sonnet[1m]": "sonnet1m",
+  haiku: "haiku",
+};
+
+const GROK_MODEL_OPTION_KEY_BY_VALUE: Record<string, string> = {
+  "grok-4.5": "grok45",
+};
 
 export function RuntimeSettingsTab({
   codexHealth,
@@ -229,28 +253,75 @@ export function RuntimeSettingsTab({
   onGrokRefresh,
 }: RuntimeSettingsTabProps) {
   const { t } = useTranslation(["settings", "common"]);
-  const taskProviderLabel =
-    codexHealth?.task_execution_effective_provider === "sdk" ? "SDK" : "exec（自动回退）";
+  const providerOptions = AI_PROVIDER_OPTIONS.map((option) => ({
+    ...option,
+    label: t(`runtime.options.providers.${option.value}`),
+  }));
+  const codexModelOptions = CODEX_MODEL_OPTIONS.map((option) => ({
+    ...option,
+    label: t(`runtime.options.codexModels.${CODEX_MODEL_OPTION_KEY_BY_VALUE[option.value]}`),
+  }));
+  const claudeModelOptions = CLAUDE_MODEL_OPTIONS.map((option) => ({
+    ...option,
+    label: t(`runtime.options.claudeModels.${CLAUDE_MODEL_OPTION_KEY_BY_VALUE[option.value]}`),
+  }));
+  const grokModelOptions = GROK_MODEL_OPTIONS.map((option) => ({
+    ...option,
+    label: t(`runtime.options.grokModels.${GROK_MODEL_OPTION_KEY_BY_VALUE[option.value]}`),
+  }));
+  const reasoningEffortOptions = REASONING_EFFORT_OPTIONS.map((option) => ({
+    ...option,
+    label: t(`runtime.options.reasoningEffort.${option.value}`),
+  }));
+  const openCodeEffortOptions = OPENCODE_EFFORT_OPTIONS.map((option) => ({
+    ...option,
+    label: t(`runtime.options.reasoningEffort.${option.value}`),
+  }));
+  const grokEffortOptions = GROK_EFFORT_OPTIONS.map((option) => ({
+    ...option,
+    label: t(`runtime.options.reasoningEffort.${option.value}`),
+  }));
+  const claudeThinkingBudgetOptions = CLAUDE_THINKING_BUDGET_OPTIONS.map((option) => ({
+    ...option,
+    label: t(`runtime.options.claudeThinkingBudget.${option.value}`),
+  }));
+  const claudeDefaultThinkingBudgetOptions = claudeThinkingBudgetOptions.filter(
+    (option) => option.value !== "auto",
+  );
+  const taskProviderLabel = t(
+    codexHealth?.task_execution_effective_provider === "sdk"
+      ? "runtime.codexSdk.taskProvider.sdk"
+      : "runtime.codexSdk.taskProvider.execFallback",
+  );
   const oneShotProviderLabel =
-    oneShotPreferredProvider === "claude"
-      ? "Claude"
-      : oneShotPreferredProvider === "opencode"
-        ? "OpenCode"
-        : oneShotPreferredProvider === "grok"
-          ? "Grok"
-          : "Codex";
+    providerOptions.find((option) => option.value === oneShotPreferredProvider)?.label ??
+    oneShotPreferredProvider;
   const oneShotChannelLabel = (() => {
     const channel = codexHealth?.one_shot_effective_channel;
-    if (channel === "sdk") return "SDK";
-    if (channel === "cli") return isRemoteMode ? "CLI（远程）" : "CLI";
-    if (channel === "exec") return isRemoteMode ? "exec（远程）" : "exec（自动回退）";
-    return "不可用";
+    if (channel === "sdk") return t("runtime.oneShot.channel.sdk");
+    if (channel === "cli") {
+      return t(isRemoteMode ? "runtime.oneShot.channel.cliRemote" : "runtime.oneShot.channel.cli");
+    }
+    if (channel === "exec") {
+      return t(
+        isRemoteMode
+          ? "runtime.oneShot.channel.execRemote"
+          : "runtime.oneShot.channel.execFallback",
+      );
+    }
+    return t("runtime.oneShot.channel.unavailable");
   })();
-  const installButtonLabel = codexHealth?.sdk_installed ? "重装 SDK" : "安装 SDK";
+  const installButtonLabel = t(
+    codexHealth?.sdk_installed
+      ? "runtime.codexSdk.actions.reinstall"
+      : "runtime.codexSdk.actions.install",
+  );
   const grokCliInstalled = isRemoteMode
     ? Boolean(remoteGrokHealth?.available)
     : Boolean(grokHealth?.cli_available);
-  const grokInstallButtonLabel = grokCliInstalled ? "重装 CLI" : "安装 CLI";
+  const grokInstallButtonLabel = t(
+    grokCliInstalled ? "runtime.grok.actions.reinstall" : "runtime.grok.actions.install",
+  );
   const grokInstallDisabled =
     healthLoading || grokActionLoading !== null || (isRemoteMode && !hasSelectedSshConfig);
   const saveDisabled =
@@ -259,7 +330,7 @@ export function RuntimeSettingsTab({
     healthLoading ||
     actionLoading !== null ||
     (isRemoteMode && (!hasSelectedSshConfig || passwordAuthBlocked));
-  const availableOneShotProviders = AI_PROVIDER_OPTIONS;
+  const availableOneShotProviders = providerOptions;
   const isOneShotCodexProvider = oneShotPreferredProvider === "codex";
   const isOneShotClaudeProvider = oneShotPreferredProvider === "claude";
   const isOneShotOpenCodeProvider = oneShotPreferredProvider === "opencode";
@@ -270,14 +341,16 @@ export function RuntimeSettingsTab({
       : [
           {
             value: oneShotModel,
-            label: grokModelListLoading ? "正在加载模型..." : oneShotModel || "当前模型",
+            label: grokModelListLoading
+              ? t("runtime.oneShot.fallbacks.loadingModels")
+              : oneShotModel || t("runtime.oneShot.fallbacks.currentModel"),
             is_default: false,
           },
         ];
   const defaultGrokModelOptions =
     grokModelList.length > 0
       ? grokModelList
-      : GROK_MODEL_OPTIONS.map((option) => ({
+      : grokModelOptions.map((option) => ({
           value: option.value,
           label: option.label,
           is_default: option.value === "grok-4.5",
@@ -288,9 +361,11 @@ export function RuntimeSettingsTab({
       : [
           {
             value: oneShotModel,
-            label: opencodeModelListLoading ? "正在加载模型..." : "当前模型",
+            label: opencodeModelListLoading
+              ? t("runtime.oneShot.fallbacks.loadingModels")
+              : t("runtime.oneShot.fallbacks.currentModel"),
             providerId: "opencode",
-            providerName: "OpenCode",
+            providerName: t("runtime.options.providers.opencode"),
             modelId: oneShotModel.includes("/")
               ? oneShotModel.split("/").slice(1).join("/")
               : oneShotModel,
@@ -303,9 +378,11 @@ export function RuntimeSettingsTab({
       : [
           {
             value: opencodeDefaultModel,
-            label: opencodeModelListLoading ? "正在加载模型..." : "当前模型",
+            label: opencodeModelListLoading
+              ? t("runtime.opencode.fallbacks.loadingModels")
+              : t("runtime.opencode.fallbacks.currentModel"),
             providerId: "opencode",
-            providerName: "OpenCode",
+            providerName: t("runtime.options.providers.opencode"),
             modelId: opencodeDefaultModel.includes("/")
               ? opencodeDefaultModel.split("/").slice(1).join("/")
               : opencodeDefaultModel,
@@ -315,7 +392,9 @@ export function RuntimeSettingsTab({
   const canUseOneShotSdkToggle = !isRemoteMode
     ? isOneShotCodexProvider || isOneShotClaudeProvider || isOneShotOpenCodeProvider
     : isOneShotCodexProvider || isOneShotOpenCodeProvider;
-  const selectedOneShotStatusMessage = codexHealth?.one_shot_status_message;
+  const selectedOneShotStatusMessage = mapRuntimeStatusMessage(
+    codexHealth?.one_shot_status_message,
+  );
 
   return (
     <div className="space-y-6">
@@ -368,22 +447,25 @@ export function RuntimeSettingsTab({
         <div className="flex items-center justify-between gap-4">
           <div>
             <h3 className="text-sm font-medium">
-              {isRemoteMode ? "远程执行目标" : "本地执行目标"}
+              {t(isRemoteMode ? "runtime.target.remoteTitle" : "runtime.target.localTitle")}
             </h3>
             <p className="text-xs text-muted-foreground">
               {isRemoteMode
-                ? `当前远程配置：${remoteTargetName}（${selectedSshConfigSummary}）`
-                : "当前保存的是本地运行配置。"}
+                ? t("runtime.target.remoteSummary", {
+                    name: remoteTargetName,
+                    summary: selectedSshConfigSummary,
+                  })
+                : t("runtime.target.localSummary")}
             </p>
           </div>
           <span className="rounded bg-secondary px-2 py-1 text-xs text-secondary-foreground">
-            {isRemoteMode ? "SSH Profile" : "Local Profile"}
+            {t(isRemoteMode ? "runtime.target.remoteBadge" : "runtime.target.localBadge")}
           </span>
         </div>
 
         {isRemoteMode && !hasSelectedSshConfig && (
           <div className="rounded-md border border-dashed border-border px-3 py-3 text-sm text-muted-foreground">
-            当前是 SSH 模式，但还没有可用的 SSH 配置。请先切到“SSH 配置”tab 新增或选择配置。
+            {t("runtime.target.missingSshConfig")}
           </div>
         )}
 
@@ -391,27 +473,24 @@ export function RuntimeSettingsTab({
           <div className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-3 text-sm text-amber-800">
             <div className="flex items-center gap-2 font-medium">
               <ShieldAlert className="h-4 w-4" />
-              配置存在但当前平台不可执行
+              {t("runtime.target.blockedTitle")}
             </div>
-            <p className="mt-1 text-xs leading-5">
-              当前 SSH 配置使用密码认证，但测试连接尚未通过。远程 Codex 校验、SDK
-              安装和实际执行链路都必须保持阻断。
-            </p>
+            <p className="mt-1 text-xs leading-5">{t("runtime.target.blockedDescription")}</p>
           </div>
         )}
 
         <div className="border-t border-border pt-4">
           <div className="flex items-center justify-between gap-4">
             <div>
-              <h3 className="text-sm font-medium">Codex CLI</h3>
+              <h3 className="text-sm font-medium">{t("runtime.codexCli.title")}</h3>
               <p className="text-xs text-muted-foreground">
                 {isRemoteMode
-                  ? "SSH 模式下会校验当前 SSH 配置对应远程主机的 Codex 环境。"
-                  : "作为回退通道保留，用于 SDK 不可用时继续执行任务。"}
+                  ? t("runtime.codexCli.descriptionRemote")
+                  : t("runtime.codexCli.descriptionLocal")}
               </p>
               {codexHealth?.codex_version && (
                 <p className="mt-1 text-xs text-muted-foreground">
-                  版本：{codexHealth.codex_version}
+                  {t("runtime.common.version")}:{codexHealth.codex_version}
                 </p>
               )}
             </div>
@@ -422,17 +501,22 @@ export function RuntimeSettingsTab({
                   : "bg-amber-100 text-amber-700"
               }`}
             >
-              {healthLoading ? "检测中" : codexHealth?.codex_available ? "已连接" : "不可用"}
+              {healthLoading
+                ? t("runtime.status.checking")
+                : codexHealth?.codex_available
+                  ? t("runtime.status.connected")
+                  : t("runtime.status.unavailable")}
             </span>
           </div>
           {codexHealth?.target_host_label && (
             <p className="mt-2 text-xs text-muted-foreground">
-              主机：{codexHealth.target_host_label}
+              {t("runtime.common.host")}:{codexHealth.target_host_label}
             </p>
           )}
           {codexHealth?.last_session_error && (
             <p className="mt-2 text-xs text-amber-700">
-              最近错误：{codexHealth.last_session_error}
+              {t("runtime.common.lastError")}:
+              {mapRuntimeStatusMessage(codexHealth.last_session_error)}
             </p>
           )}
         </div>
@@ -440,11 +524,11 @@ export function RuntimeSettingsTab({
         <div className="border-t border-border pt-4">
           <div className="flex items-start justify-between gap-4">
             <div className="space-y-1">
-              <h3 className="text-sm font-medium">Codex SDK</h3>
+              <h3 className="text-sm font-medium">{t("runtime.codexSdk.title")}</h3>
               <p className="text-xs text-muted-foreground">
                 {isRemoteMode
-                  ? "SSH 模式下任务运行会优先使用远程 SDK；如果远程 SDK 不可用，则自动回退到远程 codex exec。"
-                  : "任务运行优先走 SDK，失败时自动回退到 `codex exec`。一次性 AI 在下方单独配置。"}
+                  ? t("runtime.codexSdk.descriptionRemote")
+                  : t("runtime.codexSdk.descriptionLocal")}
               </p>
             </div>
             <span
@@ -454,7 +538,9 @@ export function RuntimeSettingsTab({
                   : "bg-slate-100 text-slate-700"
               }`}
             >
-              {healthLoading ? "检测中" : `任务 ${taskProviderLabel}`}
+              {healthLoading
+                ? t("runtime.status.checking")
+                : t("runtime.codexSdk.taskStatus", { provider: taskProviderLabel })}
             </span>
           </div>
 
@@ -468,41 +554,64 @@ export function RuntimeSettingsTab({
                 disabled={healthLoading || actionLoading !== null}
               />
               <div className="space-y-1">
-                <p className="text-sm font-medium">运行任务时使用 SDK</p>
+                <p className="text-sm font-medium">{t("runtime.codexSdk.useSdkTitle")}</p>
                 <p className="text-xs text-muted-foreground">
-                  影响看板任务运行、员工启动任务，以及相关重启/恢复链路。
+                  {t("runtime.codexSdk.useSdkDescription")}
                 </p>
               </div>
             </label>
 
             <div className="space-y-2">
               <label htmlFor="node-path-override" className="text-sm font-medium">
-                Node 路径覆盖（可选）
+                {t("runtime.codexSdk.nodePathTitle")}
               </label>
               <Input
                 id="node-path-override"
                 value={nodePathOverride}
                 onChange={(event) => onNodePathOverrideChange(event.target.value)}
-                placeholder={isRemoteMode ? "/usr/local/bin/node" : "/opt/homebrew/bin/node"}
+                placeholder={t(
+                  isRemoteMode
+                    ? "runtime.codexSdk.nodePathPlaceholderRemote"
+                    : "runtime.codexSdk.nodePathPlaceholderLocal",
+                )}
                 disabled={healthLoading || actionLoading !== null}
               />
-              <p className="text-xs text-muted-foreground">留空时自动从系统 PATH 中查找 Node。</p>
+              <p className="text-xs text-muted-foreground">
+                {t("runtime.codexSdk.nodePathDescription")}
+              </p>
             </div>
 
             <div className="grid gap-2 rounded-md border border-border px-3 py-3 text-xs text-muted-foreground">
-              <p className="break-all">安装目录：{codexSettings?.sdk_install_dir ?? "检测中"}</p>
+              <p className="break-all">
+                {t("runtime.common.installDir")}:
+                {codexSettings?.sdk_install_dir ?? t("runtime.status.checking")}
+              </p>
               <p>
-                Node：{codexHealth?.node_available ? "可用" : "不可用"}
+                {t("runtime.common.node")}:
+                {codexHealth?.node_available
+                  ? t("runtime.status.available")
+                  : t("runtime.status.unavailable")}
                 {codexHealth?.node_version ? `（${codexHealth.node_version}）` : ""}
               </p>
               <p>
-                SDK：{codexHealth?.sdk_installed ? "已安装" : "未安装"}
+                {t("runtime.common.sdk")}:
+                {codexHealth?.sdk_installed
+                  ? t("runtime.status.installed")
+                  : t("runtime.status.notInstalled")}
                 {codexHealth?.sdk_version ? `（${codexHealth.sdk_version}）` : ""}
               </p>
-              <p>任务运行引擎：{taskProviderLabel}</p>
-              {codexHealth?.checked_at && <p>检测时间：{formatDate(codexHealth.checked_at)}</p>}
+              <p>
+                {t("runtime.common.taskEngine")}:{taskProviderLabel}
+              </p>
+              {codexHealth?.checked_at && (
+                <p>
+                  {t("runtime.common.checkedAt")}:{formatDate(codexHealth.checked_at)}
+                </p>
+              )}
               {codexHealth?.sdk_status_message && (
-                <p className="text-[11px] leading-5">{codexHealth.sdk_status_message}</p>
+                <p className="text-[11px] leading-5">
+                  {mapRuntimeStatusMessage(codexHealth.sdk_status_message)}
+                </p>
               )}
             </div>
 
@@ -517,7 +626,7 @@ export function RuntimeSettingsTab({
                 disabled={healthLoading || actionLoading !== null}
               >
                 <RefreshCw className={`h-4 w-4 ${healthLoading ? "animate-spin" : ""}`} />
-                刷新检测
+                {t("runtime.codexSdk.actions.refresh")}
               </Button>
             </div>
 
@@ -534,10 +643,8 @@ export function RuntimeSettingsTab({
       <div className="space-y-4 rounded-lg border border-border bg-card p-4">
         <div className="flex items-start justify-between gap-4">
           <div className="space-y-1">
-            <h3 className="text-sm font-medium">一次性 AI</h3>
-            <p className="text-xs text-muted-foreground">
-              控制任务详情中的 AI 分析、评论生成、计划生成和子任务拆分默认通道。
-            </p>
+            <h3 className="text-sm font-medium">{t("runtime.oneShot.title")}</h3>
+            <p className="text-xs text-muted-foreground">{t("runtime.oneShot.description")}</p>
           </div>
           <span
             className={`rounded px-2 py-1 text-xs ${
@@ -546,13 +653,18 @@ export function RuntimeSettingsTab({
                 : "bg-slate-100 text-slate-700"
             }`}
           >
-            {healthLoading ? "检测中" : `${oneShotProviderLabel} / ${oneShotChannelLabel}`}
+            {healthLoading
+              ? t("runtime.status.checking")
+              : t("runtime.oneShot.statusBadge", {
+                  provider: oneShotProviderLabel,
+                  channel: oneShotChannelLabel,
+                })}
           </span>
         </div>
 
         <div className="grid gap-3 md:grid-cols-2">
           <div className="space-y-2">
-            <label className="text-sm font-medium">AI 提供商</label>
+            <label className="text-sm font-medium">{t("runtime.oneShot.providerLabel")}</label>
             <Select<AiProvider>
               value={oneShotPreferredProvider}
               onValueChange={(value) => {
@@ -586,31 +698,35 @@ export function RuntimeSettingsTab({
               />
               <div className="space-y-1">
                 <p className="text-sm font-medium">
-                  {isOneShotOpenCodeProvider ? "启用 OpenCode SDK" : "优先使用 SDK"}
+                  {t(
+                    isOneShotOpenCodeProvider
+                      ? "runtime.oneShot.enableOpenCodeSdkTitle"
+                      : "runtime.oneShot.preferSdkTitle",
+                  )}
                 </p>
                 <p className="text-xs text-muted-foreground">
                   {isOneShotCodexProvider
                     ? isRemoteMode
-                      ? "SSH 模式下优先使用远程 Codex SDK，失败时自动回退到远程 codex exec。"
-                      : "优先通过 Codex SDK 执行，失败时自动回退到 `codex exec`。"
+                      ? t("runtime.oneShot.preferSdkDescriptionCodexRemote")
+                      : t("runtime.oneShot.preferSdkDescriptionCodexLocal")
                     : isOneShotClaudeProvider
-                      ? "优先通过 Claude SDK 执行，失败时自动回退到 Claude CLI。"
-                      : "OpenCode 当前仅支持本地 SDK；关闭后一次性 AI 将不可用。"}
+                      ? t("runtime.oneShot.preferSdkDescriptionClaude")
+                      : t("runtime.oneShot.preferSdkDescriptionOpenCode")}
                 </p>
               </div>
             </label>
           ) : (
             <div className="rounded-md border border-dashed border-border px-3 py-3 text-sm text-muted-foreground">
               {isOneShotGrokProvider
-                ? "SSH 模式下 Grok 一次性 AI 固定通过远端 Grok CLI 执行（远端需已安装并 `grok login`）。"
-                : "SSH 模式下 Claude 一次性 AI 固定通过远端 Claude CLI 执行。"}
+                ? t("runtime.oneShot.sshGrokNotice")
+                : t("runtime.oneShot.sshClaudeNotice")}
             </div>
           )}
         </div>
 
         <div className="grid gap-3 md:grid-cols-2">
           <div className="space-y-2">
-            <label className="text-sm font-medium">一次性 AI 模型</label>
+            <label className="text-sm font-medium">{t("runtime.oneShot.modelLabel")}</label>
             {isOneShotOpenCodeProvider ? (
               <div className="flex gap-2">
                 <div className="flex-1">
@@ -639,7 +755,7 @@ export function RuntimeSettingsTab({
                     <Input
                       value={oneShotModel}
                       onChange={(event) => onOneShotModelChange(event.target.value)}
-                      placeholder="openai/gpt-4o"
+                      placeholder={t("runtime.oneShot.modelPlaceholder")}
                       disabled={healthLoading || actionLoading !== null}
                     />
                   )}
@@ -650,7 +766,7 @@ export function RuntimeSettingsTab({
                     size="sm"
                     onClick={onOpenCodeFetchModels}
                     disabled={opencodeModelListLoading || actionLoading !== null}
-                    title="从 OpenCode SDK 获取模型列表"
+                    title={t("runtime.oneShot.fetchModelsTitle")}
                   >
                     {opencodeModelListLoading ? (
                       <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -675,10 +791,10 @@ export function RuntimeSettingsTab({
                 </SelectTrigger>
                 <SelectContent>
                   {(isOneShotClaudeProvider
-                    ? CLAUDE_MODEL_OPTIONS
+                    ? claudeModelOptions
                     : isOneShotGrokProvider
                       ? oneShotGrokModelOptions
-                      : CODEX_MODEL_OPTIONS
+                      : codexModelOptions
                   ).map((option) => (
                     <SelectItem key={option.value} value={option.value}>
                       {option.label}
@@ -690,23 +806,23 @@ export function RuntimeSettingsTab({
             {isOneShotOpenCodeProvider && (
               <p className="text-xs text-muted-foreground">
                 {opencodeModelList.length > 0
-                  ? `已加载 ${opencodeModelList.length} 个可用模型`
-                  : "格式: provider/modelID（例如 openai/gpt-4o）"}
+                  ? t("runtime.oneShot.loadedModels", { count: opencodeModelList.length })
+                  : t("runtime.oneShot.modelFormat")}
               </p>
             )}
             {isOneShotGrokProvider && (
               <p className="text-xs text-muted-foreground">
                 {grokModelList.length > 0
-                  ? `已从 CLI 加载 ${grokModelList.length} 个模型`
+                  ? t("runtime.oneShot.loadedGrokModels", { count: grokModelList.length })
                   : grokModelListLoading
-                    ? "正在加载 Grok 模型列表..."
-                    : "使用静态模型列表（CLI 不可用时）"}
+                    ? t("runtime.oneShot.loadingGrokModels")
+                    : t("runtime.oneShot.usingStaticModelList")}
               </p>
             )}
           </div>
 
           <div className="space-y-2">
-            <label className="text-sm font-medium">一次性 AI 推理强度</label>
+            <label className="text-sm font-medium">{t("runtime.oneShot.reasoningLabel")}</label>
             <Select
               value={oneShotReasoningEffort}
               onValueChange={(value) => {
@@ -721,12 +837,12 @@ export function RuntimeSettingsTab({
               </SelectTrigger>
               <SelectContent>
                 {(isOneShotClaudeProvider
-                  ? CLAUDE_DEFAULT_THINKING_BUDGET_OPTIONS
+                  ? claudeDefaultThinkingBudgetOptions
                   : isOneShotOpenCodeProvider
-                    ? OPENCODE_EFFORT_OPTIONS
+                    ? openCodeEffortOptions
                     : isOneShotGrokProvider
-                      ? GROK_EFFORT_OPTIONS
-                      : REASONING_EFFORT_OPTIONS
+                      ? grokEffortOptions
+                      : reasoningEffortOptions
                 ).map((option) => (
                   <SelectItem key={option.value} value={option.value}>
                     {option.label}
@@ -738,8 +854,12 @@ export function RuntimeSettingsTab({
         </div>
 
         <div className="rounded-md border border-border px-3 py-3 text-xs text-muted-foreground">
-          <p>当前一次性 AI 提供商：{oneShotProviderLabel}</p>
-          <p>当前执行通道：{oneShotChannelLabel}</p>
+          <p>
+            {t("runtime.common.currentProvider")}:{oneShotProviderLabel}
+          </p>
+          <p>
+            {t("runtime.common.executionChannel")}:{oneShotChannelLabel}
+          </p>
           {selectedOneShotStatusMessage ? (
             <p className="mt-1 leading-5">{selectedOneShotStatusMessage}</p>
           ) : null}
@@ -748,7 +868,7 @@ export function RuntimeSettingsTab({
         <div className="flex flex-wrap gap-2">
           <Button onClick={onSave} disabled={saveDisabled}>
             {actionLoading === "save" ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-            保存配置
+            {t("runtime.oneShot.actions.save")}
           </Button>
         </div>
 
@@ -764,12 +884,12 @@ export function RuntimeSettingsTab({
         <div className="flex items-start justify-between gap-4">
           <div className="space-y-1">
             <h3 className="text-sm font-medium">
-              {isRemoteMode ? "Claude（仅本地配置）" : "Claude SDK 配置"}
+              {t(isRemoteMode ? "runtime.claude.titleRemote" : "runtime.claude.titleLocal")}
             </h3>
             <p className="text-xs text-muted-foreground">
               {isRemoteMode
-                ? "SSH 模式下 Claude 不支持应用内远程安装/检测；需在远端主机自行安装 Claude CLI。本地 SDK 配置不会应用到当前 SSH 目标。"
-                : "Claude SDK 用于运行 Anthropic Claude 模型的任务与 AI 功能。"}
+                ? t("runtime.claude.descriptionRemote")
+                : t("runtime.claude.descriptionLocal")}
             </p>
           </div>
           <span
@@ -780,18 +900,16 @@ export function RuntimeSettingsTab({
             }`}
           >
             {isRemoteMode
-              ? "仅本地 / 无远程安装"
+              ? t("runtime.claude.badgeLocalOnly")
               : claudeHealth?.sdk_installed
-                ? "已安装"
-                : "未安装"}
+                ? t("runtime.claude.badgeInstalled")
+                : t("runtime.claude.badgeNotInstalled")}
           </span>
         </div>
 
         {isRemoteMode ? (
           <div className="rounded-md border border-dashed border-border px-3 py-3 text-sm text-muted-foreground">
-            Claude 在 SSH 模式下为「仅本地配置」：应用不会在远端安装或校验 Claude
-            SDK。请在远端主机安装并配置 Claude CLI 后，再运行 Claude
-            员工任务；否则请切换到本地模式使用本机 SDK。
+            {t("runtime.claude.remoteNotice")}
           </div>
         ) : (
           <div className="mt-4 space-y-4">
@@ -804,16 +922,18 @@ export function RuntimeSettingsTab({
                 disabled={claudeActionLoading !== null}
               />
               <div className="space-y-1">
-                <p className="text-sm font-medium">启用 Claude SDK</p>
+                <p className="text-sm font-medium">{t("runtime.claude.enableSdkTitle")}</p>
                 <p className="text-xs text-muted-foreground">
-                  启用后，使用 Claude 作为 AI 提供商的员工将通过 SDK 运行任务。
+                  {t("runtime.claude.enableSdkDescription")}
                 </p>
               </div>
             </label>
 
             <div className="grid gap-3 md:grid-cols-2">
               <div className="space-y-2">
-                <label className="text-sm font-medium">默认模型</label>
+                <label className="text-sm font-medium">
+                  {t("runtime.claude.defaultModelLabel")}
+                </label>
                 <Select
                   value={claudeDefaultModel}
                   onValueChange={(value) => {
@@ -827,7 +947,7 @@ export function RuntimeSettingsTab({
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    {CLAUDE_MODEL_OPTIONS.map((option) => (
+                    {claudeModelOptions.map((option) => (
                       <SelectItem key={option.value} value={option.value}>
                         {option.label}
                       </SelectItem>
@@ -837,7 +957,9 @@ export function RuntimeSettingsTab({
               </div>
 
               <div className="space-y-2">
-                <label className="text-sm font-medium">默认推理强度</label>
+                <label className="text-sm font-medium">
+                  {t("runtime.claude.defaultEffortLabel")}
+                </label>
                 <Select
                   value={claudeDefaultEffort}
                   onValueChange={(value) => {
@@ -851,7 +973,7 @@ export function RuntimeSettingsTab({
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    {CLAUDE_DEFAULT_THINKING_BUDGET_OPTIONS.map((option) => (
+                    {claudeDefaultThinkingBudgetOptions.map((option) => (
                       <SelectItem key={option.value} value={option.value}>
                         {option.label}
                       </SelectItem>
@@ -864,58 +986,80 @@ export function RuntimeSettingsTab({
             <div className="grid gap-3 md:grid-cols-2">
               <div className="space-y-2">
                 <label htmlFor="claude-node-path-override" className="text-sm font-medium">
-                  Node 路径覆盖（可选）
+                  {t("runtime.claude.nodePathTitle")}
                 </label>
                 <Input
                   id="claude-node-path-override"
                   value={claudeNodePathOverride}
                   onChange={(event) => onClaudeNodePathOverrideChange(event.target.value)}
-                  placeholder="/opt/homebrew/bin/node"
+                  placeholder={t("runtime.claude.nodePathPlaceholder")}
                   disabled={claudeActionLoading !== null}
                 />
-                <p className="text-xs text-muted-foreground">留空时自动从系统 PATH 中查找 Node。</p>
+                <p className="text-xs text-muted-foreground">
+                  {t("runtime.claude.nodePathDescription")}
+                </p>
               </div>
 
               <div className="space-y-2">
                 <label htmlFor="claude-cli-path-override" className="text-sm font-medium">
-                  Claude CLI 路径覆盖（可选）
+                  {t("runtime.claude.cliPathTitle")}
                 </label>
                 <Input
                   id="claude-cli-path-override"
                   value={claudeCliPathOverride}
                   onChange={(event) => onClaudeCliPathOverrideChange(event.target.value)}
-                  placeholder="/opt/homebrew/bin/claude"
+                  placeholder={t("runtime.claude.cliPathPlaceholder")}
                   disabled={claudeActionLoading !== null}
                 />
-                <p className="text-xs text-muted-foreground">SDK 不可用时会回退到该 CLI。</p>
+                <p className="text-xs text-muted-foreground">
+                  {t("runtime.claude.cliPathDescription")}
+                </p>
               </div>
             </div>
 
             <div className="grid gap-2 rounded-md border border-border px-3 py-3 text-xs text-muted-foreground">
-              <p className="break-all">安装目录：{claudeHealth?.sdk_install_dir ?? "检测中"}</p>
+              <p className="break-all">
+                {t("runtime.common.installDir")}:
+                {claudeHealth?.sdk_install_dir ?? t("runtime.status.checking")}
+              </p>
               <p>
-                Node：{claudeHealth?.node_available ? "可用" : "不可用"}
+                {t("runtime.common.node")}:
+                {claudeHealth?.node_available
+                  ? t("runtime.status.available")
+                  : t("runtime.status.unavailable")}
                 {claudeHealth?.node_version ? `（${claudeHealth.node_version}）` : ""}
               </p>
               <p>
-                SDK：{claudeHealth?.sdk_installed ? "已安装" : "未安装"}
+                {t("runtime.common.sdk")}:
+                {claudeHealth?.sdk_installed
+                  ? t("runtime.status.installed")
+                  : t("runtime.status.notInstalled")}
                 {claudeHealth?.sdk_version ? `（${claudeHealth.sdk_version}）` : ""}
               </p>
               <p>
-                CLI：{claudeHealth?.cli_available ? "可用" : "不可用"}
+                {t("runtime.common.cli")}:
+                {claudeHealth?.cli_available
+                  ? t("runtime.status.available")
+                  : t("runtime.status.unavailable")}
                 {claudeHealth?.cli_version ? `（${claudeHealth.cli_version}）` : ""}
               </p>
               <p>
-                当前通道：
+                {t("runtime.common.currentChannel")}:
                 {claudeHealth?.effective_provider === "sdk"
-                  ? "Claude Agent SDK"
+                  ? t("runtime.claude.channel.sdkAgent")
                   : claudeHealth?.effective_provider === "cli"
-                    ? "Claude CLI"
-                    : "不可用"}
+                    ? t("runtime.claude.channel.cli")
+                    : t("runtime.claude.channel.unavailable")}
               </p>
-              {claudeHealth?.checked_at && <p>检测时间：{formatDate(claudeHealth.checked_at)}</p>}
+              {claudeHealth?.checked_at && (
+                <p>
+                  {t("runtime.common.checkedAt")}:{formatDate(claudeHealth.checked_at)}
+                </p>
+              )}
               {claudeHealth?.sdk_status_message && (
-                <p className="text-[11px] leading-5">{claudeHealth.sdk_status_message}</p>
+                <p className="text-[11px] leading-5">
+                  {mapRuntimeStatusMessage(claudeHealth.sdk_status_message)}
+                </p>
               )}
             </div>
 
@@ -924,7 +1068,7 @@ export function RuntimeSettingsTab({
                 {claudeActionLoading === "save" ? (
                   <Loader2 className="h-4 w-4 animate-spin" />
                 ) : null}
-                保存配置
+                {t("runtime.claude.actions.save")}
               </Button>
               <Button
                 variant="outline"
@@ -934,7 +1078,11 @@ export function RuntimeSettingsTab({
                 {claudeActionLoading === "install" ? (
                   <Loader2 className="h-4 w-4 animate-spin" />
                 ) : null}
-                {claudeHealth?.sdk_installed ? "重装 SDK" : "安装 SDK"}
+                {t(
+                  claudeHealth?.sdk_installed
+                    ? "runtime.claude.actions.reinstall"
+                    : "runtime.claude.actions.install",
+                )}
               </Button>
               <Button
                 variant="ghost"
@@ -942,7 +1090,7 @@ export function RuntimeSettingsTab({
                 disabled={claudeActionLoading !== null}
               >
                 <RefreshCw className={`h-4 w-4`} />
-                刷新检测
+                {t("runtime.claude.actions.refresh")}
               </Button>
             </div>
 
@@ -956,12 +1104,12 @@ export function RuntimeSettingsTab({
         <div className="flex items-start justify-between gap-4">
           <div className="space-y-1">
             <h3 className="text-sm font-medium">
-              {isRemoteMode ? "OpenCode 远程 SDK" : "OpenCode SDK 配置"}
+              {t(isRemoteMode ? "runtime.opencode.titleRemote" : "runtime.opencode.titleLocal")}
             </h3>
             <p className="text-xs text-muted-foreground">
               {isRemoteMode
-                ? "SSH 模式下通过远端 Node + @opencode-ai/sdk + bridge 运行 OpenCode 会话与一次性 AI。"
-                : "OpenCode SDK 用于运行开源 AI 编码代理的任务。"}
+                ? t("runtime.opencode.descriptionRemote")
+                : t("runtime.opencode.descriptionLocal")}
             </p>
           </div>
           <span
@@ -977,29 +1125,42 @@ export function RuntimeSettingsTab({
           >
             {isRemoteMode
               ? remoteOpenCodeHealth?.available
-                ? "远程可用"
-                : "未就绪"
+                ? t("runtime.status.remoteAvailable")
+                : t("runtime.status.notReady")
               : opencodeHealth?.sdk_installed
-                ? "已安装"
-                : "未安装"}
+                ? t("runtime.status.installed")
+                : t("runtime.status.notInstalled")}
           </span>
         </div>
 
         {isRemoteMode ? (
           <div className="space-y-3">
             <div className="rounded-md border border-dashed border-border px-3 py-3 text-sm text-muted-foreground space-y-1">
-              <p>远程状态：{remoteOpenCodeHealth?.message ?? "尚未检测当前 SSH 目标"}</p>
+              <p>
+                {t("runtime.common.remoteStatus")}:
+                {remoteOpenCodeHealth?.message
+                  ? mapRuntimeStatusMessage(remoteOpenCodeHealth.message)
+                  : t("runtime.opencode.remoteStatusPending")}
+              </p>
               {remoteOpenCodeHealth?.node_version ? (
-                <p>远程 Node：{remoteOpenCodeHealth.node_version}</p>
+                <p>
+                  {t("runtime.common.remoteNode")}:{remoteOpenCodeHealth.node_version}
+                </p>
               ) : null}
               {remoteOpenCodeHealth?.sdk_version ? (
-                <p>远程 SDK 版本：{remoteOpenCodeHealth.sdk_version}</p>
+                <p>
+                  {t("runtime.common.remoteSdkVersion")}:{remoteOpenCodeHealth.sdk_version}
+                </p>
               ) : null}
               {remoteOpenCodeHealth?.sdk_install_dir ? (
-                <p>安装目录：{remoteOpenCodeHealth.sdk_install_dir}</p>
+                <p>
+                  {t("runtime.common.installDir")}:{remoteOpenCodeHealth.sdk_install_dir}
+                </p>
               ) : null}
               {remoteOpenCodeHealth?.checked_at ? (
-                <p>检查时间：{formatDate(remoteOpenCodeHealth.checked_at)}</p>
+                <p>
+                  {t("runtime.common.checkedAt")}:{formatDate(remoteOpenCodeHealth.checked_at)}
+                </p>
               ) : null}
             </div>
             <div className="flex flex-wrap gap-2">
@@ -1014,7 +1175,7 @@ export function RuntimeSettingsTab({
                 ) : (
                   <RefreshCw className="mr-1.5 h-3.5 w-3.5" />
                 )}
-                重新检测
+                {t("runtime.opencode.actions.recheck")}
               </Button>
               <Button
                 size="sm"
@@ -1029,7 +1190,11 @@ export function RuntimeSettingsTab({
                 {opencodeActionLoading === "install" ? (
                   <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
                 ) : null}
-                {remoteOpenCodeHealth?.sdk_installed ? "重装远程 SDK" : "安装远程 SDK"}
+                {t(
+                  remoteOpenCodeHealth?.sdk_installed
+                    ? "runtime.opencode.actions.reinstallRemote"
+                    : "runtime.opencode.actions.installRemote",
+                )}
               </Button>
             </div>
             {opencodeActionMessage && (
@@ -1050,16 +1215,16 @@ export function RuntimeSettingsTab({
                 disabled={opencodeActionLoading !== null}
               />
               <div className="space-y-1">
-                <p className="text-sm font-medium">启用 OpenCode SDK</p>
+                <p className="text-sm font-medium">{t("runtime.opencode.enableSdkTitle")}</p>
                 <p className="text-xs text-muted-foreground">
-                  启用后，使用 OpenCode 作为 AI 提供商的员工将通过 SDK 运行任务。
+                  {t("runtime.opencode.enableSdkDescription")}
                 </p>
               </div>
             </label>
 
             <div className="space-y-2">
               <label htmlFor="opencode-default-model" className="text-sm font-medium">
-                默认模型
+                {t("runtime.opencode.defaultModelLabel")}
               </label>
               <div className="flex gap-2">
                 <div className="flex-1">
@@ -1087,7 +1252,7 @@ export function RuntimeSettingsTab({
                       id="opencode-default-model"
                       value={opencodeDefaultModel}
                       onChange={(event) => onOpenCodeDefaultModelChange(event.target.value)}
-                      placeholder="openai/gpt-4o"
+                      placeholder={t("runtime.oneShot.modelPlaceholder")}
                       disabled={opencodeActionLoading !== null}
                     />
                   )}
@@ -1098,7 +1263,7 @@ export function RuntimeSettingsTab({
                     size="sm"
                     onClick={onOpenCodeFetchModels}
                     disabled={opencodeModelListLoading || opencodeActionLoading !== null}
-                    title="从 SDK 获取可用模型列表"
+                    title={t("runtime.opencode.fetchModelsTitle")}
                   >
                     {opencodeModelListLoading ? (
                       <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -1110,15 +1275,15 @@ export function RuntimeSettingsTab({
               </div>
               <p className="text-xs text-muted-foreground">
                 {opencodeModelList.length > 0
-                  ? `已加载 ${opencodeModelList.length} 个可用模型`
-                  : "格式: provider/modelID（例如 openai/gpt-4o），或点击右侧按钮从 SDK 获取"}
+                  ? t("runtime.opencode.loadedModels", { count: opencodeModelList.length })
+                  : t("runtime.opencode.modelFormatOrFetch")}
               </p>
             </div>
 
             <div className="grid gap-3 md:grid-cols-2">
               <div className="space-y-2">
                 <label htmlFor="opencode-host" className="text-sm font-medium">
-                  服务器主机
+                  {t("runtime.opencode.hostLabel")}
                 </label>
                 <Input
                   id="opencode-host"
@@ -1131,7 +1296,7 @@ export function RuntimeSettingsTab({
 
               <div className="space-y-2">
                 <label htmlFor="opencode-port" className="text-sm font-medium">
-                  服务器端口
+                  {t("runtime.opencode.portLabel")}
                 </label>
                 <Input
                   id="opencode-port"
@@ -1146,34 +1311,54 @@ export function RuntimeSettingsTab({
 
             <div className="space-y-2">
               <label htmlFor="opencode-node-path-override" className="text-sm font-medium">
-                Node 路径覆盖（可选）
+                {t("runtime.opencode.nodePathTitle")}
               </label>
               <Input
                 id="opencode-node-path-override"
                 value={opencodeNodePathOverride}
                 onChange={(event) => onOpenCodeNodePathOverrideChange(event.target.value)}
-                placeholder="/opt/homebrew/bin/node"
+                placeholder={t("runtime.opencode.nodePathPlaceholder")}
                 disabled={opencodeActionLoading !== null}
               />
-              <p className="text-xs text-muted-foreground">留空时自动从系统 PATH 中查找 Node。</p>
+              <p className="text-xs text-muted-foreground">
+                {t("runtime.opencode.nodePathDescription")}
+              </p>
             </div>
 
             <div className="grid gap-2 rounded-md border border-border px-3 py-3 text-xs text-muted-foreground">
-              <p className="break-all">安装目录：{opencodeHealth?.sdk_install_dir ?? "检测中"}</p>
+              <p className="break-all">
+                {t("runtime.common.installDir")}:
+                {opencodeHealth?.sdk_install_dir ?? t("runtime.status.checking")}
+              </p>
               <p>
-                Node：{opencodeHealth?.node_available ? "可用" : "不可用"}
+                {t("runtime.common.node")}:
+                {opencodeHealth?.node_available
+                  ? t("runtime.status.available")
+                  : t("runtime.status.unavailable")}
                 {opencodeHealth?.node_version ? `（${opencodeHealth.node_version}）` : ""}
               </p>
               <p>
-                SDK：{opencodeHealth?.sdk_installed ? "已安装" : "未安装"}
+                {t("runtime.common.sdk")}:
+                {opencodeHealth?.sdk_installed
+                  ? t("runtime.status.installed")
+                  : t("runtime.status.notInstalled")}
                 {opencodeHealth?.sdk_version ? `（${opencodeHealth.sdk_version}）` : ""}
               </p>
-              <p>当前通道：{opencodeHealth?.effective_provider === "sdk" ? "SDK" : "不可用"}</p>
+              <p>
+                {t("runtime.common.currentChannel")}:
+                {opencodeHealth?.effective_provider === "sdk"
+                  ? t("runtime.opencode.channel.sdk")
+                  : t("runtime.opencode.channel.unavailable")}
+              </p>
               {opencodeHealth?.checked_at && (
-                <p>检测时间：{formatDate(opencodeHealth.checked_at)}</p>
+                <p>
+                  {t("runtime.common.checkedAt")}:{formatDate(opencodeHealth.checked_at)}
+                </p>
               )}
               {opencodeHealth?.sdk_status_message && (
-                <p className="text-[11px] leading-5">{opencodeHealth.sdk_status_message}</p>
+                <p className="text-[11px] leading-5">
+                  {mapRuntimeStatusMessage(opencodeHealth.sdk_status_message)}
+                </p>
               )}
             </div>
 
@@ -1182,7 +1367,7 @@ export function RuntimeSettingsTab({
                 {opencodeActionLoading === "save" ? (
                   <Loader2 className="h-4 w-4 animate-spin" />
                 ) : null}
-                保存配置
+                {t("runtime.opencode.actions.save")}
               </Button>
               <Button
                 variant="outline"
@@ -1192,7 +1377,11 @@ export function RuntimeSettingsTab({
                 {opencodeActionLoading === "install" ? (
                   <Loader2 className="h-4 w-4 animate-spin" />
                 ) : null}
-                {opencodeHealth?.sdk_installed ? "重装 SDK" : "安装 SDK"}
+                {t(
+                  opencodeHealth?.sdk_installed
+                    ? "runtime.opencode.actions.reinstall"
+                    : "runtime.opencode.actions.install",
+                )}
               </Button>
               <Button
                 variant="ghost"
@@ -1200,7 +1389,7 @@ export function RuntimeSettingsTab({
                 disabled={opencodeActionLoading !== null}
               >
                 <RefreshCw className={`h-4 w-4`} />
-                刷新检测
+                {t("runtime.opencode.actions.refresh")}
               </Button>
             </div>
 
@@ -1217,11 +1406,8 @@ export function RuntimeSettingsTab({
       <div className="space-y-4 rounded-lg border border-border bg-card p-4">
         <div className="flex items-start justify-between gap-3">
           <div>
-            <h3 className="mb-1 text-sm font-medium">Grok 配置</h3>
-            <p className="text-xs text-muted-foreground">
-              使用 xAI Grok Build CLI（`grok`）执行任务会话与一次性
-              AI。远程认证依赖远端已登录，应用不会注入密钥。
-            </p>
+            <h3 className="mb-1 text-sm font-medium">{t("runtime.grok.title")}</h3>
+            <p className="text-xs text-muted-foreground">{t("runtime.grok.description")}</p>
           </div>
           <Button
             variant="outline"
@@ -1230,25 +1416,59 @@ export function RuntimeSettingsTab({
             disabled={healthLoading || grokActionLoading !== null}
           >
             <RefreshCw className="mr-1.5 h-3.5 w-3.5" />
-            刷新
+            {t("runtime.grok.actions.refresh")}
           </Button>
         </div>
 
         <div className="rounded-md border border-border px-3 py-3 text-xs text-muted-foreground space-y-1">
-          <p>本地状态：{grokHealth?.status_message ?? "尚未检测"}</p>
-          {grokHealth?.cli_path ? <p>本地路径：{grokHealth.cli_path}</p> : null}
-          {grokHealth?.cli_version ? <p>本地版本：{grokHealth.cli_version}</p> : null}
-          {grokHealth?.auth_ok === true ? <p>本地登录：已登录</p> : null}
+          <p>
+            {t("runtime.common.localStatus")}:
+            {grokHealth?.status_message
+              ? mapRuntimeStatusMessage(grokHealth.status_message)
+              : t("runtime.grok.notChecked")}
+          </p>
+          {grokHealth?.cli_path ? (
+            <p>
+              {t("runtime.common.localPath")}:{grokHealth.cli_path}
+            </p>
+          ) : null}
+          {grokHealth?.cli_version ? (
+            <p>
+              {t("runtime.common.localVersion")}:{grokHealth.cli_version}
+            </p>
+          ) : null}
+          {grokHealth?.auth_ok === true ? (
+            <p>
+              {t("runtime.common.localLogin")}:{t("runtime.status.loggedIn")}
+            </p>
+          ) : null}
           {grokHealth?.auth_ok === false ? (
-            <p className="text-destructive">本地登录：未登录（请执行 `grok login`）</p>
+            <p className="text-destructive">
+              {t("runtime.common.localLogin")}:{t("runtime.grok.localNotLoggedIn")}
+            </p>
           ) : null}
           {isRemoteMode ? (
             <>
-              <p>远程状态：{remoteGrokHealth?.message ?? "尚未检测当前 SSH 目标"}</p>
-              {remoteGrokHealth?.version ? <p>远程版本：{remoteGrokHealth.version}</p> : null}
-              {remoteGrokHealth?.auth_ok === true ? <p>远程登录：已登录</p> : null}
+              <p>
+                {t("runtime.common.remoteStatus")}:
+                {remoteGrokHealth?.message
+                  ? mapRuntimeStatusMessage(remoteGrokHealth.message)
+                  : t("runtime.opencode.remoteStatusPending")}
+              </p>
+              {remoteGrokHealth?.version ? (
+                <p>
+                  {t("runtime.common.remoteVersion")}:{remoteGrokHealth.version}
+                </p>
+              ) : null}
+              {remoteGrokHealth?.auth_ok === true ? (
+                <p>
+                  {t("runtime.common.remoteLogin")}:{t("runtime.status.loggedIn")}
+                </p>
+              ) : null}
               {remoteGrokHealth?.auth_ok === false ? (
-                <p className="text-destructive">远程登录：未登录（请在远端执行 `grok login`）</p>
+                <p className="text-destructive">
+                  {t("runtime.common.remoteLogin")}:{t("runtime.grok.remoteNotLoggedIn")}
+                </p>
               ) : null}
             </>
           ) : null}
@@ -1256,7 +1476,7 @@ export function RuntimeSettingsTab({
 
         <div className="grid gap-3 md:grid-cols-2">
           <div className="space-y-2">
-            <label className="text-sm font-medium">默认模型</label>
+            <label className="text-sm font-medium">{t("runtime.grok.defaultModelLabel")}</label>
             <Select
               value={grokDefaultModel}
               onValueChange={(value) => {
@@ -1277,21 +1497,21 @@ export function RuntimeSettingsTab({
                 ).map((option) => (
                   <SelectItem key={option.value} value={option.value}>
                     {option.label}
-                    {option.is_default ? "（默认）" : ""}
+                    {option.is_default ? t("runtime.grok.defaultSuffix") : ""}
                   </SelectItem>
                 ))}
               </SelectContent>
             </Select>
             <p className="text-xs text-muted-foreground">
               {grokModelList.length > 0
-                ? `已从 CLI 加载 ${grokModelList.length} 个模型`
+                ? t("runtime.grok.loadedModels", { count: grokModelList.length })
                 : grokModelListLoading
-                  ? "正在加载模型..."
-                  : "CLI 不可用时使用静态列表"}
+                  ? t("runtime.grok.loadingModels")
+                  : t("runtime.grok.usingStaticModelList")}
             </p>
           </div>
           <div className="space-y-2">
-            <label className="text-sm font-medium">默认推理强度</label>
+            <label className="text-sm font-medium">{t("runtime.grok.defaultEffortLabel")}</label>
             <Select
               value={grokDefaultEffort}
               onValueChange={(value) => {
@@ -1303,7 +1523,7 @@ export function RuntimeSettingsTab({
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                {GROK_EFFORT_OPTIONS.map((option) => (
+                {grokEffortOptions.map((option) => (
                   <SelectItem key={option.value} value={option.value}>
                     {option.label}
                   </SelectItem>
@@ -1314,16 +1534,14 @@ export function RuntimeSettingsTab({
         </div>
 
         <div className="space-y-2">
-          <label className="text-sm font-medium">CLI 路径覆盖（可选）</label>
+          <label className="text-sm font-medium">{t("runtime.grok.cliPathTitle")}</label>
           <Input
             value={grokCliPathOverride}
             onChange={(event) => onGrokCliPathOverrideChange(event.target.value)}
-            placeholder="例如 /Users/you/.grok/bin/grok"
+            placeholder={t("runtime.grok.cliPathPlaceholder")}
             disabled={healthLoading || grokActionLoading !== null}
           />
-          <p className="text-xs text-muted-foreground">
-            留空时按 `GROK_CLI_PATH` / `~/.grok/bin` / PATH 自动查找。
-          </p>
+          <p className="text-xs text-muted-foreground">{t("runtime.grok.cliPathDescription")}</p>
         </div>
 
         {(grokActionMessage || grokActionError) && (
@@ -1341,10 +1559,10 @@ export function RuntimeSettingsTab({
             disabled={grokInstallDisabled}
             title={
               isRemoteMode && !hasSelectedSshConfig
-                ? "请先选择 SSH 配置后再安装远程 Grok CLI"
+                ? t("runtime.grok.tooltips.installNoSsh")
                 : isRemoteMode
-                  ? "在当前 SSH 目标安装或重装 Grok CLI；安装后仍需远端 `grok login`"
-                  : "安装或重装本地 Grok CLI；安装后仍需执行 `grok login`"
+                  ? t("runtime.grok.tooltips.installRemote")
+                  : t("runtime.grok.tooltips.installLocal")
             }
           >
             {grokActionLoading === "install" ? (
@@ -1356,7 +1574,7 @@ export function RuntimeSettingsTab({
             {grokActionLoading === "save" ? (
               <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
             ) : null}
-            保存 Grok 设置
+            {t("runtime.grok.actions.save")}
           </Button>
         </div>
       </div>

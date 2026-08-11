@@ -166,6 +166,24 @@ export function getEmployeeRoleLabel(role: string): string {
   return i18n.t(`common:role.${role}`, { defaultValue: role });
 }
 
+/** Localized reasoning / thinking-budget label for employee + settings surfaces. */
+export function getReasoningEffortLabel(
+  effort: string | null | undefined,
+  provider?: string | null,
+): string {
+  if (!effort) {
+    return "";
+  }
+  if (provider === "claude") {
+    return i18n.t(`settings:runtime.options.claudeThinkingBudget.${effort}`, {
+      defaultValue: effort,
+    });
+  }
+  return i18n.t(`settings:runtime.options.reasoningEffort.${effort}`, {
+    defaultValue: effort,
+  });
+}
+
 export interface TaskAutomationDisplayState {
   enabled: boolean;
   status: string;

@@ -8,6 +8,7 @@ import {
   ScrollText,
   Square,
 } from "lucide-react";
+import { useTranslation } from "react-i18next";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -81,6 +82,7 @@ export function TaskPrimaryActionBar({
   secondaryActions = [],
   className,
 }: TaskPrimaryActionBarProps) {
+  const { t } = useTranslation("tasks");
   if (primaryCta.kind === "none") {
     return null;
   }
@@ -96,10 +98,12 @@ export function TaskPrimaryActionBar({
       <div className="min-w-0 flex-1">
         {automationLabel ? (
           <p className="truncate text-xs text-muted-foreground">
-            自动质控 · <span className="text-foreground/80">{automationLabel}</span>
+            {t("primaryActionBar.automationPrefix", { label: automationLabel })}
           </p>
         ) : (
-          <p className="truncate text-xs text-muted-foreground">主路径操作</p>
+          <p className="truncate text-xs text-muted-foreground">
+            {t("primaryActionBar.primaryPath")}
+          </p>
         )}
         {primaryCta.reason && primaryCta.disabled ? (
           <p className="truncate text-[11px] text-amber-700 dark:text-amber-200/90">
@@ -134,7 +138,7 @@ export function TaskPrimaryActionBar({
           <DropdownMenu>
             <DropdownMenuTrigger
               className="inline-flex size-7 items-center justify-center rounded-lg border border-border bg-background text-foreground outline-none hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
-              aria-label="更多任务操作"
+              aria-label={t("primaryActionBar.moreActionsAria")}
             >
               <MoreHorizontal className="h-4 w-4" />
             </DropdownMenuTrigger>

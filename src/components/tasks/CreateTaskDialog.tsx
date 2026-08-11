@@ -1,12 +1,13 @@
 import { useEffect, useState } from "react";
 import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
 import { Loader2, Paperclip, Play, Sparkles, X } from "lucide-react";
+import { useTranslation } from "react-i18next";
 
 import { useTaskStore } from "@/stores/taskStore";
 import { useProjectStore } from "@/stores/projectStore";
 import { useEmployeeStore } from "@/stores/employeeStore";
 import { useAiOptimizePrompt } from "@/hooks/useAiOptimizePrompt";
-import { getEmployeeRoleLabel } from "@/lib/utils";
+import { getEmployeeRoleLabel, getPriorityLabel } from "@/lib/utils";
 import { dedupePaths, isTauriRuntime, normalizeDialogSelection } from "@/lib/taskAttachments";
 import type { CodexSessionKind, Milestone, Tag, Task } from "@/lib/types";
 import { PRIORITIES } from "@/lib/types";
@@ -53,6 +54,7 @@ export function CreateTaskDialog({
   onOpenLog,
   onCreated,
 }: CreateTaskDialogProps) {
+  const { t } = useTranslation(["tasks", "common", "kanban"]);
   const { createTask, tasks, fetchTasks } = useTaskStore();
   const { projects, fetchProjects } = useProjectStore();
   const { employees, fetchEmployees } = useEmployeeStore();
@@ -229,16 +231,16 @@ export function CreateTaskDialog({
 
   const validateCreateBase = (requireAssignee: boolean): string | null => {
     if (!title.trim() || !selectedProjectId) {
-      return "请填写标题并选择项目。";
+      return t("createDialog.errors.titleAndProjectRequired");
     }
     if (defaultsLoading) {
-      return "任务默认设置仍在加载，请稍候再试。";
+      return t("createDialog.errors.defaultsStillLoading");
     }
     if (defaultAutomationEnabled && !reviewerId) {
-      return "当前已开启“新建任务默认自动质控”，请先指定审查员。";
+      return t("createDialog.errors.automationRequiresReviewer");
     }
     if (requireAssignee && !assigneeId) {
-      return "创建并执行需要先指定执行员工。";
+      return t("createDialog.errors.createAndRunRequiresAssignee");
     }
     return null;
   };
@@ -247,10 +249,10 @@ export function CreateTaskDialog({
     const selected = await openFileDialog({
       directory: false,
       multiple: true,
-      title: "选择任务附件（图片/文档/日志）",
+      title: t("createDialog.fileDialogTitle"),
       filters: [
         {
-          name: "Attachments",
+          name: t("createDialog.fileDialogFilterName"),
           extensions: [
             "png",
             "jpg",
@@ -279,12 +281,12 @@ export function CreateTaskDialog({
 
   const handleGenerateOptimizedDescription = async () => {
     if (!selectedProjectId) {
-      optimizePrompt.showError("请先选择项目后再生成优化提示词。");
+      optimizePrompt.showError(t("createDialog.errors.projectMissingForOptimize"));
       return;
     }
 
     if (!selectedProject) {
-      optimizePrompt.showError("当前项目不存在，无法生成优化提示词。");
+      optimizePrompt.showError(t("createDialog.errors.projectNotFoundForOptimize"));
       return;
     }
 
@@ -349,12 +351,12 @@ export function CreateTaskDialog({
       return;
     }
     if (!selectedProject) {
-      setCreateError("当前项目不存在，无法创建并执行。");
+      setCreateError(t("createDialog.errors.projectNotFoundForRun"));
       return;
     }
     const assignee = employees.find((employee) => employee.id === assigneeId);
     if (!assignee) {
-      setCreateError("未找到指定的执行员工。");
+      setCreateError(t("createDialog.errors.assigneeNotFound"));
       return;
     }
 
@@ -402,23 +404,27 @@ export function CreateTaskDialog({
     <Dialog open={open} onOpenChange={handleOpen}>
       <DialogContent className="max-h-[min(92vh,calc(100vh-2rem))] w-[min(96vw,64rem)] max-w-[min(96vw,64rem)] overflow-y-auto sm:max-w-[min(96vw,64rem)]">
         <DialogHeader>
-          <DialogTitle>新建任务</DialogTitle>
+          <DialogTitle>{t("createDialog.title")}</DialogTitle>
         </DialogHeader>
 
         <div className="space-y-3">
           <div>
-            <label className="text-xs font-medium text-muted-foreground">标题 *</label>
+            <label className="text-xs font-medium text-muted-foreground">
+              {t("createDialog.fields.title")}
+            </label>
             <Input
               value={title}
               onChange={(e) => setTitle(e.target.value)}
-              placeholder="任务标题"
+              placeholder={t("createDialog.fields.titlePlaceholder")}
               className="mt-1"
             />
           </div>
 
           <div className="space-y-2">
             <div className="flex items-center justify-between gap-3">
-              <label className="text-xs font-medium text-muted-foreground">描述</label>
+              <label className="text-xs font-medium text-muted-foreground">
+                {t("createDialog.fields.description")}
+              </label>
               <button
                 type="button"
                 onClick={() => void handleGenerateOptimizedDescription()}
@@ -430,13 +436,13 @@ export function CreateTaskDialog({
                 ) : (
                   <Sparkles className="h-3.5 w-3.5" />
                 )}
-                AI优化提示词
+                {t("createDialog.aiOptimize")}
               </button>
             </div>
             <Textarea
               value={description}
               onChange={(e) => setDescription(e.target.value)}
-              placeholder="任务描述（可选）"
+              placeholder={t("createDialog.fields.descriptionPlaceholder")}
               className="min-h-[60px] resize-y"
             />
 
@@ -450,9 +456,11 @@ export function CreateTaskDialog({
               <div className="space-y-3 rounded-md border border-primary/20 bg-primary/5 p-3">
                 <div className="flex items-center justify-between gap-2">
                   <div>
-                    <p className="text-xs font-medium text-primary">优化后的提示词</p>
+                    <p className="text-xs font-medium text-primary">
+                      {t("createDialog.optimizedPromptTitle")}
+                    </p>
                     <p className="text-[11px] text-muted-foreground">
-                      确认后会替换当前详情输入框内容
+                      {t("createDialog.optimizedPromptHint")}
                     </p>
                   </div>
                   <button
@@ -460,7 +468,7 @@ export function CreateTaskDialog({
                     onClick={handleApplyOptimizedDescription}
                     className="rounded-md bg-primary px-2.5 py-1.5 text-xs text-primary-foreground hover:bg-primary/90"
                   >
-                    替换详情
+                    {t("createDialog.replaceDescription")}
                   </button>
                 </div>
                 <div className="max-h-56 overflow-y-auto rounded-md border bg-background/80 p-3 text-xs whitespace-pre-wrap text-foreground">
@@ -472,7 +480,9 @@ export function CreateTaskDialog({
 
           <div className="space-y-3">
             <div>
-              <label className="text-xs font-medium text-muted-foreground">项目 *</label>
+              <label className="text-xs font-medium text-muted-foreground">
+                {t("createDialog.fields.project")}
+              </label>
               <Select
                 value={selectedProjectId || null}
                 onValueChange={(value) => {
@@ -485,11 +495,12 @@ export function CreateTaskDialog({
                 }}
               >
                 <SelectTrigger className="mt-1 bg-background">
-                  <SelectValue placeholder="选择项目">
+                  <SelectValue placeholder={t("createDialog.fields.projectPlaceholder")}>
                     {(value) =>
                       typeof value === "string"
-                        ? (projects.find((project) => project.id === value)?.name ?? "选择项目")
-                        : "选择项目"
+                        ? (projects.find((project) => project.id === value)?.name ??
+                          t("createDialog.fields.projectPlaceholder"))
+                        : t("createDialog.fields.projectPlaceholder")
                     }
                   </SelectValue>
                 </SelectTrigger>
@@ -505,55 +516,59 @@ export function CreateTaskDialog({
 
             <div className="grid gap-3 md:grid-cols-2">
               <div>
-                <label className="text-xs font-medium text-muted-foreground">Worktree 模式</label>
+                <label className="text-xs font-medium text-muted-foreground">
+                  {t("createDialog.fields.worktreeMode")}
+                </label>
                 <Select
                   value={useWorktree}
                   onValueChange={(value) => setUseWorktree(value ?? "false")}
                   disabled={busy || defaultsLoading}
                 >
                   <SelectTrigger className="mt-1 bg-background">
-                    <SelectValue placeholder="选择是否启用 worktree">
+                    <SelectValue placeholder={t("createDialog.fields.worktreePlaceholder")}>
                       {(value) => {
                         if (value === "true") {
-                          return "是";
+                          return t("common:yes");
                         }
 
                         if (value === "false") {
-                          return "否";
+                          return t("common:no");
                         }
 
-                        return "选择是否启用 worktree";
+                        return t("createDialog.fields.worktreePlaceholder");
                       }}
                     </SelectValue>
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="false">否</SelectItem>
-                    <SelectItem value="true">是</SelectItem>
+                    <SelectItem value="false">{t("common:no")}</SelectItem>
+                    <SelectItem value="true">{t("common:yes")}</SelectItem>
                   </SelectContent>
                 </Select>
                 <p className="mt-1 text-[11px] text-muted-foreground">
                   {defaultsLoading
-                    ? "正在加载当前项目的默认设置…"
-                    : "默认直接使用项目工作目录；开启后会为该任务准备独立 worktree。"}
+                    ? t("createDialog.worktreeLoadingHint")
+                    : t("createDialog.worktreeHint")}
                 </p>
               </div>
 
               <div>
-                <label className="text-xs font-medium text-muted-foreground">优先级</label>
+                <label className="text-xs font-medium text-muted-foreground">
+                  {t("createDialog.fields.priority")}
+                </label>
                 <Select value={priority} onValueChange={(value) => setPriority(value ?? "medium")}>
                   <SelectTrigger className="mt-1 bg-background">
-                    <SelectValue placeholder="选择优先级">
+                    <SelectValue placeholder={t("createDialog.fields.priorityPlaceholder")}>
                       {(value) =>
                         typeof value === "string"
-                          ? (PRIORITIES.find((item) => item.value === value)?.label ?? "选择优先级")
-                          : "选择优先级"
+                          ? getPriorityLabel(value)
+                          : t("createDialog.fields.priorityPlaceholder")
                       }
                     </SelectValue>
                   </SelectTrigger>
                   <SelectContent>
                     {PRIORITIES.map((item) => (
                       <SelectItem key={item.value} value={item.value}>
-                        {item.label}
+                        {getPriorityLabel(item.value)}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -564,7 +579,7 @@ export function CreateTaskDialog({
             <div className="grid gap-3 md:grid-cols-2">
               <div>
                 <label className="text-xs font-medium text-muted-foreground">
-                  截止日期（可选）
+                  {t("createDialog.fields.dueDate")}
                 </label>
                 <Input
                   type="date"
@@ -576,7 +591,9 @@ export function CreateTaskDialog({
               </div>
 
               <div>
-                <label className="text-xs font-medium text-muted-foreground">里程碑（可选）</label>
+                <label className="text-xs font-medium text-muted-foreground">
+                  {t("createDialog.fields.milestone")}
+                </label>
                 <Select
                   value={milestoneId || NONE_VALUE}
                   onValueChange={(value) =>
@@ -585,19 +602,22 @@ export function CreateTaskDialog({
                   disabled={busy || !selectedProjectId}
                 >
                   <SelectTrigger className="mt-1 bg-background">
-                    <SelectValue placeholder="无里程碑">
+                    <SelectValue placeholder={t("createDialog.fields.noMilestone")}>
                       {(value) => {
                         if (!value || value === NONE_VALUE) {
-                          return "无里程碑";
+                          return t("createDialog.fields.noMilestone");
                         }
                         return (
-                          projectMilestones.find((item) => item.id === value)?.name ?? "无里程碑"
+                          projectMilestones.find((item) => item.id === value)?.name ??
+                          t("createDialog.fields.noMilestone")
                         );
                       }}
                     </SelectValue>
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value={NONE_VALUE}>无里程碑</SelectItem>
+                    <SelectItem value={NONE_VALUE}>
+                      {t("createDialog.fields.noMilestone")}
+                    </SelectItem>
                     {projectMilestones.map((item) => (
                       <SelectItem key={item.id} value={item.id}>
                         {item.name}
@@ -609,10 +629,14 @@ export function CreateTaskDialog({
             </div>
 
             <div className="space-y-2">
-              <label className="text-xs font-medium text-muted-foreground">标签（可选）</label>
+              <label className="text-xs font-medium text-muted-foreground">
+                {t("createDialog.fields.tags")}
+              </label>
               <div className="flex flex-wrap gap-1.5">
                 {selectedTagIds.length === 0 && (
-                  <span className="text-[11px] text-muted-foreground">未选择标签</span>
+                  <span className="text-[11px] text-muted-foreground">
+                    {t("createDialog.fields.noTagsSelected")}
+                  </span>
                 )}
                 {selectedTagIds.map((tagId) => {
                   const tag = projectTags.find((item) => item.id === tagId);
@@ -646,7 +670,9 @@ export function CreateTaskDialog({
                 }}
               >
                 <SelectTrigger className="bg-background">
-                  <SelectValue placeholder="选择标签">选择标签</SelectValue>
+                  <SelectValue placeholder={t("createDialog.fields.selectTag")}>
+                    {t("createDialog.fields.selectTag")}
+                  </SelectValue>
                 </SelectTrigger>
                 <SelectContent>
                   {projectTags
@@ -661,10 +687,14 @@ export function CreateTaskDialog({
             </div>
 
             <div className="space-y-2">
-              <label className="text-xs font-medium text-muted-foreground">依赖任务（可选）</label>
+              <label className="text-xs font-medium text-muted-foreground">
+                {t("createDialog.fields.dependencies")}
+              </label>
               <div className="flex flex-wrap gap-1.5">
                 {dependencyTaskIds.length === 0 && (
-                  <span className="text-[11px] text-muted-foreground">未选择依赖</span>
+                  <span className="text-[11px] text-muted-foreground">
+                    {t("createDialog.fields.noDependenciesSelected")}
+                  </span>
                 )}
                 {dependencyTaskIds.map((taskId) => {
                   const depTask = projectTasks.find((item) => item.id === taskId);
@@ -695,7 +725,9 @@ export function CreateTaskDialog({
                 }}
               >
                 <SelectTrigger className="bg-background">
-                  <SelectValue placeholder="选择依赖任务">选择依赖任务</SelectValue>
+                  <SelectValue placeholder={t("createDialog.fields.selectDependency")}>
+                    {t("createDialog.fields.selectDependency")}
+                  </SelectValue>
                 </SelectTrigger>
                 <SelectContent>
                   {projectTasks
@@ -711,7 +743,9 @@ export function CreateTaskDialog({
           </div>
 
           <div>
-            <label className="text-xs font-medium text-muted-foreground">指派给</label>
+            <label className="text-xs font-medium text-muted-foreground">
+              {t("createDialog.fields.assignee")}
+            </label>
             <Select
               disabled={busy}
               value={assigneeId || UNASSIGNED_VALUE}
@@ -724,18 +758,20 @@ export function CreateTaskDialog({
                 <SelectValue>
                   {(value) => {
                     if (!value || value === UNASSIGNED_VALUE) {
-                      return "未指派";
+                      return t("createDialog.fields.unspecified");
                     }
 
                     const employee = employees.find((emp) => emp.id === value);
                     return employee
                       ? `${employee.name} (${getEmployeeRoleLabel(employee.role)}) · ${employee.ai_provider === "claude" ? "Claude" : employee.ai_provider === "opencode" ? "OpenCode" : employee.ai_provider === "grok" ? "Grok" : "Codex"}`
-                      : "未指派";
+                      : t("createDialog.fields.unspecified");
                   }}
                 </SelectValue>
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value={UNASSIGNED_VALUE}>未指派</SelectItem>
+                <SelectItem value={UNASSIGNED_VALUE}>
+                  {t("createDialog.fields.unspecified")}
+                </SelectItem>
                 {employees.map((emp) => (
                   <SelectItem key={emp.id} value={emp.id}>
                     {emp.name} ({getEmployeeRoleLabel(emp.role)}) ·{" "}
@@ -753,7 +789,9 @@ export function CreateTaskDialog({
           </div>
 
           <div>
-            <label className="text-xs font-medium text-muted-foreground">审查员</label>
+            <label className="text-xs font-medium text-muted-foreground">
+              {t("createDialog.fields.reviewer")}
+            </label>
             <Select
               disabled={busy}
               value={reviewerId || UNASSIGNED_VALUE}
@@ -766,18 +804,20 @@ export function CreateTaskDialog({
                 <SelectValue>
                   {(value) => {
                     if (!value || value === UNASSIGNED_VALUE) {
-                      return "未指定";
+                      return t("createDialog.fields.unspecified");
                     }
 
                     const employee = reviewerCandidates.find((emp) => emp.id === value);
                     return employee
                       ? `${employee.name} (${getEmployeeRoleLabel(employee.role)}) · ${employee.ai_provider === "claude" ? "Claude" : employee.ai_provider === "opencode" ? "OpenCode" : employee.ai_provider === "grok" ? "Grok" : "Codex"}`
-                      : "未指定";
+                      : t("createDialog.fields.unspecified");
                   }}
                 </SelectValue>
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value={UNASSIGNED_VALUE}>未指定</SelectItem>
+                <SelectItem value={UNASSIGNED_VALUE}>
+                  {t("createDialog.fields.unspecified")}
+                </SelectItem>
                 {reviewerCandidates.map((emp) => (
                   <SelectItem key={emp.id} value={emp.id}>
                     {emp.name} ({getEmployeeRoleLabel(emp.role)}) ·{" "}
@@ -794,13 +834,15 @@ export function CreateTaskDialog({
             </Select>
             {defaultAutomationEnabled && (
               <p className="mt-1 text-[11px] text-muted-foreground">
-                当前已开启“新建任务默认自动质控”，新建任务时需要指定审查员。
+                {t("createDialog.defaultAutomationReviewerHint")}
               </p>
             )}
           </div>
 
           <div>
-            <label className="text-xs font-medium text-muted-foreground">协调员</label>
+            <label className="text-xs font-medium text-muted-foreground">
+              {t("createDialog.fields.coordinator")}
+            </label>
             <Select
               disabled={busy}
               value={coordinatorId || UNASSIGNED_VALUE}
@@ -813,18 +855,20 @@ export function CreateTaskDialog({
                 <SelectValue>
                   {(value) => {
                     if (!value || value === UNASSIGNED_VALUE) {
-                      return "未指定";
+                      return t("createDialog.fields.unspecified");
                     }
 
                     const employee = coordinatorCandidates.find((emp) => emp.id === value);
                     return employee
                       ? `${employee.name} (${getEmployeeRoleLabel(employee.role)}) · ${employee.ai_provider === "claude" ? "Claude" : employee.ai_provider === "opencode" ? "OpenCode" : employee.ai_provider === "grok" ? "Grok" : "Codex"}`
-                      : "未指定";
+                      : t("createDialog.fields.unspecified");
                   }}
                 </SelectValue>
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value={UNASSIGNED_VALUE}>未指定</SelectItem>
+                <SelectItem value={UNASSIGNED_VALUE}>
+                  {t("createDialog.fields.unspecified")}
+                </SelectItem>
                 {coordinatorCandidates.map((emp) => (
                   <SelectItem key={emp.id} value={emp.id}>
                     {emp.name} ({getEmployeeRoleLabel(emp.role)}) ·{" "}
@@ -844,10 +888,11 @@ export function CreateTaskDialog({
           <div className="space-y-2">
             <div className="flex items-center justify-between gap-3">
               <div>
-                <label className="text-xs font-medium text-muted-foreground">附件</label>
+                <label className="text-xs font-medium text-muted-foreground">
+                  {t("createDialog.fields.attachments")}
+                </label>
                 <p className="text-[11px] text-muted-foreground">
-                  创建任务时会复制到应用托管目录；图片会在后续运行 Codex
-                  时自动附带，其他文件会作为任务附件保留。
+                  {t("createDialog.attachmentsHint")}
                 </p>
               </div>
               <button
@@ -855,16 +900,20 @@ export function CreateTaskDialog({
                 onClick={() => void handleSelectAttachments()}
                 disabled={!isTauriRuntime() || saving}
                 className="flex items-center gap-1 rounded-md border border-input px-2.5 py-1.5 text-xs hover:bg-accent disabled:opacity-50"
-                title={isTauriRuntime() ? "选择附件" : "仅桌面端支持上传附件"}
+                title={
+                  isTauriRuntime()
+                    ? t("createDialog.selectAttachmentTitle")
+                    : t("createDialog.attachmentDesktopOnlyTooltip")
+                }
               >
                 <Paperclip className="h-3.5 w-3.5" />
-                添加附件
+                {t("createDialog.addAttachment")}
               </button>
             </div>
 
             {!isTauriRuntime() && (
               <div className="rounded-md border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
-                当前环境不支持任务附件上传，请在桌面端使用该功能。
+                {t("createDialog.attachmentUnsupported")}
               </div>
             )}
 
@@ -877,7 +926,7 @@ export function CreateTaskDialog({
                 onRemove: () =>
                   setAttachmentPaths((current) => current.filter((item) => item !== path)),
               }))}
-              emptyText="还没有添加附件"
+              emptyText={t("createDialog.noAttachmentsYet")}
             />
           </div>
 
@@ -894,7 +943,7 @@ export function CreateTaskDialog({
               disabled={busy}
               className="px-3 py-1.5 text-sm border border-input rounded-md hover:bg-accent disabled:opacity-50"
             >
-              取消
+              {t("common:cancel")}
             </button>
             <button
               type="button"
@@ -902,7 +951,11 @@ export function CreateTaskDialog({
               disabled={!title.trim() || !selectedProjectId || busy || defaultsLoading}
               className="px-3 py-1.5 text-sm border border-input rounded-md hover:bg-accent disabled:opacity-50"
             >
-              {saving ? "创建中..." : defaultsLoading ? "加载默认值..." : "创建"}
+              {saving
+                ? t("createDialog.creating")
+                : defaultsLoading
+                  ? t("createDialog.loadingDefaults")
+                  : t("common:create")}
             </button>
             <button
               type="button"
@@ -915,7 +968,11 @@ export function CreateTaskDialog({
               ) : (
                 <Play className="h-3.5 w-3.5" />
               )}
-              {defaultsLoading ? "加载默认值..." : busy ? "创建中..." : "创建并执行"}
+              {defaultsLoading
+                ? t("createDialog.loadingDefaults")
+                : busy
+                  ? t("createDialog.creating")
+                  : t("createDialog.createAndRun")}
             </button>
           </div>
         </div>

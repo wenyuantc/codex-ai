@@ -1,4 +1,5 @@
 import { Loader2, RefreshCw } from "lucide-react";
+import { useTranslation } from "react-i18next";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -32,6 +33,54 @@ import {
   type WorktreeLocationMode,
 } from "@/lib/types";
 import type { OpenCodeModelInfo } from "@/lib/opencode";
+
+const FAILURE_STRATEGY_OPTION_KEY_BY_VALUE: Record<string, string> = {
+  blocked: "blocked",
+  manual_control: "manualControl",
+};
+
+const WORKTREE_LOCATION_OPTION_KEY_BY_VALUE: Record<string, string> = {
+  repo_sibling_hidden: "repoSiblingHidden",
+  repo_child_hidden: "repoChildHidden",
+  custom_root: "customRoot",
+};
+
+const COMMIT_MESSAGE_LENGTH_OPTION_KEY_BY_VALUE: Record<string, string> = {
+  title_with_body: "titleWithBody",
+  title_only: "titleOnly",
+};
+
+const COMMIT_MODEL_SOURCE_OPTION_KEY_BY_VALUE: Record<string, string> = {
+  inherit_one_shot: "inheritOneShot",
+  custom: "custom",
+};
+
+const CODEX_MODEL_OPTION_KEY_BY_VALUE: Record<string, string> = {
+  "gpt-5.6-sol": "gpt56Sol",
+  "gpt-5.6-terra": "gpt56Terra",
+  "gpt-5.6-luna": "gpt56Luna",
+  "gpt-5.5": "gpt55",
+  "gpt-5.4": "gpt54",
+  "gpt-5.2-codex": "gpt52Codex",
+  "gpt-5.1-codex-max": "gpt51CodexMax",
+  "gpt-5.4-mini": "gpt54Mini",
+  "gpt-5.3-codex": "gpt53Codex",
+  "gpt-5.3-codex-spark": "gpt53CodexSpark",
+  "gpt-5.2": "gpt52",
+  "gpt-5.1-codex-mini": "gpt51CodexMini",
+};
+
+const CLAUDE_MODEL_OPTION_KEY_BY_VALUE: Record<string, string> = {
+  opus: "opus",
+  "opus[1m]": "opus1m",
+  sonnet: "sonnet",
+  "sonnet[1m]": "sonnet1m",
+  haiku: "haiku",
+};
+
+const GROK_MODEL_OPTION_KEY_BY_VALUE: Record<string, string> = {
+  "grok-4.5": "grok45",
+};
 
 interface GitAutomationSettingsTabProps {
   isRemoteMode: boolean;
@@ -114,34 +163,99 @@ export function GitAutomationSettingsTab({
   onOpenCodeFetchModels,
   onSave,
 }: GitAutomationSettingsTabProps) {
+  const { t } = useTranslation("settings");
+  const failureStrategyOptions = TASK_AUTOMATION_FAILURE_STRATEGY_OPTIONS.map((option) => ({
+    ...option,
+    label: t(`git.options.failureStrategy.${FAILURE_STRATEGY_OPTION_KEY_BY_VALUE[option.value]}`),
+  }));
+  const worktreeLocationOptions = WORKTREE_LOCATION_MODE_OPTIONS.map((option) => {
+    const key = WORKTREE_LOCATION_OPTION_KEY_BY_VALUE[option.value];
+    return {
+      ...option,
+      label: t(`git.options.worktreeLocation.${key}.label`),
+      description: t(`git.options.worktreeLocation.${key}.description`),
+    };
+  });
+  const commitMessageLengthOptions = AI_COMMIT_MESSAGE_LENGTH_OPTIONS.map((option) => {
+    const key = COMMIT_MESSAGE_LENGTH_OPTION_KEY_BY_VALUE[option.value];
+    return {
+      ...option,
+      label: t(`git.options.commitMessageLength.${key}.label`),
+      description: t(`git.options.commitMessageLength.${key}.description`),
+    };
+  });
+  const commitModelSourceOptions = AI_COMMIT_MODEL_SOURCE_OPTIONS.map((option) => {
+    const key = COMMIT_MODEL_SOURCE_OPTION_KEY_BY_VALUE[option.value];
+    return {
+      ...option,
+      label: t(`git.options.commitModelSource.${key}.label`),
+      description: t(`git.options.commitModelSource.${key}.description`),
+    };
+  });
+  const providerOptions = AI_PROVIDER_OPTIONS.map((option) => ({
+    ...option,
+    label: t(`git.options.providers.${option.value}`),
+  }));
+  const codexModelOptions = CODEX_MODEL_OPTIONS.map((option) => ({
+    ...option,
+    label: t(`git.options.codexModels.${CODEX_MODEL_OPTION_KEY_BY_VALUE[option.value]}`),
+  }));
+  const claudeModelOptions = CLAUDE_MODEL_OPTIONS.map((option) => ({
+    ...option,
+    label: t(`git.options.claudeModels.${CLAUDE_MODEL_OPTION_KEY_BY_VALUE[option.value]}`),
+  }));
+  const grokModelOptions = GROK_MODEL_OPTIONS.map((option) => ({
+    ...option,
+    label: t(`git.options.grokModels.${GROK_MODEL_OPTION_KEY_BY_VALUE[option.value]}`),
+  }));
+  const reasoningEffortOptions = REASONING_EFFORT_OPTIONS.map((option) => ({
+    ...option,
+    label: t(`git.options.reasoningEffort.${option.value}`),
+  }));
+  const openCodeEffortOptions = OPENCODE_EFFORT_OPTIONS.map((option) => ({
+    ...option,
+    label: t(`git.options.reasoningEffort.${option.value}`),
+  }));
+  const grokEffortOptions = GROK_EFFORT_OPTIONS.map((option) => ({
+    ...option,
+    label: t(`git.options.reasoningEffort.${option.value}`),
+  }));
+  const claudeThinkingBudgetOptions = CLAUDE_THINKING_BUDGET_OPTIONS.filter(
+    (option) => option.value !== "auto",
+  ).map((option) => ({
+    ...option,
+    label: t(`git.options.claudeThinkingBudget.${option.value}`),
+  }));
   const showCustomWorktreeRoot = worktreeLocationMode === "custom_root";
-  const selectedWorktreeLocationOption = WORKTREE_LOCATION_MODE_OPTIONS.find(
+  const selectedWorktreeLocationOption = worktreeLocationOptions.find(
     (option) => option.value === worktreeLocationMode,
   );
-  const selectedCommitLengthOption = AI_COMMIT_MESSAGE_LENGTH_OPTIONS.find(
+  const selectedCommitLengthOption = commitMessageLengthOptions.find(
     (option) => option.value === aiCommitMessageLength,
   );
-  const selectedCommitModelSourceOption = AI_COMMIT_MODEL_SOURCE_OPTIONS.find(
+  const selectedCommitModelSourceOption = commitModelSourceOptions.find(
     (option) => option.value === aiCommitModelSource,
   );
-  const worktreeRootPlaceholder = isRemoteMode
-    ? "~/codex-worktrees"
-    : "/Users/wenyuan/codex-worktrees";
+  const worktreeRootPlaceholder = t(
+    isRemoteMode
+      ? "git.preferences.customRootPlaceholderRemote"
+      : "git.preferences.customRootPlaceholderLocal",
+  );
 
   const isGitAiCustom = aiCommitModelSource === "custom";
   const isGitClaudeProvider = gitAiProvider === "claude";
   const isGitOpenCodeProvider = gitAiProvider === "opencode";
   const isGitGrokProvider = gitAiProvider === "grok";
-  const availableGitProviders = AI_PROVIDER_OPTIONS;
+  const availableGitProviders = providerOptions;
   const gitOpenCodeModelOptions =
     opencodeModelList.length > 0
       ? opencodeModelList
       : [
           {
             value: aiCommitModel,
-            label: opencodeModelListLoading ? "正在加载模型..." : "当前模型",
+            label: aiCommitModel,
             providerId: "opencode",
-            providerName: "OpenCode",
+            providerName: t("git.options.providers.opencode"),
             modelId: aiCommitModel.includes("/")
               ? aiCommitModel.split("/").slice(1).join("/")
               : aiCommitModel,
@@ -150,29 +264,22 @@ export function GitAutomationSettingsTab({
         ];
 
   const gitCommitEffortOptions = isGitClaudeProvider
-    ? CLAUDE_THINKING_BUDGET_OPTIONS.filter((option) => option.value !== "auto")
+    ? claudeThinkingBudgetOptions
     : isGitOpenCodeProvider
-      ? OPENCODE_EFFORT_OPTIONS
+      ? openCodeEffortOptions
       : isGitGrokProvider
-        ? GROK_EFFORT_OPTIONS
-        : REASONING_EFFORT_OPTIONS;
+        ? grokEffortOptions
+        : reasoningEffortOptions;
 
-  const gitProviderLabel = isGitClaudeProvider
-    ? "Claude"
-    : isGitOpenCodeProvider
-      ? "OpenCode"
-      : isGitGrokProvider
-        ? "Grok"
-        : "Codex";
+  const gitProviderLabel =
+    providerOptions.find((option) => option.value === gitAiProvider)?.label ?? gitAiProvider;
 
   return (
     <div className="space-y-6">
       <div className="space-y-4 rounded-lg border border-border bg-card p-4">
         <div className="space-y-1">
-          <h3 className="text-sm font-medium">自动质控默认设置</h3>
-          <p className="text-xs text-muted-foreground">
-            影响新建任务默认是否开启自动质控，以及自动审核/自动修复闭环的默认策略。
-          </p>
+          <h3 className="text-sm font-medium">{t("git.automation.title")}</h3>
+          <p className="text-xs text-muted-foreground">{t("git.automation.description")}</p>
         </div>
 
         <label className="flex items-start gap-3 rounded-md border border-border px-3 py-2">
@@ -184,16 +291,16 @@ export function GitAutomationSettingsTab({
             disabled={healthLoading || actionLoading !== null}
           />
           <div className="space-y-1">
-            <p className="text-sm font-medium">新建任务默认开启自动质控</p>
+            <p className="text-sm font-medium">{t("git.automation.enableDefaultTitle")}</p>
             <p className="text-xs text-muted-foreground">
-              开启后，新任务会默认进入"审核 {"->"} 修复 {"->"} 再审核"的闭环流程。
+              {t("git.automation.enableDefaultDescription")}
             </p>
           </div>
         </label>
 
         <div className="grid gap-3 md:grid-cols-2">
           <div className="space-y-2">
-            <label className="text-sm font-medium">最大自动修复轮次</label>
+            <label className="text-sm font-medium">{t("git.automation.maxFixRoundsLabel")}</label>
             <Select
               value={String(taskAutomationMaxFixRounds)}
               onValueChange={(value) => {
@@ -207,14 +314,16 @@ export function GitAutomationSettingsTab({
               <SelectTrigger className="bg-background">
                 <SelectValue>
                   {(value) =>
-                    typeof value === "string" && value.trim() ? `${value} 轮` : "选择轮次"
+                    typeof value === "string" && value.trim()
+                      ? t("git.automation.roundsValue", { count: Number(value) })
+                      : t("git.automation.selectRounds")
                   }
                 </SelectValue>
               </SelectTrigger>
               <SelectContent>
                 {Array.from({ length: 10 }, (_, index) => index + 1).map((round) => (
                   <SelectItem key={round} value={String(round)}>
-                    {round} 轮
+                    {t("git.automation.roundsValue", { count: round })}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -222,7 +331,9 @@ export function GitAutomationSettingsTab({
           </div>
 
           <div className="space-y-2">
-            <label className="text-sm font-medium">失败后处理</label>
+            <label className="text-sm font-medium">
+              {t("git.automation.failureStrategyLabel")}
+            </label>
             <Select<TaskAutomationFailureStrategy>
               value={taskAutomationFailureStrategy}
               onValueChange={(value) => {
@@ -238,15 +349,14 @@ export function GitAutomationSettingsTab({
                 <SelectValue>
                   {(value) =>
                     typeof value === "string"
-                      ? (TASK_AUTOMATION_FAILURE_STRATEGY_OPTIONS.find(
-                          (option) => option.value === value,
-                        )?.label ?? value)
-                      : "选择失败策略"
+                      ? (failureStrategyOptions.find((option) => option.value === value)?.label ??
+                        value)
+                      : t("git.automation.selectFailureStrategy")
                   }
                 </SelectValue>
               </SelectTrigger>
               <SelectContent>
-                {TASK_AUTOMATION_FAILURE_STRATEGY_OPTIONS.map((option) => (
+                {failureStrategyOptions.map((option) => (
                   <SelectItem key={option.value} value={option.value}>
                     {option.label}
                   </SelectItem>
@@ -257,26 +367,30 @@ export function GitAutomationSettingsTab({
         </div>
 
         <p className="text-xs leading-5 text-muted-foreground">
-          当前策略：
-          {taskAutomationDefaultEnabled ? " 新任务默认开启自动质控；" : " 新任务默认关闭自动质控；"}
-          最多自动修复 {taskAutomationMaxFixRounds} 轮； 失败后
-          {taskAutomationFailureStrategy === "manual_control" ? "转人工处理" : "转阻塞"}。
+          {t("git.automation.summaryTemplate", {
+            defaultMode: t(
+              taskAutomationDefaultEnabled
+                ? "git.automation.defaultOn"
+                : "git.automation.defaultOff",
+            ),
+            rounds: t("git.automation.roundsValue", { count: taskAutomationMaxFixRounds }),
+            strategy:
+              failureStrategyOptions.find(
+                (option) => option.value === taskAutomationFailureStrategy,
+              )?.label ?? taskAutomationFailureStrategy,
+          })}
         </p>
       </div>
 
       <div className="space-y-4 rounded-lg border border-border bg-card p-4">
         <div className="space-y-1">
-          <h3 className="text-sm font-medium">测试员自动化（先测后审）</h3>
-          <p className="text-xs text-muted-foreground">
-            开发会话成功结束后先跑测试验收，通过后再进入自动 code review。命令失败为硬失败，不可被
-            AI 单独改判。
-          </p>
+          <h3 className="text-sm font-medium">{t("git.tester.title")}</h3>
+          <p className="text-xs text-muted-foreground">{t("git.tester.description")}</p>
         </div>
 
         {!testerAutomationEnabled && (
           <div className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs leading-5 text-amber-900 dark:text-amber-100">
-            当前未启用。推荐开启后，任务执行完成会自动进入测试员验收，再继续审核；否则看起来「测试员没有作用」。
-            也可在看板顶部查看提示入口。
+            {t("git.tester.disabledNotice")}
           </div>
         )}
 
@@ -289,10 +403,8 @@ export function GitAutomationSettingsTab({
             disabled={healthLoading || actionLoading !== null}
           />
           <div className="space-y-1">
-            <p className="text-sm font-medium">启用测试员自动化</p>
-            <p className="text-xs text-muted-foreground">
-              关闭时保持旧路径：执行结束后直接进入审核。
-            </p>
+            <p className="text-sm font-medium">{t("git.tester.enableTitle")}</p>
+            <p className="text-xs text-muted-foreground">{t("git.tester.enableDescription")}</p>
           </div>
         </label>
 
@@ -305,34 +417,32 @@ export function GitAutomationSettingsTab({
             disabled={healthLoading || actionLoading !== null}
           />
           <div className="space-y-1">
-            <p className="text-sm font-medium">允许无测试命令时仅 AI/清单验收</p>
+            <p className="text-sm font-medium">{t("git.tester.allowAiOnlyTitle")}</p>
             <p className="text-xs text-muted-foreground">
-              未配置测试命令时结果偏主观；关闭则自动路径跳过测试阶段。
+              {t("git.tester.allowAiOnlyDescription")}
             </p>
           </div>
         </label>
 
         <div className="space-y-2">
-          <label className="text-sm font-medium">默认测试命令</label>
+          <label className="text-sm font-medium">{t("git.tester.defaultTestCommandLabel")}</label>
           <Input
             value={defaultTestCommand}
             onChange={(event) => onDefaultTestCommandChange(event.target.value)}
-            placeholder="例如 npm test 或 cargo test"
+            placeholder={t("git.tester.defaultTestCommandPlaceholder")}
             disabled={healthLoading || actionLoading !== null}
             className="bg-background font-mono text-sm"
           />
           <p className="text-xs text-muted-foreground">
-            项目可单独覆盖。local 在工作目录执行，SSH 在远程对应目录执行。
+            {t("git.tester.defaultTestCommandDescription")}
           </p>
         </div>
       </div>
 
       <div className="space-y-4 rounded-lg border border-border bg-card p-4">
         <div className="space-y-1">
-          <h3 className="text-sm font-medium">Git 偏好</h3>
-          <p className="text-xs text-muted-foreground">
-            控制新任务的 Worktree 默认行为，以及 AI 生成 Git 提交信息时的长度。
-          </p>
+          <h3 className="text-sm font-medium">{t("git.preferences.title")}</h3>
+          <p className="text-xs text-muted-foreground">{t("git.preferences.description")}</p>
         </div>
 
         <label className="flex items-start gap-3 rounded-md border border-border px-3 py-2">
@@ -344,16 +454,18 @@ export function GitAutomationSettingsTab({
             disabled={healthLoading || actionLoading !== null}
           />
           <div className="space-y-1">
-            <p className="text-sm font-medium">新建任务默认启用 Worktree</p>
+            <p className="text-sm font-medium">{t("git.preferences.enableWorktreeTitle")}</p>
             <p className="text-xs text-muted-foreground">
-              开启后，新建任务会默认准备独立 Worktree；仍然可以在任务创建弹窗里单独改掉。
+              {t("git.preferences.enableWorktreeDescription")}
             </p>
           </div>
         </label>
 
         <div className="grid gap-3 md:grid-cols-2">
           <div className="space-y-2">
-            <label className="text-sm font-medium">Worktree 目录规则</label>
+            <label className="text-sm font-medium">
+              {t("git.preferences.worktreeLocationLabel")}
+            </label>
             <Select<WorktreeLocationMode>
               value={worktreeLocationMode}
               onValueChange={(value) => {
@@ -367,14 +479,14 @@ export function GitAutomationSettingsTab({
                 <SelectValue>
                   {(value) =>
                     typeof value === "string"
-                      ? (WORKTREE_LOCATION_MODE_OPTIONS.find((option) => option.value === value)
-                          ?.label ?? value)
-                      : "选择 Worktree 目录规则"
+                      ? (worktreeLocationOptions.find((option) => option.value === value)?.label ??
+                        value)
+                      : t("git.preferences.selectWorktreeLocation")
                   }
                 </SelectValue>
               </SelectTrigger>
               <SelectContent>
-                {WORKTREE_LOCATION_MODE_OPTIONS.map((option) => (
+                {worktreeLocationOptions.map((option) => (
                   <SelectItem key={option.value} value={option.value}>
                     {option.label}
                   </SelectItem>
@@ -387,7 +499,9 @@ export function GitAutomationSettingsTab({
           </div>
 
           <div className="space-y-2">
-            <label className="text-sm font-medium">AI 提交信息默认长度</label>
+            <label className="text-sm font-medium">
+              {t("git.preferences.commitMessageLengthLabel")}
+            </label>
             <Select<AiCommitMessageLength>
               value={aiCommitMessageLength}
               onValueChange={(value) => {
@@ -401,14 +515,14 @@ export function GitAutomationSettingsTab({
                 <SelectValue>
                   {(value) =>
                     typeof value === "string"
-                      ? (AI_COMMIT_MESSAGE_LENGTH_OPTIONS.find((option) => option.value === value)
+                      ? (commitMessageLengthOptions.find((option) => option.value === value)
                           ?.label ?? value)
-                      : "选择提交信息长度"
+                      : t("git.preferences.selectCommitMessageLength")
                   }
                 </SelectValue>
               </SelectTrigger>
               <SelectContent>
-                {AI_COMMIT_MESSAGE_LENGTH_OPTIONS.map((option) => (
+                {commitMessageLengthOptions.map((option) => (
                   <SelectItem key={option.value} value={option.value}>
                     {option.label}
                   </SelectItem>
@@ -424,7 +538,7 @@ export function GitAutomationSettingsTab({
         {showCustomWorktreeRoot && (
           <div className="space-y-2">
             <label htmlFor="worktree-custom-root" className="text-sm font-medium">
-              自定义 Worktree 根目录
+              {t("git.preferences.customRootLabel")}
             </label>
             <Input
               id="worktree-custom-root"
@@ -435,8 +549,8 @@ export function GitAutomationSettingsTab({
             />
             <p className="text-xs text-muted-foreground">
               {isRemoteMode
-                ? "SSH 配置下要求绝对路径或 ~/ 开头，最终目录结构为 <root>/<repo>/<task>。"
-                : "本地配置下要求绝对路径，最终目录结构为 <root>/<repo>/<task>。"}
+                ? t("git.preferences.customRootDescriptionRemote")
+                : t("git.preferences.customRootDescriptionLocal")}
             </p>
           </div>
         )}
@@ -445,19 +559,17 @@ export function GitAutomationSettingsTab({
       <div className="space-y-4 rounded-lg border border-border bg-card p-4">
         <div className="flex items-start justify-between gap-4">
           <div className="space-y-1">
-            <h3 className="text-sm font-medium">Git AI</h3>
-            <p className="text-xs text-muted-foreground">
-              控制 AI 自动生成 Git 提交信息时使用的提供商、模型和推理强度。
-            </p>
+            <h3 className="text-sm font-medium">{t("git.gitAi.title")}</h3>
+            <p className="text-xs text-muted-foreground">{t("git.gitAi.description")}</p>
           </div>
           <span className="rounded bg-secondary px-2 py-1 text-xs text-secondary-foreground">
-            {isGitAiCustom ? gitProviderLabel : "跟随一次性 AI"}
+            {isGitAiCustom ? gitProviderLabel : t("git.gitAi.badgeFollowOneShot")}
           </span>
         </div>
 
         <div className="grid gap-3 md:grid-cols-2">
           <div className="space-y-2">
-            <label className="text-sm font-medium">模型来源</label>
+            <label className="text-sm font-medium">{t("git.gitAi.modelSourceLabel")}</label>
             <Select<AiCommitModelSource>
               value={aiCommitModelSource}
               onValueChange={(value) => {
@@ -471,7 +583,7 @@ export function GitAutomationSettingsTab({
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                {AI_COMMIT_MODEL_SOURCE_OPTIONS.map((option) => (
+                {commitModelSourceOptions.map((option) => (
                   <SelectItem key={option.value} value={option.value}>
                     {option.label}
                   </SelectItem>
@@ -484,7 +596,7 @@ export function GitAutomationSettingsTab({
           </div>
 
           <div className="space-y-2">
-            <label className="text-sm font-medium">AI 提供商</label>
+            <label className="text-sm font-medium">{t("git.gitAi.providerLabel")}</label>
             <Select<AiProvider>
               value={gitAiProvider}
               onValueChange={(value) => {
@@ -510,7 +622,7 @@ export function GitAutomationSettingsTab({
 
         <div className="grid gap-3 md:grid-cols-2">
           <div className="space-y-2">
-            <label className="text-sm font-medium">Git AI 模型</label>
+            <label className="text-sm font-medium">{t("git.gitAi.modelLabel")}</label>
             {isGitOpenCodeProvider ? (
               <div className="flex gap-2">
                 <div className="flex-1">
@@ -544,7 +656,7 @@ export function GitAutomationSettingsTab({
                     <Input
                       value={aiCommitModel}
                       onChange={(event) => onAiCommitModelChange(event.target.value)}
-                      placeholder="openai/gpt-4o"
+                      placeholder={t("runtime.oneShot.modelPlaceholder")}
                       disabled={healthLoading || actionLoading !== null || !isGitAiCustom}
                     />
                   )}
@@ -559,7 +671,7 @@ export function GitAutomationSettingsTab({
                     actionLoading !== null ||
                     !isGitAiCustom
                   }
-                  title="从 OpenCode SDK 获取模型列表"
+                  title={t("runtime.opencode.fetchModelsTitle")}
                 >
                   {opencodeModelListLoading ? (
                     <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -583,10 +695,10 @@ export function GitAutomationSettingsTab({
                 </SelectTrigger>
                 <SelectContent>
                   {(isGitClaudeProvider
-                    ? CLAUDE_MODEL_OPTIONS
+                    ? claudeModelOptions
                     : isGitGrokProvider
-                      ? GROK_MODEL_OPTIONS
-                      : CODEX_MODEL_OPTIONS
+                      ? grokModelOptions
+                      : codexModelOptions
                   ).map((option) => (
                     <SelectItem key={option.value} value={option.value}>
                       {option.label}
@@ -598,14 +710,14 @@ export function GitAutomationSettingsTab({
             {isGitOpenCodeProvider && (
               <p className="text-xs text-muted-foreground">
                 {opencodeModelList.length > 0
-                  ? `已加载 ${opencodeModelList.length} 个可用模型`
-                  : "格式: provider/modelID（例如 openai/gpt-4o）"}
+                  ? t("git.gitAi.loadedModels", { count: opencodeModelList.length })
+                  : t("git.gitAi.modelFormat")}
               </p>
             )}
           </div>
 
           <div className="space-y-2">
-            <label className="text-sm font-medium">Git AI 推理强度</label>
+            <label className="text-sm font-medium">{t("git.gitAi.reasoningLabel")}</label>
             <Select
               value={aiCommitReasoningEffort}
               onValueChange={(value) => {
@@ -630,11 +742,20 @@ export function GitAutomationSettingsTab({
         </div>
 
         <div className="rounded-md border border-border px-3 py-3 text-xs text-muted-foreground">
-          <p>当前 Git AI：{isGitAiCustom ? gitProviderLabel : "跟随一次性 AI"}</p>
+          <p>
+            {t("git.gitAi.currentProviderLabel")}:
+            {isGitAiCustom ? gitProviderLabel : t("git.gitAi.badgeFollowOneShot")}
+          </p>
           {isGitAiCustom && (
             <>
-              <p>当前模型：{aiCommitModel}</p>
-              <p>当前推理强度：{aiCommitReasoningEffort}</p>
+              <p>
+                {t("git.gitAi.currentModelLabel")}:{aiCommitModel}
+              </p>
+              <p>
+                {t("git.gitAi.currentReasoningLabel")}:
+                {gitCommitEffortOptions.find((option) => option.value === aiCommitReasoningEffort)
+                  ?.label ?? aiCommitReasoningEffort}
+              </p>
             </>
           )}
         </div>
@@ -647,7 +768,7 @@ export function GitAutomationSettingsTab({
             }
           >
             {actionLoading === "save" ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-            保存配置
+            {t("git.gitAi.actions.save")}
           </Button>
         </div>
 

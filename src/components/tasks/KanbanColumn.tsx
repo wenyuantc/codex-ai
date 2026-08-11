@@ -1,4 +1,5 @@
 import { memo, useRef } from "react";
+import { useTranslation } from "react-i18next";
 import { useDroppable } from "@dnd-kit/core";
 import { SortableContext, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { useVirtualizer } from "@tanstack/react-virtual";
@@ -51,6 +52,7 @@ export const KanbanColumn = memo(function KanbanColumn({
   onOpenLog,
   onGitActionCompleted,
 }: KanbanColumnProps) {
+  const { t } = useTranslation("kanban");
   const { setNodeRef, isOver } = useDroppable({
     id: status,
     data: { type: "column", status },
@@ -132,7 +134,9 @@ export const KanbanColumn = memo(function KanbanColumn({
             <div className="space-y-2">
               {tasks.map((task) => renderTaskCard(task))}
               {tasks.length === 0 && (
-                <div className="text-xs text-muted-foreground text-center py-6">拖拽任务到此处</div>
+                <div className="text-xs text-muted-foreground text-center py-6">
+                  {t("dragHere")}
+                </div>
               )}
             </div>
           )}

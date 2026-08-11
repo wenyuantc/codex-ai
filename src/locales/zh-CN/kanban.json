@@ -32,5 +32,13 @@
   "testerTip": "测试员自动化当前关闭：任务做完不会自动验收。可在",
   "testerTipLink": "设置 → Git 与自动质控",
   "testerTipSuffix": "开启「启用测试员自动化」。",
-  "gotIt": "知道了"
+  "gotIt": "知道了",
+  "dragHere": "拖拽任务到此处",
+  "blockedReasonPrompt": "请填写阻塞原因（必填）：",
+  "taskDetailFallbackTitle": "任务详情渲染失败",
+  "taskDetailFallbackDescription": "全局搜索定位到的任务详情弹窗出现运行时异常。",
+  "autoQcPrefix": "自动质控·{{status}}",
+  "acceptancePrefix": "验收·{{status}}",
+  "accumulated": "累计：{{duration}}",
+  "completedAt": "完成：{{date}}"
 }

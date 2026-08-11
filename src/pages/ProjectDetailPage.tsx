@@ -79,6 +79,11 @@ import {
 } from "@/lib/utils";
 import { getProjectWorkingDir, getProjectTypeLabel } from "@/lib/projects";
 import i18n from "@/lib/i18n";
+import {
+  getRepoHealthCheckDetail,
+  getRepoHealthCheckLabel,
+  getRepoHealthMessage,
+} from "@/lib/repoHealthI18n";
 
 const ProjectGitFilePreviewDialog = lazy(async () => {
   const module = await import("@/components/projects/ProjectGitFilePreviewDialog");
@@ -797,7 +802,7 @@ export function ProjectDetailPage() {
                 : "border-amber-500/30 bg-amber-500/10 text-amber-950 dark:text-amber-100"
             }`}
           >
-            <p className="font-medium">{repoHealth.message}</p>
+            <p className="font-medium">{getRepoHealthMessage(repoHealth)}</p>
             <ul className="mt-2 space-y-1">
               {repoHealth.checks.map((check) => (
                 <li key={check.key} className="flex items-start gap-2">
@@ -811,8 +816,8 @@ export function ProjectDetailPage() {
                     {check.passed ? "✓" : "!"}
                   </span>
                   <span>
-                    <span className="font-medium">{check.label}：</span>
-                    {check.detail}
+                    <span className="font-medium">{getRepoHealthCheckLabel(check)}：</span>
+                    {getRepoHealthCheckDetail(repoHealth, check)}
                   </span>
                 </li>
               ))}

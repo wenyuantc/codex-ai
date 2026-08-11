@@ -1,4 +1,5 @@
 import { memo, useEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { createPortal } from "react-dom";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
@@ -50,6 +51,7 @@ import {
 import { getPipelineKanbanBadgeLabel } from "@/lib/pipelineUi";
 import { onTaskAutomationStateChanged } from "@/lib/codex";
 import { resolveTaskPrimaryCta } from "@/lib/taskPrimaryCta";
+import { mapAutomationNote } from "@/lib/i18n/mapAutomationNote";
 import { countStageableGitFiles } from "@/lib/gitWorkingTree";
 import { buildTaskExecutionInput } from "@/lib/taskPrompt";
 import {
@@ -180,6 +182,7 @@ function TaskCardComponent({
   onOpenLog,
   onGitActionCompleted,
 }: TaskCardProps) {
+  const { t } = useTranslation("tasks");
   const [showDetail, setShowDetail] = useState(false);
   const [showContinueDialog, setShowContinueDialog] = useState(false);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
@@ -1293,18 +1296,24 @@ function TaskCardComponent({
                     : "bg-muted text-muted-foreground"
                 }`}
                 title={
-                  automationState.note ??
-                  (automationState.enabled ? "自动质控已开启" : "自动质控未开启")
+                  (automationState.note ? mapAutomationNote(automationState.note) : null) ??
+                  (automationState.enabled
+                    ? t("card.autoQcEnabledTitle")
+                    : t("card.autoQcDisabledTitle"))
                 }
               >
                 <Bot className="h-3 w-3" />
-                自动质控·{getTaskAutomationStatusLabel(automationState.status)}
+                {t("card.autoQcPrefix", {
+                  status: getTaskAutomationStatusLabel(automationState.status),
+                })}
               </span>
               <span
                 className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] ${getAcceptanceStatusClassName(task.last_acceptance_status)}`}
-                title="最近一次测试验收状态"
+                title={t("card.acceptanceStatusTitle")}
               >
-                验收·{getAcceptanceStatusLabel(task.last_acceptance_status)}
+                {t("card.acceptancePrefix", {
+                  status: getAcceptanceStatusLabel(task.last_acceptance_status),
+                })}
               </span>
               {isWorktreeModeEnabled && (
                 <span
@@ -1571,7 +1580,9 @@ function TaskCardComponent({
                   ) : (
                     <Play className="h-4 w-4" />
                   )}
-                  {primaryCta.kind === "review" && !isReviewRunning ? "审核代码" : primaryCta.label}
+                  {primaryCta.kind === "review" && !isReviewRunning
+                    ? t("detail.secondary.reviewCode")
+                    : primaryCta.label}
                 </button>
               )}
               {canMarkCompleted && (
@@ -1681,7 +1692,7 @@ function TaskCardComponent({
                   ) : (
                     <GitBranch className="h-4 w-4" />
                   )}
-                  {openingCommitDialog ? "准备提交中" : "提交代码"}
+                  {openingCommitDialog ? t("card.preparingCommit") : t("primaryCta.commit.label")}
                 </button>
               )}
               {canAiCommitTaskCode && (
@@ -1753,7 +1764,7 @@ function TaskCardComponent({
                 ) : (
                   <Bot className="h-4 w-4" />
                 )}
-                {automationState.enabled ? "关闭自动质控" : "开启自动质控"}
+                {automationState.enabled ? t("card.disableAutoQc") : t("card.enableAutoQc")}
               </button>
               {canRestartAutomation && (
                 <button

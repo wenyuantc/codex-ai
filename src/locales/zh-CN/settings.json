@@ -19,5 +19,720 @@
     "description": "选择应用显示语言，重启后保持",
     "zhCN": "简体中文",
     "en": "English"
+  },
+  "page": {
+    "title": "系统设置",
+    "description": "当前处于 {{mode}}，Codex 运行配置与 SSH 配置分开保存。",
+    "engineCapabilities": {
+      "title": "四引擎能力对照",
+      "description": "Codex、Claude、Grok、OpenCode 均支持启动、停止、重启与续聊。重启语义为停止当前运行后重新启动，并非恢复旧 CLI 会话。四个引擎均为非交互批处理，不支持在会话中发送输入。",
+      "notes": {
+        "codex": "支持启动/停止/续聊/会话中输入（SDK 通道保留 stdin，运行中可 send_codex_input）；重启=停止当前运行后重新启动（非 CLI resume 旧会话）。CLI 批处理通道无 stdin，发送会返回明确错误。",
+        "claude": "支持启动/停止/续聊/会话中输入（SDK bridge 保留 stdin）；重启=停止当前运行后重新启动（非 CLI resume 旧会话）。CLI 批处理通道不支持会话中输入。",
+        "opencode": "支持启动/停止/续聊/会话中输入（SDK bridge 保留 stdin，同一 OpenCode session 上追加 prompt）；重启=停止当前运行后重新启动（非 CLI resume 旧会话）。",
+        "grok": "支持启动/停止/续聊；重启=停止当前运行后重新启动（非 CLI resume 旧会话）。Grok 为 headless CLI（-p + Stdio::null），无会话中可写 stdin（B1 豁免）。"
+      }
+    },
+    "databaseDialogs": {
+      "fileFilterName": "SQL 备份",
+      "exportTitle": "导出 SQL 备份",
+      "importTitle": "导入 SQL 备份",
+      "importConfirmMessage": "导入 SQL 会先自动备份当前数据库，再清空现有数据库并执行导入 SQL。",
+      "selectBackupTitle": "选择 SQL 备份文件",
+      "importCompleteTitle": "SQL 导入完成",
+      "importCompleteMessage": "{{message}}\n\n导入前自动备份：{{backupPath}}"
+    },
+    "sshDialogs": {
+      "selectPrivateKeyTitle": "选择私钥文件",
+      "deleteTitle": "删除 SSH 配置",
+      "deleteConfirm": "确认删除 SSH 配置“{{name}}”？"
+    },
+    "messages": {
+      "runtime": {
+        "noSshConfigAvailable": "当前没有可用的 SSH 配置，请先创建并选择 SSH 配置。",
+        "loadCodexSettingsFailed": "读取 Codex 配置失败",
+        "customWorktreeRootRequired": "自定义 Worktree 根目录不能为空。",
+        "remoteConfigSaved": "远程配置已保存到 {{name}}",
+        "systemSettingsSaved": "系统设置已保存",
+        "saveCodexConfigFailed": "保存 Codex 配置失败",
+        "selectSshConfigBeforeInstallRemoteSdk": "请先选择 SSH 配置后再安装远程 SDK。",
+        "remoteSdkInstalled": "远程 SDK 安装完成，版本 {{version}}",
+        "localSdkInstalled": "本地 SDK 安装完成，版本 {{version}}",
+        "installCodexSdkFailed": "安装 Codex SDK 失败"
+      },
+      "opencode": {
+        "remoteHealthCheckFailed": "远程 OpenCode 健康检查失败",
+        "localOnly": "OpenCode SDK 配置仅适用于本地执行目标。",
+        "settingsSaved": "OpenCode 设置已保存",
+        "saveFailed": "保存 OpenCode 设置失败",
+        "fetchModelsFailed": "获取模型列表失败",
+        "selectSshConfigBeforeRemoteInstall": "请先选择 SSH 配置后再安装远程 OpenCode SDK。",
+        "remoteSdkInstalled": "远程 OpenCode SDK 安装完成，版本 {{version}}",
+        "localSdkInstalled": "OpenCode SDK 安装完成，版本 {{version}}",
+        "installFailed": "安装 OpenCode SDK 失败"
+      },
+      "claude": {
+        "localOnly": "Claude SDK 配置仅适用于本地执行目标，SSH 目标会使用远端 Claude CLI。",
+        "settingsSaved": "Claude 设置已保存",
+        "saveFailed": "保存 Claude 设置失败",
+        "installLocalOnly": "Claude SDK 安装仅适用于本地执行目标，SSH 目标请在远端安装 Claude CLI。",
+        "sdkInstalled": "Claude SDK 安装完成，版本 {{version}}",
+        "installFailed": "安装 Claude SDK 失败"
+      },
+      "grok": {
+        "remoteHealthCheckFailed": "远程 Grok 健康检查失败",
+        "loadSettingsFailed": "加载 Grok 设置失败",
+        "selectSshConfigBeforeRemoteInstall": "请先选择 SSH 配置后再安装远程 Grok CLI。",
+        "remoteCliInstalled": "远程 Grok CLI 安装完成，版本 {{version}}",
+        "localCliInstalled": "本地 Grok CLI 安装完成，版本 {{version}}",
+        "installFailed": "安装 Grok CLI 失败",
+        "settingsSaved": "Grok 设置已保存",
+        "saveFailed": "保存 Grok 设置失败"
+      },
+      "database": {
+        "exportFailed": "导出 SQL 备份失败",
+        "openFolderFailed": "打开数据库文件夹失败",
+        "importFailed": "导入 SQL 备份失败"
+      },
+      "ssh": {
+        "selectPrivateKeyFailed": "选择私钥文件失败",
+        "requiredFields": "SSH 配置名称、主机和用户名不能为空。",
+        "privateKeyRequired": "密钥登录必须填写私钥路径。",
+        "configUpdated": "SSH 配置已更新。",
+        "configCreated": "SSH 配置已创建。",
+        "saveFailed": "保存 SSH 配置失败",
+        "configDeleted": "SSH 配置已删除。",
+        "deleteFailed": "删除 SSH 配置失败",
+        "passwordProbeResult": "测试连接结果：{{message}}",
+        "testConnectionSuccess": "测试连接成功，远程主机可访问。",
+        "testConnectionSuccessButCodexUnavailable": "测试连接成功，但远程 Codex 当前不可用：{{message}}",
+        "testConnectionFailed": "SSH 测试连接失败"
+      }
+    }
+  },
+  "runtime": {
+    "target": {
+      "localTitle": "本地执行目标",
+      "remoteTitle": "远程执行目标",
+      "localSummary": "当前保存的是本地运行配置。",
+      "remoteSummary": "当前远程配置：{{name}}（{{summary}}）",
+      "localBadge": "本地配置",
+      "remoteBadge": "SSH 配置",
+      "currentSshConfig": "当前 SSH 配置",
+      "noSshConfigSelected": "未选择 SSH 配置",
+      "missingSshConfig": "当前是 SSH 模式，但还没有可用的 SSH 配置。请先切到 SSH 配置页新增或选择配置。",
+      "blockedTitle": "配置存在但当前平台不可执行",
+      "blockedDescription": "当前 SSH 配置使用密码认证，但测试连接尚未通过。远程 Codex 校验、SDK 安装和实际执行链路都必须保持阻断。"
+    },
+    "common": {
+      "version": "版本",
+      "host": "主机",
+      "lastError": "最近错误",
+      "installDir": "安装目录",
+      "node": "Node",
+      "sdk": "SDK",
+      "cli": "CLI",
+      "taskEngine": "任务运行引擎",
+      "currentChannel": "当前通道",
+      "checkedAt": "检测时间",
+      "remoteStatus": "远程状态",
+      "remoteNode": "远程 Node",
+      "remoteSdkVersion": "远程 SDK 版本",
+      "localStatus": "本地状态",
+      "localPath": "本地路径",
+      "localVersion": "本地版本",
+      "localLogin": "本地登录",
+      "remoteVersion": "远程版本",
+      "remoteLogin": "远程登录",
+      "currentProvider": "当前一次性 AI 提供商",
+      "executionChannel": "当前执行通道",
+      "currentModel": "当前模型"
+    },
+    "status": {
+      "checking": "检测中",
+      "connected": "已连接",
+      "unavailable": "不可用",
+      "available": "可用",
+      "installed": "已安装",
+      "notInstalled": "未安装",
+      "remoteAvailable": "远程可用",
+      "notReady": "未就绪",
+      "loggedIn": "已登录",
+      "notLoggedIn": "未登录"
+    },
+    "options": {
+      "providers": {
+        "codex": "Codex（OpenAI）",
+        "claude": "Claude（Anthropic）",
+        "opencode": "OpenCode（开源）",
+        "grok": "Grok"
+      },
+      "reasoningEffort": {
+        "low": "低",
+        "medium": "中",
+        "high": "高",
+        "xhigh": "最高",
+        "max": "极高"
+      },
+      "claudeThinkingBudget": {
+        "low": "低",
+        "medium": "中",
+        "high": "高",
+        "xhigh": "超高",
+        "max": "最大",
+        "auto": "自动"
+      },
+      "codexModels": {
+        "gpt56Sol": "GPT-5.6-Sol",
+        "gpt56Terra": "GPT-5.6-Terra",
+        "gpt56Luna": "GPT-5.6-Luna",
+        "gpt55": "GPT-5.5",
+        "gpt54": "GPT-5.4",
+        "gpt52Codex": "GPT-5.2-Codex",
+        "gpt51CodexMax": "GPT-5.1-Codex-Max",
+        "gpt54Mini": "GPT-5.4-Mini",
+        "gpt53Codex": "GPT-5.3-Codex",
+        "gpt53CodexSpark": "GPT-5.3-Codex-Spark",
+        "gpt52": "GPT-5.2",
+        "gpt51CodexMini": "GPT-5.1-Codex-Mini"
+      },
+      "claudeModels": {
+        "opus": "Claude Opus",
+        "opus1m": "Claude Opus 1M",
+        "sonnet": "Claude Sonnet",
+        "sonnet1m": "Claude Sonnet 1M",
+        "haiku": "Claude Haiku"
+      },
+      "grokModels": {
+        "grok45": "Grok 4.5"
+      }
+    },
+    "codexCli": {
+      "title": "Codex CLI",
+      "descriptionLocal": "作为回退通道保留，用于 SDK 不可用时继续执行任务。",
+      "descriptionRemote": "SSH 模式下会校验当前 SSH 配置对应远程主机的 Codex 环境。"
+    },
+    "codexSdk": {
+      "title": "Codex SDK",
+      "descriptionLocal": "任务运行优先走 SDK，失败时自动回退到 `codex exec`。一次性 AI 在下方单独配置。",
+      "descriptionRemote": "SSH 模式下任务运行会优先使用远程 SDK；如果远程 SDK 不可用，则自动回退到远程 `codex exec`。",
+      "taskStatus": "任务 {{provider}}",
+      "useSdkTitle": "运行任务时使用 SDK",
+      "useSdkDescription": "影响看板任务运行、员工启动任务，以及相关重启与恢复链路。",
+      "nodePathTitle": "Node 路径覆盖（可选）",
+      "nodePathDescription": "留空时自动从系统 PATH 中查找 Node。",
+      "nodePathPlaceholderLocal": "/opt/homebrew/bin/node",
+      "nodePathPlaceholderRemote": "/usr/local/bin/node",
+      "taskProvider": {
+        "sdk": "SDK",
+        "execFallback": "exec（自动回退）"
+      },
+      "actions": {
+        "install": "安装 SDK",
+        "reinstall": "重装 SDK",
+        "refresh": "刷新检测"
+      }
+    },
+    "oneShot": {
+      "title": "一次性 AI",
+      "description": "控制任务详情中的 AI 分析、评论生成、计划生成和子任务拆分默认通道。",
+      "statusBadge": "{{provider}} / {{channel}}",
+      "providerLabel": "AI 提供商",
+      "preferSdkTitle": "优先使用 SDK",
+      "enableOpenCodeSdkTitle": "启用 OpenCode SDK",
+      "preferSdkDescriptionCodexLocal": "优先通过 Codex SDK 执行，失败时自动回退到 `codex exec`。",
+      "preferSdkDescriptionCodexRemote": "SSH 模式下优先使用远程 Codex SDK，失败时自动回退到远程 `codex exec`。",
+      "preferSdkDescriptionClaude": "优先通过 Claude SDK 执行，失败时自动回退到 Claude CLI。",
+      "preferSdkDescriptionOpenCode": "OpenCode 当前仅支持本地 SDK；关闭后一次性 AI 将不可用。",
+      "sshGrokNotice": "SSH 模式下 Grok 一次性 AI 固定通过远端 Grok CLI 执行，远端需已安装并完成 `grok login`。",
+      "sshClaudeNotice": "SSH 模式下 Claude 一次性 AI 固定通过远端 Claude CLI 执行。",
+      "modelLabel": "一次性 AI 模型",
+      "reasoningLabel": "一次性 AI 推理强度",
+      "modelPlaceholder": "openai/gpt-4o",
+      "fetchModelsTitle": "从 OpenCode SDK 获取模型列表",
+      "loadedModels": "已加载 {{count}} 个可用模型",
+      "loadedGrokModels": "已从 CLI 加载 {{count}} 个模型",
+      "modelFormat": "格式：provider/modelID（例如 openai/gpt-4o）",
+      "usingStaticModelList": "CLI 不可用时使用静态模型列表",
+      "loadingGrokModels": "正在加载 Grok 模型列表...",
+      "channel": {
+        "sdk": "SDK",
+        "cli": "CLI",
+        "cliRemote": "CLI（远程）",
+        "execFallback": "exec（自动回退）",
+        "execRemote": "exec（远程）",
+        "unavailable": "不可用"
+      },
+      "actions": {
+        "save": "保存配置"
+      },
+      "fallbacks": {
+        "currentModel": "当前模型",
+        "loadingModels": "正在加载模型..."
+      }
+    },
+    "claude": {
+      "titleLocal": "Claude SDK 配置",
+      "titleRemote": "Claude（仅本地配置）",
+      "descriptionLocal": "Claude SDK 用于运行 Anthropic Claude 模型的任务与 AI 功能。",
+      "descriptionRemote": "SSH 模式下 Claude 不支持应用内远程安装或检测；需在远端主机自行安装 Claude CLI。本地 SDK 配置不会应用到当前 SSH 目标。",
+      "badgeLocalOnly": "仅本地 / 无远程安装",
+      "badgeInstalled": "已安装",
+      "badgeNotInstalled": "未安装",
+      "remoteNotice": "Claude 在 SSH 模式下为仅本地配置。应用不会在远端安装或校验 Claude SDK。请在远端主机安装并配置 Claude CLI 后，再运行 Claude 员工任务；否则请切换到本地模式使用本机 SDK。",
+      "enableSdkTitle": "启用 Claude SDK",
+      "enableSdkDescription": "启用后，使用 Claude 作为 AI 提供商的员工将通过 SDK 运行任务。",
+      "defaultModelLabel": "默认模型",
+      "defaultEffortLabel": "默认推理强度",
+      "nodePathTitle": "Node 路径覆盖（可选）",
+      "nodePathDescription": "留空时自动从系统 PATH 中查找 Node。",
+      "nodePathPlaceholder": "/opt/homebrew/bin/node",
+      "cliPathTitle": "Claude CLI 路径覆盖（可选）",
+      "cliPathDescription": "SDK 不可用时会回退到该 CLI。",
+      "cliPathPlaceholder": "/opt/homebrew/bin/claude",
+      "channel": {
+        "sdkAgent": "Claude Agent SDK",
+        "cli": "Claude CLI",
+        "unavailable": "不可用"
+      },
+      "actions": {
+        "save": "保存配置",
+        "install": "安装 SDK",
+        "reinstall": "重装 SDK",
+        "refresh": "刷新检测"
+      }
+    },
+    "opencode": {
+      "titleLocal": "OpenCode SDK 配置",
+      "titleRemote": "OpenCode 远程 SDK",
+      "descriptionLocal": "OpenCode SDK 用于运行开源 AI 编码代理的任务。",
+      "descriptionRemote": "SSH 模式下通过远端 Node、@opencode-ai/sdk 与 bridge 运行 OpenCode 会话和一次性 AI。",
+      "remoteStatusPending": "尚未检测当前 SSH 目标",
+      "enableSdkTitle": "启用 OpenCode SDK",
+      "enableSdkDescription": "启用后，使用 OpenCode 作为 AI 提供商的员工将通过 SDK 运行任务。",
+      "defaultModelLabel": "默认模型",
+      "fetchModelsTitle": "从 SDK 获取可用模型列表",
+      "loadedModels": "已加载 {{count}} 个可用模型",
+      "modelFormat": "格式：provider/modelID（例如 openai/gpt-4o）",
+      "modelFormatOrFetch": "格式：provider/modelID（例如 openai/gpt-4o），或点击右侧按钮从 SDK 获取",
+      "hostLabel": "服务器主机",
+      "portLabel": "服务器端口",
+      "nodePathTitle": "Node 路径覆盖（可选）",
+      "nodePathDescription": "留空时自动从系统 PATH 中查找 Node。",
+      "nodePathPlaceholder": "/opt/homebrew/bin/node",
+      "channel": {
+        "sdk": "SDK",
+        "unavailable": "不可用"
+      },
+      "actions": {
+        "save": "保存配置",
+        "install": "安装 SDK",
+        "reinstall": "重装 SDK",
+        "refresh": "刷新检测",
+        "recheck": "重新检测",
+        "installRemote": "安装远程 SDK",
+        "reinstallRemote": "重装远程 SDK"
+      },
+      "fallbacks": {
+        "currentModel": "当前模型",
+        "loadingModels": "正在加载模型..."
+      }
+    },
+    "grok": {
+      "title": "Grok 配置",
+      "description": "使用 xAI Grok Build CLI（`grok`）执行任务会话与一次性 AI。远程认证依赖远端已登录，应用不会注入密钥。",
+      "defaultModelLabel": "默认模型",
+      "defaultEffortLabel": "默认推理强度",
+      "cliPathTitle": "CLI 路径覆盖（可选）",
+      "cliPathPlaceholder": "例如 /Users/you/.grok/bin/grok",
+      "cliPathDescription": "留空时按 `GROK_CLI_PATH`、`~/.grok/bin`、PATH 的顺序自动查找。",
+      "loadedModels": "已从 CLI 加载 {{count}} 个模型",
+      "loadingModels": "正在加载模型...",
+      "usingStaticModelList": "CLI 不可用时使用静态列表",
+      "defaultSuffix": "（默认）",
+      "notChecked": "尚未检测",
+      "localNotLoggedIn": "未登录（请执行 `grok login`）",
+      "remoteNotLoggedIn": "远程未登录（请在远端执行 `grok login`）",
+      "actions": {
+        "refresh": "刷新",
+        "install": "安装 CLI",
+        "reinstall": "重装 CLI",
+        "save": "保存 Grok 设置"
+      },
+      "tooltips": {
+        "installNoSsh": "请先选择 SSH 配置后再安装远程 Grok CLI",
+        "installRemote": "在当前 SSH 目标安装或重装 Grok CLI；安装后仍需在远端执行 `grok login`",
+        "installLocal": "安装或重装本地 Grok CLI；安装后仍需执行 `grok login`"
+      }
+    },
+    "statusMessages": {
+      "orphanedSession": "应用启动时发现会话上次未正常收尾，已标记为失败",
+      "codexSdkReady": "Codex SDK 已就绪，任务运行与一次性 AI 将优先使用 SDK（Node {{version}}）",
+      "remoteCodexSdkReady": "远程 Codex SDK 已就绪，任务运行与一次性 AI 将优先使用远程 SDK，失败时自动回退到远程 codex exec。",
+      "claudeSdkReady": "Claude SDK 已就绪（Node {{version}}）",
+      "opencodeSdkReady": "OpenCode SDK 已就绪（Node {{version}}）",
+      "remoteOpencodeSdkReady": "远程 OpenCode SDK 已就绪（Node {{version}}）",
+      "grokCliAvailableLoggedIn": "Grok CLI 可用（{{version}}），已登录",
+      "remoteGrokCliAvailableLoggedIn": "远程 Grok CLI 可用（{{version}}），已登录",
+      "remoteGrokCliAvailableLoggedInNoVersion": "远程 Grok CLI 可用，已登录",
+      "grokCliAvailableNotLoggedIn": "Grok CLI 可用（{{version}}），但未登录或登录失效。请执行 `grok login`。",
+      "grokCliAvailableNotLoggedInWithDetail": "Grok CLI 可用（{{version}}），但未登录或登录失效。请执行 `grok login`。 详情：{{detail}}",
+      "remoteGrokCliAvailableNotLoggedIn": "远程 Grok CLI 可用（{{version}}），但未登录或登录失效。请在远程执行 `grok login`。",
+      "grokCliAvailableAuthUnknown": "Grok CLI 可用（{{version}}）；登录态未知",
+      "grokCliAvailableAuthProbeFailed": "Grok CLI 可用（{{version}}）；登录态探测失败：{{detail}}",
+      "codexSdkDisabled": "Codex SDK 未启用，任务运行与一次性 AI 将使用 codex exec",
+      "codexSdkNotInstalled": "Codex SDK 未安装，已回退到 codex exec",
+      "claudeSdkNotInstalledFallbackCli": "Claude SDK 未安装，已回退到 Claude CLI",
+      "opencodeSdkDisabled": "OpenCode SDK 未启用",
+      "opencodeSdkNotInstalled": "OpenCode SDK 未安装",
+      "oneShotClaudeSdkDisabledUseCli": "一次性 AI 未启用 Claude SDK，将使用 Claude CLI",
+      "oneShotOpencodeSdkDisabled": "一次性 AI 未启用 OpenCode SDK，当前不可用"
+    }
+  },
+  "git": {
+    "automation": {
+      "title": "自动质控默认设置",
+      "description": "影响新建任务默认是否开启自动质控，以及自动审核与自动修复闭环的默认策略。",
+      "enableDefaultTitle": "新建任务默认开启自动质控",
+      "enableDefaultDescription": "开启后，新任务会默认进入审核 -> 修复 -> 再审核的闭环流程。",
+      "maxFixRoundsLabel": "最大自动修复轮次",
+      "roundsValue": "{{count}} 轮",
+      "selectRounds": "选择轮次",
+      "failureStrategyLabel": "失败后处理",
+      "selectFailureStrategy": "选择失败策略",
+      "defaultOn": "新任务默认开启自动质控",
+      "defaultOff": "新任务默认关闭自动质控",
+      "summaryTemplate": "{{defaultMode}}；最多自动修复 {{rounds}} 轮；失败后 {{strategy}}。"
+    },
+    "tester": {
+      "title": "测试员自动化（先测后审）",
+      "description": "开发会话成功结束后先跑测试验收，通过后再进入自动 code review。命令失败为硬失败，不可被 AI 单独改判。",
+      "disabledNotice": "当前未启用。推荐开启后，任务执行完成会自动进入测试员验收，再继续审核；否则看起来测试员没有作用。也可在看板顶部查看提示入口。",
+      "enableTitle": "启用测试员自动化",
+      "enableDescription": "关闭时保持旧路径：执行结束后直接进入审核。",
+      "allowAiOnlyTitle": "允许无测试命令时仅 AI 或清单验收",
+      "allowAiOnlyDescription": "未配置测试命令时结果偏主观；关闭则自动路径跳过测试阶段。",
+      "defaultTestCommandLabel": "默认测试命令",
+      "defaultTestCommandPlaceholder": "例如 npm test 或 cargo test",
+      "defaultTestCommandDescription": "项目可单独覆盖。local 在工作目录执行，SSH 在远程对应目录执行。"
+    },
+    "preferences": {
+      "title": "Git 偏好",
+      "description": "控制新任务的 Worktree 默认行为，以及 AI 生成 Git 提交信息时的长度。",
+      "enableWorktreeTitle": "新建任务默认启用 Worktree",
+      "enableWorktreeDescription": "开启后，新建任务会默认准备独立 Worktree；仍然可以在任务创建弹窗里单独改掉。",
+      "worktreeLocationLabel": "Worktree 目录规则",
+      "selectWorktreeLocation": "选择 Worktree 目录规则",
+      "customRootLabel": "自定义 Worktree 根目录",
+      "customRootPlaceholderLocal": "/Users/wenyuan/codex-worktrees",
+      "customRootPlaceholderRemote": "~/codex-worktrees",
+      "customRootDescriptionLocal": "本地配置下要求绝对路径，最终目录结构为 <root>/<repo>/<task>。",
+      "customRootDescriptionRemote": "SSH 配置下要求绝对路径或 ~/ 开头，最终目录结构为 <root>/<repo>/<task>。",
+      "commitMessageLengthLabel": "AI 提交信息默认长度",
+      "selectCommitMessageLength": "选择提交信息长度"
+    },
+    "gitAi": {
+      "title": "Git AI",
+      "description": "控制 AI 自动生成 Git 提交信息时使用的提供商、模型和推理强度。",
+      "badgeFollowOneShot": "跟随一次性 AI",
+      "modelSourceLabel": "模型来源",
+      "providerLabel": "AI 提供商",
+      "modelLabel": "Git AI 模型",
+      "reasoningLabel": "Git AI 推理强度",
+      "loadedModels": "已加载 {{count}} 个可用模型",
+      "modelFormat": "格式：provider/modelID（例如 openai/gpt-4o）",
+      "currentProviderLabel": "当前 Git AI",
+      "currentModelLabel": "当前模型",
+      "currentReasoningLabel": "当前推理强度",
+      "actions": {
+        "save": "保存配置"
+      }
+    },
+    "options": {
+      "failureStrategy": {
+        "blocked": "转阻塞",
+        "manualControl": "转人工"
+      },
+      "worktreeLocation": {
+        "repoSiblingHidden": {
+          "label": "仓库同级隐藏目录",
+          "description": "保持当前行为，放在仓库同级的 .codex-ai-worktrees-* 目录中"
+        },
+        "repoChildHidden": {
+          "label": "仓库 .git 目录",
+          "description": "放在仓库的 .git/codex-ai-worktrees 目录中，不会污染主工作区"
+        },
+        "customRoot": {
+          "label": "自定义根目录",
+          "description": "使用你指定的根目录，并自动拼接仓库与任务目录"
+        }
+      },
+      "commitMessageLength": {
+        "titleWithBody": {
+          "label": "标题+详情",
+          "description": "生成 Conventional Commit 标题，并补充正文说明改动"
+        },
+        "titleOnly": {
+          "label": "仅标题",
+          "description": "只生成单行 Conventional Commit 标题"
+        }
+      },
+      "commitModelSource": {
+        "inheritOneShot": {
+          "label": "跟随一次性 AI",
+          "description": "复用当前一次性 AI 的模型与推理强度"
+        },
+        "custom": {
+          "label": "单独指定",
+          "description": "为 Git 提交信息生成单独配置模型与推理强度"
+        }
+      },
+      "providers": {
+        "codex": "Codex（OpenAI）",
+        "claude": "Claude（Anthropic）",
+        "opencode": "OpenCode（开源）",
+        "grok": "Grok"
+      },
+      "reasoningEffort": {
+        "low": "低",
+        "medium": "中",
+        "high": "高",
+        "xhigh": "最高",
+        "max": "极高"
+      },
+      "claudeThinkingBudget": {
+        "low": "低",
+        "medium": "中",
+        "high": "高",
+        "xhigh": "超高",
+        "max": "最大",
+        "auto": "自动"
+      },
+      "codexModels": {
+        "gpt56Sol": "GPT-5.6-Sol",
+        "gpt56Terra": "GPT-5.6-Terra",
+        "gpt56Luna": "GPT-5.6-Luna",
+        "gpt55": "GPT-5.5",
+        "gpt54": "GPT-5.4",
+        "gpt52Codex": "GPT-5.2-Codex",
+        "gpt51CodexMax": "GPT-5.1-Codex-Max",
+        "gpt54Mini": "GPT-5.4-Mini",
+        "gpt53Codex": "GPT-5.3-Codex",
+        "gpt53CodexSpark": "GPT-5.3-Codex-Spark",
+        "gpt52": "GPT-5.2",
+        "gpt51CodexMini": "GPT-5.1-Codex-Mini"
+      },
+      "claudeModels": {
+        "opus": "Claude Opus",
+        "opus1m": "Claude Opus 1M",
+        "sonnet": "Claude Sonnet",
+        "sonnet1m": "Claude Sonnet 1M",
+        "haiku": "Claude Haiku"
+      },
+      "grokModels": {
+        "grok45": "Grok 4.5"
+      }
+    }
+  },
+  "prompts": {
+    "title": "AI 提示词模板",
+    "description": "配置各场景的输出目标与补充要求。保存后会写入本地 ai-prompt-templates.json，并在生成提示词时优先使用。",
+    "states": {
+      "loading": "正在加载提示词模板...",
+      "empty": "暂无可用模板"
+    },
+    "actions": {
+      "resetAll": "全部重置",
+      "saveCurrent": "保存当前模板",
+      "resetCurrent": "重置当前"
+    },
+    "fields": {
+      "displayName": "显示名称",
+      "outputGoal": "输出目标 (output_goal)",
+      "sceneRequirement": "场景补充要求 (scene_requirement)"
+    },
+    "messages": {
+      "savedNamed": "已保存 {{label}}",
+      "resetNamedToDefault": "已将 {{label}} 重置为默认",
+      "resetCurrent": "已重置当前模板",
+      "resetAll": "已将全部提示词模板重置为默认"
+    },
+    "errors": {
+      "loadFailed": "加载提示词模板失败",
+      "saveFailed": "保存提示词模板失败",
+      "resetFailed": "重置提示词模板失败",
+      "resetAllFailed": "重置全部提示词模板失败"
+    },
+    "scenes": {
+      "task_create": "新建任务",
+      "task_continue": "任务继续对话",
+      "session_continue": "Session 继续对话",
+      "employee_system_prompt": "员工系统提示词生成",
+      "coordinator_plan": "协调员任务计划",
+      "review": "代码审查",
+      "generate_commit": "生成 Commit Message",
+      "suggest_assignee": "建议指派人",
+      "generate_subtasks": "拆分任务",
+      "tester_acceptance": "测试员验收"
+    }
+  },
+  "mcp": {
+    "title": "MCP 服务器管理",
+    "description": "在此维护 MCP Server 清单，可导出为 JSON 片段合并到 Codex、Claude 等引擎配置。配置保存在应用配置目录中，不在 SQL 备份范围内。",
+    "states": {
+      "loading": "加载 MCP 配置...",
+      "empty": "暂无 MCP 服务器，请点击添加服务器。"
+    },
+    "actions": {
+      "addServer": "添加服务器",
+      "save": "保存",
+      "exportSnippet": "导出片段",
+      "resetExample": "重置示例",
+      "delete": "删除"
+    },
+    "fields": {
+      "enabled": "启用",
+      "namePlaceholder": "名称",
+      "commandPlaceholder": "启动命令（如 npx、uvx 或绝对路径）",
+      "argsPlaceholder": "参数（空格分隔）",
+      "notesPlaceholder": "备注（可选）"
+    },
+    "preview": {
+      "title": "导出片段预览"
+    },
+    "messages": {
+      "saved": "MCP 配置已保存到应用配置目录的 mcp-servers.json。",
+      "reset": "已重置为默认示例配置。",
+      "exported": "已生成导出片段，并尝试复制到剪贴板。"
+    },
+    "exampleFilesystem": {
+      "name": "示例：Filesystem（请按需启用）",
+      "notes": "这是占位示例。启用前请确认本机已安装 Node/npx，并按实际仓库路径修改 args。"
+    }
+  },
+  "ssh": {
+    "title": "SSH 配置管理",
+    "description": "支持多个 SSH 配置；SSH 项目会固定绑定其中一项配置和一个远程仓库目录。",
+    "actions": {
+      "newConfig": "新建配置",
+      "choose": "选择",
+      "createConfig": "创建 SSH 配置",
+      "saveConfig": "保存 SSH 配置",
+      "testConnection": "测试连接",
+      "deleteConfig": "删除配置"
+    },
+    "list": {
+      "loading": "正在读取 SSH 配置...",
+      "empty": "当前还没有 SSH 配置。",
+      "noSelection": "未选择 SSH 配置",
+      "checkedAt": "检测于 {{date}}"
+    },
+    "badges": {
+      "passwordLogin": "密码登录",
+      "keyLogin": "密钥登录",
+      "passwordAuth": "密码认证",
+      "keyAuth": "密钥认证"
+    },
+    "form": {
+      "createTitle": "新建 SSH 配置",
+      "editTitle": "编辑 SSH 配置",
+      "createDescription": "保存后可用于 SSH 项目和远程运行设置。",
+      "editDescription": "更新后会保留当前配置引用。",
+      "configName": "配置名称 *",
+      "host": "主机 *",
+      "port": "端口",
+      "username": "用户名 *",
+      "authType": "认证方式",
+      "knownHostsPolicy": "Known Hosts 策略",
+      "privateKeyPath": "私钥路径 *",
+      "password": "密码",
+      "passphrase": "Passphrase（可选）",
+      "placeholders": {
+        "configName": "生产主机",
+        "host": "10.0.0.12",
+        "port": "22",
+        "username": "deploy",
+        "privateKeyPath": "~/.ssh/id_ed25519",
+        "passphraseKeepExisting": "留空表示保持现有 passphrase",
+        "passphraseOptional": "可选",
+        "passwordKeepExisting": "留空表示保持现有密码",
+        "passwordEnter": "输入登录密码"
+      }
+    },
+    "knownHosts": {
+      "acceptNew": "首次连接自动接受",
+      "strict": "严格校验",
+      "off": "关闭校验（不推荐）"
+    },
+    "status": {
+      "title": "当前配置状态",
+      "host": "主机",
+      "connectionTest": "连接测试",
+      "notTested": "未检测"
+    },
+    "desktop": {
+      "selectPrivateKeyTitle": "选择私钥文件",
+      "selectPrivateKeyDesktopOnly": "仅桌面端支持选择私钥文件"
+    }
+  },
+  "database": {
+    "maintenance": {
+      "title": "数据库维护",
+      "description": "数据库仍保留在本地；SSH 模式只切换执行上下文，不切换数据库位置。",
+      "pathLabel": "数据库路径",
+      "currentVersionLabel": "当前版本",
+      "latestVersionLabel": "最新版本",
+      "detecting": "检测中",
+      "unknown": "未知"
+    },
+    "backupScope": {
+      "title": "备份范围说明（不等于完整灾备）",
+      "included": "包含",
+      "excluded": "不包含",
+      "restoreWarning": "导入 SQL 只会覆盖数据库；不会还原提示词、MCP、附件与密钥。导入前请确认已另行备份这些内容。",
+      "note": "「导出 SQL」仅覆盖数据库本体，不等于完整灾备。恢复 SQL 后，提示词模板、MCP 配置、附件文件与密钥不会自动还原；请额外备份应用配置目录与 task-attachments/，或在设置页用「打开数据库目录」定位相邻数据。",
+      "includesItems": [
+        "SQLite 全库数据（项目/任务/员工/会话/活动日志/交付字段等）",
+        "已应用的数据库迁移版本记录"
+      ],
+      "excludesItems": [
+        "任务附件文件目录：应用数据目录下的 task-attachments/（图片/文档本体）",
+        "密钥环中的 SSH 密码/私钥口令等敏感密钥",
+        "应用配置目录中的 ai-prompt-templates.json（AI 提示词模板）",
+        "应用配置目录中的 mcp-servers.json（MCP 服务器配置）",
+        "窗口尺寸等本地 UI 状态"
+      ]
+    },
+    "actions": {
+      "exportSql": "导出 SQL",
+      "importSql": "导入 SQL",
+      "openDirectory": "打开数据库目录",
+      "openDirectoryDesktopOnly": "仅桌面端支持打开数据库文件夹",
+      "openDirectoryAvailable": "打开数据库所在的文件夹",
+      "pathUnavailable": "数据库路径不可用"
+    },
+    "retention": {
+      "title": "会话事件保留",
+      "description": "按天数清理过期的会话事件日志，避免本地数据库无限膨胀。不会删除会话记录本身。",
+      "desktopOnly": "仅桌面端支持会话事件保留与清理。",
+      "totalEvents": "事件总数",
+      "expiredEvents": "过期事件",
+      "oldest": "最早",
+      "newest": "最新",
+      "currentPolicy": "当前策略：保留 {{days}} 天",
+      "retentionDaysLabel": "保留天数（{{min}}-{{max}}）",
+      "savePolicy": "保存策略",
+      "purgeNow": "立即清理",
+      "notAvailable": "—",
+      "confirmPurge": "将按当前保留策略（{{days}} 天）删除约 {{expired}} 条过期会话事件，并尝试 VACUUM 回收磁盘。是否继续？"
+    },
+    "messages": {
+      "invalidRetentionSaved": "输入无效（须为 {{min}}-{{max}} 的整数），已保存默认保留天数 {{days}} 天",
+      "retentionSaved": "已保存：保留 {{days}} 天",
+      "purgeSuccessWithVacuum": "已清理 {{deleted}} 条过期事件（保留 {{days}} 天），磁盘回收完成",
+      "purgeSuccess": "已清理 {{deleted}} 条过期事件（保留 {{days}} 天）",
+      "purgeVacuumFailedWithError": "事件已删除，但 VACUUM 失败：{{error}}",
+      "purgeVacuumFailed": "事件已删除，但 VACUUM 失败"
+    }
   }
 }

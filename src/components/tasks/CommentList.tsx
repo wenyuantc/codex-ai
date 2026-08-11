@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { useTaskStore } from "@/stores/taskStore";
 import { CommentItem } from "./CommentItem";
 import { Send } from "lucide-react";
@@ -10,6 +11,7 @@ interface CommentListProps {
 }
 
 export function CommentList({ taskId, hideHeader = false }: CommentListProps) {
+  const { t } = useTranslation("tasks");
   const { comments, fetchComments, addComment } = useTaskStore();
   const [newContent, setNewContent] = useState("");
 
@@ -28,7 +30,9 @@ export function CommentList({ taskId, hideHeader = false }: CommentListProps) {
   return (
     <div>
       {!hideHeader && (
-        <h3 className="text-xs font-medium text-muted-foreground mb-2">评论 ({items.length})</h3>
+        <h3 className="text-xs font-medium text-muted-foreground mb-2">
+          {t("detail.collaboration.comments")} ({items.length})
+        </h3>
       )}
 
       {items.length > 0 && (
@@ -45,7 +49,7 @@ export function CommentList({ taskId, hideHeader = false }: CommentListProps) {
           value={newContent}
           onChange={(e) => setNewContent(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && handleAdd()}
-          placeholder="添加评论..."
+          placeholder={t("detail.collaboration.addCommentPlaceholder")}
           className="flex-1 text-xs border border-input rounded px-2 py-1.5 bg-background"
         />
         <button

@@ -19,5 +19,720 @@
     "description": "Choose the UI language (persists across restarts)",
     "zhCN": "简体中文",
     "en": "English"
+  },
+  "page": {
+    "title": "System Settings",
+    "description": "Currently in {{mode}}. Codex runtime settings and SSH settings are stored separately.",
+    "engineCapabilities": {
+      "title": "Four-engine capability overview",
+      "description": "Codex, Claude, Grok, and OpenCode all support start, stop, restart, and resume. Restart means stopping the current run and starting again, not resuming an old CLI session. All four engines run in non-interactive batch mode and do not support sending input during a live session.",
+      "notes": {
+        "codex": "Supports start/stop/resume/mid-session input (SDK channel keeps stdin; send_codex_input while running). Restart = stop current run then start again (not CLI resume of an old session). CLI batch channel has no stdin; send returns an explicit error.",
+        "claude": "Supports start/stop/resume/mid-session input (SDK bridge keeps stdin). Restart = stop current run then start again (not CLI resume of an old session). CLI batch channel does not support mid-session input.",
+        "opencode": "Supports start/stop/resume/mid-session input (SDK bridge keeps stdin; append prompts on the same OpenCode session). Restart = stop current run then start again (not CLI resume of an old session).",
+        "grok": "Supports start/stop/resume. Restart = stop current run then start again (not CLI resume of an old session). Grok is a headless CLI (-p + Stdio::null) with no writable mid-session stdin (B1 exemption)."
+      }
+    },
+    "databaseDialogs": {
+      "fileFilterName": "SQL backup",
+      "exportTitle": "Export SQL backup",
+      "importTitle": "Import SQL backup",
+      "importConfirmMessage": "Importing SQL first creates an automatic backup of the current database, then clears the existing database and runs the SQL import.",
+      "selectBackupTitle": "Select SQL backup file",
+      "importCompleteTitle": "SQL import complete",
+      "importCompleteMessage": "{{message}}\n\nAutomatic backup before import: {{backupPath}}"
+    },
+    "sshDialogs": {
+      "selectPrivateKeyTitle": "Select private key file",
+      "deleteTitle": "Delete SSH configuration",
+      "deleteConfirm": "Delete SSH configuration \"{{name}}\"?"
+    },
+    "messages": {
+      "runtime": {
+        "noSshConfigAvailable": "There is no available SSH configuration yet. Create and select one first.",
+        "loadCodexSettingsFailed": "Failed to load Codex settings",
+        "customWorktreeRootRequired": "Custom Worktree root cannot be empty.",
+        "remoteConfigSaved": "Remote settings were saved to {{name}}",
+        "systemSettingsSaved": "System settings were saved",
+        "saveCodexConfigFailed": "Failed to save Codex settings",
+        "selectSshConfigBeforeInstallRemoteSdk": "Select an SSH configuration before installing the remote SDK.",
+        "remoteSdkInstalled": "Remote SDK installed, version {{version}}",
+        "localSdkInstalled": "Local SDK installed, version {{version}}",
+        "installCodexSdkFailed": "Failed to install Codex SDK"
+      },
+      "opencode": {
+        "remoteHealthCheckFailed": "Remote OpenCode health check failed",
+        "localOnly": "OpenCode SDK settings only apply to local execution targets.",
+        "settingsSaved": "OpenCode settings were saved",
+        "saveFailed": "Failed to save OpenCode settings",
+        "fetchModelsFailed": "Failed to fetch the model list",
+        "selectSshConfigBeforeRemoteInstall": "Select an SSH configuration before installing the remote OpenCode SDK.",
+        "remoteSdkInstalled": "Remote OpenCode SDK installed, version {{version}}",
+        "localSdkInstalled": "OpenCode SDK installed, version {{version}}",
+        "installFailed": "Failed to install OpenCode SDK"
+      },
+      "claude": {
+        "localOnly": "Claude SDK settings only apply to local execution targets. SSH targets use the remote Claude CLI.",
+        "settingsSaved": "Claude settings were saved",
+        "saveFailed": "Failed to save Claude settings",
+        "installLocalOnly": "Claude SDK installation only applies to local execution targets. Install Claude CLI on the remote host for SSH targets.",
+        "sdkInstalled": "Claude SDK installed, version {{version}}",
+        "installFailed": "Failed to install Claude SDK"
+      },
+      "grok": {
+        "remoteHealthCheckFailed": "Remote Grok health check failed",
+        "loadSettingsFailed": "Failed to load Grok settings",
+        "selectSshConfigBeforeRemoteInstall": "Select an SSH configuration before installing the remote Grok CLI.",
+        "remoteCliInstalled": "Remote Grok CLI installed, version {{version}}",
+        "localCliInstalled": "Local Grok CLI installed, version {{version}}",
+        "installFailed": "Failed to install Grok CLI",
+        "settingsSaved": "Grok settings were saved",
+        "saveFailed": "Failed to save Grok settings"
+      },
+      "database": {
+        "exportFailed": "Failed to export SQL backup",
+        "openFolderFailed": "Failed to open the database folder",
+        "importFailed": "Failed to import SQL backup"
+      },
+      "ssh": {
+        "selectPrivateKeyFailed": "Failed to select the private key file",
+        "requiredFields": "SSH configuration name, host, and username are required.",
+        "privateKeyRequired": "A private key path is required for key-based login.",
+        "configUpdated": "SSH configuration updated.",
+        "configCreated": "SSH configuration created.",
+        "saveFailed": "Failed to save the SSH configuration",
+        "configDeleted": "SSH configuration deleted.",
+        "deleteFailed": "Failed to delete the SSH configuration",
+        "passwordProbeResult": "Connection test result: {{message}}",
+        "testConnectionSuccess": "Connection test succeeded. The remote host is reachable.",
+        "testConnectionSuccessButCodexUnavailable": "Connection test succeeded, but remote Codex is currently unavailable: {{message}}",
+        "testConnectionFailed": "SSH connection test failed"
+      }
+    }
+  },
+  "runtime": {
+    "target": {
+      "localTitle": "Local execution target",
+      "remoteTitle": "Remote execution target",
+      "localSummary": "These settings apply to the local runtime profile.",
+      "remoteSummary": "Current remote profile: {{name}} ({{summary}})",
+      "localBadge": "Local Profile",
+      "remoteBadge": "SSH Profile",
+      "currentSshConfig": "Current SSH config",
+      "noSshConfigSelected": "No SSH configuration selected",
+      "missingSshConfig": "SSH mode is active, but there is no available SSH configuration yet. Switch to the SSH Settings tab to create or select one.",
+      "blockedTitle": "Configuration exists but cannot run on this platform",
+      "blockedDescription": "The current SSH configuration uses password authentication, but the connection test has not passed yet. Remote Codex validation, SDK installation, and real execution must remain blocked."
+    },
+    "common": {
+      "version": "Version",
+      "host": "Host",
+      "lastError": "Last error",
+      "installDir": "Install directory",
+      "node": "Node",
+      "sdk": "SDK",
+      "cli": "CLI",
+      "taskEngine": "Task engine",
+      "currentChannel": "Current channel",
+      "checkedAt": "Checked at",
+      "remoteStatus": "Remote status",
+      "remoteNode": "Remote Node",
+      "remoteSdkVersion": "Remote SDK version",
+      "localStatus": "Local status",
+      "localPath": "Local path",
+      "localVersion": "Local version",
+      "localLogin": "Local login",
+      "remoteVersion": "Remote version",
+      "remoteLogin": "Remote login",
+      "currentProvider": "Current one-shot AI provider",
+      "executionChannel": "Current execution channel",
+      "currentModel": "Current model"
+    },
+    "status": {
+      "checking": "Checking",
+      "connected": "Connected",
+      "unavailable": "Unavailable",
+      "available": "Available",
+      "installed": "Installed",
+      "notInstalled": "Not installed",
+      "remoteAvailable": "Remote ready",
+      "notReady": "Not ready",
+      "loggedIn": "Logged in",
+      "notLoggedIn": "Not logged in"
+    },
+    "options": {
+      "providers": {
+        "codex": "Codex (OpenAI)",
+        "claude": "Claude (Anthropic)",
+        "opencode": "OpenCode (Open Source)",
+        "grok": "Grok"
+      },
+      "reasoningEffort": {
+        "low": "Low",
+        "medium": "Medium",
+        "high": "High",
+        "xhigh": "Very High",
+        "max": "Max"
+      },
+      "claudeThinkingBudget": {
+        "low": "Low",
+        "medium": "Medium",
+        "high": "High",
+        "xhigh": "Very High",
+        "max": "Max",
+        "auto": "Auto"
+      },
+      "codexModels": {
+        "gpt56Sol": "GPT-5.6-Sol",
+        "gpt56Terra": "GPT-5.6-Terra",
+        "gpt56Luna": "GPT-5.6-Luna",
+        "gpt55": "GPT-5.5",
+        "gpt54": "GPT-5.4",
+        "gpt52Codex": "GPT-5.2-Codex",
+        "gpt51CodexMax": "GPT-5.1-Codex-Max",
+        "gpt54Mini": "GPT-5.4-Mini",
+        "gpt53Codex": "GPT-5.3-Codex",
+        "gpt53CodexSpark": "GPT-5.3-Codex-Spark",
+        "gpt52": "GPT-5.2",
+        "gpt51CodexMini": "GPT-5.1-Codex-Mini"
+      },
+      "claudeModels": {
+        "opus": "Claude Opus",
+        "opus1m": "Claude Opus 1M",
+        "sonnet": "Claude Sonnet",
+        "sonnet1m": "Claude Sonnet 1M",
+        "haiku": "Claude Haiku"
+      },
+      "grokModels": {
+        "grok45": "Grok 4.5"
+      }
+    },
+    "codexCli": {
+      "title": "Codex CLI",
+      "descriptionLocal": "Kept as a fallback path so tasks can continue when the SDK is unavailable.",
+      "descriptionRemote": "In SSH mode, the app validates the Codex environment on the remote host for the current SSH configuration."
+    },
+    "codexSdk": {
+      "title": "Codex SDK",
+      "descriptionLocal": "Task execution prefers the SDK and automatically falls back to `codex exec` on failure. One-shot AI is configured separately below.",
+      "descriptionRemote": "In SSH mode, task execution prefers the remote SDK. If the remote SDK is unavailable, it automatically falls back to remote `codex exec`.",
+      "taskStatus": "Task {{provider}}",
+      "useSdkTitle": "Use SDK for task execution",
+      "useSdkDescription": "Affects Kanban task execution, employee-started tasks, and related restart and resume flows.",
+      "nodePathTitle": "Node path override (optional)",
+      "nodePathDescription": "If empty, Node is resolved from the system PATH.",
+      "nodePathPlaceholderLocal": "/opt/homebrew/bin/node",
+      "nodePathPlaceholderRemote": "/usr/local/bin/node",
+      "taskProvider": {
+        "sdk": "SDK",
+        "execFallback": "exec (auto fallback)"
+      },
+      "actions": {
+        "install": "Install SDK",
+        "reinstall": "Reinstall SDK",
+        "refresh": "Refresh check"
+      }
+    },
+    "oneShot": {
+      "title": "One-shot AI",
+      "description": "Controls the default channel for AI analysis, comment generation, plan generation, and subtask splitting in task details.",
+      "statusBadge": "{{provider}} / {{channel}}",
+      "providerLabel": "AI provider",
+      "preferSdkTitle": "Prefer SDK",
+      "enableOpenCodeSdkTitle": "Enable OpenCode SDK",
+      "preferSdkDescriptionCodexLocal": "Prefer execution through the Codex SDK and fall back to `codex exec` on failure.",
+      "preferSdkDescriptionCodexRemote": "In SSH mode, prefer the remote Codex SDK and fall back to remote `codex exec` on failure.",
+      "preferSdkDescriptionClaude": "Prefer execution through the Claude SDK and fall back to Claude CLI on failure.",
+      "preferSdkDescriptionOpenCode": "OpenCode currently supports local SDK only. If disabled, one-shot AI will be unavailable.",
+      "sshGrokNotice": "In SSH mode, Grok one-shot AI always runs through the remote Grok CLI. The remote host must already be installed and authenticated with `grok login`.",
+      "sshClaudeNotice": "In SSH mode, Claude one-shot AI always runs through the remote Claude CLI.",
+      "modelLabel": "One-shot AI model",
+      "reasoningLabel": "One-shot AI reasoning effort",
+      "modelPlaceholder": "openai/gpt-4o",
+      "fetchModelsTitle": "Fetch model list from OpenCode SDK",
+      "loadedModels": "Loaded {{count}} available models",
+      "loadedGrokModels": "Loaded {{count}} models from the CLI",
+      "modelFormat": "Format: provider/modelID (for example openai/gpt-4o)",
+      "usingStaticModelList": "Using the static model list when the CLI is unavailable",
+      "loadingGrokModels": "Loading Grok model list...",
+      "channel": {
+        "sdk": "SDK",
+        "cli": "CLI",
+        "cliRemote": "CLI (remote)",
+        "execFallback": "exec (auto fallback)",
+        "execRemote": "exec (remote)",
+        "unavailable": "Unavailable"
+      },
+      "actions": {
+        "save": "Save configuration"
+      },
+      "fallbacks": {
+        "currentModel": "Current model",
+        "loadingModels": "Loading models..."
+      }
+    },
+    "claude": {
+      "titleLocal": "Claude SDK Settings",
+      "titleRemote": "Claude (local config only)",
+      "descriptionLocal": "Claude SDK powers tasks and AI features that use Anthropic Claude models.",
+      "descriptionRemote": "In SSH mode, Claude does not support in-app remote install or health checks. Install Claude CLI on the remote host yourself. Local SDK settings do not apply to the current SSH target.",
+      "badgeLocalOnly": "Local only / no remote install",
+      "badgeInstalled": "Installed",
+      "badgeNotInstalled": "Not installed",
+      "remoteNotice": "Claude is local-config-only in SSH mode. The app will not install or validate the Claude SDK on the remote host. Install and configure Claude CLI on the remote host before running Claude employee tasks, or switch to local mode to use the local SDK.",
+      "enableSdkTitle": "Enable Claude SDK",
+      "enableSdkDescription": "When enabled, employees that use Claude as the AI provider run tasks through the SDK.",
+      "defaultModelLabel": "Default model",
+      "defaultEffortLabel": "Default reasoning effort",
+      "nodePathTitle": "Node path override (optional)",
+      "nodePathDescription": "If empty, Node is resolved from the system PATH.",
+      "nodePathPlaceholder": "/opt/homebrew/bin/node",
+      "cliPathTitle": "Claude CLI path override (optional)",
+      "cliPathDescription": "Falls back to this CLI when the SDK is unavailable.",
+      "cliPathPlaceholder": "/opt/homebrew/bin/claude",
+      "channel": {
+        "sdkAgent": "Claude Agent SDK",
+        "cli": "Claude CLI",
+        "unavailable": "Unavailable"
+      },
+      "actions": {
+        "save": "Save configuration",
+        "install": "Install SDK",
+        "reinstall": "Reinstall SDK",
+        "refresh": "Refresh check"
+      }
+    },
+    "opencode": {
+      "titleLocal": "OpenCode SDK Settings",
+      "titleRemote": "OpenCode Remote SDK",
+      "descriptionLocal": "OpenCode SDK runs tasks for open-source AI coding agents.",
+      "descriptionRemote": "In SSH mode, OpenCode sessions and one-shot AI run through remote Node, @opencode-ai/sdk, and the bridge.",
+      "remoteStatusPending": "The current SSH target has not been checked yet",
+      "enableSdkTitle": "Enable OpenCode SDK",
+      "enableSdkDescription": "When enabled, employees that use OpenCode as the AI provider run tasks through the SDK.",
+      "defaultModelLabel": "Default model",
+      "fetchModelsTitle": "Fetch available models from the SDK",
+      "loadedModels": "Loaded {{count}} available models",
+      "modelFormat": "Format: provider/modelID (for example openai/gpt-4o)",
+      "modelFormatOrFetch": "Format: provider/modelID (for example openai/gpt-4o), or click the button on the right to fetch from the SDK",
+      "hostLabel": "Server host",
+      "portLabel": "Server port",
+      "nodePathTitle": "Node path override (optional)",
+      "nodePathDescription": "If empty, Node is resolved from the system PATH.",
+      "nodePathPlaceholder": "/opt/homebrew/bin/node",
+      "channel": {
+        "sdk": "SDK",
+        "unavailable": "Unavailable"
+      },
+      "actions": {
+        "save": "Save configuration",
+        "install": "Install SDK",
+        "reinstall": "Reinstall SDK",
+        "refresh": "Refresh check",
+        "recheck": "Recheck",
+        "installRemote": "Install remote SDK",
+        "reinstallRemote": "Reinstall remote SDK"
+      },
+      "fallbacks": {
+        "currentModel": "Current model",
+        "loadingModels": "Loading models..."
+      }
+    },
+    "grok": {
+      "title": "Grok Settings",
+      "description": "Uses xAI Grok Build CLI (`grok`) for task sessions and one-shot AI. Remote authentication depends on the remote host already being logged in; the app does not inject keys.",
+      "defaultModelLabel": "Default model",
+      "defaultEffortLabel": "Default reasoning effort",
+      "cliPathTitle": "CLI path override (optional)",
+      "cliPathPlaceholder": "For example /Users/you/.grok/bin/grok",
+      "cliPathDescription": "If empty, the app looks in `GROK_CLI_PATH`, `~/.grok/bin`, and then PATH.",
+      "loadedModels": "Loaded {{count}} models from the CLI",
+      "loadingModels": "Loading models...",
+      "usingStaticModelList": "Use the static model list when the CLI is unavailable",
+      "defaultSuffix": " (Default)",
+      "notChecked": "Not checked yet",
+      "localNotLoggedIn": "Not logged in (run `grok login`)",
+      "remoteNotLoggedIn": "Not logged in on the remote host (run `grok login` there)",
+      "actions": {
+        "refresh": "Refresh",
+        "install": "Install CLI",
+        "reinstall": "Reinstall CLI",
+        "save": "Save Grok settings"
+      },
+      "tooltips": {
+        "installNoSsh": "Select an SSH configuration before installing the remote Grok CLI",
+        "installRemote": "Install or reinstall Grok CLI on the current SSH target. You still need to run remote `grok login` afterward.",
+        "installLocal": "Install or reinstall the local Grok CLI. You still need to run `grok login` afterward."
+      }
+    },
+    "statusMessages": {
+      "orphanedSession": "At startup, a previous session was found not closed cleanly and was marked as failed",
+      "codexSdkReady": "Codex SDK is ready; task runs and one-shot AI will prefer the SDK (Node {{version}})",
+      "remoteCodexSdkReady": "Remote Codex SDK is ready; task runs and one-shot AI will prefer the remote SDK and fall back to remote codex exec on failure.",
+      "claudeSdkReady": "Claude SDK is ready (Node {{version}})",
+      "opencodeSdkReady": "OpenCode SDK is ready (Node {{version}})",
+      "remoteOpencodeSdkReady": "Remote OpenCode SDK is ready (Node {{version}})",
+      "grokCliAvailableLoggedIn": "Grok CLI available ({{version}}), signed in",
+      "remoteGrokCliAvailableLoggedIn": "Remote Grok CLI available ({{version}}), signed in",
+      "remoteGrokCliAvailableLoggedInNoVersion": "Remote Grok CLI available, signed in",
+      "grokCliAvailableNotLoggedIn": "Grok CLI available ({{version}}), but not signed in or login expired. Run `grok login`.",
+      "grokCliAvailableNotLoggedInWithDetail": "Grok CLI available ({{version}}), but not signed in or login expired. Run `grok login`. Detail: {{detail}}",
+      "remoteGrokCliAvailableNotLoggedIn": "Remote Grok CLI available ({{version}}), but not signed in or login expired. Run `grok login` on the remote host.",
+      "grokCliAvailableAuthUnknown": "Grok CLI available ({{version}}); login state unknown",
+      "grokCliAvailableAuthProbeFailed": "Grok CLI available ({{version}}); login probe failed: {{detail}}",
+      "codexSdkDisabled": "Codex SDK is disabled; task runs and one-shot AI will use codex exec",
+      "codexSdkNotInstalled": "Codex SDK is not installed; fell back to codex exec",
+      "claudeSdkNotInstalledFallbackCli": "Claude SDK is not installed; fell back to Claude CLI",
+      "opencodeSdkDisabled": "OpenCode SDK is disabled",
+      "opencodeSdkNotInstalled": "OpenCode SDK is not installed",
+      "oneShotClaudeSdkDisabledUseCli": "One-shot AI Claude SDK is disabled; Claude CLI will be used",
+      "oneShotOpencodeSdkDisabled": "One-shot AI OpenCode SDK is disabled; currently unavailable"
+    }
+  },
+  "git": {
+    "automation": {
+      "title": "Automatic QC defaults",
+      "description": "Controls whether new tasks enable automatic QC by default, and the default strategy for the auto-review and auto-fix loop.",
+      "enableDefaultTitle": "Enable automatic QC by default for new tasks",
+      "enableDefaultDescription": "When enabled, new tasks default to an audit -> fix -> re-audit loop.",
+      "maxFixRoundsLabel": "Maximum auto-fix rounds",
+      "roundsValue": "{{count}} rounds",
+      "selectRounds": "Select rounds",
+      "failureStrategyLabel": "After failure",
+      "selectFailureStrategy": "Select a failure strategy",
+      "defaultOn": "Automatic QC is enabled by default for new tasks",
+      "defaultOff": "Automatic QC is disabled by default for new tasks",
+      "summaryTemplate": "{{defaultMode}}; up to {{rounds}} auto-fix rounds; on failure {{strategy}}."
+    },
+    "tester": {
+      "title": "Tester automation (test before review)",
+      "description": "After a dev session ends successfully, run acceptance tests first and enter automated code review only if they pass. Command failures are hard failures and cannot be overruled by AI alone.",
+      "disabledNotice": "Currently disabled. Enabling it is recommended so completed tasks automatically go through tester acceptance before review; otherwise it can look like the tester does nothing. You can also see a prompt at the top of the Kanban board.",
+      "enableTitle": "Enable tester automation",
+      "enableDescription": "When disabled, the old path remains: execution goes straight into review after completion.",
+      "allowAiOnlyTitle": "Allow AI or checklist-only acceptance when no test command is configured",
+      "allowAiOnlyDescription": "Results are more subjective when no test command is configured. If disabled, the automated path skips the test phase.",
+      "defaultTestCommandLabel": "Default test command",
+      "defaultTestCommandPlaceholder": "For example npm test or cargo test",
+      "defaultTestCommandDescription": "Projects can override this separately. Local mode runs it in the working directory, and SSH mode runs it in the matching remote directory."
+    },
+    "preferences": {
+      "title": "Git preferences",
+      "description": "Controls the default Worktree behavior for new tasks and the length of AI-generated Git commit messages.",
+      "enableWorktreeTitle": "Enable Worktree by default for new tasks",
+      "enableWorktreeDescription": "When enabled, new tasks default to preparing an isolated Worktree. It can still be changed per task in the create-task dialog.",
+      "worktreeLocationLabel": "Worktree directory rule",
+      "selectWorktreeLocation": "Select a Worktree directory rule",
+      "customRootLabel": "Custom Worktree root",
+      "customRootPlaceholderLocal": "/Users/wenyuan/codex-worktrees",
+      "customRootPlaceholderRemote": "~/codex-worktrees",
+      "customRootDescriptionLocal": "Local settings require an absolute path. The final structure is <root>/<repo>/<task>.",
+      "customRootDescriptionRemote": "SSH settings require an absolute path or one that starts with ~/. The final structure is <root>/<repo>/<task>.",
+      "commitMessageLengthLabel": "Default AI commit message length",
+      "selectCommitMessageLength": "Select commit message length"
+    },
+    "gitAi": {
+      "title": "Git AI",
+      "description": "Controls the provider, model, and reasoning effort used when AI automatically generates Git commit messages.",
+      "badgeFollowOneShot": "Follow one-shot AI",
+      "modelSourceLabel": "Model source",
+      "providerLabel": "AI provider",
+      "modelLabel": "Git AI model",
+      "reasoningLabel": "Git AI reasoning effort",
+      "loadedModels": "Loaded {{count}} available models",
+      "modelFormat": "Format: provider/modelID (for example openai/gpt-4o)",
+      "currentProviderLabel": "Current Git AI",
+      "currentModelLabel": "Current model",
+      "currentReasoningLabel": "Current reasoning effort",
+      "actions": {
+        "save": "Save configuration"
+      }
+    },
+    "options": {
+      "failureStrategy": {
+        "blocked": "Move to blocked",
+        "manualControl": "Move to manual handling"
+      },
+      "worktreeLocation": {
+        "repoSiblingHidden": {
+          "label": "Hidden sibling directory beside the repo",
+          "description": "Keep the current behavior and place Worktrees in a sibling .codex-ai-worktrees-* directory next to the repo"
+        },
+        "repoChildHidden": {
+          "label": "Repo .git directory",
+          "description": "Place Worktrees in .git/codex-ai-worktrees so the main workspace stays clean"
+        },
+        "customRoot": {
+          "label": "Custom root directory",
+          "description": "Use the root you specify and append repo and task directories automatically"
+        }
+      },
+      "commitMessageLength": {
+        "titleWithBody": {
+          "label": "Title + details",
+          "description": "Generate a Conventional Commit title and include a body that explains the change"
+        },
+        "titleOnly": {
+          "label": "Title only",
+          "description": "Generate only a single-line Conventional Commit title"
+        }
+      },
+      "commitModelSource": {
+        "inheritOneShot": {
+          "label": "Follow one-shot AI",
+          "description": "Reuse the current one-shot AI model and reasoning effort"
+        },
+        "custom": {
+          "label": "Custom",
+          "description": "Use a separate model and reasoning effort just for Git commit message generation"
+        }
+      },
+      "providers": {
+        "codex": "Codex (OpenAI)",
+        "claude": "Claude (Anthropic)",
+        "opencode": "OpenCode (Open Source)",
+        "grok": "Grok"
+      },
+      "reasoningEffort": {
+        "low": "Low",
+        "medium": "Medium",
+        "high": "High",
+        "xhigh": "Very High",
+        "max": "Max"
+      },
+      "claudeThinkingBudget": {
+        "low": "Low",
+        "medium": "Medium",
+        "high": "High",
+        "xhigh": "Very High",
+        "max": "Max",
+        "auto": "Auto"
+      },
+      "codexModels": {
+        "gpt56Sol": "GPT-5.6-Sol",
+        "gpt56Terra": "GPT-5.6-Terra",
+        "gpt56Luna": "GPT-5.6-Luna",
+        "gpt55": "GPT-5.5",
+        "gpt54": "GPT-5.4",
+        "gpt52Codex": "GPT-5.2-Codex",
+        "gpt51CodexMax": "GPT-5.1-Codex-Max",
+        "gpt54Mini": "GPT-5.4-Mini",
+        "gpt53Codex": "GPT-5.3-Codex",
+        "gpt53CodexSpark": "GPT-5.3-Codex-Spark",
+        "gpt52": "GPT-5.2",
+        "gpt51CodexMini": "GPT-5.1-Codex-Mini"
+      },
+      "claudeModels": {
+        "opus": "Claude Opus",
+        "opus1m": "Claude Opus 1M",
+        "sonnet": "Claude Sonnet",
+        "sonnet1m": "Claude Sonnet 1M",
+        "haiku": "Claude Haiku"
+      },
+      "grokModels": {
+        "grok45": "Grok 4.5"
+      }
+    }
+  },
+  "prompts": {
+    "title": "AI prompt templates",
+    "description": "Configure the output goals and extra requirements for each scene. After saving, the app writes to the local ai-prompt-templates.json file and prefers it when generating prompts.",
+    "states": {
+      "loading": "Loading prompt templates...",
+      "empty": "No templates available"
+    },
+    "actions": {
+      "resetAll": "Reset all",
+      "saveCurrent": "Save current template",
+      "resetCurrent": "Reset current"
+    },
+    "fields": {
+      "displayName": "Display name",
+      "outputGoal": "Output goal (output_goal)",
+      "sceneRequirement": "Scene requirements (scene_requirement)"
+    },
+    "messages": {
+      "savedNamed": "Saved {{label}}",
+      "resetNamedToDefault": "Reset {{label}} to default",
+      "resetCurrent": "Reset the current template",
+      "resetAll": "Reset all prompt templates to default"
+    },
+    "errors": {
+      "loadFailed": "Failed to load prompt templates",
+      "saveFailed": "Failed to save the prompt template",
+      "resetFailed": "Failed to reset the prompt template",
+      "resetAllFailed": "Failed to reset all prompt templates"
+    },
+    "scenes": {
+      "task_create": "New task",
+      "task_continue": "Continue task conversation",
+      "session_continue": "Continue session conversation",
+      "employee_system_prompt": "Employee system prompt generation",
+      "coordinator_plan": "Coordinator task plan",
+      "review": "Code review",
+      "generate_commit": "Generate commit message",
+      "suggest_assignee": "Suggest assignee",
+      "generate_subtasks": "Split into subtasks",
+      "tester_acceptance": "Tester acceptance"
+    }
+  },
+  "mcp": {
+    "title": "MCP server management",
+    "description": "Maintain the MCP server list here and export it as a JSON snippet to merge into Codex, Claude, and other engine configurations. The configuration is stored in the app config directory and is not part of SQL backups.",
+    "states": {
+      "loading": "Loading MCP configuration...",
+      "empty": "No MCP servers yet. Click Add Server."
+    },
+    "actions": {
+      "addServer": "Add server",
+      "save": "Save",
+      "exportSnippet": "Export snippet",
+      "resetExample": "Reset example",
+      "delete": "Delete"
+    },
+    "fields": {
+      "enabled": "Enabled",
+      "namePlaceholder": "Name",
+      "commandPlaceholder": "Launch command (for example npx, uvx, or an absolute path)",
+      "argsPlaceholder": "Arguments (space-separated)",
+      "notesPlaceholder": "Notes (optional)"
+    },
+    "preview": {
+      "title": "Export snippet preview"
+    },
+    "messages": {
+      "saved": "MCP configuration saved to mcp-servers.json in the app config directory.",
+      "reset": "Reset to the default example configuration.",
+      "exported": "Generated the export snippet and tried to copy it to the clipboard."
+    },
+    "exampleFilesystem": {
+      "name": "Example: Filesystem (enable if needed)",
+      "notes": "This is a placeholder sample. Before enabling, confirm Node/npx is installed locally and update args to your real repo path."
+    }
+  },
+  "ssh": {
+    "title": "SSH configuration management",
+    "description": "Supports multiple SSH configurations. SSH projects bind to one configuration and one remote repository directory.",
+    "actions": {
+      "newConfig": "New configuration",
+      "choose": "Choose",
+      "createConfig": "Create SSH configuration",
+      "saveConfig": "Save SSH configuration",
+      "testConnection": "Test connection",
+      "deleteConfig": "Delete configuration"
+    },
+    "list": {
+      "loading": "Loading SSH configurations...",
+      "empty": "No SSH configurations yet.",
+      "noSelection": "No SSH configuration selected",
+      "checkedAt": "Checked {{date}}"
+    },
+    "badges": {
+      "passwordLogin": "Password login",
+      "keyLogin": "Key login",
+      "passwordAuth": "Password authentication",
+      "keyAuth": "Key authentication"
+    },
+    "form": {
+      "createTitle": "New SSH configuration",
+      "editTitle": "Edit SSH configuration",
+      "createDescription": "After saving, it can be used by SSH projects and remote runtime settings.",
+      "editDescription": "Updating keeps the current configuration references.",
+      "configName": "Configuration name *",
+      "host": "Host *",
+      "port": "Port",
+      "username": "Username *",
+      "authType": "Authentication method",
+      "knownHostsPolicy": "Known Hosts policy",
+      "privateKeyPath": "Private key path *",
+      "password": "Password",
+      "passphrase": "Passphrase (optional)",
+      "placeholders": {
+        "configName": "Production host",
+        "host": "10.0.0.12",
+        "port": "22",
+        "username": "deploy",
+        "privateKeyPath": "~/.ssh/id_ed25519",
+        "passphraseKeepExisting": "Leave blank to keep the current passphrase",
+        "passphraseOptional": "Optional",
+        "passwordKeepExisting": "Leave blank to keep the current password",
+        "passwordEnter": "Enter login password"
+      }
+    },
+    "knownHosts": {
+      "acceptNew": "Auto-accept on first connection",
+      "strict": "Strict verification",
+      "off": "Disable verification (not recommended)"
+    },
+    "status": {
+      "title": "Current configuration status",
+      "host": "Host",
+      "connectionTest": "Connection test",
+      "notTested": "Not checked"
+    },
+    "desktop": {
+      "selectPrivateKeyTitle": "Select private key file",
+      "selectPrivateKeyDesktopOnly": "Selecting a private key file is only supported in the desktop app"
+    }
+  },
+  "database": {
+    "maintenance": {
+      "title": "Database maintenance",
+      "description": "The database always remains local. SSH mode only changes the execution context and does not move the database.",
+      "pathLabel": "Database path",
+      "currentVersionLabel": "Current version",
+      "latestVersionLabel": "Latest version",
+      "detecting": "Checking",
+      "unknown": "Unknown"
+    },
+    "backupScope": {
+      "title": "Backup scope note (not full disaster recovery)",
+      "included": "Included",
+      "excluded": "Not included",
+      "restoreWarning": "Importing SQL only replaces the database. It does not restore prompts, MCP settings, attachments, or keys. Back those up separately before importing.",
+      "note": "“Export SQL” only covers the database itself—not full disaster recovery. Restoring SQL does not automatically restore prompt templates, MCP config, attachment files, or secrets; also back up the app config directory and task-attachments/, or use “Open database directory” on the Settings page to locate related data.",
+      "includesItems": [
+        "Full SQLite database (projects/tasks/employees/sessions/activity logs/delivery fields, etc.)",
+        "Applied database migration version records"
+      ],
+      "excludesItems": [
+        "Task attachment files: task-attachments/ under the app data directory (image/document binaries)",
+        "Sensitive secrets in the keyring such as SSH passwords/private-key passphrases",
+        "ai-prompt-templates.json in the app config directory (AI prompt templates)",
+        "mcp-servers.json in the app config directory (MCP server config)",
+        "Local UI state such as window size"
+      ]
+    },
+    "actions": {
+      "exportSql": "Export SQL",
+      "importSql": "Import SQL",
+      "openDirectory": "Open database directory",
+      "openDirectoryDesktopOnly": "Opening the database folder is only supported in the desktop app",
+      "openDirectoryAvailable": "Open the folder that contains the database",
+      "pathUnavailable": "Database path is unavailable"
+    },
+    "retention": {
+      "title": "Session event retention",
+      "description": "Delete expired session event logs by day count so the local database does not grow without bound. Session records themselves are not removed.",
+      "desktopOnly": "Session event retention and cleanup are only supported in the desktop app.",
+      "totalEvents": "Total events",
+      "expiredEvents": "Expired events",
+      "oldest": "Oldest",
+      "newest": "Newest",
+      "currentPolicy": "Current policy: keep {{days}} days",
+      "retentionDaysLabel": "Retention days ({{min}}-{{max}})",
+      "savePolicy": "Save policy",
+      "purgeNow": "Purge now",
+      "notAvailable": "—",
+      "confirmPurge": "About {{expired}} expired session events will be deleted using the current retention policy ({{days}} days), and VACUUM will be attempted to reclaim disk space. Continue?"
+    },
+    "messages": {
+      "invalidRetentionSaved": "Invalid input (must be an integer from {{min}} to {{max}}). Saved the default retention of {{days}} days.",
+      "retentionSaved": "Saved: keep {{days}} days",
+      "purgeSuccessWithVacuum": "Removed {{deleted}} expired events (kept {{days}} days). Disk space reclamation completed.",
+      "purgeSuccess": "Removed {{deleted}} expired events (kept {{days}} days).",
+      "purgeVacuumFailedWithError": "Events were removed, but VACUUM failed: {{error}}",
+      "purgeVacuumFailed": "Events were removed, but VACUUM failed"
+    }
   }
 }

@@ -24,6 +24,7 @@ import {
 import { useEmployeeStore } from "@/stores/employeeStore";
 import { useProjectStore } from "@/stores/projectStore";
 import { getOpenCodeModels, type OpenCodeModelInfo } from "@/lib/opencode";
+import { getReasoningEffortLabel } from "@/lib/utils";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import {
@@ -184,23 +185,23 @@ export function EditEmployeeDialog({ open, onOpenChange, employee }: EditEmploye
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-[640px]">
         <DialogHeader>
-          <DialogTitle>编辑员工</DialogTitle>
+          <DialogTitle>{t("editEmployeeTitle")}</DialogTitle>
         </DialogHeader>
 
         <div className="space-y-3">
           <div>
-            <label className="text-xs font-medium text-muted-foreground">名称 *</label>
+            <label className="text-xs font-medium text-muted-foreground">{t("nameRequired")}</label>
             <Input
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder="员工名称"
+              placeholder={t("namePlaceholder")}
               className="mt-1"
             />
           </div>
 
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="text-xs font-medium text-muted-foreground">角色</label>
+              <label className="text-xs font-medium text-muted-foreground">{t("role")}</label>
               <Select
                 value={role}
                 onValueChange={(value) => {
@@ -215,7 +216,7 @@ export function EditEmployeeDialog({ open, onOpenChange, employee }: EditEmploye
                       const option = EMPLOYEE_ROLE_OPTIONS.find((o) => o.value === value);
                       return typeof value === "string"
                         ? option
-                          ? t(option.labelKey)
+                          ? t(`common:role.${option.value}`)
                           : value
                         : t("selectRole");
                     }}
@@ -224,7 +225,7 @@ export function EditEmployeeDialog({ open, onOpenChange, employee }: EditEmploye
                 <SelectContent>
                   {EMPLOYEE_ROLE_OPTIONS.map((option) => (
                     <SelectItem key={option.value} value={option.value}>
-                      {t(option.labelKey)}
+                      {t(`common:role.${option.value}`)}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -235,7 +236,7 @@ export function EditEmployeeDialog({ open, onOpenChange, employee }: EditEmploye
             </div>
 
             <div>
-              <label className="text-xs font-medium text-muted-foreground">AI 提供商</label>
+              <label className="text-xs font-medium text-muted-foreground">{t("aiProvider")}</label>
               <Select value={aiProvider} onValueChange={handleProviderChange}>
                 <SelectTrigger className="mt-1 bg-background">
                   <SelectValue>
@@ -243,7 +244,7 @@ export function EditEmployeeDialog({ open, onOpenChange, employee }: EditEmploye
                       typeof value === "string"
                         ? (AI_PROVIDER_OPTIONS.find((option) => option.value === value)?.label ??
                           value)
-                        : "选择提供商"
+                        : t("selectProvider")
                     }
                   </SelectValue>
                 </SelectTrigger>
@@ -260,7 +261,7 @@ export function EditEmployeeDialog({ open, onOpenChange, employee }: EditEmploye
 
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="text-xs font-medium text-muted-foreground">模型</label>
+              <label className="text-xs font-medium text-muted-foreground">{t("model")}</label>
               {modelOptions.length > 0 && aiProvider !== "opencode" ? (
                 <Select
                   value={model}
@@ -273,7 +274,7 @@ export function EditEmployeeDialog({ open, onOpenChange, employee }: EditEmploye
                       {(value) =>
                         typeof value === "string"
                           ? (modelOptions.find((option) => option.value === value)?.label ?? value)
-                          : "选择模型"
+                          : t("selectModel")
                       }
                     </SelectValue>
                   </SelectTrigger>
@@ -311,7 +312,7 @@ export function EditEmployeeDialog({ open, onOpenChange, employee }: EditEmploye
                         <Input
                           value={model}
                           onChange={(e) => handleModelChange(e.target.value)}
-                          placeholder="openai/gpt-4o"
+                          placeholder={t("selectModel")}
                         />
                       )}
                     </div>
@@ -320,7 +321,7 @@ export function EditEmployeeDialog({ open, onOpenChange, employee }: EditEmploye
                       onClick={fetchOpenCodeModels}
                       disabled={opencodeModelsLoading}
                       className="px-2 py-1 border border-input rounded-md hover:bg-accent disabled:opacity-50"
-                      title="刷新模型列表"
+                      title={t("refreshModelsTitle")}
                     >
                       {opencodeModelsLoading ? (
                         <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -331,7 +332,7 @@ export function EditEmployeeDialog({ open, onOpenChange, employee }: EditEmploye
                   </div>
                   {opencodeModels.length > 0 && (
                     <p className="text-[11px] text-muted-foreground">
-                      已加载 {opencodeModels.length} 个模型
+                      {t("opencodeLoaded", { count: opencodeModels.length })}
                     </p>
                   )}
                   {opencodeModelError && (
@@ -342,14 +343,16 @@ export function EditEmployeeDialog({ open, onOpenChange, employee }: EditEmploye
                 <Input
                   value={model}
                   onChange={(e) => handleModelChange(e.target.value)}
-                  placeholder="openai/gpt-4o"
+                  placeholder={t("selectModel")}
                   className="mt-1"
                 />
               )}
             </div>
 
             <div>
-              <label className="text-xs font-medium text-muted-foreground">推理强度</label>
+              <label className="text-xs font-medium text-muted-foreground">
+                {t("reasoningEffort")}
+              </label>
               <Select
                 value={reasoningEffort}
                 onValueChange={(value) => {
@@ -363,33 +366,33 @@ export function EditEmployeeDialog({ open, onOpenChange, employee }: EditEmploye
                   <SelectValue>
                     {(value) =>
                       typeof value === "string"
-                        ? (effortOptions.find((option) => option.value === value)?.label ?? value)
-                        : "选择推理强度"
+                        ? getReasoningEffortLabel(value, aiProvider)
+                        : t("selectReasoning")
                     }
                   </SelectValue>
                 </SelectTrigger>
                 <SelectContent>
                   {effortOptions.map((option) => (
                     <SelectItem key={option.value} value={option.value}>
-                      {option.label}
+                      {getReasoningEffortLabel(option.value, aiProvider)}
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
               {aiProvider === "opencode" && selectedModelCapabilities?.reasoning && (
-                <p className="text-[10px] text-muted-foreground mt-0.5">
-                  部分模型可能不支持所有推理等级，不支持时将自动忽略
-                </p>
+                <p className="text-[10px] text-muted-foreground mt-0.5">{t("reasoningHint")}</p>
               )}
             </div>
           </div>
 
           <div>
-            <label className="text-xs font-medium text-muted-foreground">专长</label>
+            <label className="text-xs font-medium text-muted-foreground">
+              {t("specialization")}
+            </label>
             <Input
               value={specialization}
               onChange={(e) => setSpecialization(e.target.value)}
-              placeholder="例如：全栈开发、代码审查"
+              placeholder={t("specializationPlaceholder")}
               className="mt-1"
             />
           </div>
@@ -405,7 +408,9 @@ export function EditEmployeeDialog({ open, onOpenChange, employee }: EditEmploye
           />
 
           <div>
-            <label className="text-xs font-medium text-muted-foreground">关联项目</label>
+            <label className="text-xs font-medium text-muted-foreground">
+              {t("linkedProject")}
+            </label>
             <Select
               value={projectId || NO_PROJECT_VALUE}
               onValueChange={(value) => {
@@ -416,15 +421,15 @@ export function EditEmployeeDialog({ open, onOpenChange, employee }: EditEmploye
                 <SelectValue>
                   {(value) => {
                     if (!value || value === NO_PROJECT_VALUE) {
-                      return "无";
+                      return t("none");
                     }
 
-                    return projects.find((project) => project.id === value)?.name ?? "无";
+                    return projects.find((project) => project.id === value)?.name ?? t("none");
                   }}
                 </SelectValue>
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value={NO_PROJECT_VALUE}>无</SelectItem>
+                <SelectItem value={NO_PROJECT_VALUE}>{t("none")}</SelectItem>
                 {projects.map((project) => (
                   <SelectItem key={project.id} value={project.id}>
                     {project.name}
@@ -445,14 +450,14 @@ export function EditEmployeeDialog({ open, onOpenChange, employee }: EditEmploye
               onClick={() => onOpenChange(false)}
               className="px-3 py-1.5 text-sm border border-input rounded-md hover:bg-accent"
             >
-              取消
+              {t("common:cancel")}
             </button>
             <button
               onClick={handleSave}
               disabled={!name.trim() || !employee || saving}
               className="px-3 py-1.5 text-sm bg-primary text-primary-foreground rounded-md hover:bg-primary/90 disabled:opacity-50"
             >
-              {saving ? "保存中..." : "保存"}
+              {saving ? t("saving") : t("common:save")}
             </button>
           </div>
         </div>

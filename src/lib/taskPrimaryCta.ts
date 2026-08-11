@@ -3,6 +3,8 @@
  * Priority is fixed; first match wins. Components only render + bind handlers.
  */
 
+import i18n from "@/lib/i18n";
+
 export type TaskPrimaryCtaKind =
   | "stop"
   | "running_locked"
@@ -72,17 +74,21 @@ const PIPELINE_STATUSES = new Set([
   "pipeline_manual_waiting_step",
 ]);
 
+function ct(key: string, options?: Record<string, unknown>): string {
+  return i18n.t(`tasks:primaryCta.${key}`, options);
+}
+
 function lockedExecutionLabel(
   automationStatus: string | null | undefined,
   pipelineActive: boolean | undefined,
 ): string {
   if (pipelineActive || (automationStatus && PIPELINE_STATUSES.has(automationStatus))) {
-    return "编排中";
+    return ct("locked.orchestrating");
   }
   if (automationStatus && FIX_AUTOMATION_STATUSES.has(automationStatus)) {
-    return "修复中…";
+    return ct("locked.fixing");
   }
-  return "运行中";
+  return ct("locked.running");
 }
 
 /**
@@ -119,9 +125,9 @@ export function resolveTaskPrimaryCta(input: ResolveTaskPrimaryCtaInput): TaskPr
   if (canStopProcess) {
     return {
       kind: "stop",
-      label: "停止",
+      label: ct("stop.label"),
       disabled: false,
-      reason: pipelineActive ? "停止当前编排步骤并转人工" : "停止当前运行会话",
+      reason: pipelineActive ? ct("stop.reasonPipeline") : ct("stop.reasonSession"),
       tone: "danger",
     };
   }
@@ -132,9 +138,9 @@ export function resolveTaskPrimaryCta(input: ResolveTaskPrimaryCtaInput): TaskPr
   if (backgroundBusy) {
     return {
       kind: "starting",
-      label: backgroundPlanning ? "生成计划中" : "启动中",
+      label: backgroundPlanning ? ct("starting.planningLabel") : ct("starting.startingLabel"),
       disabled: true,
-      reason: backgroundPlanning ? "正在生成协调员/执行计划" : "正在后台启动会话",
+      reason: backgroundPlanning ? ct("starting.planningReason") : ct("starting.startingReason"),
       tone: "muted",
     };
   }
@@ -148,8 +154,8 @@ export function resolveTaskPrimaryCta(input: ResolveTaskPrimaryCtaInput): TaskPr
       disabled: true,
       reason:
         pipelineActive || (automationStatus && PIPELINE_STATUSES.has(automationStatus))
-          ? "编排流水线执行中"
-          : "自动修复正在启动或运行中",
+          ? ct("locked.reasonPipeline")
+          : ct("locked.reasonAutoFix"),
       tone: "muted",
     };
   }
@@ -161,27 +167,26 @@ export function resolveTaskPrimaryCta(input: ResolveTaskPrimaryCtaInput): TaskPr
     if (reviewActive) {
       return {
         kind: "review",
-        label: "审核中",
+        label: ct("review.reviewingLabel"),
         disabled: true,
-        reason: hasReviewer ? "代码审核进行中" : "请先指定审查员",
+        reason: hasReviewer ? ct("review.reasonActive") : ct("review.reasonNeedReviewer"),
         tone: "warning",
       };
     }
     if (sshReviewEvidenceLimited) {
       return {
         kind: "review",
-        label: "审核",
+        label: ct("review.label"),
         disabled: true,
-        reason:
-          "SSH 产物捕获受限，本地 diff/快照可能不完整；请在远程主机核对变更后再审核，或改用本地完整产物模式",
+        reason: ct("review.reasonSshLimited"),
         tone: "warning",
       };
     }
     return {
       kind: "review",
-      label: "审核",
+      label: ct("review.label"),
       disabled: !hasReviewer,
-      reason: hasReviewer ? "发起代码审核" : "请先指定审查员",
+      reason: hasReviewer ? ct("review.reasonStart") : ct("review.reasonNeedReviewer"),
       tone: "warning",
     };
   }
@@ -190,9 +195,9 @@ export function resolveTaskPrimaryCta(input: ResolveTaskPrimaryCtaInput): TaskPr
   if (status === "blocked") {
     return {
       kind: "blocked",
-      label: "查看阻塞原因",
+      label: ct("blocked.label"),
       disabled: false,
-      reason: "查看或编辑任务阻塞原因",
+      reason: ct("blocked.reason"),
       tone: "warning",
     };
   }
@@ -201,7 +206,7 @@ export function resolveTaskPrimaryCta(input: ResolveTaskPrimaryCtaInput): TaskPr
   if (status === "completed" && canCommit) {
     return {
       kind: "commit",
-      label: "提交代码",
+      label: ct("commit.label"),
       disabled: false,
       tone: "primary",
     };
@@ -211,7 +216,7 @@ export function resolveTaskPrimaryCta(input: ResolveTaskPrimaryCtaInput): TaskPr
   if (status === "completed" && canGenerateAcceptance) {
     return {
       kind: "acceptance",
-      label: "生成验收清单",
+      label: ct("acceptance.label"),
       disabled: false,
       tone: "primary",
     };
@@ -223,7 +228,7 @@ export function resolveTaskPrimaryCta(input: ResolveTaskPrimaryCtaInput): TaskPr
       kind: "none",
       label: "",
       disabled: true,
-      reason: "任务已归档",
+      reason: ct("archived.reason"),
       tone: "muted",
     };
   }
@@ -232,9 +237,9 @@ export function resolveTaskPrimaryCta(input: ResolveTaskPrimaryCtaInput): TaskPr
   if (!hasAssignee) {
     return {
       kind: "run",
-      label: "运行",
+      label: ct("run.label"),
       disabled: true,
-      reason: "请先指派员工",
+      reason: ct("run.reasonNeedAssignee"),
       tone: "primary",
     };
   }
@@ -242,11 +247,11 @@ export function resolveTaskPrimaryCta(input: ResolveTaskPrimaryCtaInput): TaskPr
   if (hasIncompleteDependencies) {
     return {
       kind: "run",
-      label: "运行",
+      label: ct("run.label"),
       disabled: true,
       reason: incompleteDependencySummary
-        ? `依赖未完成：${incompleteDependencySummary}`
-        : "依赖任务尚未完成，无法运行",
+        ? ct("run.reasonDepsIncompleteWithList", { summary: incompleteDependencySummary })
+        : ct("run.reasonDepsIncomplete"),
       tone: "primary",
     };
   }
@@ -254,18 +259,18 @@ export function resolveTaskPrimaryCta(input: ResolveTaskPrimaryCtaInput): TaskPr
   if (assigneeBusyOnOtherTask) {
     return {
       kind: "run",
-      label: "并行运行",
+      label: ct("run.parallelLabel"),
       disabled: false,
-      reason: "同员工另有任务运行中，仍可并行启动本任务",
+      reason: ct("run.reasonParallel"),
       tone: "primary",
     };
   }
 
   return {
     kind: "run",
-    label: "运行",
+    label: ct("run.label"),
     disabled: false,
-    reason: "运行任务",
+    reason: ct("run.reasonDefault"),
     tone: "primary",
   };
 }

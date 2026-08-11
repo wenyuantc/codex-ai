@@ -69,6 +69,16 @@ export function can(
   return Boolean(item[capability]);
 }
 
+function localizedProviderNotes(provider: string, fallback?: string | null): string {
+  const translated = i18n.t(`settings:page.engineCapabilities.notes.${provider}`, {
+    defaultValue: "",
+  });
+  if (translated.trim()) {
+    return translated;
+  }
+  return fallback?.trim() || "";
+}
+
 export function capabilityDisabledReason(
   capabilities: AiProviderCapabilities[] | null | undefined,
   provider: AiProvider | string | null | undefined,
@@ -85,13 +95,14 @@ export function capabilityDisabledReason(
     return null;
   }
   const label = capabilityLabel(capability);
+  const notes = localizedProviderNotes(item.provider, item.notes);
   if (capability === "send_input") {
-    return item.notes?.trim() || i18n.t("errors:capabilityUnsupportedNonInteractive", { label });
+    return notes || i18n.t("errors:capabilityUnsupportedNonInteractive", { label });
   }
   if (capability === "restart") {
-    return item.notes?.trim() || i18n.t("errors:capabilityUnsupported", { label });
+    return notes || i18n.t("errors:capabilityUnsupported", { label });
   }
-  return item.notes?.trim() || i18n.t("errors:capabilityUnsupported", { label });
+  return notes || i18n.t("errors:capabilityUnsupported", { label });
 }
 
 export function clearAiProviderCapabilitiesCache(): void {

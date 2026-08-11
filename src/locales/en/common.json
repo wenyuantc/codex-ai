@@ -96,5 +96,7 @@
   "switchToLight": "Switch to light mode",
   "switchToDark": "Switch to dark mode",
   "renderFailedTitle": "UI render failed",
-  "renderFailedDescription": "A runtime exception was caught. Please share the error details below for debugging."
+  "renderFailedDescription": "A runtime exception was caught. Please share the error details below for debugging.",
+  "yes": "Yes",
+  "no": "No"
 }

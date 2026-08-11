@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { AlertTriangle, Link2, Plus, Tag as TagIcon, X } from "lucide-react";
 
 import type { Milestone, Tag, Task, TaskDependency } from "@/lib/types";
@@ -50,6 +51,7 @@ export function TaskDeliverySection({
   onMilestoneChange,
   onError,
 }: TaskDeliverySectionProps) {
+  const { t } = useTranslation("tasks");
   const [milestones, setMilestones] = useState<Milestone[]>([]);
   const [projectTags, setProjectTags] = useState<Tag[]>([]);
   const [taskTags, setTaskTagsState] = useState<Tag[]>([]);
@@ -193,11 +195,17 @@ export function TaskDeliverySection({
         bare ? "space-y-3" : "space-y-3 rounded-lg border border-border/60 bg-background/60 p-4"
       }
     >
-      {!bare && <h4 className="text-xs font-medium text-muted-foreground">交付信息</h4>}
+      {!bare && (
+        <h4 className="text-xs font-medium text-muted-foreground">
+          {t("detail.sidebar.delivery")}
+        </h4>
+      )}
 
       <div className={bare ? "space-y-3" : "grid gap-3 sm:grid-cols-2"}>
         <div>
-          <label className="text-xs font-medium text-muted-foreground">截止日期</label>
+          <label className="text-xs font-medium text-muted-foreground">
+            {t("detail.delivery.dueDate")}
+          </label>
           <Input
             type="date"
             value={getDateOnly(dueDate) ?? ""}
@@ -209,14 +217,16 @@ export function TaskDeliverySection({
             <p
               className={`mt-1 text-[11px] ${overdue ? "text-destructive" : "text-muted-foreground"}`}
             >
-              {overdue ? "已逾期 · " : ""}
+              {overdue ? t("detail.delivery.overduePrefix") : ""}
               {formatDate(dueDate)}
             </p>
           )}
         </div>
 
         <div>
-          <label className="text-xs font-medium text-muted-foreground">里程碑</label>
+          <label className="text-xs font-medium text-muted-foreground">
+            {t("detail.delivery.milestone")}
+          </label>
           <Select
             value={milestoneId || NONE_VALUE}
             onValueChange={(value) =>
@@ -227,18 +237,25 @@ export function TaskDeliverySection({
               <SelectValue>
                 {(value) => {
                   if (!value || value === NONE_VALUE) {
-                    return "未关联";
+                    return t("detail.delivery.unlinked");
                   }
-                  return milestones.find((item) => item.id === value)?.name ?? "未关联";
+                  return (
+                    milestones.find((item) => item.id === value)?.name ??
+                    t("detail.delivery.unlinked")
+                  );
                 }}
               </SelectValue>
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value={NONE_VALUE}>未关联</SelectItem>
+              <SelectItem value={NONE_VALUE}>{t("detail.delivery.unlinked")}</SelectItem>
               {milestones.map((milestone) => (
                 <SelectItem key={milestone.id} value={milestone.id}>
                   {milestone.name}
-                  {milestone.due_date ? `（${formatDate(milestone.due_date)}）` : ""}
+                  {milestone.due_date
+                    ? t("detail.delivery.milestoneDueSuffix", {
+                        date: formatDate(milestone.due_date),
+                      })
+                    : ""}
                 </SelectItem>
               ))}
             </SelectContent>
@@ -249,11 +266,11 @@ export function TaskDeliverySection({
       <div className="space-y-2">
         <div className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
           <TagIcon className="h-3.5 w-3.5" />
-          标签
+          {t("detail.delivery.tags")}
         </div>
         <div className="flex flex-wrap gap-1.5">
           {taskTags.length === 0 && (
-            <span className="text-[11px] text-muted-foreground">暂无标签</span>
+            <span className="text-[11px] text-muted-foreground">{t("detail.delivery.noTags")}</span>
           )}
           {taskTags.map((tag) => (
             <Badge key={tag.id} variant="secondary" className="gap-1 pr-1">
@@ -267,7 +284,7 @@ export function TaskDeliverySection({
                 disabled={tagBusy}
                 onClick={() => void handleRemoveTag(tag.id)}
                 className="rounded-full p-0.5 hover:bg-muted"
-                title="移除标签"
+                title={t("detail.delivery.removeTag")}
               >
                 <X className="h-3 w-3" />
               </button>
@@ -281,7 +298,9 @@ export function TaskDeliverySection({
             onValueChange={(value) => value && void handleAddExistingTag(value)}
           >
             <SelectTrigger className="h-7 w-[160px] bg-background text-xs">
-              <SelectValue placeholder="添加已有标签">添加已有标签</SelectValue>
+              <SelectValue placeholder={t("detail.delivery.addExistingTag")}>
+                {t("detail.delivery.addExistingTag")}
+              </SelectValue>
             </SelectTrigger>
             <SelectContent>
               {availableTags.map((tag) => (
@@ -294,7 +313,7 @@ export function TaskDeliverySection({
           <Input
             value={newTagName}
             onChange={(e) => setNewTagName(e.target.value)}
-            placeholder="新建标签"
+            placeholder={t("detail.delivery.newTagPlaceholder")}
             className="h-7 w-[140px] text-xs"
             disabled={tagBusy}
           />
@@ -305,12 +324,14 @@ export function TaskDeliverySection({
             className="inline-flex h-7 items-center gap-1 rounded-md border border-input px-2 text-xs hover:bg-accent disabled:opacity-50"
           >
             <Plus className="h-3 w-3" />
-            创建并添加
+            {t("detail.delivery.createAndAdd")}
           </button>
         </div>
         {projectTags.length > 0 && (
           <div className="rounded-md border border-border/70 bg-muted/20 px-2 py-1.5">
-            <p className="mb-1 text-[11px] text-muted-foreground">项目标签（删除会从项目移除）</p>
+            <p className="mb-1 text-[11px] text-muted-foreground">
+              {t("detail.delivery.projectTagsHint")}
+            </p>
             <div className="flex flex-wrap gap-1.5">
               {projectTags.map((tag) => (
                 <Badge key={tag.id} variant="outline" className="gap-1 pr-1">
@@ -324,7 +345,7 @@ export function TaskDeliverySection({
                     disabled={tagBusy}
                     onClick={() => void handleDeleteProjectTag(tag.id)}
                     className="rounded-full p-0.5 hover:bg-destructive/10 hover:text-destructive"
-                    title="删除项目标签"
+                    title={t("detail.delivery.deleteProjectTag")}
                   >
                     <X className="h-3 w-3" />
                   </button>
@@ -338,11 +359,13 @@ export function TaskDeliverySection({
       <div className="space-y-2">
         <div className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
           <Link2 className="h-3.5 w-3.5" />
-          依赖任务
+          {t("detail.delivery.dependencies")}
         </div>
         <div className="space-y-1.5">
           {dependencies.length === 0 && (
-            <p className="text-[11px] text-muted-foreground">暂无依赖</p>
+            <p className="text-[11px] text-muted-foreground">
+              {t("detail.delivery.noDependencies")}
+            </p>
           )}
           {dependencies.map((dep) => {
             const dependsOn = projectTasks.find((item) => item.id === dep.depends_on_task_id);
@@ -359,7 +382,7 @@ export function TaskDeliverySection({
                   {incomplete && (
                     <p className="mt-0.5 flex items-center gap-1 text-[11px] text-amber-700 dark:text-amber-200">
                       <AlertTriangle className="h-3 w-3 shrink-0" />
-                      依赖未完成：无法运行或标记完成
+                      {t("detail.delivery.dependencyIncomplete")}
                     </p>
                   )}
                 </div>
@@ -368,7 +391,7 @@ export function TaskDeliverySection({
                   disabled={depBusy}
                   onClick={() => void handleRemoveDependency(dep.id)}
                   className="shrink-0 rounded-md p-1 text-muted-foreground hover:bg-accent hover:text-destructive disabled:opacity-50"
-                  title="移除依赖"
+                  title={t("detail.delivery.removeDependency")}
                 >
                   <X className="h-3.5 w-3.5" />
                 </button>
@@ -382,7 +405,9 @@ export function TaskDeliverySection({
           onValueChange={(value) => value && void handleAddDependency(value)}
         >
           <SelectTrigger className="h-7 bg-background text-xs">
-            <SelectValue placeholder="添加依赖任务">添加依赖任务</SelectValue>
+            <SelectValue placeholder={t("detail.delivery.addDependency")}>
+              {t("detail.delivery.addDependency")}
+            </SelectValue>
           </SelectTrigger>
           <SelectContent>
             {availableDeps.map((item) => (

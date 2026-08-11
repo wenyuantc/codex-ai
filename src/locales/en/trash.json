@@ -4,5 +4,12 @@
   "restore": "Restore",
   "permanentDelete": "Delete permanently",
   "deletedTasks": "Deleted tasks",
-  "deletedProjects": "Deleted projects"
+  "deletedProjects": "Deleted projects",
+  "deletedAt": "Deleted {{time}}",
+  "restoring": "Restoring...",
+  "deleting": "Deleting...",
+  "confirmDeleteTaskTitle": "Permanently delete task",
+  "confirmDeleteTaskDescription": "Permanently delete task “{{name}}”? This cannot be undone.",
+  "confirmDeleteProjectTitle": "Permanently delete project",
+  "confirmDeleteProjectDescription": "Permanently delete project “{{name}}”? This also deletes all related data and cannot be undone."
 }

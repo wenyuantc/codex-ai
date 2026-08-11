@@ -1,4 +1,5 @@
 import { useEffect } from "react";
+import { useTranslation } from "react-i18next";
 import { Loader2, Sparkles } from "lucide-react";
 
 import { useAiOptimizePrompt } from "@/hooks/useAiOptimizePrompt";
@@ -6,8 +7,6 @@ import { getProjectWorkingDir } from "@/lib/projects";
 import { useProjectStore } from "@/stores/projectStore";
 import { Button } from "@/components/ui/button";
 
-const EMPLOYEE_PROMPT_FALLBACK_PROJECT_NAME = "通用 AI 员工";
-const EMPLOYEE_PROMPT_FALLBACK_PROJECT_DESCRIPTION = "未关联项目，生成通用 AI 员工系统提示词。";
 const EMPLOYEE_SYSTEM_PROMPT_MAX_LENGTH = 12000;
 
 interface EmployeeSystemPromptFieldProps {
@@ -29,6 +28,7 @@ export function EmployeeSystemPromptField({
   disabled = false,
   onSystemPromptChange,
 }: EmployeeSystemPromptFieldProps) {
+  const { t } = useTranslation("employees");
   const projects = useProjectStore((state) => state.projects);
   const fetchProjects = useProjectStore((state) => state.fetchProjects);
   const optimizePrompt = useAiOptimizePrompt(open);
@@ -57,9 +57,9 @@ export function EmployeeSystemPromptField({
     await optimizePrompt.generate({
       scene: "employee_system_prompt",
       projectId: currentProject?.id ?? null,
-      projectName: currentProject?.name ?? EMPLOYEE_PROMPT_FALLBACK_PROJECT_NAME,
+      projectName: currentProject?.name ?? t("systemPromptField.fallbackProjectName"),
       projectDescription:
-        currentProject?.description ?? EMPLOYEE_PROMPT_FALLBACK_PROJECT_DESCRIPTION,
+        currentProject?.description ?? t("systemPromptField.fallbackProjectDescription"),
       projectRepoPath: getProjectWorkingDir(currentProject),
       title: null,
       description: null,
@@ -86,7 +86,9 @@ export function EmployeeSystemPromptField({
   return (
     <div className="space-y-2">
       <div className="flex items-center justify-between gap-3">
-        <label className="text-xs font-medium text-muted-foreground">系统提示词</label>
+        <label className="text-xs font-medium text-muted-foreground">
+          {t("systemPromptField.label")}
+        </label>
         <Button
           type="button"
           variant="outline"
@@ -99,14 +101,14 @@ export function EmployeeSystemPromptField({
           ) : (
             <Sparkles className="h-3.5 w-3.5" />
           )}
-          AI生成系统提示词
+          {t("systemPromptField.generate")}
         </Button>
       </div>
 
       <textarea
         value={systemPrompt}
         onChange={(event) => onSystemPromptChange(event.target.value)}
-        placeholder="AI 员工的系统提示词（可选）"
+        placeholder={t("systemPromptField.placeholder")}
         className="w-full text-sm border border-input rounded-md p-2 bg-background min-h-[120px] resize-y"
         disabled={disabled}
         maxLength={EMPLOYEE_SYSTEM_PROMPT_MAX_LENGTH}
@@ -125,13 +127,15 @@ export function EmployeeSystemPromptField({
         <div className="space-y-3 rounded-md border border-primary/20 bg-primary/5 p-3">
           <div className="flex items-center justify-between gap-2">
             <div>
-              <p className="text-xs font-medium text-primary">生成后的系统提示词</p>
+              <p className="text-xs font-medium text-primary">
+                {t("systemPromptField.generatedTitle")}
+              </p>
               <p className="text-[11px] text-muted-foreground">
-                确认后会替换当前系统提示词输入框内容
+                {t("systemPromptField.generatedHint")}
               </p>
             </div>
             <Button type="button" size="sm" onClick={handleApplyOptimizedPrompt}>
-              替换提示词
+              {t("systemPromptField.replacePrompt")}
             </Button>
           </div>
           <div className="max-h-56 overflow-y-auto rounded-md border bg-background/80 p-3 text-xs whitespace-pre-wrap text-foreground">

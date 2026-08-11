@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
+import { useTranslation } from "react-i18next";
 
 import type {
   CodexSessionFileChange,
@@ -101,6 +102,7 @@ export function TaskDetailDialog({
   onOpenChange,
   automationState,
 }: TaskDetailDialogProps) {
+  const { t } = useTranslation(["tasks", "common"]);
   const {
     updateTask,
     deleteTask,
@@ -670,7 +672,7 @@ export function TaskDetailDialog({
   const handleConfirmBlockedStatus = async () => {
     const reason = pendingBlockedReason.trim();
     if (!reason) {
-      setSaveError("转为阻塞状态时必须填写阻塞原因");
+      setSaveError(t("detail.blockReason.required"));
       return;
     }
     setBlockReasonSubmitting(true);
@@ -706,7 +708,7 @@ export function TaskDetailDialog({
     const selected = await openFileDialog({
       directory: false,
       multiple: true,
-      title: "选择任务附件",
+      title: t("detail.fileDialogTitle"),
     });
     const sourcePaths = dedupePaths(normalizeDialogSelection(selected));
 
@@ -1158,7 +1160,7 @@ export function TaskDetailDialog({
 
   const openCommitDialog = async () => {
     if (!canCommitTaskCode) {
-      setPrimaryActionNotice("当前没有可提交的改动，或提交条件尚未满足。");
+      setPrimaryActionNotice(t("detail.chrome.noCommitableChanges"));
       return;
     }
     setOpeningCommitDialog(true);
@@ -1205,8 +1207,8 @@ export function TaskDetailDialog({
         setDetailTab("overview");
         setPrimaryActionNotice(
           blockedReason.trim()
-            ? `阻塞原因：${blockedReason.trim()}`
-            : "任务已阻塞，请在概览中填写阻塞原因或指定协调员。",
+            ? t("detail.chrome.blockedReasonNotice", { reason: blockedReason.trim() })
+            : t("detail.chrome.blockedOpenOverview"),
         );
         return;
       case "commit":
@@ -1483,7 +1485,7 @@ export function TaskDetailDialog({
     canCommitTaskCode && primaryCta.kind !== "commit"
       ? {
           key: "commit",
-          label: "提交代码",
+          label: t("detail.secondary.commit"),
           disabled: primaryActionLoading,
           onSelect: () => {
             void openCommitDialog();
@@ -1493,7 +1495,7 @@ export function TaskDetailDialog({
     canGenerateTesterAcceptance && primaryCta.kind !== "acceptance"
       ? {
           key: "acceptance",
-          label: "生成验收清单",
+          label: t("detail.secondary.generateChecklist"),
           disabled: testerAcceptanceLoading,
           onSelect: () => {
             setDetailTab("overview");
@@ -1504,7 +1506,7 @@ export function TaskDetailDialog({
     primaryCta.kind !== "run" && Boolean(assigneeId) && !hasActiveSession
       ? {
           key: "run",
-          label: "运行",
+          label: t("detail.secondary.run"),
           disabled: primaryActionLoading,
           onSelect: () => {
             setDetailTab("execution");
@@ -1515,7 +1517,7 @@ export function TaskDetailDialog({
     primaryCta.kind !== "review" && Boolean(reviewerId) && status === "review" && !isReviewRunning
       ? {
           key: "review",
-          label: "审核代码",
+          label: t("detail.secondary.reviewCode"),
           disabled: primaryActionLoading,
           onSelect: () => {
             setDetailTab("review");
@@ -1530,8 +1532,8 @@ export function TaskDetailDialog({
       <Dialog open={open} onOpenChange={onOpenChange}>
         <DialogContent className="flex max-h-[min(92vh,calc(100vh-2rem))] w-[min(96vw,80rem)] max-w-[min(96vw,80rem)] flex-col gap-0 overflow-hidden p-0 sm:max-w-[min(96vw,80rem)]">
           <DialogHeader className="sr-only">
-            <DialogTitle>任务详情</DialogTitle>
-            <DialogDescription>查看和编辑任务详情</DialogDescription>
+            <DialogTitle>{t("detail.dialogTitle")}</DialogTitle>
+            <DialogDescription>{t("detail.dialogDescription")}</DialogDescription>
           </DialogHeader>
 
           <TaskDetailHeader
@@ -1556,12 +1558,12 @@ export function TaskDetailDialog({
                 variant="line"
                 className="w-full min-w-max justify-start gap-2 group-data-horizontal/tabs:h-10"
               >
-                <TabsTrigger value="overview">概览</TabsTrigger>
-                <TabsTrigger value="execution">执行</TabsTrigger>
-                <TabsTrigger value="chain">执行链路</TabsTrigger>
-                <TabsTrigger value="review">审核</TabsTrigger>
-                <TabsTrigger value="ai">AI 助手</TabsTrigger>
-                <TabsTrigger value="collaboration">协作</TabsTrigger>
+                <TabsTrigger value="overview">{t("detail.tabs.overview")}</TabsTrigger>
+                <TabsTrigger value="execution">{t("detail.tabs.execution")}</TabsTrigger>
+                <TabsTrigger value="chain">{t("detail.tabs.chain")}</TabsTrigger>
+                <TabsTrigger value="review">{t("detail.tabs.review")}</TabsTrigger>
+                <TabsTrigger value="ai">{t("detail.tabs.ai")}</TabsTrigger>
+                <TabsTrigger value="collaboration">{t("detail.tabs.collaboration")}</TabsTrigger>
               </TabsList>
             </div>
 
@@ -1971,13 +1973,13 @@ export function TaskDetailDialog({
       >
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>填写阻塞原因</DialogTitle>
-            <DialogDescription>转为阻塞状态前必须说明原因，便于协调员跟进。</DialogDescription>
+            <DialogTitle>{t("detail.blockReason.title")}</DialogTitle>
+            <DialogDescription>{t("detail.blockReason.description")}</DialogDescription>
           </DialogHeader>
           <Textarea
             value={pendingBlockedReason}
             onChange={(e) => setPendingBlockedReason(e.target.value)}
-            placeholder="例如：等待上游接口、依赖任务未完成…"
+            placeholder={t("detail.blockReason.placeholder")}
             className="min-h-[96px] resize-y"
             disabled={blockReasonSubmitting}
           />
@@ -1992,7 +1994,7 @@ export function TaskDetailDialog({
               }}
               className="rounded-md border border-input px-3 py-1.5 text-sm hover:bg-accent disabled:opacity-50"
             >
-              取消
+              {t("common:cancel")}
             </button>
             <button
               type="button"
@@ -2000,7 +2002,9 @@ export function TaskDetailDialog({
               onClick={() => void handleConfirmBlockedStatus()}
               className="rounded-md bg-primary px-3 py-1.5 text-sm text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
             >
-              {blockReasonSubmitting ? "保存中…" : "确认阻塞"}
+              {blockReasonSubmitting
+                ? t("detail.blockReason.saving")
+                : t("detail.blockReason.confirm")}
             </button>
           </div>
         </DialogContent>

@@ -61,5 +61,8 @@
     "prefix": "开关位置：",
     "link": "设置 → Git 与自动质控",
     "coordinator": "入口：看板任务详情 / 右键「协调员计划」与「按计划编排」。"
-  }
+  },
+  "start": "启动",
+  "stopAll": "停止全部",
+  "stopAllTitle": "停止当前员工的 {{count}} 个运行会话"
 }

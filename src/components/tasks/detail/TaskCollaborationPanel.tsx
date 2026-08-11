@@ -1,4 +1,5 @@
 import type { TaskAttachment } from "@/lib/types";
+import { useTranslation } from "react-i18next";
 import { ListTodo, Loader2, MessageSquare, Paperclip } from "lucide-react";
 
 import { useTaskStore } from "@/stores/taskStore";
@@ -32,6 +33,7 @@ export function TaskCollaborationPanel({
   onOpenAttachment,
   onDeleteAttachment,
 }: TaskCollaborationPanelProps) {
+  const { t } = useTranslation("tasks");
   const subtasks = useTaskStore((state) => state.subtasks[taskId]);
   const comments = useTaskStore((state) => state.comments[taskId]);
   const subtaskItems = subtasks ?? [];
@@ -42,8 +44,8 @@ export function TaskCollaborationPanel({
     <div className="space-y-4">
       <DetailSection
         icon={Paperclip}
-        title="附件"
-        description="当前任务的附件会随任务上下文保留，图片会在每次启动和续聊时自动附带给 Codex。"
+        title={t("detail.collaboration.attachments")}
+        description={t("detail.collaboration.attachmentsDesc")}
         actions={
           <Button
             type="button"
@@ -51,17 +53,21 @@ export function TaskCollaborationPanel({
             size="sm"
             onClick={onSelectAttachments}
             disabled={!isTauriRuntime || attachmentLoading}
-            title={isTauriRuntime ? "上传附件" : "仅桌面端支持上传附件"}
+            title={
+              isTauriRuntime
+                ? t("detail.collaboration.upload")
+                : t("detail.collaboration.uploadDesktopOnly")
+            }
           >
             {attachmentLoading ? <Loader2 className="animate-spin" /> : <Paperclip />}
-            添加附件
+            {t("detail.collaboration.add")}
           </Button>
         }
       >
         <div className="space-y-3">
           {!isTauriRuntime && (
             <div className="rounded-md border border-border/60 bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
-              当前环境不支持任务附件上传，请在桌面端使用该功能。
+              {t("detail.collaboration.unsupportedEnv")}
             </div>
           )}
 
@@ -72,8 +78,8 @@ export function TaskCollaborationPanel({
           )}
 
           <ErrorBoundary
-            fallbackTitle="附件区渲染失败"
-            fallbackDescription="附件数据已保留，但缩略图区域发生了运行时异常。"
+            fallbackTitle={t("detail.collaboration.fallbackTitle")}
+            fallbackDescription={t("detail.collaboration.fallbackDesc")}
           >
             <TaskAttachmentGrid
               items={attachments.map((attachment) => ({
@@ -86,7 +92,7 @@ export function TaskCollaborationPanel({
                 onOpen: isTauriRuntime ? () => onOpenAttachment(attachment.stored_path) : undefined,
                 onRemove: () => onDeleteAttachment(attachment.id),
               }))}
-              emptyText="当前任务还没有附件"
+              emptyText={t("detail.collaboration.empty")}
             />
           </ErrorBoundary>
         </div>
@@ -96,7 +102,7 @@ export function TaskCollaborationPanel({
         icon={ListTodo}
         title={
           <>
-            子任务
+            {t("detail.collaboration.subtasks")}
             {subtaskItems.length > 0 && (
               <span className="text-[11px] font-normal text-muted-foreground">
                 {subtaskDoneCount}/{subtaskItems.length}
@@ -113,7 +119,7 @@ export function TaskCollaborationPanel({
         icon={MessageSquare}
         title={
           <>
-            评论
+            {t("detail.collaboration.comments")}
             {commentCount > 0 && (
               <span className="text-[11px] font-normal text-muted-foreground">{commentCount}</span>
             )}

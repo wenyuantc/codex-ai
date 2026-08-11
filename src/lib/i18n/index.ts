@@ -113,12 +113,26 @@ if (!i18n.isInitialized) {
   });
 }
 
+async function syncWindowTitle(locale: AppLocale): Promise<void> {
+  const title = i18n.t("common:appName", { lng: locale });
+  if (typeof document !== "undefined") {
+    document.title = title;
+  }
+  try {
+    const { getCurrentWindow } = await import("@tauri-apps/api/window");
+    await getCurrentWindow().setTitle(title);
+  } catch {
+    // Browser / non-Tauri preview: document.title is enough.
+  }
+}
+
 export async function changeAppLocale(locale: AppLocale): Promise<AppLocale> {
   persistLocalePreference(locale);
   await i18n.changeLanguage(locale);
   if (typeof document !== "undefined") {
     document.documentElement.lang = locale === "en" ? "en" : "zh-CN";
   }
+  await syncWindowTitle(locale);
   return locale;
 }
 
@@ -129,6 +143,7 @@ export function getCurrentAppLocale(): AppLocale {
 
 if (typeof document !== "undefined") {
   document.documentElement.lang = initialLocale === "en" ? "en" : "zh-CN";
+  void syncWindowTitle(initialLocale);
 }
 
 export { i18n };

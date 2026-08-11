@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { useTaskStore } from "@/stores/taskStore";
 import { SubtaskItem } from "./SubtaskItem";
 import { Plus } from "lucide-react";
@@ -10,6 +11,7 @@ interface SubtaskListProps {
 }
 
 export function SubtaskList({ taskId, hideHeader = false }: SubtaskListProps) {
+  const { t } = useTranslation("tasks");
   const { subtasks, fetchSubtasks, addSubtask } = useTaskStore();
   const [newTitle, setNewTitle] = useState("");
 
@@ -31,7 +33,7 @@ export function SubtaskList({ taskId, hideHeader = false }: SubtaskListProps) {
       {!hideHeader && (
         <div className="flex items-center justify-between mb-2">
           <h3 className="text-xs font-medium text-muted-foreground">
-            子任务
+            {t("detail.collaboration.subtasks")}
             {items.length > 0 && (
               <span className="ml-1">
                 ({completedCount}/{items.length})
@@ -55,7 +57,7 @@ export function SubtaskList({ taskId, hideHeader = false }: SubtaskListProps) {
           value={newTitle}
           onChange={(e) => setNewTitle(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && handleAdd()}
-          placeholder="添加子任务..."
+          placeholder={t("detail.collaboration.addSubtaskPlaceholder")}
           className="flex-1 text-xs border border-input rounded px-2 py-1 bg-background"
         />
         <button

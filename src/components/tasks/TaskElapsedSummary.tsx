@@ -1,4 +1,5 @@
 import { memo } from "react";
+import { useTranslation } from "react-i18next";
 import { Clock } from "lucide-react";
 
 import type { Task } from "@/lib/types";
@@ -23,6 +24,7 @@ export const TaskElapsedSummary = memo(function TaskElapsedSummary({
   task,
   className,
 }: TaskElapsedSummaryProps) {
+  const { t } = useTranslation("tasks");
   const running = Boolean(task.time_started_at);
   const nowMs = useSharedNow(running);
   const elapsedSeconds = getTaskElapsedSeconds(task, nowMs);
@@ -32,12 +34,15 @@ export const TaskElapsedSummary = memo(function TaskElapsedSummary({
 
   const summary =
     task.status === "completed"
-      ? `完成：${completedAtLabel} · 耗时：${formatDuration(elapsedSeconds)}`
+      ? t("elapsed.completed", {
+          date: completedAtLabel,
+          duration: formatDuration(elapsedSeconds),
+        })
       : task.time_started_at
-        ? `计时中：${formatDuration(elapsedSeconds)}`
+        ? t("elapsed.timing", { duration: formatDuration(elapsedSeconds) })
         : task.time_spent_seconds > 0
-          ? `累计：${formatDuration(elapsedSeconds)}`
-          : `创建：${formatDate(task.created_at)}`;
+          ? t("elapsed.accumulated", { duration: formatDuration(elapsedSeconds) })
+          : t("elapsed.created", { date: formatDate(task.created_at) });
 
   return (
     <span className={className ?? "flex items-center gap-0.5"}>

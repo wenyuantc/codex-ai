@@ -61,5 +61,8 @@
     "prefix": "Located in: ",
     "link": "Settings → Git & quality automation",
     "coordinator": "Entry: kanban task detail / right-click “Coordinator Plan” and “Run by Plan”."
-  }
+  },
+  "start": "Start",
+  "stopAll": "Stop all",
+  "stopAllTitle": "Stop {{count}} running sessions for this employee"
 }

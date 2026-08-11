@@ -1,3 +1,5 @@
+import { useTranslation } from "react-i18next";
+
 import type { CodexSessionFileChange, TaskExecutionChangeHistoryItem } from "@/lib/types";
 import { formatDate, isArtifactCaptureLimited } from "@/lib/utils";
 import { SshArtifactLimitedNotice } from "@/components/sessions/SshArtifactLimitedNotice";
@@ -30,11 +32,12 @@ export function TaskFileChangeHistoryPanel({
   loading,
   error,
   emptyText,
-  loadingText = "正在加载修改文件历史...",
+  loadingText,
   onRefresh,
   onOpenChangeDetail,
   showSshArtifactNotice,
 }: TaskFileChangeHistoryPanelProps) {
+  const { t } = useTranslation("tasks");
   const limitedFromHistory = history.some((item) =>
     isArtifactCaptureLimited(item.session.artifact_capture_mode),
   );
@@ -42,6 +45,7 @@ export function TaskFileChangeHistoryPanel({
   const limitedMode = history.find((item) =>
     isArtifactCaptureLimited(item.session.artifact_capture_mode),
   )?.session.artifact_capture_mode;
+  const resolvedLoadingText = loadingText ?? t("detail.fileHistory.loadingDefault");
 
   return (
     <div className="space-y-3 rounded-lg border border-border/60 bg-background/60 p-4">
@@ -56,7 +60,7 @@ export function TaskFileChangeHistoryPanel({
           className="text-[11px] text-primary hover:underline disabled:opacity-50"
           disabled={loading}
         >
-          {loading ? "刷新中..." : "刷新"}
+          {loading ? t("detail.labels.refreshing") : t("detail.labels.refresh")}
         </button>
       </div>
 
@@ -115,12 +119,12 @@ export function TaskFileChangeHistoryPanel({
                       </div>
                       {change.previous_path && (
                         <div className="text-[11px] text-muted-foreground">
-                          原路径：
+                          {t("detail.fileHistory.previousPath")}{" "}
                           <span className="break-all font-mono">{change.previous_path}</span>
                         </div>
                       )}
                       <div className="text-[11px] text-primary">
-                        点击查看该次会话保存的 diff / 内容快照
+                        {t("detail.fileHistory.clickForDiff")}
                       </div>
                     </button>
                   ))}
@@ -128,10 +132,10 @@ export function TaskFileChangeHistoryPanel({
               ) : (
                 <div className="mt-3 rounded-md border border-dashed border-border px-3 py-4 text-center text-xs text-muted-foreground">
                   {isArtifactCaptureLimited(item.session.artifact_capture_mode)
-                    ? "远程会话未回传文件级变更明细；可查看上方说明，或到远程主机检查 git 状态。"
+                    ? t("detail.fileHistory.emptyRemoteLimited")
                     : item.capture_mode === "sdk_event"
-                      ? "本次运行没有结构化文件变更记录。"
-                      : "本次 Git 快照估算未发现新增文件变更。"}
+                      ? t("detail.fileHistory.emptySdk")
+                      : t("detail.fileHistory.emptyGit")}
                 </div>
               )}
             </div>
@@ -139,7 +143,7 @@ export function TaskFileChangeHistoryPanel({
         </div>
       ) : loading ? (
         <div className="rounded-md border border-dashed border-border px-3 py-6 text-center text-xs text-muted-foreground">
-          {loadingText}
+          {resolvedLoadingText}
         </div>
       ) : shouldShowSshNotice ? (
         <SshArtifactLimitedNotice artifactCaptureMode={limitedMode} force={!limitedMode} />

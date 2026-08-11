@@ -35,12 +35,26 @@ function CapBadge({
   );
 }
 
+function localizedCapabilityNotes(
+  tSettings: (key: string, options?: Record<string, unknown>) => string,
+  provider: string,
+  fallback?: string | null,
+): string {
+  const key = `page.engineCapabilities.notes.${provider}`;
+  const translated = tSettings(key, { defaultValue: "" });
+  if (translated.trim()) {
+    return translated;
+  }
+  return fallback?.trim() || "";
+}
+
 export function EngineCapabilityBadges({
   provider,
   compact = false,
   className = "",
 }: EngineCapabilityBadgesProps) {
   const { t } = useTranslation("errors");
+  const { t: tSettings } = useTranslation("settings");
   const [capabilities, setCapabilities] = useState<AiProviderCapabilities[]>(
     () => getCachedAiProviderCapabilities() ?? [],
   );
@@ -78,7 +92,8 @@ export function EngineCapabilityBadges({
   return (
     <div className={`space-y-2 ${className}`}>
       {items.map((item) => {
-        const notesTitle = item.notes || undefined;
+        const notesTitle =
+          localizedCapabilityNotes(tSettings, item.provider, item.notes) || undefined;
         return (
           <div
             key={item.provider}
@@ -87,9 +102,9 @@ export function EngineCapabilityBadges({
           >
             <div className="mb-1.5 flex items-center gap-2">
               <span className="font-medium">{item.label}</span>
-              {!compact && item.notes && (
-                <span className="text-muted-foreground line-clamp-2" title={item.notes}>
-                  {item.notes}
+              {!compact && notesTitle && (
+                <span className="text-muted-foreground line-clamp-2" title={notesTitle}>
+                  {notesTitle}
                 </span>
               )}
             </div>

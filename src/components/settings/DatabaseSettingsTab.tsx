@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { Download, FolderOpen, Loader2, Trash2, Upload } from "lucide-react";
+import { useTranslation } from "react-i18next";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -39,6 +40,7 @@ export function DatabaseSettingsTab({
   onRestore,
   onOpenFolder,
 }: DatabaseSettingsTabProps) {
+  const { t } = useTranslation("settings");
   const [backupScope, setBackupScope] = useState<DatabaseBackupScope | null>(null);
   const [retentionDaysInput, setRetentionDaysInput] = useState(String(DEFAULT_RETENTION_DAYS));
   const [policy, setPolicy] = useState<SessionEventsPolicy | null>(null);
@@ -47,10 +49,10 @@ export function DatabaseSettingsTab({
   const [retentionMessage, setRetentionMessage] = useState<string | null>(null);
   const [retentionError, setRetentionError] = useState<string | null>(null);
   const openDatabaseFolderTitle = !isTauriRuntime
-    ? "仅桌面端支持打开数据库文件夹"
+    ? t("database.actions.openDirectoryDesktopOnly")
     : codexHealth?.database_path
-      ? "打开数据库所在的文件夹"
-      : "数据库路径不可用";
+      ? t("database.actions.openDirectoryAvailable")
+      : t("database.actions.pathUnavailable");
 
   const refreshSessionEventsState = useCallback(async () => {
     if (!isTauriRuntime) {
@@ -101,10 +103,16 @@ export function DatabaseSettingsTab({
       setStats(nextStats);
       if (isInvalid || nextPolicy.retention_days !== days) {
         setRetentionMessage(
-          `输入无效（须为 ${MIN_RETENTION_DAYS}–${MAX_RETENTION_DAYS} 的整数），已保存默认保留天数 ${nextPolicy.retention_days} 天`,
+          t("database.messages.invalidRetentionSaved", {
+            min: MIN_RETENTION_DAYS,
+            max: MAX_RETENTION_DAYS,
+            days: nextPolicy.retention_days,
+          }),
         );
       } else {
-        setRetentionMessage(`已保存：保留 ${nextPolicy.retention_days} 天`);
+        setRetentionMessage(
+          t("database.messages.retentionSaved", { days: nextPolicy.retention_days }),
+        );
       }
     } catch (error) {
       setRetentionError(error instanceof Error ? error.message : String(error));
@@ -120,7 +128,10 @@ export function DatabaseSettingsTab({
     const days = policy?.retention_days ?? DEFAULT_RETENTION_DAYS;
     const expired = stats?.expired_events ?? 0;
     const confirmed = window.confirm(
-      `将按当前保留策略（${days} 天）删除约 ${expired} 条过期会话事件，并尝试 VACUUM 回收磁盘。是否继续？`,
+      t("database.retention.confirmPurge", {
+        days,
+        expired,
+      }),
     );
     if (!confirmed) {
       return;
@@ -134,16 +145,22 @@ export function DatabaseSettingsTab({
       await refreshSessionEventsState();
       if (result.vacuum_ok) {
         setRetentionMessage(
-          `已清理 ${result.deleted} 条过期事件（保留 ${result.retention_days} 天），磁盘回收完成`,
+          t("database.messages.purgeSuccessWithVacuum", {
+            deleted: result.deleted,
+            days: result.retention_days,
+          }),
         );
       } else {
         setRetentionMessage(
-          `已清理 ${result.deleted} 条过期事件（保留 ${result.retention_days} 天）`,
+          t("database.messages.purgeSuccess", {
+            deleted: result.deleted,
+            days: result.retention_days,
+          }),
         );
         setRetentionError(
           result.vacuum_error
-            ? `事件已删除，但 VACUUM 失败：${result.vacuum_error}`
-            : "事件已删除，但 VACUUM 失败",
+            ? t("database.messages.purgeVacuumFailedWithError", { error: result.vacuum_error })
+            : t("database.messages.purgeVacuumFailed"),
         );
       }
     } catch (error) {
@@ -157,16 +174,23 @@ export function DatabaseSettingsTab({
     <div className="space-y-6">
       <div className="space-y-4 rounded-lg border border-border bg-card p-4">
         <div>
-          <h3 className="text-sm font-medium">数据库维护</h3>
-          <p className="text-xs text-muted-foreground">
-            数据库仍保留在本地；SSH 模式只切换执行上下文，不切换数据库位置。
-          </p>
+          <h3 className="text-sm font-medium">{t("database.maintenance.title")}</h3>
+          <p className="text-xs text-muted-foreground">{t("database.maintenance.description")}</p>
         </div>
 
         <div className="grid gap-2 rounded-md border border-border px-3 py-3 text-xs text-muted-foreground">
-          <p className="break-all">数据库路径：{codexHealth?.database_path ?? "检测中"}</p>
-          <p>当前版本：{codexHealth?.database_current_version ?? "未知"}</p>
-          <p>最新版本：{codexHealth?.database_latest_version ?? "未知"}</p>
+          <p className="break-all">
+            {t("database.maintenance.pathLabel")}:
+            {codexHealth?.database_path ?? t("database.maintenance.detecting")}
+          </p>
+          <p>
+            {t("database.maintenance.currentVersionLabel")}:
+            {codexHealth?.database_current_version ?? t("database.maintenance.unknown")}
+          </p>
+          <p>
+            {t("database.maintenance.latestVersionLabel")}:
+            {codexHealth?.database_latest_version ?? t("database.maintenance.unknown")}
+          </p>
           {codexHealth?.database_current_description && (
             <p>{codexHealth.database_current_description}</p>
           )}
@@ -174,29 +198,40 @@ export function DatabaseSettingsTab({
 
         {backupScope && (
           <div className="space-y-2 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-3 text-xs text-amber-950 dark:text-amber-100">
-            <p className="font-medium">备份范围说明（不等于完整灾备）</p>
-            <p>{backupScope.note}</p>
+            <p className="font-medium">{t("database.backupScope.title")}</p>
+            <p>{t("database.backupScope.note")}</p>
             <div className="grid gap-2 sm:grid-cols-2">
               <div>
-                <p className="mb-1 font-medium text-green-800 dark:text-green-200">包含</p>
+                <p className="mb-1 font-medium text-green-800 dark:text-green-200">
+                  {t("database.backupScope.included")}
+                </p>
                 <ul className="list-disc space-y-1 pl-4">
-                  {backupScope.includes.map((item) => (
+                  {(
+                    t("database.backupScope.includesItems", {
+                      returnObjects: true,
+                    }) as string[]
+                  ).map((item) => (
                     <li key={item}>{item}</li>
                   ))}
                 </ul>
               </div>
               <div>
-                <p className="mb-1 font-medium text-amber-900 dark:text-amber-50">不包含</p>
+                <p className="mb-1 font-medium text-amber-900 dark:text-amber-50">
+                  {t("database.backupScope.excluded")}
+                </p>
                 <ul className="list-disc space-y-1 pl-4">
-                  {backupScope.excludes.map((item) => (
+                  {(
+                    t("database.backupScope.excludesItems", {
+                      returnObjects: true,
+                    }) as string[]
+                  ).map((item) => (
                     <li key={item}>{item}</li>
                   ))}
                 </ul>
               </div>
             </div>
             <p className="text-[11px] leading-5 opacity-90">
-              导入 SQL
-              只会覆盖数据库；不会还原提示词、MCP、附件与密钥。导入前请确认已另行备份这些内容。
+              {t("database.backupScope.restoreWarning")}
             </p>
           </div>
         )}
@@ -208,7 +243,7 @@ export function DatabaseSettingsTab({
             ) : (
               <Download className="h-4 w-4" />
             )}
-            导出 SQL
+            {t("database.actions.exportSql")}
           </Button>
           <Button variant="outline" onClick={onRestore} disabled={actionLoading !== null}>
             {actionLoading === "restore" ? (
@@ -216,7 +251,7 @@ export function DatabaseSettingsTab({
             ) : (
               <Upload className="h-4 w-4" />
             )}
-            导入 SQL
+            {t("database.actions.importSql")}
           </Button>
           <Button
             variant="ghost"
@@ -229,7 +264,7 @@ export function DatabaseSettingsTab({
             ) : (
               <FolderOpen className="h-4 w-4" />
             )}
-            打开数据库目录
+            {t("database.actions.openDirectory")}
           </Button>
         </div>
 
@@ -239,30 +274,45 @@ export function DatabaseSettingsTab({
 
       <div className="space-y-4 rounded-lg border border-border bg-card p-4">
         <div>
-          <h3 className="text-sm font-medium">会话事件保留</h3>
-          <p className="text-xs text-muted-foreground">
-            按天数清理过期的会话事件日志，避免本地数据库无限膨胀。不会删除会话记录本身。
-          </p>
+          <h3 className="text-sm font-medium">{t("database.retention.title")}</h3>
+          <p className="text-xs text-muted-foreground">{t("database.retention.description")}</p>
         </div>
 
         {!isTauriRuntime ? (
-          <p className="text-xs text-muted-foreground">仅桌面端支持会话事件保留与清理。</p>
+          <p className="text-xs text-muted-foreground">{t("database.retention.desktopOnly")}</p>
         ) : (
           <>
             <div className="grid gap-2 rounded-md border border-border px-3 py-3 text-xs text-muted-foreground sm:grid-cols-2">
-              <p>事件总数：{stats?.total_events ?? "—"}</p>
-              <p>过期事件：{stats?.expired_events ?? "—"}</p>
-              <p className="break-all">最早：{stats?.oldest_created_at ?? "—"}</p>
-              <p className="break-all">最新：{stats?.newest_created_at ?? "—"}</p>
+              <p>
+                {t("database.retention.totalEvents")}:
+                {stats?.total_events ?? t("database.retention.notAvailable")}
+              </p>
+              <p>
+                {t("database.retention.expiredEvents")}:
+                {stats?.expired_events ?? t("database.retention.notAvailable")}
+              </p>
+              <p className="break-all">
+                {t("database.retention.oldest")}:
+                {stats?.oldest_created_at ?? t("database.retention.notAvailable")}
+              </p>
+              <p className="break-all">
+                {t("database.retention.newest")}:
+                {stats?.newest_created_at ?? t("database.retention.notAvailable")}
+              </p>
               <p className="sm:col-span-2">
-                当前策略：保留 {policy?.retention_days ?? DEFAULT_RETENTION_DAYS} 天
+                {t("database.retention.currentPolicy", {
+                  days: policy?.retention_days ?? DEFAULT_RETENTION_DAYS,
+                })}
               </p>
             </div>
 
             <div className="flex flex-wrap items-end gap-2">
               <label className="space-y-1 text-xs">
                 <span className="text-muted-foreground">
-                  保留天数（{MIN_RETENTION_DAYS}–{MAX_RETENTION_DAYS}）
+                  {t("database.retention.retentionDaysLabel", {
+                    min: MIN_RETENTION_DAYS,
+                    max: MAX_RETENTION_DAYS,
+                  })}
                 </span>
                 <input
                   type="number"
@@ -280,7 +330,7 @@ export function DatabaseSettingsTab({
                 disabled={retentionLoading}
               >
                 {retentionLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-                保存策略
+                {t("database.retention.savePolicy")}
               </Button>
               <Button
                 variant="outline"
@@ -292,7 +342,7 @@ export function DatabaseSettingsTab({
                 ) : (
                   <Trash2 className="h-4 w-4" />
                 )}
-                立即清理
+                {t("database.retention.purgeNow")}
               </Button>
             </div>
 

@@ -1,4 +1,5 @@
 import { Button } from "@/components/ui/button";
+import { useTranslation } from "react-i18next";
 import {
   Dialog,
   DialogContent,
@@ -22,11 +23,12 @@ export function ConfirmPermanentDeleteDialog({
   open,
   title,
   description,
-  confirmLabel = "永久删除",
+  confirmLabel,
   deleting = false,
   onOpenChange,
   onConfirm,
 }: ConfirmPermanentDeleteDialogProps) {
+  const { t } = useTranslation(["trash", "common"]);
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-md" showCloseButton={!deleting}>
@@ -42,10 +44,10 @@ export function ConfirmPermanentDeleteDialog({
             onClick={() => onOpenChange(false)}
             disabled={deleting}
           >
-            取消
+            {t("common:cancel")}
           </Button>
           <Button type="button" variant="destructive" onClick={onConfirm} disabled={deleting}>
-            {deleting ? "删除中..." : confirmLabel}
+            {deleting ? t("deleting") : (confirmLabel ?? t("permanentDelete"))}
           </Button>
         </DialogFooter>
       </DialogContent>

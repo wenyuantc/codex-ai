@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { useTaskStore } from "@/stores/taskStore";
 import { Button } from "@/components/ui/button";
 import { getStatusLabel, timeAgo } from "@/lib/utils";
@@ -6,6 +7,7 @@ import { ConfirmPermanentDeleteDialog } from "@/components/trash/ConfirmPermanen
 import { Undo2, Trash2 } from "lucide-react";
 
 export function TrashedTaskList() {
+  const { t } = useTranslation(["trash", "common"]);
   const { trashedTasks, restoreTask, permanentlyDeleteTask } = useTaskStore();
   const [restoringId, setRestoringId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
@@ -15,7 +17,7 @@ export function TrashedTaskList() {
     return (
       <div className="flex flex-col items-center justify-center gap-3 py-20 text-muted-foreground">
         <Trash2 className="h-12 w-12" />
-        <p className="text-sm">回收站为空</p>
+        <p className="text-sm">{t("empty")}</p>
       </div>
     );
   }
@@ -53,7 +55,7 @@ export function TrashedTaskList() {
             <div className="min-w-0 flex-1">
               <p className="truncate text-sm font-medium text-foreground">{task.title}</p>
               <p className="text-xs text-muted-foreground">
-                删除于 {timeAgo(task.deleted_at)}
+                {t("deletedAt", { time: timeAgo(task.deleted_at) })}
                 {task.status && (
                   <span className="ml-2 rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
                     {getStatusLabel(task.status)}
@@ -69,7 +71,7 @@ export function TrashedTaskList() {
                 disabled={restoringId === task.id}
               >
                 <Undo2 className="mr-1 h-3.5 w-3.5" />
-                {restoringId === task.id ? "恢复中..." : "恢复"}
+                {restoringId === task.id ? t("restoring") : t("restore")}
               </Button>
               <Button
                 variant="destructive"
@@ -78,7 +80,7 @@ export function TrashedTaskList() {
                 disabled={deletingId === task.id}
               >
                 <Trash2 className="mr-1 h-3.5 w-3.5" />
-                {deletingId === task.id ? "删除中..." : "永久删除"}
+                {deletingId === task.id ? t("deleting") : t("permanentDelete")}
               </Button>
             </div>
           </div>
@@ -87,8 +89,8 @@ export function TrashedTaskList() {
 
       <ConfirmPermanentDeleteDialog
         open={confirmDeleteId !== null}
-        title="确认永久删除任务"
-        description={`确认永久删除任务"${confirmTarget?.title ?? ""}"吗？此操作不可恢复。`}
+        title={t("confirmDeleteTaskTitle")}
+        description={t("confirmDeleteTaskDescription", { name: confirmTarget?.title ?? "" })}
         deleting={deletingId !== null}
         onOpenChange={(open) => {
           if (!open) setConfirmDeleteId(null);

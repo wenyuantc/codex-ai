@@ -1,4 +1,5 @@
 import { lazy, Suspense } from "react";
+import { useTranslation } from "react-i18next";
 import {
   AlertTriangle,
   Bot,
@@ -12,6 +13,7 @@ import {
 } from "lucide-react";
 
 import type { Employee, Task, TaskAutomationState, TaskPipelineStep } from "@/lib/types";
+import { mapAutomationNote } from "@/lib/i18n/mapAutomationNote";
 import {
   formatDate,
   getAcceptanceStatusClassName,
@@ -80,11 +82,12 @@ interface TaskOverviewPanelProps {
 }
 
 function MonacoEditorFallback({ className }: { className: string }) {
+  const { t } = useTranslation("tasks");
   return (
     <div
       className={`${className} flex items-center justify-center rounded-md border border-dashed text-xs text-muted-foreground`}
     >
-      正在加载编辑器...
+      {t("detail.overview.loadingEditor")}
     </div>
   );
 }
@@ -133,6 +136,7 @@ export function TaskOverviewPanel({
   onPlanDraftChange,
   onPlanSave,
 }: TaskOverviewPanelProps) {
+  const { t } = useTranslation(["tasks", "common"]);
   return (
     <div className="space-y-4">
       {saveError && (
@@ -141,21 +145,25 @@ export function TaskOverviewPanel({
         </div>
       )}
 
-      <DetailSection icon={FileText} title="描述" contentClassName="mt-2">
+      <DetailSection
+        icon={FileText}
+        title={t("detail.overview.description")}
+        contentClassName="mt-2"
+      >
         <Suspense fallback={<MonacoEditorFallback className="h-[260px]" />}>
           <MonacoMarkdownEditor
             value={description}
             onChange={onDescriptionChange}
             onBlur={onDescriptionBlur}
             className="h-[260px]"
-            placeholder="添加任务描述..."
+            placeholder={t("detail.overview.descriptionPlaceholder")}
           />
         </Suspense>
       </DetailSection>
 
       <DetailSection
         icon={ClipboardList}
-        title="计划内容"
+        title={t("detail.overview.planContent")}
         contentClassName="mt-2"
         actions={
           planEditing ? (
@@ -167,10 +175,10 @@ export function TaskOverviewPanel({
                   size="xs"
                   onClick={onPlanSave}
                   disabled={planSaving}
-                  title="保存计划"
+                  title={t("detail.overview.savePlanTitle")}
                 >
                   <Save />
-                  保存
+                  {t("common:save")}
                 </Button>
               )}
               <Button
@@ -179,10 +187,10 @@ export function TaskOverviewPanel({
                 size="xs"
                 onClick={onPlanEditCancel}
                 disabled={planSaving}
-                title="取消编辑"
+                title={t("detail.overview.cancelEditTitle")}
               >
                 <X />
-                取消
+                {t("common:cancel")}
               </Button>
             </>
           ) : (
@@ -191,10 +199,10 @@ export function TaskOverviewPanel({
               variant="outline"
               size="xs"
               onClick={onPlanEditStart}
-              title="编辑计划"
+              title={t("detail.overview.editPlanTitle")}
             >
               <Pencil />
-              编辑
+              {t("common:edit")}
             </Button>
           )
         }
@@ -206,7 +214,7 @@ export function TaskOverviewPanel({
               onChange={onPlanDraftChange}
               readOnly={planSaving}
               className="h-72"
-              placeholder="输入任务计划内容..."
+              placeholder={t("detail.overview.planDraftPlaceholder")}
             />
           </Suspense>
         ) : (
@@ -215,7 +223,7 @@ export function TaskOverviewPanel({
               value={planContent}
               readOnly
               className="h-72 bg-muted/30"
-              placeholder="暂无计划内容"
+              placeholder={t("detail.overview.noPlanYet")}
             />
           </Suspense>
         )}
@@ -226,21 +234,25 @@ export function TaskOverviewPanel({
           <div className="flex items-start gap-2">
             <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
             <span>
-              任务已阻塞。建议指定协调员并打开「协调员计划」，拆解阻塞点后再交给执行员工推进。
+              {t("detail.overview.blockedBanner")}
               {!coordinatorId && coordinatorCandidates.length > 0
-                ? " 当前项目已有协调员可选。"
+                ? ` ${t("detail.overview.blockedHasCoordinators")}`
                 : !coordinatorId
-                  ? " 当前尚未指定协调员。"
-                  : ` 当前协调员：${coordinatorName ?? "已指定"}。`}
+                  ? ` ${t("detail.overview.blockedNoCoordinator")}`
+                  : ` ${t("detail.overview.blockedCurrentCoordinator", {
+                      name: coordinatorName ?? t("detail.overview.blockedCoordinatorAssigned"),
+                    })}`}
             </span>
           </div>
           <div>
-            <label className="text-[11px] font-medium opacity-80">阻塞原因 *</label>
+            <label className="text-[11px] font-medium opacity-80">
+              {t("detail.overview.blockedReasonLabel")}
+            </label>
             <Textarea
               value={blockedReason}
               onChange={(e) => onBlockedReasonChange(e.target.value)}
               onBlur={onBlockedReasonBlur}
-              placeholder="说明阻塞原因…"
+              placeholder={t("detail.overview.blockedReasonPlaceholder")}
               className="mt-1 min-h-[64px] resize-y border-amber-500/30 bg-background/80 text-foreground"
             />
           </div>
@@ -262,24 +274,26 @@ export function TaskOverviewPanel({
       {(coordinatorId || pipelineSteps.length > 0) && onOpenCoordinatorPlan && (
         <DetailSection
           icon={Network}
-          title="协调员计划"
+          title={t("detail.overview.coordinatorPlan")}
           description={
             <>
               {coordinatorName
-                ? `由 ${coordinatorName} 生成执行计划，确认后交给指派员工执行。`
-                : "可生成或查看协调员执行计划与编排操作。"}
-              {planContent.trim() ? " 任务中已保存一份计划内容。" : " 当前还没有保存的协调员计划。"}
-              {pipelineSteps.length > 0 ? " 完整重试/转人工/改执行人请在编排面板中操作。" : ""}
+                ? t("detail.overview.coordinatorPlanDescWithName", { name: coordinatorName })
+                : t("detail.overview.coordinatorPlanDescGeneric")}
+              {planContent.trim()
+                ? ` ${t("detail.overview.planSavedNote")}`
+                : ` ${t("detail.overview.planNotSavedNote")}`}
+              {pipelineSteps.length > 0 ? ` ${t("detail.overview.orchestrationNote")}` : ""}
             </>
           }
           actions={
             <Button type="button" variant="outline" size="sm" onClick={onOpenCoordinatorPlan}>
               <Network />
               {pipelineSteps.length > 0
-                ? "打开编排面板"
+                ? t("detail.overview.openOrchestration")
                 : planContent.trim()
-                  ? "查看协调员计划"
-                  : "生成协调员计划"}
+                  ? t("detail.overview.viewCoordinatorPlan")
+                  : t("detail.overview.generateCoordinatorPlan")}
             </Button>
           }
         />
@@ -289,7 +303,7 @@ export function TaskOverviewPanel({
         icon={ClipboardCheck}
         title={
           <>
-            测试验收
+            {t("detail.overview.testerAcceptance")}
             <span
               className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${getAcceptanceStatusClassName(lastAcceptanceStatus)}`}
             >
@@ -297,7 +311,7 @@ export function TaskOverviewPanel({
             </span>
           </>
         }
-        description="配置项目测试命令后可客观验收；命令失败为硬失败。也可生成/编辑验收清单。"
+        description={t("detail.overview.testerAcceptanceDesc")}
         actions={
           <>
             {canGenerateTesterAcceptance && onGenerateTesterAcceptance && (
@@ -309,7 +323,9 @@ export function TaskOverviewPanel({
                 disabled={testerAcceptanceLoading || acceptanceRunning}
               >
                 <ClipboardCheck />
-                {testerAcceptanceLoading ? "生成中…" : "生成验收清单"}
+                {testerAcceptanceLoading
+                  ? t("detail.overview.generatingChecklist")
+                  : t("detail.overview.generateChecklist")}
               </Button>
             )}
             {onRunAcceptance && (
@@ -320,7 +336,9 @@ export function TaskOverviewPanel({
                 disabled={acceptanceRunning || testerAcceptanceLoading}
                 className="border-primary/40 bg-primary/10 text-primary hover:bg-primary/15"
               >
-                {acceptanceRunning ? "验收中…" : "运行验收"}
+                {acceptanceRunning
+                  ? t("detail.overview.accepting")
+                  : t("detail.overview.runAcceptance")}
               </Button>
             )}
           </>
@@ -329,19 +347,21 @@ export function TaskOverviewPanel({
         <div className="space-y-2">
           {lastAcceptanceSummary && (
             <div className="rounded-md border border-border/60 bg-background/70 px-3 py-2 text-xs text-muted-foreground">
-              最近结果：{lastAcceptanceSummary}
+              {t("detail.overview.latestResult", { summary: lastAcceptanceSummary })}
             </div>
           )}
           {onAcceptanceChecklistChange && (
             <div className="space-y-1">
-              <label className="text-[11px] text-muted-foreground">验收清单</label>
+              <label className="text-[11px] text-muted-foreground">
+                {t("detail.overview.acceptanceChecklist")}
+              </label>
               <Suspense fallback={<MonacoEditorFallback className="h-40" />}>
                 <MonacoMarkdownEditor
                   value={acceptanceChecklist}
                   onChange={onAcceptanceChecklistChange}
                   onBlur={onAcceptanceChecklistBlur}
                   className="h-40 bg-background"
-                  placeholder="可手写或由测试员 AI 生成验收清单…"
+                  placeholder={t("detail.overview.checklistPlaceholder")}
                 />
               </Suspense>
             </div>
@@ -361,8 +381,8 @@ export function TaskOverviewPanel({
 
       <DetailSection
         icon={Bot}
-        title="自动质控"
-        description="原任务内的自动审核与修复闭环状态；开关入口在任务卡片右键菜单。"
+        title={t("detail.overview.autoQc")}
+        description={t("detail.overview.autoQcDesc")}
         actions={
           <span
             className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium ${
@@ -371,7 +391,9 @@ export function TaskOverviewPanel({
                 : "bg-muted text-muted-foreground"
             }`}
           >
-            {automationDisplay.enabled ? "已开启" : "未开启"}
+            {automationDisplay.enabled
+              ? t("common:automation.enabled")
+              : t("common:automation.disabled")}
           </span>
         }
       >
@@ -379,36 +401,42 @@ export function TaskOverviewPanel({
           <div className="space-y-2">
             <div className="grid gap-2 sm:grid-cols-2">
               <DetailStat
-                label="闭环阶段"
+                label={t("detail.overview.loopPhase")}
                 value={getTaskAutomationStatusLabel(automationDisplay.status)}
               />
-              <DetailStat label="自动修复轮次" value={automationDisplay.roundCount ?? 0} />
               <DetailStat
-                label="最近更新时间"
+                label={t("detail.overview.autoFixRounds")}
+                value={automationDisplay.roundCount ?? 0}
+              />
+              <DetailStat
+                label={t("detail.overview.lastUpdated")}
                 value={
-                  automationDisplay.updatedAt ? formatDate(automationDisplay.updatedAt) : "暂无"
+                  automationDisplay.updatedAt
+                    ? formatDate(automationDisplay.updatedAt)
+                    : t("detail.overview.none")
                 }
               />
               <DetailStat
-                label="状态来源"
-                value={automationDisplay.source === "automation_state" ? "自动化状态" : "任务配置"}
+                label={t("detail.overview.statusSource")}
+                value={
+                  automationDisplay.source === "automation_state"
+                    ? t("detail.overview.sourceAutomationState")
+                    : t("detail.overview.sourceTaskConfig")
+                }
               />
             </div>
             <div className="rounded-md border border-dashed border-border/60 bg-background/70 px-3 py-2 text-xs text-muted-foreground">
-              自动质控不会替代现有“审核结果 →
-              修复”手动路径。手动修复仍然通过创建新任务推进；自动质控接线后则在原任务内完成审核与修复闭环。
+              {t("detail.overview.autoQcDisclaimer")}
             </div>
             {automationDisplay.note && (
               <div className="flex items-start gap-2 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-800 dark:text-amber-200">
                 <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-                <span>{automationDisplay.note}</span>
+                <span>{mapAutomationNote(automationDisplay.note)}</span>
               </div>
             )}
           </div>
         ) : (
-          <p className="text-xs text-muted-foreground">
-            未开启自动质控。可在任务卡片右键菜单开启；手动「审核结果 → 修复」路径不受影响。
-          </p>
+          <p className="text-xs text-muted-foreground">{t("detail.overview.autoQcOffHint")}</p>
         )}
       </DetailSection>
 

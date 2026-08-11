@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { useProjectStore } from "@/stores/projectStore";
 import { Button } from "@/components/ui/button";
 import { timeAgo } from "@/lib/utils";
@@ -6,6 +7,7 @@ import { ConfirmPermanentDeleteDialog } from "@/components/trash/ConfirmPermanen
 import { Undo2, Trash2, FolderKanban } from "lucide-react";
 
 export function TrashedProjectList() {
+  const { t } = useTranslation(["trash", "common"]);
   const { trashedProjects, restoreProject, permanentlyDeleteProject } = useProjectStore();
   const [restoringId, setRestoringId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
@@ -15,7 +17,7 @@ export function TrashedProjectList() {
     return (
       <div className="flex flex-col items-center justify-center gap-3 py-20 text-muted-foreground">
         <FolderKanban className="h-12 w-12" />
-        <p className="text-sm">回收站为空</p>
+        <p className="text-sm">{t("empty")}</p>
       </div>
     );
   }
@@ -53,9 +55,9 @@ export function TrashedProjectList() {
             <div className="min-w-0 flex-1">
               <p className="truncate text-sm font-medium text-foreground">{project.name}</p>
               <p className="text-xs text-muted-foreground">
-                删除于 {timeAgo(project.deleted_at)}
+                {t("deletedAt", { time: timeAgo(project.deleted_at) })}
                 <span className="ml-2 rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
-                  {project.project_type === "ssh" ? "SSH" : "本地"}
+                  {project.project_type === "ssh" ? t("common:sshShort") : t("common:localShort")}
                 </span>
               </p>
             </div>
@@ -67,7 +69,7 @@ export function TrashedProjectList() {
                 disabled={restoringId === project.id}
               >
                 <Undo2 className="mr-1 h-3.5 w-3.5" />
-                {restoringId === project.id ? "恢复中..." : "恢复"}
+                {restoringId === project.id ? t("restoring") : t("restore")}
               </Button>
               <Button
                 variant="destructive"
@@ -76,7 +78,7 @@ export function TrashedProjectList() {
                 disabled={deletingId === project.id}
               >
                 <Trash2 className="mr-1 h-3.5 w-3.5" />
-                {deletingId === project.id ? "删除中..." : "永久删除"}
+                {deletingId === project.id ? t("deleting") : t("permanentDelete")}
               </Button>
             </div>
           </div>
@@ -85,8 +87,8 @@ export function TrashedProjectList() {
 
       <ConfirmPermanentDeleteDialog
         open={confirmDeleteId !== null}
-        title="确认永久删除项目"
-        description={`确认永久删除项目"${confirmTarget?.name ?? ""}"吗？此操作会同时删除其所有关联数据，且不可恢复。`}
+        title={t("confirmDeleteProjectTitle")}
+        description={t("confirmDeleteProjectDescription", { name: confirmTarget?.name ?? "" })}
         deleting={deletingId !== null}
         onOpenChange={(open) => {
           if (!open) setConfirmDeleteId(null);

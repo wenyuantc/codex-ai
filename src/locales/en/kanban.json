@@ -32,5 +32,13 @@
   "testerTip": "Tester automation is off: completed tasks will not auto-accept. Enable it in",
   "testerTipLink": "Settings → Git & Auto QC",
   "testerTipSuffix": ".",
-  "gotIt": "Got it"
+  "gotIt": "Got it",
+  "dragHere": "Drop tasks here",
+  "blockedReasonPrompt": "Enter a blocked reason (required):",
+  "taskDetailFallbackTitle": "Failed to render task details",
+  "taskDetailFallbackDescription": "The task detail dialog opened from global search hit a runtime error.",
+  "autoQcPrefix": "Auto QC·{{status}}",
+  "acceptancePrefix": "Acceptance·{{status}}",
+  "accumulated": "Total: {{duration}}",
+  "completedAt": "Done: {{date}}"
 }

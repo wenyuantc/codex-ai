@@ -62,30 +62,30 @@ export function getAiLogColor(line: string): string {
 export function getSessionStatusLabel(statusValue: string | null | undefined) {
   switch (statusValue) {
     case "pending":
-      return "准备中";
+      return i18n.t("tasks:detail.labels.sessionStatus.pending");
     case "running":
-      return "运行中";
+      return i18n.t("tasks:detail.labels.sessionStatus.running");
     case "stopping":
-      return "停止中";
+      return i18n.t("tasks:detail.labels.sessionStatus.stopping");
     case "exited":
-      return "已完成";
+      return i18n.t("tasks:detail.labels.sessionStatus.exited");
     case "failed":
-      return "失败";
+      return i18n.t("tasks:detail.labels.sessionStatus.failed");
     default:
-      return "未开始";
+      return i18n.t("tasks:detail.labels.sessionStatus.default");
   }
 }
 
 export function getExecutionChangeTypeLabel(changeType: string) {
   switch (changeType) {
     case "added":
-      return "新增";
+      return i18n.t("tasks:detail.labels.changeType.added");
     case "modified":
-      return "修改";
+      return i18n.t("tasks:detail.labels.changeType.modified");
     case "deleted":
-      return "删除";
+      return i18n.t("tasks:detail.labels.changeType.deleted");
     case "renamed":
-      return "重命名";
+      return i18n.t("tasks:detail.labels.changeType.renamed");
     default:
       return changeType;
   }
@@ -109,15 +109,17 @@ export function getExecutionChangeTypeClassName(changeType: string) {
 export function getExecutionChangeCaptureModeLabel(
   captureMode: TaskExecutionChangeHistoryItem["capture_mode"],
 ) {
-  return captureMode === "sdk_event" ? "按 Codex 事件记录" : "按 Git 快照估算";
+  return captureMode === "sdk_event"
+    ? i18n.t("tasks:detail.labels.captureMode.sdkEvent")
+    : i18n.t("tasks:detail.labels.captureMode.gitSnapshot");
 }
 
 export function getExecutionChangeCaptureModeDescription(
   captureMode: TaskExecutionChangeHistoryItem["capture_mode"],
 ) {
   return captureMode === "sdk_event"
-    ? "当前列表表示本次 Codex 会话实际改动到的文件；若可查看详情，文本快照来自会话结束时保存的记录。"
-    : "当前列表基于 Git 工作区前后快照估算，可能混入其他并行任务改动；若可查看详情，文本快照来自那次估算结果保存时的预览。";
+    ? i18n.t("tasks:detail.labels.captureModeDesc.sdkEvent")
+    : i18n.t("tasks:detail.labels.captureModeDesc.gitSnapshot");
 }
 
 export function getExecutionSnapshotStatusLabel(
@@ -125,13 +127,13 @@ export function getExecutionSnapshotStatusLabel(
 ) {
   switch (status) {
     case "text":
-      return "已保存文本快照";
+      return i18n.t("tasks:detail.labels.snapshotStatus.text");
     case "missing":
-      return "该侧不存在文件";
+      return i18n.t("tasks:detail.labels.snapshotStatus.missing");
     case "binary":
-      return "二进制文件，未保存文本";
+      return i18n.t("tasks:detail.labels.snapshotStatus.binary");
     case "unavailable":
-      return "无法读取文本快照";
+      return i18n.t("tasks:detail.labels.snapshotStatus.unavailable");
     default:
       return status;
   }
