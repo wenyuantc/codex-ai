@@ -68,10 +68,11 @@ React (UI) → Tauri IPC commands → Rust service layer → SQLite
 
 - Rust 2021, Tokio async, SQLx 0.8 (compile-time checked queries)
 - Entry: `lib.rs` → `pub fn run()` registers plugins, the four engine managers, tray, and window restoration
-- **207 Tauri commands**, all registered in the single `invoke_handler!` list in `lib.rs`. Largest sources:
-  - `git_workflow/` (49), `codex/` (28), `app/tasks.rs` (24), `app/remote.rs` (13), `app/delivery.rs` (12), `task_automation` (10)
-  - `app/database.rs` (9), `app/sessions.rs` (9), `grok/` (9), `opencode/` (9), `app/employees.rs` (8), `app/projects.rs` (8), `claude/` (8)
-- `app/` submodules: `projects`, `employees`, `tasks`, `delivery`, `sessions`, `review`, `remote`, `database`, `shared`
+- **218 Tauri commands**, all registered in the single `invoke_handler!` list in `lib.rs`. Full breakdown:
+  - `git_workflow/` (49), `codex/` (30), `app/tasks.rs` (24), `app/remote.rs` (13), `task_automation` (12), `opencode/` (12), `app/delivery.rs` (12), `claude/` (11), `grok/` (10)
+  - `app/sessions.rs` (9), `app/database.rs` (9), `app/projects.rs` (8), `app/employees.rs` (8), `app/session_events_retention.rs` (4), `notifications` (3), `app/review.rs` (3), `tray` (1)
+- `app/` submodules: `projects`, `employees`, `tasks`, `delivery`, `sessions`, `review`, `remote`, `database`, `session_events_retention`, `session_events_policy`, `shared`
+- `app/session_events_retention.rs` — `codex_session_events` retention policy (purge rows older than N days, VACUUM, stats). Wired into the Settings 数据库维护 tab.
 - `db/migrations.rs` — versioned DDL, **44 migrations** inline (versions must stay contiguous 1..N; enforced by `migration_versions_are_contiguous`)
 - `db/models.rs` — SQLx `query_as!` type definitions for all tables
 - `task_automation` — review/fix state machine root (`task_automation.rs` + domain slices under `task_automation/`; `prompt.rs` is a real submodule, other slices use `include!`)
@@ -113,9 +114,9 @@ SQLite at `$APPCONFIG/codex-ai.db`, 24 tables:
 
 ### Tests
 
-Rust is the primary suite: **339 test cases**, mostly `#[cfg(test)]` modules colocated with the code they cover. Densest areas include codex process/settings, shared `engine/` kernel, `git_workflow/`, and `task_automation`. Non-codex engines (claude/grok/opencode) still have thinner coverage than codex, but share the kernel tests.
+Rust is the primary suite: **366 test cases**, mostly `#[cfg(test)]` modules colocated with the code they cover. Densest areas include codex process/settings, shared `engine/` kernel, `git_workflow/`, and `task_automation`. Non-codex engines (claude/grok/opencode) still have thinner coverage than codex, but share the kernel tests.
 
-Frontend has a minimal Vitest net: **32 assertions across 4 files** (`src/stores/{task,project,dashboard}Store.test.ts`, `src/lib/utils.test.ts`) covering exported pure functions only — store scope filters, SSH host selection, activity label mapping, activity date/keyword filters. No component or e2e tests. `npm run test:ci` is a CI hard gate.
+Frontend has a minimal Vitest net: **104 assertions across 9 files** (`src/stores/{task,project,dashboard}Store.test.ts`, `src/lib/{utils,kanbanFilters,projects,taskPrimaryCta,dashboardReport}.test.ts`, `src/lib/i18n/locale.test.ts`) covering exported pure functions only — store scope filters, SSH host selection, activity label mapping, kanban filters, primary-CTA resolution, dashboard report shaping, locale resolution. No component or e2e tests. `npm run test:ci` is a CI hard gate.
 
 Cross-cutting integration tests live in `src-tauri/src/app/tests/`:
 - `runtime_and_paths.rs` — app runtime setup
