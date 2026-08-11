@@ -1,7 +1,9 @@
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 
 import { cancelGitAction, confirmGitAction, requestGitAction } from "@/lib/backend";
 import type { GitActionType, TaskGitContext } from "@/lib/types";
+import i18n from "@/lib/i18n";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -50,62 +52,50 @@ interface GitActionFormState {
   pruneWorktree: boolean;
 }
 
-const GIT_ACTION_OPTIONS: Array<{ value: GitActionType; label: string }> = [
-  { value: "merge", label: "将任务分支合并到目标分支" },
-  { value: "push", label: "推送分支" },
-  { value: "rebase", label: "变基到目标分支" },
-  { value: "cherry_pick", label: "挑拣提交（Cherry-pick）" },
-  { value: "stash", label: "暂存当前改动（Stash）" },
-  { value: "unstash", label: "恢复暂存改动（Unstash）" },
-  { value: "cleanup_worktree", label: "清理任务工作树" },
+const GIT_ACTION_OPTIONS: Array<{ value: GitActionType; labelKey: string }> = [
+  { value: "merge", labelKey: "projects:gitActionOptions.merge" },
+  { value: "push", labelKey: "projects:gitActionOptions.push" },
+  { value: "rebase", labelKey: "projects:gitActionOptions.rebase" },
+  { value: "cherry_pick", labelKey: "projects:gitActionOptions.cherry_pick" },
+  { value: "stash", labelKey: "projects:gitActionOptions.stash" },
+  { value: "unstash", labelKey: "projects:gitActionOptions.unstash" },
+  { value: "cleanup_worktree", labelKey: "projects:gitActionOptions.cleanup_worktree" },
 ];
 
 const FORCE_MODE_OPTIONS: Array<{
   value: GitActionFormState["forceMode"];
-  label: string;
+  labelKey: string;
 }> = [
-  { value: "none", label: "普通推送" },
-  { value: "force", label: "强制推送（force）" },
-  { value: "force_with_lease", label: "带保护强推（force-with-lease）" },
+  { value: "none", labelKey: "projects:gitForceModes.none" },
+  { value: "force", labelKey: "projects:gitForceModes.force" },
+  { value: "force_with_lease", labelKey: "projects:gitForceModes.force_with_lease" },
 ];
 
-const MERGE_STRATEGY_OPTIONS: Array<{ value: string; label: string }> = [
-  { value: "ort", label: "默认策略（ort）" },
-  { value: "recursive", label: "递归策略（recursive）" },
-  { value: "resolve", label: "快速冲突解决（resolve）" },
-  { value: "ours", label: "优先保留当前分支（ours）" },
-  { value: "subtree", label: "子树合并（subtree）" },
+const MERGE_STRATEGY_OPTIONS: Array<{ value: string; labelKey: string }> = [
+  { value: "ort", labelKey: "projects:gitMergeStrategies.ort" },
+  { value: "recursive", labelKey: "projects:gitMergeStrategies.recursive" },
+  { value: "resolve", labelKey: "projects:gitMergeStrategies.resolve" },
+  { value: "ours", labelKey: "projects:gitMergeStrategies.ours" },
+  { value: "subtree", labelKey: "projects:gitMergeStrategies.subtree" },
 ];
 
 function getTaskGitContextStateLabel(state: string) {
-  switch (state) {
-    case "provisioning":
-      return "准备中";
-    case "ready":
-      return "可执行";
-    case "running":
-      return "执行中";
-    case "merge_ready":
-      return "待合并";
-    case "action_pending":
-      return "待确认";
-    case "completed":
-      return "已完成";
-    case "failed":
-      return "失败";
-    case "drifted":
-      return "上下文失效";
-    default:
-      return state;
-  }
+  return i18n.t(`projects:gitContextState.${state}`, { defaultValue: state });
 }
 
 function getGitActionLabel(actionType: GitActionType) {
-  return GIT_ACTION_OPTIONS.find((option) => option.value === actionType)?.label ?? actionType;
+  const option = GIT_ACTION_OPTIONS.find((item) => item.value === actionType);
+  return option ? i18n.t(option.labelKey) : actionType;
 }
 
 function getMergeStrategyLabel(strategy: string) {
-  return MERGE_STRATEGY_OPTIONS.find((option) => option.value === strategy)?.label ?? strategy;
+  const option = MERGE_STRATEGY_OPTIONS.find((item) => item.value === strategy);
+  return option ? i18n.t(option.labelKey) : strategy;
+}
+
+function getForceModeLabel(forceMode: GitActionFormState["forceMode"]) {
+  const option = FORCE_MODE_OPTIONS.find((item) => item.value === forceMode);
+  return option ? i18n.t(option.labelKey) : forceMode;
 }
 
 function buildBranchOptions(
@@ -189,6 +179,7 @@ export function ProjectGitActionDialog({
   onActionStateChanged,
   onActionCompleted,
 }: ProjectGitActionDialogProps) {
+  const { t } = useTranslation("projects");
   const [selectedAction, setSelectedAction] = useState<GitActionType>("merge");
   const [form, setForm] = useState<GitActionFormState>(() => buildInitialFormState(null));
   const [pendingToken, setPendingToken] = useState<string | null>(null);
@@ -220,9 +211,13 @@ export function ProjectGitActionDialog({
   const formLocked = pendingToken !== null || requesting || confirming || cancelling;
   const actionSummary = context
     ? [
-        `任务分支：${context.task_branch ?? "未命名分支"}`,
-        `目标分支：${context.target_branch ?? "未设置"}`,
-        `当前状态：${getTaskGitContextStateLabel(context.state)}`,
+        t("gitActionDialog.taskBranch", {
+          branch: context.task_branch ?? t("unnamedBranch"),
+        }),
+        t("targetBranch", { branch: context.target_branch ?? t("notSet") }),
+        t("gitActionDialog.currentState", {
+          state: getTaskGitContextStateLabel(context.state),
+        }),
       ].join(" · ")
     : null;
   const mergeTargetBranchOptions = buildBranchOptions(projectBranches, context, form.targetBranch);
@@ -288,7 +283,7 @@ export function ProjectGitActionDialog({
       const result = await requestGitAction(context.id, selectedAction, buildPayload());
       setPendingToken(result.token);
       setPendingExpiresAt(result.expires_at);
-      setInfo(`已生成“${getGitActionLabel(selectedAction)}”确认门，请确认执行或取消。`);
+      setInfo(t("gitActionDialog.requestInfo", { action: getGitActionLabel(selectedAction) }));
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : String(requestError));
     } finally {
@@ -327,8 +322,8 @@ export function ProjectGitActionDialog({
       await onActionStateChanged?.();
       await onActionCompleted?.(
         pendingToken
-          ? `已取消“${getGitActionLabel(selectedAction)}”确认门。`
-          : "已取消当前待确认的 Git 动作。",
+          ? t("gitActionDialog.cancelledGate", { action: getGitActionLabel(selectedAction) })
+          : t("gitActionDialog.cancelledPending"),
       );
       onOpenChange(false);
     } catch (cancelError) {
@@ -344,7 +339,9 @@ export function ProjectGitActionDialog({
         return (
           <div className="grid gap-3 sm:grid-cols-2">
             <label className="space-y-1.5">
-              <span className="text-xs font-medium text-muted-foreground">目标分支</span>
+              <span className="text-xs font-medium text-muted-foreground">
+                {t("gitActionDialog.targetBranchField")}
+              </span>
               <Select<string>
                 value={form.targetBranch}
                 onValueChange={(value) => {
@@ -355,7 +352,9 @@ export function ProjectGitActionDialog({
                 disabled={formLocked}
               >
                 <SelectTrigger className="bg-background">
-                  <SelectValue>{form.targetBranch || "选择目标分支"}</SelectValue>
+                  <SelectValue>
+                    {form.targetBranch || t("gitActionDialog.selectTargetBranch")}
+                  </SelectValue>
                 </SelectTrigger>
                 <SelectContent>
                   {mergeTargetBranchOptions.map((option) => (
@@ -367,7 +366,9 @@ export function ProjectGitActionDialog({
               </Select>
             </label>
             <label className="space-y-1.5">
-              <span className="text-xs font-medium text-muted-foreground">合并策略</span>
+              <span className="text-xs font-medium text-muted-foreground">
+                {t("gitActionDialog.mergeStrategyField")}
+              </span>
               <Select<string>
                 value={form.strategy}
                 onValueChange={(value) => {
@@ -383,7 +384,7 @@ export function ProjectGitActionDialog({
                 <SelectContent>
                   {MERGE_STRATEGY_OPTIONS.map((option) => (
                     <SelectItem key={option.value} value={option.value}>
-                      {option.label}
+                      {i18n.t(option.labelKey)}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -396,7 +397,7 @@ export function ProjectGitActionDialog({
                 onChange={(event) => updateForm({ allowFastForward: event.target.checked })}
                 disabled={formLocked}
               />
-              允许 fast-forward 合并
+              {t("gitActionDialog.allowFastForward")}
             </label>
           </div>
         );
@@ -404,7 +405,9 @@ export function ProjectGitActionDialog({
         return (
           <div className="grid gap-3 sm:grid-cols-2">
             <label className="space-y-1.5">
-              <span className="text-xs font-medium text-muted-foreground">远端名称</span>
+              <span className="text-xs font-medium text-muted-foreground">
+                {t("gitActionDialog.remoteName")}
+              </span>
               <Input
                 value={form.remoteName}
                 onChange={(event) => updateForm({ remoteName: event.target.value })}
@@ -413,7 +416,9 @@ export function ProjectGitActionDialog({
               />
             </label>
             <label className="space-y-1.5">
-              <span className="text-xs font-medium text-muted-foreground">源分支</span>
+              <span className="text-xs font-medium text-muted-foreground">
+                {t("gitActionDialog.sourceBranch")}
+              </span>
               <Input
                 value={form.sourceBranch}
                 onChange={(event) => updateForm({ sourceBranch: event.target.value })}
@@ -422,7 +427,9 @@ export function ProjectGitActionDialog({
               />
             </label>
             <label className="space-y-1.5">
-              <span className="text-xs font-medium text-muted-foreground">目标引用</span>
+              <span className="text-xs font-medium text-muted-foreground">
+                {t("gitActionDialog.targetRef")}
+              </span>
               <Input
                 value={form.targetRef}
                 onChange={(event) => updateForm({ targetRef: event.target.value })}
@@ -431,7 +438,9 @@ export function ProjectGitActionDialog({
               />
             </label>
             <label className="space-y-1.5">
-              <span className="text-xs font-medium text-muted-foreground">推送模式</span>
+              <span className="text-xs font-medium text-muted-foreground">
+                {t("gitActionDialog.pushMode")}
+              </span>
               <Select<GitActionFormState["forceMode"]>
                 value={form.forceMode}
                 onValueChange={(value) => {
@@ -442,15 +451,12 @@ export function ProjectGitActionDialog({
                 disabled={formLocked}
               >
                 <SelectTrigger className="bg-background">
-                  <SelectValue>
-                    {FORCE_MODE_OPTIONS.find((option) => option.value === form.forceMode)?.label ??
-                      form.forceMode}
-                  </SelectValue>
+                  <SelectValue>{getForceModeLabel(form.forceMode)}</SelectValue>
                 </SelectTrigger>
                 <SelectContent>
                   {FORCE_MODE_OPTIONS.map((option) => (
                     <SelectItem key={option.value} value={option.value}>
-                      {option.label}
+                      {i18n.t(option.labelKey)}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -462,7 +468,9 @@ export function ProjectGitActionDialog({
         return (
           <div className="grid gap-3">
             <label className="space-y-1.5">
-              <span className="text-xs font-medium text-muted-foreground">目标分支</span>
+              <span className="text-xs font-medium text-muted-foreground">
+                {t("gitActionDialog.targetBranchField")}
+              </span>
               <Select<string>
                 value={form.ontoBranch}
                 onValueChange={(value) => {
@@ -473,7 +481,9 @@ export function ProjectGitActionDialog({
                 disabled={formLocked}
               >
                 <SelectTrigger className="bg-background">
-                  <SelectValue>{form.ontoBranch || "选择目标分支"}</SelectValue>
+                  <SelectValue>
+                    {form.ontoBranch || t("gitActionDialog.selectTargetBranch")}
+                  </SelectValue>
                 </SelectTrigger>
                 <SelectContent>
                   {rebaseTargetBranchOptions.map((option) => (
@@ -491,19 +501,21 @@ export function ProjectGitActionDialog({
                 onChange={(event) => updateForm({ autoStash: event.target.checked })}
                 disabled={formLocked}
               />
-              Rebase 时启用 auto-stash
+              {t("gitActionDialog.rebaseAutoStash")}
             </label>
           </div>
         );
       case "cherry_pick":
         return (
           <label className="space-y-1.5">
-            <span className="text-xs font-medium text-muted-foreground">提交 SHA</span>
+            <span className="text-xs font-medium text-muted-foreground">
+              {t("gitActionDialog.cherryPickSha")}
+            </span>
             <Textarea
               value={form.cherryPickCommitIds}
               onChange={(event) => updateForm({ cherryPickCommitIds: event.target.value })}
               disabled={formLocked}
-              placeholder={"每行一个 commit SHA\n例如：\nabc1234\ndef5678"}
+              placeholder={t("gitActionDialog.cherryPickPlaceholder")}
               className="min-h-24"
             />
           </label>
@@ -518,15 +530,17 @@ export function ProjectGitActionDialog({
                 onChange={(event) => updateForm({ includeUntracked: event.target.checked })}
                 disabled={formLocked}
               />
-              包含未跟踪文件
+              {t("gitActionDialog.includeUntracked")}
             </label>
             <label className="space-y-1.5">
-              <span className="text-xs font-medium text-muted-foreground">Stash 备注</span>
+              <span className="text-xs font-medium text-muted-foreground">
+                {t("gitActionDialog.stashMessage")}
+              </span>
               <Input
                 value={form.stashMessage}
                 onChange={(event) => updateForm({ stashMessage: event.target.value })}
                 disabled={formLocked}
-                placeholder="可选"
+                placeholder={t("milestoneOptionalPlaceholder")}
               />
             </label>
           </div>
@@ -534,7 +548,9 @@ export function ProjectGitActionDialog({
       case "unstash":
         return (
           <label className="space-y-1.5">
-            <span className="text-xs font-medium text-muted-foreground">Stash 引用</span>
+            <span className="text-xs font-medium text-muted-foreground">
+              {t("gitActionDialog.stashRef")}
+            </span>
             <Input
               value={form.stashRef}
               onChange={(event) => updateForm({ stashRef: event.target.value })}
@@ -553,7 +569,7 @@ export function ProjectGitActionDialog({
                 onChange={(event) => updateForm({ deleteBranch: event.target.checked })}
                 disabled={formLocked}
               />
-              清理时同时删除任务分支
+              {t("gitActionDialog.cleanupDeleteBranch")}
             </label>
             <label className="flex items-center gap-2 rounded-md border border-border/60 px-3 py-2 text-sm">
               <input
@@ -562,7 +578,7 @@ export function ProjectGitActionDialog({
                 onChange={(event) => updateForm({ pruneWorktree: event.target.checked })}
                 disabled={formLocked}
               />
-              清理后执行 worktree prune
+              {t("gitActionDialog.cleanupPruneWorktree")}
             </label>
           </div>
         );
@@ -573,11 +589,8 @@ export function ProjectGitActionDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="w-[min(96vw,42rem)] max-w-[min(96vw,42rem)] sm:max-w-[min(96vw,42rem)]">
         <DialogHeader>
-          <DialogTitle>Git 高风险动作确认门</DialogTitle>
-          <DialogDescription>
-            先 request 生成一次性 token，再决定 confirm 或 cancel。重新 request 会自动使旧 token
-            失效。
-          </DialogDescription>
+          <DialogTitle>{t("gitActionDialog.title")}</DialogTitle>
+          <DialogDescription>{t("gitActionDialog.description")}</DialogDescription>
         </DialogHeader>
 
         {context ? (
@@ -588,15 +601,17 @@ export function ProjectGitActionDialog({
 
             {hasExistingPendingAction && pendingToken === null && (
               <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-900">
-                当前上下文已有“{getGitActionLabel(context.pending_action_type ?? "merge")}
-                ”待确认动作。 由于明文 token 不会回传到前端，你可以直接取消旧确认门，或重新 request
-                一次新动作。
+                {t("gitActionDialog.existingPendingHint", {
+                  action: getGitActionLabel(context.pending_action_type ?? "merge"),
+                })}
               </div>
             )}
 
             <div className="space-y-3">
               <label className="space-y-1.5">
-                <span className="text-xs font-medium text-muted-foreground">动作类型</span>
+                <span className="text-xs font-medium text-muted-foreground">
+                  {t("gitActionDialog.actionType")}
+                </span>
                 <Select<GitActionType>
                   value={selectedAction}
                   onValueChange={(value) => {
@@ -612,7 +627,7 @@ export function ProjectGitActionDialog({
                   <SelectContent>
                     {GIT_ACTION_OPTIONS.map((option) => (
                       <SelectItem key={option.value} value={option.value}>
-                        {option.label}
+                        {i18n.t(option.labelKey)}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -620,8 +635,9 @@ export function ProjectGitActionDialog({
               </label>
               {lockActionSelection && preferredAction ? (
                 <div className="rounded-lg border border-border/60 bg-secondary/20 px-3 py-2 text-xs text-muted-foreground">
-                  当前入口已锁定为“{getGitActionLabel(preferredAction)}”，如需其他 Git
-                  动作，请从项目详情页进入通用 Git 动作面板。
+                  {t("gitActionDialog.lockedActionHint", {
+                    action: getGitActionLabel(preferredAction),
+                  })}
                 </div>
               ) : null}
 
@@ -630,9 +646,17 @@ export function ProjectGitActionDialog({
 
             {pendingToken ? (
               <div className="rounded-lg border border-primary/20 bg-primary/5 px-3 py-2 text-xs text-muted-foreground">
-                <div className="font-medium text-foreground">确认门已生成</div>
-                <div className="mt-1 break-all">token：{pendingToken}</div>
-                <div className="mt-1">过期时间：{pendingExpiresAt ?? "未知"}</div>
+                <div className="font-medium text-foreground">
+                  {t("gitActionDialog.gateGenerated")}
+                </div>
+                <div className="mt-1 break-all">
+                  {t("gitActionDialog.token", { token: pendingToken })}
+                </div>
+                <div className="mt-1">
+                  {t("gitActionDialog.expiresAt", {
+                    time: pendingExpiresAt ?? t("common:unknown"),
+                  })}
+                </div>
               </div>
             ) : null}
 
@@ -663,13 +687,13 @@ export function ProjectGitActionDialog({
                 }}
                 disabled={confirming || cancelling}
               >
-                重新选择
+                {t("gitActionDialog.reselect")}
               </Button>
               <Button variant="outline" onClick={handleCancel} disabled={confirming || cancelling}>
-                {cancelling ? "取消中..." : "取消确认门"}
+                {cancelling ? t("gitActionDialog.cancelling") : t("gitActionDialog.cancelGate")}
               </Button>
               <Button onClick={handleConfirm} disabled={confirming || cancelling}>
-                {confirming ? "执行中..." : "确认执行"}
+                {confirming ? t("gitActionDialog.executing") : t("gitActionDialog.execute")}
               </Button>
             </>
           ) : (
@@ -680,11 +704,13 @@ export function ProjectGitActionDialog({
                   onClick={handleCancel}
                   disabled={requesting || cancelling}
                 >
-                  {cancelling ? "取消中..." : "取消旧确认门"}
+                  {cancelling
+                    ? t("gitActionDialog.cancelling")
+                    : t("gitActionDialog.cancelOldGate")}
                 </Button>
               ) : null}
               <Button onClick={handleRequest} disabled={requesting || cancelling || !context}>
-                {requesting ? "生成中..." : "生成确认门"}
+                {requesting ? t("gitActionDialog.generating") : t("gitActionDialog.generateGate")}
               </Button>
             </>
           )}

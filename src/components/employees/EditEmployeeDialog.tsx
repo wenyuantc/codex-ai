@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Loader2, RefreshCw } from "lucide-react";
+import { useTranslation } from "react-i18next";
 
 import {
   AI_PROVIDER_OPTIONS,
@@ -45,6 +46,7 @@ interface EditEmployeeDialogProps {
 }
 
 export function EditEmployeeDialog({ open, onOpenChange, employee }: EditEmployeeDialogProps) {
+  const { t } = useTranslation(["employees", "common"]);
   const { updateEmployee } = useEmployeeStore();
   const { projects, fetchProjects } = useProjectStore();
   const [name, setName] = useState("");
@@ -209,18 +211,20 @@ export function EditEmployeeDialog({ open, onOpenChange, employee }: EditEmploye
               >
                 <SelectTrigger className="mt-1 bg-background">
                   <SelectValue>
-                    {(value) =>
-                      typeof value === "string"
-                        ? (EMPLOYEE_ROLE_OPTIONS.find((option) => option.value === value)?.label ??
-                          value)
-                        : "选择角色"
-                    }
+                    {(value) => {
+                      const option = EMPLOYEE_ROLE_OPTIONS.find((o) => o.value === value);
+                      return typeof value === "string"
+                        ? option
+                          ? t(option.labelKey)
+                          : value
+                        : t("selectRole");
+                    }}
                   </SelectValue>
                 </SelectTrigger>
                 <SelectContent>
                   {EMPLOYEE_ROLE_OPTIONS.map((option) => (
                     <SelectItem key={option.value} value={option.value}>
-                      {option.label}
+                      {t(option.labelKey)}
                     </SelectItem>
                   ))}
                 </SelectContent>

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 
 import { mergeProjectGitWorktree } from "@/lib/backend";
 import type { ProjectGitWorktree } from "@/lib/types";
@@ -54,6 +55,7 @@ export function WorktreeMergeDialog({
   onOpenChange,
   onMerged,
 }: WorktreeMergeDialogProps) {
+  const { t } = useTranslation("projects");
   const [targetBranch, setTargetBranch] = useState("");
   const [autoStash, setAutoStash] = useState(true);
   const [deleteWorktree, setDeleteWorktree] = useState(false);
@@ -85,23 +87,23 @@ export function WorktreeMergeDialog({
 
   const handleSubmit = async () => {
     if (!worktree) {
-      setError("当前 worktree 不存在，无法执行合并。");
+      setError(t("worktreeMergeDialog.mergeNoWorktreeError"));
       return;
     }
     if (!sourceBranch) {
-      setError("当前 worktree 未绑定分支，无法执行合并。");
+      setError(t("worktreeMergeDialog.mergeNoBranchError"));
       return;
     }
     if (!targetBranch) {
-      setError("请选择目标分支。");
+      setError(t("worktreeMergeDialog.mergeNoTargetError"));
       return;
     }
     if (targetBranch === sourceBranch) {
-      setError("源分支和目标分支不能相同。");
+      setError(t("worktreeMergeDialog.mergeSameBranchError"));
       return;
     }
     if (deleteWorktree && hasWorkingTreeChanges && !autoStash) {
-      setError("若要在合并后删除 worktree，请先勾选“自动暂存未提交的更改”。");
+      setError(t("worktreeMergeDialog.mergeDeleteStashError"));
       return;
     }
 
@@ -144,32 +146,43 @@ export function WorktreeMergeDialog({
     >
       <DialogContent className="max-w-lg" showCloseButton={!submitting}>
         <DialogHeader>
-          <DialogTitle>合并 Worktree</DialogTitle>
-          <DialogDescription>
-            将当前 worktree 对应分支合并到指定目标分支；合并完成后可顺手删除 worktree 与来源分支。
-          </DialogDescription>
+          <DialogTitle>{t("worktreeMergeDialog.title")}</DialogTitle>
+          <DialogDescription>{t("worktreeMergeDialog.description")}</DialogDescription>
         </DialogHeader>
 
         <div className="rounded-md border border-border/60 bg-secondary/30 px-3 py-2 text-xs text-muted-foreground">
-          <div>来源分支：{sourceBranch || "未绑定分支"}</div>
-          <div className="mt-1">
-            Worktree：<span className="break-all font-mono">{worktree?.path ?? "未知"}</span>
+          <div>
+            {t("worktreeMergeDialog.sourceBranchLabel", {
+              branch: sourceBranch || t("worktreeMergeDialog.unboundBranch"),
+            })}
           </div>
           <div className="mt-1">
-            未提交变更：
-            {hasWorkingTreeChanges ? `${worktree?.working_tree_changes.length ?? 0} 项` : "无"}
+            {t("worktreeMergeDialog.worktreeLabel")}：
+            <span className="break-all font-mono">
+              {worktree?.path ?? t("worktree.unknownBranch")}
+            </span>
+          </div>
+          <div className="mt-1">
+            {t("worktreeMergeDialog.uncommittedChanges")}
+            {hasWorkingTreeChanges
+              ? t("worktreeMergeDialog.changeCount", {
+                  count: worktree?.working_tree_changes.length ?? 0,
+                })
+              : t("worktreeMergeDialog.none")}
           </div>
         </div>
 
         <label className="block space-y-1.5">
-          <span className="text-xs font-medium text-muted-foreground">合并到分支</span>
+          <span className="text-xs font-medium text-muted-foreground">
+            {t("worktreeMergeDialog.mergeToBranch")}
+          </span>
           <Select<string>
             value={targetBranch}
             onValueChange={(value) => value && setTargetBranch(value)}
             disabled={submitting || targetBranches.length === 0}
           >
             <SelectTrigger className="bg-background">
-              <SelectValue>{targetBranch || "选择目标分支"}</SelectValue>
+              <SelectValue>{targetBranch || t("gitActionDialog.selectTargetBranch")}</SelectValue>
             </SelectTrigger>
             <SelectContent>
               {targetBranches.map((branch) => (
@@ -190,7 +203,7 @@ export function WorktreeMergeDialog({
               disabled={submitting}
               className="mt-1 h-4 w-4 rounded border-border accent-primary"
             />
-            <span>自动暂存未提交的更改</span>
+            <span>{t("worktreeMergeDialog.autoStash")}</span>
           </label>
 
           <label
@@ -211,7 +224,7 @@ export function WorktreeMergeDialog({
               disabled={submitting || worktree?.is_locked}
               className="mt-1 h-4 w-4 rounded border-border accent-primary"
             />
-            <span>合并后删除 worktree</span>
+            <span>{t("worktreeMergeDialog.deleteWorktreeAfter")}</span>
           </label>
 
           <label
@@ -232,33 +245,35 @@ export function WorktreeMergeDialog({
               disabled={submitting || !deleteWorktree || !sourceBranch}
               className="mt-1 h-4 w-4 rounded border-border accent-primary"
             />
-            <span>合并后删除分支 {sourceBranch || "当前来源分支"}</span>
+            <span>
+              {t("worktreeMergeDialog.deleteBranchAfter", {
+                branch: sourceBranch || t("worktreeMergeDialog.deleteSourceBranch"),
+              })}
+            </span>
           </label>
         </div>
 
         {hasWorkingTreeChanges && autoStash && (
           <div className="rounded-md border border-amber-500/20 bg-amber-500/10 px-3 py-2 text-xs text-amber-900">
-            检测到当前 worktree
-            有未提交改动，合并前会先暂存这些改动（含未跟踪文件），合并完成后不会自动恢复。
+            {t("worktreeMergeDialog.autoStashHint")}
           </div>
         )}
 
         {worktree?.is_locked && (
           <div className="rounded-md border border-amber-500/20 bg-amber-500/10 px-3 py-2 text-xs text-amber-900">
-            当前 worktree 已锁定，本次可以执行合并，但不能在合并后直接删除。
+            {t("worktreeMergeDialog.lockedHint")}
           </div>
         )}
 
         {deleteWorktree && hasWorkingTreeChanges && !autoStash && (
           <div className="rounded-md border border-destructive/20 bg-destructive/10 px-3 py-2 text-xs text-destructive">
-            当前 worktree 仍有未提交改动；如果要在合并后删除
-            worktree，请勾选“自动暂存未提交的更改”。
+            {t("worktreeMergeDialog.deleteBlockedHint")}
           </div>
         )}
 
         {targetBranches.length === 0 && (
           <div className="rounded-md border border-destructive/20 bg-destructive/10 px-3 py-2 text-xs text-destructive">
-            当前没有可供选择的目标分支。
+            {t("worktreeMergeDialog.noTargetBranches")}
           </div>
         )}
 
@@ -275,10 +290,10 @@ export function WorktreeMergeDialog({
             onClick={() => onOpenChange(false)}
             disabled={submitting}
           >
-            取消
+            {t("common:cancel")}
           </Button>
           <Button type="button" onClick={() => void handleSubmit()} disabled={submitDisabled}>
-            {submitting ? "合并中..." : "立即合并"}
+            {submitting ? t("worktreeMergeDialog.merging") : t("worktreeMergeDialog.mergeNow")}
           </Button>
         </DialogFooter>
       </DialogContent>

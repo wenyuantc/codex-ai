@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { useProjectStore } from "@/stores/projectStore";
 import { getProjectGitOverview } from "@/lib/backend";
 import type { Project, ProjectGitOverview, ProjectGitRepoActionType } from "@/lib/types";
@@ -10,6 +11,7 @@ import { ProjectGitRepoActionDialog } from "./ProjectGitRepoActionDialog";
 type ProjectGitSyncMap = Record<string, ProjectGitOverview>;
 
 export function ProjectList({ onCreateProject }: { onCreateProject?: () => void }) {
+  const { t } = useTranslation(["projects", "common"]);
   const { projects, environmentMode, fetchProjects, deleteProject } = useProjectStore();
   const [filter, setFilter] = useState<string>("all");
   const [editingProject, setEditingProject] = useState<Project | null>(null);
@@ -119,10 +121,16 @@ export function ProjectList({ onCreateProject }: { onCreateProject?: () => void 
                 : "text-muted-foreground hover:bg-accent"
             }`}
           >
-            {f === "all" ? "全部" : f === "active" ? "活跃" : "归档"}
+            {f === "all"
+              ? t("filterAll")
+              : f === "active"
+                ? t("filterActive")
+                : t("filterArchived")}
           </button>
         ))}
-        <span className="text-xs text-muted-foreground ml-auto">{filtered.length} 个项目</span>
+        <span className="text-xs text-muted-foreground ml-auto">
+          {t("countProjects", { count: filtered.length })}
+        </span>
       </div>
 
       {repoActionNotice && (
@@ -158,9 +166,11 @@ export function ProjectList({ onCreateProject }: { onCreateProject?: () => void 
           <p className="text-sm text-muted-foreground">
             {filter === "all"
               ? environmentMode === "ssh"
-                ? "当前 SSH 视图还没有项目，请先创建 SSH 项目。"
-                : "暂无项目。创建项目后即可添加员工与任务。"
-              : `没有${filter === "active" ? "活跃" : "归档"}项目`}
+                ? t("emptySsh")
+                : t("emptyLocal")
+              : filter === "active"
+                ? t("noActiveProjects")
+                : t("noArchivedProjects")}
           </p>
           {filter === "all" && onCreateProject && (
             <button
@@ -168,7 +178,7 @@ export function ProjectList({ onCreateProject }: { onCreateProject?: () => void 
               onClick={onCreateProject}
               className="rounded-md bg-primary px-3 py-1.5 text-sm text-primary-foreground hover:bg-primary/90"
             >
-              {environmentMode === "ssh" ? "创建 SSH 项目" : "创建项目"}
+              {environmentMode === "ssh" ? t("createSsh") : t("createProject")}
             </button>
           )}
         </div>

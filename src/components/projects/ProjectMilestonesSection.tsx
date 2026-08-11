@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Flag, Pencil, Plus, Trash2 } from "lucide-react";
+import { useTranslation } from "react-i18next";
 
 import type { Milestone } from "@/lib/types";
 import { createMilestone, deleteMilestone, listMilestones, updateMilestone } from "@/lib/backend";
@@ -15,6 +16,7 @@ interface ProjectMilestonesSectionProps {
 }
 
 export function ProjectMilestonesSection({ projectId }: ProjectMilestonesSectionProps) {
+  const { t } = useTranslation(["projects", "common"]);
   const [milestones, setMilestones] = useState<Milestone[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -120,7 +122,7 @@ export function ProjectMilestonesSection({ projectId }: ProjectMilestonesSection
         <div className="mb-3 flex items-center justify-between gap-2">
           <h3 className="flex items-center gap-1.5 text-sm font-semibold">
             <Flag className="h-4 w-4 text-primary" />
-            里程碑
+            {t("milestoneTitle")}
           </h3>
           <Button
             size="sm"
@@ -131,7 +133,7 @@ export function ProjectMilestonesSection({ projectId }: ProjectMilestonesSection
             }}
           >
             <Plus className="h-3.5 w-3.5" />
-            新建
+            {t("milestoneNew")}
           </Button>
         </div>
         {error && (
@@ -140,9 +142,9 @@ export function ProjectMilestonesSection({ projectId }: ProjectMilestonesSection
           </div>
         )}
         {loading ? (
-          <p className="py-4 text-center text-sm text-muted-foreground">加载中…</p>
+          <p className="py-4 text-center text-sm text-muted-foreground">{t("common:loading")}</p>
         ) : milestones.length === 0 ? (
-          <p className="py-4 text-center text-sm text-muted-foreground">暂无里程碑</p>
+          <p className="py-4 text-center text-sm text-muted-foreground">{t("milestoneEmpty")}</p>
         ) : (
           <div className="space-y-2">
             {milestones.map((milestone) => (
@@ -154,8 +156,8 @@ export function ProjectMilestonesSection({ projectId }: ProjectMilestonesSection
                   <p className="truncate text-sm font-medium">{milestone.name}</p>
                   <p className="mt-0.5 text-[11px] text-muted-foreground">
                     {milestone.due_date
-                      ? `截止：${formatDate(milestone.due_date)}`
-                      : "未设置截止日期"}
+                      ? t("milestoneDue", { date: formatDate(milestone.due_date) })
+                      : t("milestoneNoDue")}
                   </p>
                   {milestone.description && (
                     <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">
@@ -168,7 +170,7 @@ export function ProjectMilestonesSection({ projectId }: ProjectMilestonesSection
                     type="button"
                     onClick={() => openEdit(milestone)}
                     className="rounded-md p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground"
-                    title="编辑里程碑"
+                    title={t("milestoneEditTitle")}
                   >
                     <Pencil className="h-3.5 w-3.5" />
                   </button>
@@ -177,7 +179,7 @@ export function ProjectMilestonesSection({ projectId }: ProjectMilestonesSection
                     disabled={deletingId === milestone.id}
                     onClick={() => void handleDelete(milestone.id)}
                     className="rounded-md p-1.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive disabled:opacity-50"
-                    title="删除里程碑"
+                    title={t("milestoneDeleteTitle")}
                   >
                     <Trash2 className="h-3.5 w-3.5" />
                   </button>
@@ -191,20 +193,24 @@ export function ProjectMilestonesSection({ projectId }: ProjectMilestonesSection
       <Dialog open={createOpen} onOpenChange={setCreateOpen}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>新建里程碑</DialogTitle>
+            <DialogTitle>{t("milestoneCreateTitle")}</DialogTitle>
           </DialogHeader>
           <div className="space-y-3">
             <div>
-              <label className="text-xs font-medium text-muted-foreground">名称 *</label>
+              <label className="text-xs font-medium text-muted-foreground">
+                {t("milestoneNameRequired")}
+              </label>
               <Input
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 className="mt-1"
-                placeholder="例如：MVP 发布"
+                placeholder={t("milestoneNamePlaceholder")}
               />
             </div>
             <div>
-              <label className="text-xs font-medium text-muted-foreground">截止日期</label>
+              <label className="text-xs font-medium text-muted-foreground">
+                {t("milestoneDueDate")}
+              </label>
               <Input
                 type="date"
                 value={dueDate}
@@ -213,20 +219,22 @@ export function ProjectMilestonesSection({ projectId }: ProjectMilestonesSection
               />
             </div>
             <div>
-              <label className="text-xs font-medium text-muted-foreground">描述</label>
+              <label className="text-xs font-medium text-muted-foreground">
+                {t("description")}
+              </label>
               <Textarea
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
                 className="mt-1 min-h-[72px] resize-y"
-                placeholder="可选"
+                placeholder={t("milestoneOptionalPlaceholder")}
               />
             </div>
             <div className="flex justify-end gap-2">
               <Button variant="outline" onClick={() => setCreateOpen(false)} disabled={saving}>
-                取消
+                {t("common:cancel")}
               </Button>
               <Button onClick={() => void handleCreate()} disabled={saving || !name.trim()}>
-                {saving ? "创建中…" : "创建"}
+                {saving ? t("creating") : t("create")}
               </Button>
             </div>
           </div>
@@ -244,20 +252,24 @@ export function ProjectMilestonesSection({ projectId }: ProjectMilestonesSection
       >
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>编辑里程碑</DialogTitle>
+            <DialogTitle>{t("milestoneEditTitle")}</DialogTitle>
           </DialogHeader>
           <div className="space-y-3">
             <div>
-              <label className="text-xs font-medium text-muted-foreground">名称 *</label>
+              <label className="text-xs font-medium text-muted-foreground">
+                {t("milestoneNameRequired")}
+              </label>
               <Input
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 className="mt-1"
-                placeholder="例如：MVP 发布"
+                placeholder={t("milestoneNamePlaceholder")}
               />
             </div>
             <div>
-              <label className="text-xs font-medium text-muted-foreground">截止日期</label>
+              <label className="text-xs font-medium text-muted-foreground">
+                {t("milestoneDueDate")}
+              </label>
               <Input
                 type="date"
                 value={dueDate}
@@ -266,12 +278,14 @@ export function ProjectMilestonesSection({ projectId }: ProjectMilestonesSection
               />
             </div>
             <div>
-              <label className="text-xs font-medium text-muted-foreground">描述</label>
+              <label className="text-xs font-medium text-muted-foreground">
+                {t("description")}
+              </label>
               <Textarea
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
                 className="mt-1 min-h-[72px] resize-y"
-                placeholder="可选"
+                placeholder={t("milestoneOptionalPlaceholder")}
               />
             </div>
             <div className="flex justify-end gap-2">
@@ -283,10 +297,10 @@ export function ProjectMilestonesSection({ projectId }: ProjectMilestonesSection
                 }}
                 disabled={saving}
               >
-                取消
+                {t("common:cancel")}
               </Button>
               <Button onClick={() => void handleUpdate()} disabled={saving || !name.trim()}>
-                {saving ? "保存中…" : "保存"}
+                {saving ? t("saving") : t("common:save")}
               </Button>
             </div>
           </div>

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 
 import { commitProjectWorktreeChanges, generateProjectWorktreeCommitMessage } from "@/lib/backend";
 import { countStageableGitFiles, countStagedGitFiles } from "@/lib/gitWorkingTree";
@@ -21,6 +22,7 @@ export function WorktreeCommitDialog({
   onOpenChange,
   onCommitted,
 }: WorktreeCommitDialogProps) {
+  const { t } = useTranslation("projects");
   const [commitMessage, setCommitMessage] = useState("");
   const [generatingCommitMessage, setGeneratingCommitMessage] = useState(false);
   const [committing, setCommitting] = useState(false);
@@ -46,11 +48,11 @@ export function WorktreeCommitDialog({
 
   const handleGenerateCommitMessage = async () => {
     if (!worktree) {
-      setError("当前 worktree 不存在，无法生成提交信息。");
+      setError(t("worktreeCommitDialog.generateErrorNoWorktree"));
       return;
     }
     if (stagedFileCount === 0) {
-      setError("当前没有已暂存文件，无法生成提交信息。");
+      setError(t("worktreeCommitDialog.generateErrorNoStaged"));
       return;
     }
 
@@ -68,15 +70,15 @@ export function WorktreeCommitDialog({
 
   const handleSubmit = async () => {
     if (!worktree) {
-      setError("当前 worktree 不存在，无法提交。");
+      setError(t("worktreeCommitDialog.commitDisabled"));
       return;
     }
     if (stagedFileCount === 0) {
-      setError("当前没有已暂存文件，请先暂存后再提交。");
+      setError(t("worktreeCommitDialog.commitNoStagedError"));
       return;
     }
     if (!commitMessage.trim()) {
-      setError("提交说明不能为空。");
+      setError(t("worktreeCommitDialog.commitMessageEmptyError"));
       return;
     }
 
@@ -100,18 +102,24 @@ export function WorktreeCommitDialog({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <GitCommitDialogContent
-        title="提交 Worktree 改动"
-        description="基于当前 worktree 已暂存的文件创建本地提交。"
+        title={t("worktreeCommitDialog.title")}
+        description={t("worktreeCommitDialog.description")}
         summaryRows={[
           {
-            label: "当前分支",
-            value: worktree?.branch ?? (worktree?.is_detached ? "detached HEAD" : "未知"),
+            label: t("worktreeCommitDialog.currentBranchLabel"),
+            value:
+              worktree?.branch ??
+              (worktree?.is_detached ? "detached HEAD" : t("worktree.unknownBranch")),
           },
-          { label: "已暂存文件", value: stagedFileCount },
-          { label: "待暂存文件", value: stageableFileCount },
+          { label: t("worktreeCommitDialog.stagedFilesLabel"), value: stagedFileCount },
+          { label: t("worktreeCommitDialog.stageableFilesLabel"), value: stageableFileCount },
           {
-            label: "Worktree",
-            value: <span className="break-all font-mono">{worktree?.path ?? "未知"}</span>,
+            label: t("worktreeCommitDialog.worktreeLabel"),
+            value: (
+              <span className="break-all font-mono">
+                {worktree?.path ?? t("worktree.unknownBranch")}
+              </span>
+            ),
           },
         ]}
         commitMessage={commitMessage}
@@ -120,7 +128,7 @@ export function WorktreeCommitDialog({
         error={error}
         generateDisabled={!worktree || stagedFileCount === 0}
         submitDisabled={!worktree || stagedFileCount === 0}
-        submitLabel={committing ? "提交中..." : "创建提交"}
+        submitLabel={committing ? t("gitRepoDialog.committing") : t("gitRepoDialog.createCommit")}
         onCommitMessageChange={setCommitMessage}
         onGenerateCommitMessage={handleGenerateCommitMessage}
         onCancel={() => onOpenChange(false)}

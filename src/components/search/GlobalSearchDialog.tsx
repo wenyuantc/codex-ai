@@ -7,6 +7,7 @@ import {
 } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useHotkeys } from "react-hotkeys-hook";
+import { useTranslation } from "react-i18next";
 import { GLOBAL_SHORTCUTS, shortcutDisplay, shortcutKeys } from "@/lib/shortcuts";
 import { Bot, FolderKanban, Loader2, Search, TerminalSquare, UserRound } from "lucide-react";
 
@@ -54,6 +55,7 @@ async function recordGlobalSearchNavigation(item: GlobalSearchItem) {
 }
 
 export function GlobalSearchDialog() {
+  const { t } = useTranslation("search");
   const navigate = useNavigate();
   const location = useLocation();
   const environmentMode = useProjectStore((state) => state.environmentMode);
@@ -121,7 +123,7 @@ export function GlobalSearchDialog() {
           if (requestIdRef.current !== currentRequestId) {
             return;
           }
-          setError(nextError instanceof Error ? nextError.message : "全局搜索失败");
+          setError(nextError instanceof Error ? nextError.message : t("searchFailed"));
           setResponse(null);
         })
         .finally(() => {
@@ -132,7 +134,7 @@ export function GlobalSearchDialog() {
     }, SEARCH_DEBOUNCE_MS);
 
     return () => window.clearTimeout(timeoutId);
-  }, [activeType, environmentMode, open, query]);
+  }, [activeType, environmentMode, open, query, t]);
 
   useEffect(() => {
     if (!open) {
@@ -256,7 +258,7 @@ export function GlobalSearchDialog() {
       >
         <span className="flex items-center gap-2">
           <Search className="h-4 w-4" />
-          全局搜索
+          {t("triggerButton")}
         </span>
         <span className="rounded border border-border bg-background px-1.5 py-0.5 text-[11px] text-muted-foreground/80">
           {shortcutDisplay(GLOBAL_SHORTCUTS[0])}
@@ -266,7 +268,7 @@ export function GlobalSearchDialog() {
       <Dialog open={open} onOpenChange={handleOpenChange}>
         <DialogContent className="max-w-3xl gap-0 overflow-hidden p-0">
           <DialogHeader className="border-b border-border/60 px-5 py-4">
-            <DialogTitle>全局搜索</DialogTitle>
+            <DialogTitle>{t("title")}</DialogTitle>
           </DialogHeader>
 
           <div className="space-y-4 px-5 py-4">
@@ -275,7 +277,7 @@ export function GlobalSearchDialog() {
               value={query}
               onChange={(event) => setQuery(event.target.value)}
               onKeyDown={handleInputKeyDown}
-              placeholder="搜索项目、任务、员工、会话"
+              placeholder={t("searchPlaceholder")}
             />
 
             <div className="flex flex-wrap items-center gap-2">
@@ -285,7 +287,7 @@ export function GlobalSearchDialog() {
                 variant={activeType === "all" ? "default" : "outline"}
                 onClick={() => setActiveType("all")}
               >
-                全部
+                {t("all")}
               </Button>
               {TYPE_ORDER.map((type) => (
                 <Button
@@ -295,12 +297,12 @@ export function GlobalSearchDialog() {
                   variant={activeType === type ? "default" : "outline"}
                   onClick={() => setActiveType(type)}
                 >
-                  {TYPE_LABELS[type]}
+                  {t(`type.${type}`)}
                 </Button>
               ))}
               {response?.state === "ok" && (
                 <span className="ml-auto text-xs text-muted-foreground">
-                  共 {response.total} 条匹配结果
+                  {t("resultCount", { count: response.total })}
                 </span>
               )}
             </div>
@@ -315,20 +317,20 @@ export function GlobalSearchDialog() {
               ) : loading ? (
                 <div className="flex items-center justify-center gap-2 py-10 text-sm text-muted-foreground">
                   <Loader2 className="h-4 w-4 animate-spin" />
-                  正在搜索...
+                  {t("searching")}
                 </div>
               ) : !query.trim() ? (
                 <div className="space-y-2 py-6 text-sm text-muted-foreground">
-                  <p>从一个入口搜索项目、任务、员工和会话。</p>
-                  <p>支持鼠标点击，也支持上下方向键选择后按 Enter 直接跳转。</p>
+                  <p>{t("hintFirst")}</p>
+                  <p>{t("hintSecond")}</p>
                 </div>
               ) : response?.state !== "ok" ? (
                 <div className="py-8 text-center text-sm text-muted-foreground">
-                  {response?.message ?? "请输入关键词后开始搜索。"}
+                  {response?.message ?? t("searchPrompt")}
                 </div>
               ) : visibleItems.length === 0 ? (
                 <div className="py-8 text-center text-sm text-muted-foreground">
-                  没有找到匹配的对象
+                  {t("noResults")}
                 </div>
               ) : activeType === "all" ? (
                 <div className="space-y-5">
@@ -342,8 +344,10 @@ export function GlobalSearchDialog() {
                       <section key={type} className="space-y-2">
                         <div className="flex items-center justify-between">
                           <div className="flex items-center gap-2">
-                            <Badge variant="outline">{TYPE_LABELS[type]}</Badge>
-                            <span className="text-xs text-muted-foreground">{items.length} 条</span>
+                            <Badge variant="outline">{t(`type.${type}`)}</Badge>
+                            <span className="text-xs text-muted-foreground">
+                              {t("itemCount", { count: items.length })}
+                            </span>
                           </div>
                           <Button
                             type="button"
@@ -351,7 +355,7 @@ export function GlobalSearchDialog() {
                             size="sm"
                             onClick={() => setActiveType(type)}
                           >
-                            查看全部
+                            {t("viewAll")}
                           </Button>
                         </div>
                         <div className="space-y-2">
@@ -401,6 +405,7 @@ interface SearchResultRowProps {
 }
 
 function SearchResultRow({ item, active, index, onSelect }: SearchResultRowProps) {
+  const { t } = useTranslation("search");
   const Icon = TYPE_ICONS[item.item_type];
 
   return (
@@ -421,7 +426,7 @@ function SearchResultRow({ item, active, index, onSelect }: SearchResultRowProps
       <div className="min-w-0 flex-1 space-y-1">
         <div className="flex items-center gap-2">
           <span className="truncate font-medium text-foreground">{item.title}</span>
-          <Badge variant="outline">{TYPE_LABELS[item.item_type]}</Badge>
+          <Badge variant="outline">{t(`type.${item.item_type}`)}</Badge>
         </div>
         {item.subtitle && <p className="truncate text-xs text-muted-foreground">{item.subtitle}</p>}
         {item.summary && (

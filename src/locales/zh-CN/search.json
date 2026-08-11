@@ -1,0 +1,21 @@
+{
+  "triggerButton": "全局搜索",
+  "title": "全局搜索",
+  "searchPlaceholder": "搜索项目、任务、员工、会话",
+  "all": "全部",
+  "type": {
+    "project": "项目",
+    "task": "任务",
+    "employee": "员工",
+    "session": "会话"
+  },
+  "resultCount": "共 {{count}} 条匹配结果",
+  "searching": "正在搜索...",
+  "hintFirst": "从一个入口搜索项目、任务、员工和会话。",
+  "hintSecond": "支持鼠标点击，也支持上下方向键选择后按 Enter 直接跳转。",
+  "searchPrompt": "请输入关键词后开始搜索。",
+  "noResults": "没有找到匹配的对象",
+  "itemCount": "{{count}} 条",
+  "viewAll": "查看全部",
+  "searchFailed": "全局搜索失败"
+}

@@ -1,0 +1,19 @@
+{
+  "continueConversation": "Continue Conversation",
+  "viewTerminalLog": "View Terminal Log",
+  "selectStartTask": "Select a task to start",
+  "taskDialogReviewerHint": "Shows unassigned tasks, tasks assigned to this employee, and all review tasks under the current project.",
+  "taskDialogAssigneeHint": "Shows unassigned tasks, or tasks assigned to this employee with status todo, in progress, or review.",
+  "taskSearchPlaceholder": "Search task title, description, or project",
+  "loadingTasks": "Loading tasks...",
+  "noEligibleTasks": "No matching tasks",
+  "assigned": "Assigned",
+  "unassigned": "Unassigned",
+  "alreadyRunningHint": "This task already has a running session of the same type and cannot be started again.",
+  "reviewerHint": "Will start a code review for this task as the current reviewer.",
+  "reassignReviewerHint": "Starting will auto-reassign this task to the current reviewer and start a code review.",
+  "keepAssigneeHint": "Will keep the current employee responsible for this task.",
+  "autoAssignHint": "Starting will auto-assign this task to the current employee.",
+  "startReview": "Start review",
+  "startTask": "Start task"
+}

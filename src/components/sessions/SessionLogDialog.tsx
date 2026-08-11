@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 
 import { CodexTerminal } from "@/components/codex/CodexTerminal";
 import {
@@ -33,6 +34,7 @@ interface SessionLogDialogProps {
 }
 
 export function SessionLogDialog({ open, session, onOpenChange }: SessionLogDialogProps) {
+  const { t } = useTranslation("sessions");
   const hydrateSessionLog = useEmployeeStore((state) => state.hydrateSessionLog);
   const sessionLogs = useEmployeeStore((state) => state.sessionLogs);
   const taskLogs = useEmployeeStore((state) => state.taskLogs);
@@ -68,7 +70,7 @@ export function SessionLogDialog({ open, session, onOpenChange }: SessionLogDial
         if (!active) {
           return;
         }
-        setHistoryError(error instanceof Error ? error.message : "读取对话日志失败");
+        setHistoryError(error instanceof Error ? error.message : t("logDialog.loadFailed"));
       })
       .finally(() => {
         if (active) {
@@ -79,7 +81,7 @@ export function SessionLogDialog({ open, session, onOpenChange }: SessionLogDial
     return () => {
       active = false;
     };
-  }, [hydrateSessionLog, loadedSessionHistories, open, sessionRecordId]);
+  }, [hydrateSessionLog, loadedSessionHistories, open, sessionRecordId, t]);
 
   useEffect(() => {
     if (!open) {
@@ -111,8 +113,8 @@ export function SessionLogDialog({ open, session, onOpenChange }: SessionLogDial
 
   const canShowLogs = Boolean(session?.sessionRecordId || session?.taskId);
   const matchLabel = trimmedKeyword
-    ? `匹配 ${filteredLines.length} / ${rawLines.length} 行`
-    : `共 ${rawLines.length} 行`;
+    ? t("logDialog.matchCount", { matched: filteredLines.length, total: rawLines.length })
+    : t("logDialog.totalCount", { total: rawLines.length });
 
   const inputContext = useMemo(() => {
     const employeeId = session?.employeeId ?? null;
@@ -141,20 +143,30 @@ export function SessionLogDialog({ open, session, onOpenChange }: SessionLogDial
         showCloseButton
       >
         <DialogHeader>
-          <DialogTitle>终端日志</DialogTitle>
+          <DialogTitle>{t("logDialog.title")}</DialogTitle>
           <DialogDescription>
-            {session ? `查看对话“${session.displayName}”的实时终端输出。` : "查看对话终端输出"}
+            {session
+              ? t("logDialog.description", { name: session.displayName })
+              : t("logDialog.descriptionGeneric")}
           </DialogDescription>
         </DialogHeader>
 
         {session && (
           <div className="rounded-lg border border-border bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
-            <div className="font-mono">对话记录 ID: {session.sessionRecordId ?? "暂无"}</div>
-            <div className="font-mono">对话 ID: {session.sessionId}</div>
-            <div className="mt-1">
-              员工：{session.employeeName ?? session.employeeId ?? "未绑定"}
+            <div className="font-mono">
+              {t("logDialog.sessionRecordId", {
+                id: session.sessionRecordId ?? t("logDialog.idNone"),
+              })}
             </div>
-            <div className="mt-1">任务：{session.taskTitle ?? "无关联任务"}</div>
+            <div className="font-mono">{t("logDialog.sessionId", { id: session.sessionId })}</div>
+            <div className="mt-1">
+              {t("logDialog.employee", {
+                name: session.employeeName ?? session.employeeId ?? t("unboundEmployee"),
+              })}
+            </div>
+            <div className="mt-1">
+              {t("logDialog.task", { title: session.taskTitle ?? t("noLinkedTask") })}
+            </div>
           </div>
         )}
 
@@ -166,7 +178,7 @@ export function SessionLogDialog({ open, session, onOpenChange }: SessionLogDial
 
         {loadingHistory && (
           <div className="rounded-lg border border-border bg-muted/20 px-3 py-2 text-sm text-muted-foreground">
-            正在加载对话历史日志...
+            {t("logDialog.loadingHistory")}
           </div>
         )}
 
@@ -176,9 +188,9 @@ export function SessionLogDialog({ open, session, onOpenChange }: SessionLogDial
               <Input
                 value={keyword}
                 onChange={(event) => setKeyword(event.target.value)}
-                placeholder="关键字过滤日志…"
+                placeholder={t("logDialog.filterPlaceholder")}
                 className="h-8 max-w-sm text-sm"
-                aria-label="日志关键字过滤"
+                aria-label={t("logDialog.filterAriaLabel")}
               />
               {trimmedKeyword && (
                 <button
@@ -186,7 +198,7 @@ export function SessionLogDialog({ open, session, onOpenChange }: SessionLogDial
                   className="text-xs text-muted-foreground hover:text-foreground underline-offset-2 hover:underline"
                   onClick={() => setKeyword("")}
                 >
-                  清空过滤
+                  {t("logDialog.clearFilter")}
                 </button>
               )}
               <span className="text-xs text-muted-foreground">{matchLabel}</span>
@@ -216,7 +228,7 @@ export function SessionLogDialog({ open, session, onOpenChange }: SessionLogDial
           </div>
         ) : (
           <div className="rounded-lg border border-dashed border-border p-6 text-sm text-muted-foreground">
-            当前没有可查看的终端日志。
+            {t("logDialog.empty")}
           </div>
         )}
       </DialogContent>

@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Loader2, Sparkles } from "lucide-react";
+import { useTranslation } from "react-i18next";
 
 import { useAiOptimizePrompt } from "@/hooks/useAiOptimizePrompt";
 import { Button } from "@/components/ui/button";
@@ -30,6 +31,7 @@ export function SessionContinueDialog({
   onOpenChange,
   onConfirm,
 }: SessionContinueDialogProps) {
+  const { t } = useTranslation(["sessions", "common"]);
   const projects = useProjectStore((state) => state.projects);
   const fetchProjects = useProjectStore((state) => state.fetchProjects);
   const optimizePrompt = useAiOptimizePrompt(open);
@@ -53,7 +55,7 @@ export function SessionContinueDialog({
 
   const handleGenerateOptimizedPrompt = async () => {
     if (!session?.project_id) {
-      optimizePrompt.showError("当前对话未关联项目，无法生成优化提示词。");
+      optimizePrompt.showError(t("continueDialog.noProjectError"));
       return;
     }
 
@@ -66,7 +68,7 @@ export function SessionContinueDialog({
     }
 
     if (!currentProject) {
-      optimizePrompt.showError("当前对话未关联项目，无法生成优化提示词。");
+      optimizePrompt.showError(t("continueDialog.noProjectError"));
       return;
     }
 
@@ -99,23 +101,33 @@ export function SessionContinueDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="w-[min(96vw,42rem)] max-w-[min(96vw,42rem)] sm:max-w-[min(96vw,42rem)]">
         <DialogHeader>
-          <DialogTitle>继续对话</DialogTitle>
+          <DialogTitle>{t("continueDialog.title")}</DialogTitle>
           <DialogDescription>
-            向对话“{session?.display_name ?? "未命名对话"}”发送新的续聊内容。
+            {t("continueDialog.description", {
+              name: session?.display_name ?? t("unnamedSession"),
+            })}
           </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-2">
           <div className="rounded-lg border border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
-            <div className="font-mono">对话 ID: {session?.session_id ?? "暂无"}</div>
-            <div className="mt-1">关联任务：{session?.task_title ?? "无关联任务"}</div>
+            <div className="font-mono">
+              {t("continueDialog.sessionId", {
+                id: session?.session_id ?? t("continueDialog.idNone"),
+              })}
+            </div>
+            <div className="mt-1">
+              {t("continueDialog.linkedTask", {
+                title: session?.task_title ?? t("noLinkedTask"),
+              })}
+            </div>
           </div>
           <div className="flex items-center justify-between gap-3">
             <label
               className="text-sm font-medium text-foreground"
               htmlFor="session-continue-prompt"
             >
-              对话内容
+              {t("continueDialog.promptLabel")}
             </label>
             <Button
               type="button"
@@ -129,14 +141,14 @@ export function SessionContinueDialog({
               ) : (
                 <Sparkles className="h-3.5 w-3.5" />
               )}
-              AI优化提示词
+              {t("continueDialog.aiOptimize")}
             </Button>
           </div>
           <textarea
             id="session-continue-prompt"
             value={prompt}
             onChange={(event) => setPrompt(event.target.value)}
-            placeholder="输入想继续追问或继续执行的内容..."
+            placeholder={t("continueDialog.promptPlaceholder")}
             className="min-h-32 w-full resize-y rounded-md border border-input bg-background p-3 text-sm outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50"
             disabled={submitting}
           />
@@ -151,11 +163,15 @@ export function SessionContinueDialog({
             <div className="space-y-3 rounded-md border border-primary/20 bg-primary/5 p-3">
               <div className="flex items-center justify-between gap-2">
                 <div>
-                  <p className="text-xs font-medium text-primary">优化后的提示词</p>
-                  <p className="text-[11px] text-muted-foreground">确认后会替换当前输入框内容</p>
+                  <p className="text-xs font-medium text-primary">
+                    {t("continueDialog.optimizedTitle")}
+                  </p>
+                  <p className="text-[11px] text-muted-foreground">
+                    {t("continueDialog.optimizedHint")}
+                  </p>
                 </div>
                 <Button type="button" size="sm" onClick={handleApplyOptimizedPrompt}>
-                  替换输入
+                  {t("continueDialog.replaceInput")}
                 </Button>
               </div>
               <div className="max-h-56 overflow-y-auto rounded-md border bg-background/80 p-3 text-xs whitespace-pre-wrap text-foreground">
@@ -172,14 +188,14 @@ export function SessionContinueDialog({
             onClick={() => onOpenChange(false)}
             disabled={submitting}
           >
-            取消
+            {t("common:cancel")}
           </Button>
           <Button
             type="button"
             onClick={() => void onConfirm(prompt.trim())}
             disabled={submitting || !prompt.trim()}
           >
-            {submitting ? "执行中..." : "执行并查看日志"}
+            {submitting ? t("continueDialog.executing") : t("continueDialog.executeAndViewLog")}
           </Button>
         </DialogFooter>
       </DialogContent>

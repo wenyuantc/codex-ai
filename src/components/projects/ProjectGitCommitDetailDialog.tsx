@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 
 import type { ProjectGitCommit, ProjectGitCommitDetail } from "@/lib/types";
 import { formatDate } from "@/lib/utils";
@@ -58,7 +59,8 @@ export function ProjectGitCommitDetailDialog({
   onOpenFileDiff,
   onOpenChange,
 }: ProjectGitCommitDetailDialogProps) {
-  const displayTitle = detail?.subject ?? commit?.subject ?? "提交详情";
+  const { t } = useTranslation("projects");
+  const displayTitle = detail?.subject ?? commit?.subject ?? t("commitDetailDefaultTitle");
   const hasDiffText = detail?.diff_text !== null && detail?.diff_text !== undefined;
   const hasChangedFiles = (detail?.changed_files.length ?? 0) > 0;
   const getDefaultTab = (): CommitDetailTabValue => (hasDiffText ? "diff" : "files");
@@ -76,12 +78,12 @@ export function ProjectGitCommitDetailDialog({
       <DialogContent className="w-[min(96vw,78rem)] max-w-[min(96vw,78rem)] sm:max-w-[min(96vw,78rem)]">
         <DialogHeader>
           <DialogTitle>{displayTitle}</DialogTitle>
-          <DialogDescription>查看本次提交的元信息、改动文件列表与 diff 预览。</DialogDescription>
+          <DialogDescription>{t("commitDetailDescription")}</DialogDescription>
         </DialogHeader>
 
         {loading ? (
           <div className="rounded-md border border-dashed border-border px-3 py-8 text-center text-sm text-muted-foreground">
-            正在加载提交详情...
+            {t("commitDetailLoading")}
           </div>
         ) : error ? (
           <div className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-3 text-sm text-destructive">
@@ -89,24 +91,24 @@ export function ProjectGitCommitDetailDialog({
           </div>
         ) : !detail ? (
           <div className="rounded-md border border-dashed border-border px-3 py-8 text-center text-sm text-muted-foreground">
-            暂无可展示的提交详情。
+            {t("commitDetailEmpty")}
           </div>
         ) : (
           <div className="space-y-4">
             <div className="grid gap-2 md:grid-cols-3">
               <div className="rounded-md border border-border/70 bg-muted/20 px-3 py-2 text-xs">
-                <div className="font-medium text-foreground">提交 SHA</div>
+                <div className="font-medium text-foreground">{t("commitSha")}</div>
                 <div className="mt-1 break-all font-mono text-muted-foreground">{detail.sha}</div>
               </div>
               <div className="rounded-md border border-border/70 bg-muted/20 px-3 py-2 text-xs">
-                <div className="font-medium text-foreground">提交作者</div>
+                <div className="font-medium text-foreground">{t("commitAuthor")}</div>
                 <div className="mt-1 text-muted-foreground">
                   {detail.author_name}
                   {detail.author_email ? ` · ${detail.author_email}` : ""}
                 </div>
               </div>
               <div className="rounded-md border border-border/70 bg-muted/20 px-3 py-2 text-xs">
-                <div className="font-medium text-foreground">提交时间</div>
+                <div className="font-medium text-foreground">{t("commitTime")}</div>
                 <div className="mt-1 text-muted-foreground">{formatDate(detail.authored_at)}</div>
               </div>
             </div>
@@ -119,7 +121,7 @@ export function ProjectGitCommitDetailDialog({
 
             {detail.diff_truncated && (
               <div className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-800">
-                当前提交 diff 较长，预览内容已截断。
+                {t("diffTruncated")}
               </div>
             )}
 
@@ -129,10 +131,10 @@ export function ProjectGitCommitDetailDialog({
             >
               <TabsList className="grid w-full grid-cols-2">
                 <TabsTrigger value="diff" disabled={!hasDiffText}>
-                  Diff 预览
+                  {t("tabDiff")}
                 </TabsTrigger>
                 <TabsTrigger value="files" disabled={!hasChangedFiles}>
-                  变更文件
+                  {t("tabFiles")}
                 </TabsTrigger>
               </TabsList>
 
@@ -141,7 +143,7 @@ export function ProjectGitCommitDetailDialog({
                   <DiffPreview text={detail.diff_text ?? ""} />
                 ) : (
                   <div className="rounded-md border border-dashed border-border px-3 py-6 text-center text-xs text-muted-foreground">
-                    当前提交没有可展示的文本 diff。
+                    {t("noTextDiff")}
                   </div>
                 )}
               </TabsContent>
@@ -191,24 +193,22 @@ export function ProjectGitCommitDetailDialog({
                                 onOpenFileDiff(index);
                               }}
                             >
-                              查看对比
+                              {t("viewDiff")}
                             </Button>
                           </div>
                           {change.previous_path && (
                             <div className="mt-1 break-all font-mono text-muted-foreground">
-                              原路径：{change.previous_path}
+                              {t("originalPath", { path: change.previous_path })}
                             </div>
                           )}
-                          <div className="mt-1 text-[11px] text-primary">
-                            点击路径或按钮可查看该文件在父提交与当前提交之间的 Diff。
-                          </div>
+                          <div className="mt-1 text-[11px] text-primary">{t("diffHint")}</div>
                         </div>
                       ))}
                     </div>
                   </ScrollArea>
                 ) : (
                   <div className="rounded-md border border-dashed border-border px-3 py-6 text-center text-xs text-muted-foreground">
-                    当前提交没有可展示的变更文件列表。
+                    {t("noChangedFiles")}
                   </div>
                 )}
               </TabsContent>

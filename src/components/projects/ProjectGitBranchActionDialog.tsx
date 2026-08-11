@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 
 import {
   checkoutProjectGitBranch,
@@ -11,6 +12,7 @@ import type {
   GitMergeStrategy,
   ProjectGitBranchActionType,
 } from "@/lib/types";
+import i18n from "@/lib/i18n";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -41,79 +43,71 @@ interface ProjectGitBranchActionDialogProps {
   onActionCompleted?: (message: string) => Promise<void> | void;
 }
 
-const MERGE_FAST_FORWARD_OPTIONS: Array<{ value: GitMergeFastForwardMode; label: string }> = [
-  { value: "ff", label: "允许快进（默认）" },
-  { value: "no_ff", label: "强制创建合并提交（--no-ff）" },
-  { value: "ff_only", label: "仅允许快进（--ff-only）" },
+const MERGE_FAST_FORWARD_OPTIONS: Array<{
+  value: GitMergeFastForwardMode;
+  labelKey: string;
+}> = [
+  { value: "ff", labelKey: "projects:gitBranchDialog.ff" },
+  { value: "no_ff", labelKey: "projects:gitBranchDialog.no_ff" },
+  { value: "ff_only", labelKey: "projects:gitBranchDialog.ff_only" },
 ];
 
 const MERGE_STRATEGY_DEFAULT = "__default__";
-const MERGE_STRATEGY_OPTIONS: Array<{ value: string; label: string }> = [
-  { value: MERGE_STRATEGY_DEFAULT, label: "默认策略" },
-  { value: "ort", label: "ort" },
-  { value: "recursive", label: "recursive" },
-  { value: "resolve", label: "resolve" },
-  { value: "ours", label: "ours" },
-  { value: "subtree", label: "subtree" },
+const MERGE_STRATEGY_OPTIONS: Array<{ value: string; labelKey: string }> = [
+  { value: MERGE_STRATEGY_DEFAULT, labelKey: "projects:gitActionDialog.defaultStrategy" },
+  { value: "ort", labelKey: "projects:gitMergeStrategies.ort" },
+  { value: "recursive", labelKey: "projects:gitMergeStrategies.recursive" },
+  { value: "resolve", labelKey: "projects:gitMergeStrategies.resolve" },
+  { value: "ours", labelKey: "projects:gitMergeStrategies.ours" },
+  { value: "subtree", labelKey: "projects:gitMergeStrategies.subtree" },
 ];
 
 function getDialogTitle(action: ProjectGitBranchActionType | null) {
-  switch (action) {
-    case "switch":
-      return "切换分支";
-    case "create":
-      return "新建分支";
-    case "delete":
-      return "删除分支";
-    case "merge":
-      return "合并分支";
-    default:
-      return "分支管理";
-  }
+  const key =
+    action === "switch" || action === "create" || action === "delete" || action === "merge"
+      ? `projects:gitBranchDialog.${action}`
+      : "projects:gitBranchDialog.title";
+  return i18n.t(key);
 }
 
 function getDialogDescription(action: ProjectGitBranchActionType | null) {
-  switch (action) {
-    case "switch":
-      return "切换当前项目仓库到指定分支；工作区必须干净，否则将被拒绝。";
-    case "create":
-      return "基于当前分支或指定分支创建新分支，可选择创建后直接切换。";
-    case "delete":
-      return "删除指定的本地分支；若分支存在未合并提交，需要勾选强制删除。";
-    case "merge":
-      return "将源分支合并到目标分支；执行前工作区必须干净。";
-    default:
-      return "对当前项目仓库执行分支管理操作。";
-  }
+  const key =
+    action === "switch" || action === "create" || action === "delete" || action === "merge"
+      ? `projects:gitBranchDialog.${action}Description`
+      : "projects:gitBranchDialog.defaultDescription";
+  return i18n.t(key);
 }
 
 function getSubmitLabel(action: ProjectGitBranchActionType | null, submitting: boolean) {
   if (submitting) {
-    switch (action) {
-      case "switch":
-        return "切换中...";
-      case "create":
-        return "创建中...";
-      case "delete":
-        return "删除中...";
-      case "merge":
-        return "合并中...";
-      default:
-        return "执行中...";
-    }
+    const key =
+      action === "switch"
+        ? "projects:gitBranchDialog.switching"
+        : action === "create"
+          ? "projects:creating"
+          : action === "delete"
+            ? "projects:deleting"
+            : action === "merge"
+              ? "projects:gitBranchDialog.merging"
+              : "projects:gitActionDialog.executing";
+    return i18n.t(key);
   }
-  switch (action) {
-    case "switch":
-      return "立即切换";
-    case "create":
-      return "创建分支";
-    case "delete":
-      return "立即删除";
-    case "merge":
-      return "立即合并";
-    default:
-      return "执行";
-  }
+  const key =
+    action === "switch"
+      ? "projects:gitBranchDialog.switchNow"
+      : action === "create"
+        ? "projects:gitBranchDialog.createBranch"
+        : action === "delete"
+          ? "projects:gitBranchDialog.deleteNow"
+          : action === "merge"
+            ? "projects:gitBranchDialog.mergeNow"
+            : "projects:gitBranchDialog.execute";
+  return i18n.t(key);
+}
+
+function getFastForwardLabel(forceMode: GitMergeFastForwardMode) {
+  const option = MERGE_FAST_FORWARD_OPTIONS.find((item) => item.value === forceMode);
+  return option ? i18n.t(option.labelKey) : forceMode;
 }
 
 function dedupeBranches(values: Array<string | null | undefined>): string[] {
@@ -140,6 +134,7 @@ export function ProjectGitBranchActionDialog({
   onOpenChange,
   onActionCompleted,
 }: ProjectGitBranchActionDialogProps) {
+  const { t } = useTranslation("projects");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -200,34 +195,34 @@ export function ProjectGitBranchActionDialog({
     try {
       if (action === "switch") {
         if (!switchTarget) {
-          setError("请选择要切换的目标分支。");
+          setError(t("gitBranchDialog.selectSwitchError"));
           return;
         }
         if (switchTarget === currentBranch) {
-          setError("目标分支与当前分支相同。");
+          setError(t("gitBranchDialog.sameBranchError"));
           return;
         }
       } else if (action === "create") {
         if (!newBranchName.trim()) {
-          setError("新分支名不能为空。");
+          setError(t("gitBranchDialog.emptyBranchNameError"));
           return;
         }
       } else if (action === "delete") {
         if (!deleteTarget) {
-          setError("请选择要删除的分支。");
+          setError(t("gitBranchDialog.selectDeleteError"));
           return;
         }
         if (deleteTarget === currentBranch) {
-          setError("无法删除当前所在分支，请先切换到其他分支。");
+          setError(t("gitBranchDialog.deleteCurrentError"));
           return;
         }
       } else if (action === "merge") {
         if (!mergeSource || !mergeTarget) {
-          setError("请选择源分支和目标分支。");
+          setError(t("gitBranchDialog.selectMergeError"));
           return;
         }
         if (mergeSource === mergeTarget) {
-          setError("源分支和目标分支不能相同。");
+          setError(t("gitBranchDialog.sameMergeError"));
           return;
         }
       }
@@ -268,14 +263,16 @@ export function ProjectGitBranchActionDialog({
   const renderSwitch = () => (
     <div className="space-y-3">
       <label className="space-y-1.5 block">
-        <span className="text-xs font-medium text-muted-foreground">目标分支</span>
+        <span className="text-xs font-medium text-muted-foreground">
+          {t("gitActionDialog.targetBranchField")}
+        </span>
         <Select<string>
           value={switchTarget}
           onValueChange={(value) => value && setSwitchTarget(value)}
           disabled={submitting || otherBranches.length === 0}
         >
           <SelectTrigger className="bg-background">
-            <SelectValue>{switchTarget || "选择分支"}</SelectValue>
+            <SelectValue>{switchTarget || t("gitBranchDialog.selectBranch")}</SelectValue>
           </SelectTrigger>
           <SelectContent>
             {otherBranches.map((branch) => (
@@ -288,7 +285,7 @@ export function ProjectGitBranchActionDialog({
       </label>
       {hasWorkingTreeChanges && (
         <div className="rounded-md border border-amber-500/20 bg-amber-500/10 px-3 py-2 text-xs text-amber-900">
-          当前工作区存在未提交改动，切换会失败。请先提交、回滚或暂存后再切换分支。
+          {t("gitBranchDialog.switchDirtyHint")}
         </div>
       )}
     </div>
@@ -297,7 +294,9 @@ export function ProjectGitBranchActionDialog({
   const renderCreate = () => (
     <div className="space-y-3">
       <label className="space-y-1.5 block">
-        <span className="text-xs font-medium text-muted-foreground">新分支名</span>
+        <span className="text-xs font-medium text-muted-foreground">
+          {t("gitBranchDialog.newBranchName")}
+        </span>
         <Input
           value={newBranchName}
           onChange={(event) => setNewBranchName(event.target.value)}
@@ -306,20 +305,22 @@ export function ProjectGitBranchActionDialog({
         />
       </label>
       <label className="space-y-1.5 block">
-        <span className="text-xs font-medium text-muted-foreground">基准分支</span>
+        <span className="text-xs font-medium text-muted-foreground">
+          {t("gitBranchDialog.baseBranch")}
+        </span>
         <Select<string>
           value={createBase}
           onValueChange={(value) => value && setCreateBase(value)}
           disabled={submitting || allBranches.length === 0}
         >
           <SelectTrigger className="bg-background">
-            <SelectValue>{createBase || "选择基准分支"}</SelectValue>
+            <SelectValue>{createBase || t("gitBranchDialog.selectBaseBranch")}</SelectValue>
           </SelectTrigger>
           <SelectContent>
             {allBranches.map((branch) => (
               <SelectItem key={branch} value={branch}>
                 {branch}
-                {branch === currentBranch ? "（当前）" : ""}
+                {branch === currentBranch ? t("gitBranchDialog.currentSuffix") : ""}
               </SelectItem>
             ))}
           </SelectContent>
@@ -332,11 +333,11 @@ export function ProjectGitBranchActionDialog({
           onChange={(event) => setCreateAndCheckout(event.target.checked)}
           disabled={submitting}
         />
-        创建后切换到该分支（需工作区干净）
+        {t("gitBranchDialog.checkoutAfterCreate")}
       </label>
       {createAndCheckout && hasWorkingTreeChanges && (
         <div className="rounded-md border border-amber-500/20 bg-amber-500/10 px-3 py-2 text-xs text-amber-900">
-          当前工作区存在未提交改动，勾选"创建后切换"将失败。可取消勾选仅创建分支。
+          {t("gitBranchDialog.createDirtyHint")}
         </div>
       )}
     </div>
@@ -345,14 +346,16 @@ export function ProjectGitBranchActionDialog({
   const renderDelete = () => (
     <div className="space-y-3">
       <label className="space-y-1.5 block">
-        <span className="text-xs font-medium text-muted-foreground">待删除分支</span>
+        <span className="text-xs font-medium text-muted-foreground">
+          {t("gitBranchDialog.deleteTarget")}
+        </span>
         <Select<string>
           value={deleteTarget}
           onValueChange={(value) => value && setDeleteTarget(value)}
           disabled={submitting || otherBranches.length === 0}
         >
           <SelectTrigger className="bg-background">
-            <SelectValue>{deleteTarget || "选择分支"}</SelectValue>
+            <SelectValue>{deleteTarget || t("gitBranchDialog.selectBranch")}</SelectValue>
           </SelectTrigger>
           <SelectContent>
             {otherBranches.map((branch) => (
@@ -370,11 +373,11 @@ export function ProjectGitBranchActionDialog({
           onChange={(event) => setDeleteForce(event.target.checked)}
           disabled={submitting}
         />
-        强制删除（-D，未合并提交将丢失）
+        {t("gitBranchDialog.forceDelete")}
       </label>
       {deleteForce && (
         <div className="rounded-md border border-destructive/20 bg-destructive/10 px-3 py-2 text-xs text-destructive">
-          强制删除不会校验分支是否已合并，若分支含有未推送/未合并的独有提交将永久丢失，请确认。
+          {t("gitBranchDialog.forceDeleteHint")}
         </div>
       )}
     </div>
@@ -384,14 +387,16 @@ export function ProjectGitBranchActionDialog({
     <div className="space-y-3">
       <div className="grid gap-3 sm:grid-cols-2">
         <label className="space-y-1.5 block">
-          <span className="text-xs font-medium text-muted-foreground">源分支（合并来源）</span>
+          <span className="text-xs font-medium text-muted-foreground">
+            {t("gitBranchDialog.mergeSource")}
+          </span>
           <Select<string>
             value={mergeSource}
             onValueChange={(value) => value && setMergeSource(value)}
             disabled={submitting || allBranches.length === 0}
           >
             <SelectTrigger className="bg-background">
-              <SelectValue>{mergeSource || "选择源分支"}</SelectValue>
+              <SelectValue>{mergeSource || t("gitBranchDialog.selectSource")}</SelectValue>
             </SelectTrigger>
             <SelectContent>
               {allBranches
@@ -405,14 +410,16 @@ export function ProjectGitBranchActionDialog({
           </Select>
         </label>
         <label className="space-y-1.5 block">
-          <span className="text-xs font-medium text-muted-foreground">目标分支（合并到）</span>
+          <span className="text-xs font-medium text-muted-foreground">
+            {t("gitBranchDialog.mergeTargetField")}
+          </span>
           <Select<string>
             value={mergeTarget}
             onValueChange={(value) => value && setMergeTarget(value)}
             disabled={submitting || allBranches.length === 0}
           >
             <SelectTrigger className="bg-background">
-              <SelectValue>{mergeTarget || "选择目标分支"}</SelectValue>
+              <SelectValue>{mergeTarget || t("gitActionDialog.selectTargetBranch")}</SelectValue>
             </SelectTrigger>
             <SelectContent>
               {allBranches
@@ -420,7 +427,7 @@ export function ProjectGitBranchActionDialog({
                 .map((branch) => (
                   <SelectItem key={branch} value={branch}>
                     {branch}
-                    {branch === currentBranch ? "（当前）" : ""}
+                    {branch === currentBranch ? t("gitBranchDialog.currentSuffix") : ""}
                   </SelectItem>
                 ))}
             </SelectContent>
@@ -428,29 +435,30 @@ export function ProjectGitBranchActionDialog({
         </label>
       </div>
       <label className="space-y-1.5 block">
-        <span className="text-xs font-medium text-muted-foreground">合并方式</span>
+        <span className="text-xs font-medium text-muted-foreground">
+          {t("gitBranchDialog.mergeMode")}
+        </span>
         <Select<GitMergeFastForwardMode>
           value={mergeFastForward}
           onValueChange={(value) => value && setMergeFastForward(value)}
           disabled={submitting}
         >
           <SelectTrigger className="bg-background">
-            <SelectValue>
-              {MERGE_FAST_FORWARD_OPTIONS.find((o) => o.value === mergeFastForward)?.label ??
-                mergeFastForward}
-            </SelectValue>
+            <SelectValue>{getFastForwardLabel(mergeFastForward)}</SelectValue>
           </SelectTrigger>
           <SelectContent>
             {MERGE_FAST_FORWARD_OPTIONS.map((option) => (
               <SelectItem key={option.value} value={option.value}>
-                {option.label}
+                {i18n.t(option.labelKey)}
               </SelectItem>
             ))}
           </SelectContent>
         </Select>
       </label>
       <label className="space-y-1.5 block">
-        <span className="text-xs font-medium text-muted-foreground">合并策略（可选）</span>
+        <span className="text-xs font-medium text-muted-foreground">
+          {t("gitBranchDialog.mergeStrategyOptional")}
+        </span>
         <Select<string>
           value={mergeStrategy}
           onValueChange={(value) => value && setMergeStrategy(value)}
@@ -458,13 +466,15 @@ export function ProjectGitBranchActionDialog({
         >
           <SelectTrigger className="bg-background">
             <SelectValue>
-              {MERGE_STRATEGY_OPTIONS.find((o) => o.value === mergeStrategy)?.label ?? "默认策略"}
+              {MERGE_STRATEGY_OPTIONS.find((o) => o.value === mergeStrategy)?.labelKey
+                ? i18n.t(MERGE_STRATEGY_OPTIONS.find((o) => o.value === mergeStrategy)!.labelKey)
+                : i18n.t("projects:gitActionDialog.defaultStrategy")}
             </SelectValue>
           </SelectTrigger>
           <SelectContent>
             {MERGE_STRATEGY_OPTIONS.map((option) => (
               <SelectItem key={option.value} value={option.value}>
-                {option.label}
+                {i18n.t(option.labelKey)}
               </SelectItem>
             ))}
           </SelectContent>
@@ -472,7 +482,7 @@ export function ProjectGitBranchActionDialog({
       </label>
       {hasWorkingTreeChanges && (
         <div className="rounded-md border border-amber-500/20 bg-amber-500/10 px-3 py-2 text-xs text-amber-900">
-          当前工作区存在未提交改动，合并会被拒绝。请先提交或暂存后再执行。
+          {t("gitBranchDialog.mergeDirtyHint")}
         </div>
       )}
     </div>
@@ -496,9 +506,19 @@ export function ProjectGitBranchActionDialog({
         </DialogHeader>
 
         <div className="rounded-md border border-border/60 bg-secondary/30 px-3 py-2 text-xs text-muted-foreground">
-          <div>当前分支：{currentBranch ?? "未知"}</div>
-          <div className="mt-1">默认分支：{defaultBranch ?? "未知"}</div>
-          <div className="mt-1">本地分支数：{allBranches.length}</div>
+          <div>
+            {t("gitBranchDialog.currentBranchSummary", {
+              branch: currentBranch ?? t("common:unknown"),
+            })}
+          </div>
+          <div className="mt-1">
+            {t("gitBranchDialog.defaultBranchSummary", {
+              branch: defaultBranch ?? t("common:unknown"),
+            })}
+          </div>
+          <div className="mt-1">
+            {t("gitBranchDialog.branchCountSummary", { count: allBranches.length })}
+          </div>
         </div>
 
         {action === "switch" && renderSwitch()}
@@ -519,7 +539,7 @@ export function ProjectGitBranchActionDialog({
             onClick={() => onOpenChange(false)}
             disabled={submitting}
           >
-            取消
+            {t("common:cancel")}
           </Button>
           <Button
             type="button"

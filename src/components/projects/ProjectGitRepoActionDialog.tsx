@@ -1,9 +1,11 @@
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 
 import { commitProjectGitChanges, pullProjectGitBranch, pushProjectGitBranch } from "@/lib/backend";
 import { aiGenerateCommitMessage } from "@/lib/codex";
 import { buildGitCommitChangePrompts } from "@/lib/gitWorkingTree";
 import type { ProjectGitRepoActionType, ProjectGitWorkingTreeChange } from "@/lib/types";
+import i18n from "@/lib/i18n";
 import { GitCommitDialogContent } from "@/components/git/GitCommitDialogContent";
 import { Button } from "@/components/ui/button";
 import {
@@ -39,69 +41,72 @@ interface ProjectGitRepoActionDialogProps {
 type PushForceMode = "none" | "force" | "force_with_lease";
 type PullMode = "ff_only" | "rebase";
 
-const PUSH_FORCE_MODE_OPTIONS: Array<{ value: PushForceMode; label: string }> = [
-  { value: "none", label: "普通推送" },
-  { value: "force", label: "强制推送（force）" },
-  { value: "force_with_lease", label: "保护式强推（force-with-lease）" },
+const PUSH_FORCE_MODE_OPTIONS: Array<{ value: PushForceMode; labelKey: string }> = [
+  { value: "none", labelKey: "projects:gitForceModes.none" },
+  { value: "force", labelKey: "projects:gitForceModes.force" },
+  { value: "force_with_lease", labelKey: "projects:gitForceModes.force_with_lease" },
 ];
 
-const PULL_MODE_OPTIONS: Array<{ value: PullMode; label: string }> = [
-  { value: "ff_only", label: "仅允许快进（ff-only）" },
-  { value: "rebase", label: "变基拉取（rebase）" },
+const PULL_MODE_OPTIONS: Array<{ value: PullMode; labelKey: string }> = [
+  { value: "ff_only", labelKey: "projects:gitRepoDialog.pullModes.ff_only" },
+  { value: "rebase", labelKey: "projects:gitRepoDialog.pullModes.rebase" },
 ];
 
 function getDialogTitle(action: ProjectGitRepoActionType | null) {
-  switch (action) {
-    case "commit":
-      return "提交已暂存改动";
-    case "push":
-      return "推送当前分支";
-    case "pull":
-      return "拉取远端更新";
-    default:
-      return "仓库操作";
-  }
+  const key =
+    action === "commit" || action === "push" || action === "pull"
+      ? `projects:gitRepoDialog.${action}`
+      : "projects:gitRepoDialog.title";
+  return i18n.t(key);
 }
 
 function getDialogDescription(action: ProjectGitRepoActionType | null, stagedFileCount: number) {
   switch (action) {
     case "commit":
       return stagedFileCount > 0
-        ? `当前已有 ${stagedFileCount} 个文件处于已暂存状态，将基于这些改动创建提交。`
-        : "当前没有已暂存文件，请先在工作区文件列表中暂存改动后再提交。";
+        ? i18n.t("projects:gitRepoDialog.commitDescriptionStaged", { count: stagedFileCount })
+        : i18n.t("projects:gitRepoDialog.commitDescriptionEmpty");
     case "push":
-      return "将当前分支推送到指定远端。首次推送新分支时，也可直接指定分支名。";
+      return i18n.t("projects:gitRepoDialog.pushDescription");
     case "pull":
-      return "从指定远端拉取当前分支更新，可选择快进拉取或 rebase 拉取。";
+      return i18n.t("projects:gitRepoDialog.pullDescription");
     default:
-      return "对当前项目仓库执行提交、推送或拉取操作。";
+      return i18n.t("projects:gitRepoDialog.defaultDescription");
   }
 }
 
 function getSubmitLabel(action: ProjectGitRepoActionType | null, submitting: boolean) {
   if (submitting) {
-    switch (action) {
-      case "commit":
-        return "提交中...";
-      case "push":
-        return "推送中...";
-      case "pull":
-        return "拉取中...";
-      default:
-        return "执行中...";
-    }
+    const key =
+      action === "commit"
+        ? "projects:gitRepoDialog.committing"
+        : action === "push"
+          ? "projects:gitRepoDialog.pushing"
+          : action === "pull"
+            ? "projects:gitRepoDialog.pulling"
+            : "projects:gitActionDialog.executing";
+    return i18n.t(key);
   }
 
-  switch (action) {
-    case "commit":
-      return "创建提交";
-    case "push":
-      return "立即推送";
-    case "pull":
-      return "立即拉取";
-    default:
-      return "执行";
-  }
+  const key =
+    action === "commit"
+      ? "projects:gitRepoDialog.createCommit"
+      : action === "push"
+        ? "projects:gitRepoDialog.pushNow"
+        : action === "pull"
+          ? "projects:gitRepoDialog.pullNow"
+          : "projects:gitBranchDialog.execute";
+  return i18n.t(key);
+}
+
+function getPullModeLabel(pullMode: PullMode) {
+  const option = PULL_MODE_OPTIONS.find((item) => item.value === pullMode);
+  return option ? i18n.t(option.labelKey) : pullMode;
+}
+
+function getPushForceModeLabel(forceMode: PushForceMode) {
+  const option = PUSH_FORCE_MODE_OPTIONS.find((item) => item.value === forceMode);
+  return option ? i18n.t(option.labelKey) : forceMode;
 }
 
 function buildBranchOptions(
@@ -137,6 +142,7 @@ export function ProjectGitRepoActionDialog({
   onOpenChange,
   onActionCompleted,
 }: ProjectGitRepoActionDialogProps) {
+  const { t } = useTranslation(["projects", "common"]);
   const [commitMessage, setCommitMessage] = useState("");
   const [remoteName, setRemoteName] = useState("origin");
   const [branchName, setBranchName] = useState("");
@@ -169,11 +175,11 @@ export function ProjectGitRepoActionDialog({
 
   const handleGenerateCommitMessage = async () => {
     if (!projectId) {
-      setError("当前项目信息不完整，无法生成提交信息。");
+      setError(t("gitRepoDialog.generateErrorNoProject"));
       return;
     }
     if (stagedChangePrompts.length === 0) {
-      setError("当前没有已暂存文件，无法生成提交信息。");
+      setError(t("gitRepoDialog.generateErrorNoStaged"));
       return;
     }
 
@@ -201,11 +207,11 @@ export function ProjectGitRepoActionDialog({
 
     if (action === "commit") {
       if (stagedFileCount === 0) {
-        setError("当前没有已暂存文件，请先暂存后再提交。");
+        setError(t("gitRepoDialog.commitNoStagedError"));
         return;
       }
       if (!commitMessage.trim()) {
-        setError("提交说明不能为空。");
+        setError(t("gitRepoDialog.commitMessageEmptyError"));
         return;
       }
     }
@@ -220,7 +226,7 @@ export function ProjectGitRepoActionDialog({
           const branch = currentBranch?.trim();
           if (!branch) {
             await onActionCompleted?.(commitResult);
-            setError("提交已创建，但当前分支未知，请返回后手动推送。");
+            setError(t("gitRepoDialog.commitPushUnknownBranch"));
             return;
           }
           try {
@@ -229,7 +235,9 @@ export function ProjectGitRepoActionDialog({
           } catch (pushError) {
             await onActionCompleted?.(commitResult);
             setError(
-              `提交已创建，但推送失败：${pushError instanceof Error ? pushError.message : String(pushError)}`,
+              t("gitRepoDialog.commitPushFailed", {
+                message: pushError instanceof Error ? pushError.message : String(pushError),
+              }),
             );
             return;
           }
@@ -275,8 +283,11 @@ export function ProjectGitRepoActionDialog({
           title={getDialogTitle(action)}
           description={getDialogDescription(action, stagedFileCount)}
           summaryRows={[
-            { label: "当前分支", value: currentBranch ?? "未知" },
-            { label: "已暂存文件", value: stagedFileCount },
+            {
+              label: t("gitRepoDialog.currentBranchLabel"),
+              value: currentBranch ?? t("common:unknown"),
+            },
+            { label: t("gitRepoDialog.stagedFilesLabel"), value: stagedFileCount },
           ]}
           commitMessage={commitMessage}
           busy={submitting || generatingCommitMessage}
@@ -297,11 +308,13 @@ export function ProjectGitRepoActionDialog({
               disabled={submitting || commitDisabled || !currentBranch}
               title={
                 currentBranch
-                  ? `提交后推送到 origin/${currentBranch}`
-                  : "当前分支未知，暂不可提交并推送"
+                  ? t("gitRepoDialog.pushAfterCommitTitle", { branch: currentBranch })
+                  : t("gitRepoDialog.pushAfterCommitUnknownTitle")
               }
             >
-              {submitMode === "commit_push" ? "提交并推送中..." : "提交并推送"}
+              {submitMode === "commit_push"
+                ? t("gitRepoDialog.commitPushSubmitting")
+                : t("gitRepoDialog.commitPush")}
             </Button>
           }
         />
@@ -318,14 +331,20 @@ export function ProjectGitRepoActionDialog({
         </DialogHeader>
 
         <div className="rounded-md border border-border/60 bg-secondary/30 px-3 py-2 text-xs text-muted-foreground">
-          <div>当前分支：{currentBranch ?? "未知"}</div>
-          <div className="mt-1">已暂存文件：{stagedFileCount}</div>
+          <div>
+            {t("gitRepoDialog.currentBranchLabel")}：{currentBranch ?? t("common:unknown")}
+          </div>
+          <div className="mt-1">
+            {t("gitRepoDialog.stagedFilesLabel")}：{stagedFileCount}
+          </div>
         </div>
 
         {action === "push" ? (
           <div className="grid gap-3 sm:grid-cols-2">
             <label className="space-y-1.5">
-              <span className="text-xs font-medium text-muted-foreground">远端名称</span>
+              <span className="text-xs font-medium text-muted-foreground">
+                {t("gitActionDialog.remoteName")}
+              </span>
               <Input
                 value={remoteName}
                 onChange={(event) => setRemoteName(event.target.value)}
@@ -334,7 +353,9 @@ export function ProjectGitRepoActionDialog({
               />
             </label>
             <label className="space-y-1.5">
-              <span className="text-xs font-medium text-muted-foreground">分支名称</span>
+              <span className="text-xs font-medium text-muted-foreground">
+                {t("gitRepoDialog.branchName")}
+              </span>
               <Select<string>
                 value={branchName}
                 onValueChange={(value) => {
@@ -345,7 +366,7 @@ export function ProjectGitRepoActionDialog({
                 disabled={submitting || branchOptions.length === 0}
               >
                 <SelectTrigger className="bg-background">
-                  <SelectValue>{branchName || "选择分支"}</SelectValue>
+                  <SelectValue>{branchName || t("gitBranchDialog.selectBranch")}</SelectValue>
                 </SelectTrigger>
                 <SelectContent>
                   {branchOptions.map((option) => (
@@ -357,7 +378,9 @@ export function ProjectGitRepoActionDialog({
               </Select>
             </label>
             <label className="space-y-1.5 sm:col-span-2">
-              <span className="text-xs font-medium text-muted-foreground">推送模式</span>
+              <span className="text-xs font-medium text-muted-foreground">
+                {t("gitActionDialog.pushMode")}
+              </span>
               <Select<PushForceMode>
                 value={pushForceMode}
                 onValueChange={(value) => {
@@ -368,15 +391,12 @@ export function ProjectGitRepoActionDialog({
                 disabled={submitting}
               >
                 <SelectTrigger className="bg-background">
-                  <SelectValue>
-                    {PUSH_FORCE_MODE_OPTIONS.find((option) => option.value === pushForceMode)
-                      ?.label ?? pushForceMode}
-                  </SelectValue>
+                  <SelectValue>{getPushForceModeLabel(pushForceMode)}</SelectValue>
                 </SelectTrigger>
                 <SelectContent>
                   {PUSH_FORCE_MODE_OPTIONS.map((option) => (
                     <SelectItem key={option.value} value={option.value}>
-                      {option.label}
+                      {i18n.t(option.labelKey)}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -386,7 +406,9 @@ export function ProjectGitRepoActionDialog({
         ) : action === "pull" ? (
           <div className="grid gap-3 sm:grid-cols-2">
             <label className="space-y-1.5">
-              <span className="text-xs font-medium text-muted-foreground">远端名称</span>
+              <span className="text-xs font-medium text-muted-foreground">
+                {t("gitActionDialog.remoteName")}
+              </span>
               <Input
                 value={remoteName}
                 onChange={(event) => setRemoteName(event.target.value)}
@@ -395,7 +417,9 @@ export function ProjectGitRepoActionDialog({
               />
             </label>
             <label className="space-y-1.5">
-              <span className="text-xs font-medium text-muted-foreground">分支名称</span>
+              <span className="text-xs font-medium text-muted-foreground">
+                {t("gitRepoDialog.branchName")}
+              </span>
               <Select<string>
                 value={branchName}
                 onValueChange={(value) => {
@@ -406,7 +430,7 @@ export function ProjectGitRepoActionDialog({
                 disabled={submitting || branchOptions.length === 0}
               >
                 <SelectTrigger className="bg-background">
-                  <SelectValue>{branchName || "选择分支"}</SelectValue>
+                  <SelectValue>{branchName || t("gitBranchDialog.selectBranch")}</SelectValue>
                 </SelectTrigger>
                 <SelectContent>
                   {branchOptions.map((option) => (
@@ -418,7 +442,9 @@ export function ProjectGitRepoActionDialog({
               </Select>
             </label>
             <label className="space-y-1.5 sm:col-span-2">
-              <span className="text-xs font-medium text-muted-foreground">拉取方式</span>
+              <span className="text-xs font-medium text-muted-foreground">
+                {t("gitRepoDialog.pullMode")}
+              </span>
               <Select<PullMode>
                 value={pullMode}
                 onValueChange={(value) => {
@@ -429,15 +455,12 @@ export function ProjectGitRepoActionDialog({
                 disabled={submitting}
               >
                 <SelectTrigger className="bg-background">
-                  <SelectValue>
-                    {PULL_MODE_OPTIONS.find((option) => option.value === pullMode)?.label ??
-                      pullMode}
-                  </SelectValue>
+                  <SelectValue>{getPullModeLabel(pullMode)}</SelectValue>
                 </SelectTrigger>
                 <SelectContent>
                   {PULL_MODE_OPTIONS.map((option) => (
                     <SelectItem key={option.value} value={option.value}>
-                      {option.label}
+                      {i18n.t(option.labelKey)}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -450,13 +473,13 @@ export function ProjectGitRepoActionDialog({
                 onChange={(event) => setPullAutoStash(event.target.checked)}
                 disabled={submitting}
               />
-              拉取前自动暂存本地改动（autostash）
+              {t("gitRepoDialog.pullAutostash")}
             </label>
             {hasWorkingTreeChanges && (
               <div className="rounded-md border border-amber-500/20 bg-amber-500/10 px-3 py-2 text-xs text-amber-900 sm:col-span-2">
                 {pullMode === "rebase"
-                  ? "当前工作区存在本地改动，已默认切到 rebase 拉取。建议保留 autostash，避免未提交改动导致拉取失败。"
-                  : "当前工作区存在本地改动。若仅需快进，可保留 autostash；如果再次出现“Not possible to fast-forward”，说明本地分支与远端已分叉，请改用 rebase 拉取。"}
+                  ? t("gitRepoDialog.pullRebaseHint")
+                  : t("gitRepoDialog.pullFfHint")}
               </div>
             )}
           </div>
@@ -464,7 +487,7 @@ export function ProjectGitRepoActionDialog({
 
         {branchOptions.length === 0 && (
           <div className="rounded-md border border-dashed border-border px-3 py-2 text-xs text-muted-foreground">
-            当前没有可选分支，请先确认仓库处于正常分支状态后再执行此操作。
+            {t("gitRepoDialog.noBranchesHint")}
           </div>
         )}
 
@@ -481,7 +504,7 @@ export function ProjectGitRepoActionDialog({
             onClick={() => onOpenChange(false)}
             disabled={submitting}
           >
-            取消
+            {t("common:cancel")}
           </Button>
           <Button
             type="button"

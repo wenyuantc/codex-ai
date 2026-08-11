@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Loader2, Play, Search, Square } from "lucide-react";
+import { useTranslation } from "react-i18next";
 
 import { prepareTaskGitExecution, startTaskCodeReview } from "@/lib/backend";
 import { startCodex, stopCodexSession } from "@/lib/codex";
@@ -45,6 +46,7 @@ export function CodexControls({
   systemPrompt,
   aiProvider = "codex",
 }: CodexControlsProps) {
+  const { t } = useTranslation(["tasks", "common"]);
   const employeeRuntime = useEmployeeStore((state) => state.employeeRuntime[employeeId]);
   const allEmployeeRuntime = useEmployeeStore((state) => state.employeeRuntime);
   const updateEmployeeStatus = useEmployeeStore((state) => state.updateEmployeeStatus);
@@ -357,11 +359,9 @@ export function CodexControls({
       >
         <DialogContent className="w-[min(96vw,40rem)] max-w-[min(96vw,40rem)] sm:max-w-[min(96vw,40rem)]">
           <DialogHeader>
-            <DialogTitle>选择启动任务</DialogTitle>
+            <DialogTitle>{t("selectStartTask")}</DialogTitle>
             <DialogDescription>
-              {isReviewer
-                ? "显示未指派任务、已指派给当前员工的任务，以及当前项目下全部审核中的任务。"
-                : "只显示未指派任务，或已指派给当前员工且状态为待办、进行中、审核中的任务。"}
+              {isReviewer ? t("taskDialogReviewerHint") : t("taskDialogAssigneeHint")}
             </DialogDescription>
           </DialogHeader>
 
@@ -371,7 +371,7 @@ export function CodexControls({
               <Input
                 value={taskKeyword}
                 onChange={(e) => setTaskKeyword(e.target.value)}
-                placeholder="搜索任务标题、描述或项目"
+                placeholder={t("taskSearchPlaceholder")}
                 className="pl-8"
                 autoFocus
               />
@@ -382,11 +382,11 @@ export function CodexControls({
                 {taskDialogLoading ? (
                   <div className="flex h-60 items-center justify-center text-sm text-muted-foreground">
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    正在加载任务...
+                    {t("loadingTasks")}
                   </div>
                 ) : eligibleTasks.length === 0 ? (
                   <div className="flex h-60 items-center justify-center text-sm text-muted-foreground">
-                    没有符合条件的任务
+                    {t("noEligibleTasks")}
                   </div>
                 ) : (
                   eligibleTasks.map((task) => (
@@ -411,7 +411,7 @@ export function CodexControls({
                           )}
                         </div>
                         <div className="shrink-0 rounded-full border border-border px-2 py-0.5 text-[11px] text-muted-foreground">
-                          {task.assignee_id ? "已指派" : "未指派"}
+                          {task.assignee_id ? t("assigned") : t("unassigned")}
                         </div>
                       </div>
                       <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
@@ -430,14 +430,14 @@ export function CodexControls({
                 <div className="font-medium text-foreground">{selectedTask.title}</div>
                 <div className="mt-1">
                   {selectedTaskRunningSession
-                    ? "该任务当前已有同类型运行会话，不能重复启动。"
+                    ? t("alreadyRunningHint")
                     : shouldStartReview
                       ? selectedTask.reviewer_id === employeeId
-                        ? "将以当前审查员身份发起该任务的代码审核。"
-                        : "启动时会自动将该任务改派给当前审查员，并发起代码审核。"
+                        ? t("reviewerHint")
+                        : t("reassignReviewerHint")
                       : selectedTask.assignee_id
-                        ? "将继续使用当前员工负责该任务。"
-                        : "启动时会自动把该任务指派给当前员工。"}
+                        ? t("keepAssigneeHint")
+                        : t("autoAssignHint")}
                 </div>
               </div>
             )}
@@ -450,7 +450,7 @@ export function CodexControls({
               disabled={actionLoading === "start"}
               className="h-8 rounded-lg border border-border bg-background px-3 text-sm hover:bg-muted disabled:opacity-50"
             >
-              取消
+              {t("common:cancel")}
             </button>
             <button
               type="button"
@@ -468,7 +468,7 @@ export function CodexControls({
               ) : (
                 <Play className="h-3.5 w-3.5" />
               )}
-              {shouldStartReview ? "启动审核" : "启动任务"}
+              {shouldStartReview ? t("startReview") : t("startTask")}
             </button>
           </DialogFooter>
         </DialogContent>

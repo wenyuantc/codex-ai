@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type * as Monaco from "monaco-editor";
+import { useTranslation } from "react-i18next";
 
 import type { ProjectGitFileChangeRef, ProjectGitFilePreview } from "@/lib/types";
 import { detectMonacoLanguage, getMonacoThemeName, loadMonaco } from "@/lib/monaco";
+import i18n from "@/lib/i18n";
 import {
   Dialog,
   DialogContent,
@@ -23,16 +25,20 @@ interface ProjectGitFilePreviewDialogProps {
 function getSnapshotStatusLabel(status: ProjectGitFilePreview["before_status"]) {
   switch (status) {
     case "text":
-      return "文本";
+      return i18n.t("projects:snapshotStatusText");
     case "missing":
-      return "不存在";
+      return i18n.t("projects:snapshotStatusMissing");
     case "binary":
-      return "二进制";
+      return i18n.t("projects:snapshotStatusBinary");
     case "unavailable":
-      return "不可预览";
+      return i18n.t("projects:snapshotStatusUnavailable");
     default:
       return status;
   }
+}
+
+function getSideLabel(side: "before" | "after") {
+  return side === "before" ? i18n.t("projects:baselineVersion") : i18n.t("projects:workingVersion");
 }
 
 function getSnapshotDisplayText(
@@ -47,9 +53,9 @@ function getSnapshotDisplayText(
     return "";
   }
   if (status === "binary") {
-    return `/* ${side === "before" ? "基线版本" : "工作区版本"}是二进制文件，暂不支持文本 Diff 预览 */`;
+    return i18n.t("projects:binaryPlaceholder", { side: getSideLabel(side) });
   }
-  return `/* ${side === "before" ? "基线版本" : "工作区版本"}暂不可预览 */`;
+  return i18n.t("projects:unavailablePlaceholder", { side: getSideLabel(side) });
 }
 
 export function ProjectGitFilePreviewDialog({
@@ -60,6 +66,7 @@ export function ProjectGitFilePreviewDialog({
   change,
   onOpenChange,
 }: ProjectGitFilePreviewDialogProps) {
+  const { t } = useTranslation("projects");
   const editorContainerRef = useRef<HTMLDivElement | null>(null);
   const diffEditorRef = useRef<Monaco.editor.IStandaloneDiffEditor | null>(null);
   const originalModelRef = useRef<Monaco.editor.ITextModel | null>(null);
@@ -152,7 +159,7 @@ export function ProjectGitFilePreviewDialog({
     }
   }, [open]);
 
-  const titlePath = preview?.relative_path ?? change?.path ?? "文件 Diff 预览";
+  const titlePath = preview?.relative_path ?? change?.path ?? t("previewDefaultTitle");
   const message = error ?? editorError ?? preview?.message ?? null;
 
   return (
@@ -161,20 +168,24 @@ export function ProjectGitFilePreviewDialog({
         <DialogHeader>
           <DialogTitle>{titlePath}</DialogTitle>
           <DialogDescription>
-            使用 Monaco Diff Editor 对比 {preview?.before_label ?? "对比前版本"} 与{" "}
-            {preview?.after_label ?? "对比后版本"}。
+            {t("previewDescription", {
+              before: preview?.before_label ?? t("beforeVersion"),
+              after: preview?.after_label ?? t("afterVersion"),
+            })}
           </DialogDescription>
         </DialogHeader>
 
         {change && (
           <div className="rounded-md border border-border/70 bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
-            <div>变更类型：{change.change_type}</div>
+            <div>{t("changeType", { type: change.change_type })}</div>
             {preview?.absolute_path && (
               <div className="mt-1 break-all font-mono">{preview.absolute_path}</div>
             )}
             {preview?.previous_path && (
               <div className="mt-1 break-all">
-                基线路径：<span className="font-mono">{preview.previous_path}</span>
+                {t("baselinePath", {
+                  path: <span className="font-mono">{preview.previous_path}</span>,
+                })}
               </div>
             )}
           </div>
@@ -183,11 +194,11 @@ export function ProjectGitFilePreviewDialog({
         <div className="grid gap-2 md:grid-cols-2">
           <div className="rounded-md border border-border/70 bg-muted/20 px-3 py-2 text-xs">
             <div className="font-medium text-foreground">
-              {preview?.before_label ?? "对比前版本"}
+              {preview?.before_label ?? t("beforeVersion")}
             </div>
             <div className="mt-1 text-muted-foreground">
               {getSnapshotStatusLabel(preview?.before_status ?? "unavailable")}
-              {preview?.before_truncated ? " · 已截断" : ""}
+              {preview?.before_truncated ? t("truncatedSuffix") : ""}
             </div>
             {preview?.previous_absolute_path && (
               <div className="mt-1 break-all font-mono text-muted-foreground">
@@ -197,11 +208,11 @@ export function ProjectGitFilePreviewDialog({
           </div>
           <div className="rounded-md border border-border/70 bg-muted/20 px-3 py-2 text-xs">
             <div className="font-medium text-foreground">
-              {preview?.after_label ?? "对比后版本"}
+              {preview?.after_label ?? t("afterVersion")}
             </div>
             <div className="mt-1 text-muted-foreground">
               {getSnapshotStatusLabel(preview?.after_status ?? "unavailable")}
-              {preview?.after_truncated ? " · 已截断" : ""}
+              {preview?.after_truncated ? t("truncatedSuffix") : ""}
             </div>
             {preview?.absolute_path && (
               <div className="mt-1 break-all font-mono text-muted-foreground">
@@ -213,7 +224,7 @@ export function ProjectGitFilePreviewDialog({
 
         {loading ? (
           <div className="rounded-md border border-dashed border-border px-3 py-10 text-center text-sm text-muted-foreground">
-            正在加载 Diff 预览...
+            {t("loadingDiff")}
           </div>
         ) : message ? (
           <div className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-3 text-sm text-amber-800">
@@ -228,7 +239,7 @@ export function ProjectGitFilePreviewDialog({
           />
         ) : !loading && !message ? (
           <div className="rounded-md border border-dashed border-border px-3 py-10 text-center text-sm text-muted-foreground">
-            暂无可展示的 Diff 内容。
+            {t("emptyDiff")}
           </div>
         ) : null}
       </DialogContent>

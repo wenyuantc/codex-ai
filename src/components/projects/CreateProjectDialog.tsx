@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { useProjectStore } from "@/stores/projectStore";
 import type { ProjectType } from "@/lib/types";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -21,6 +22,7 @@ interface CreateProjectDialogProps {
 }
 
 export function CreateProjectDialog({ open, onOpenChange }: CreateProjectDialogProps) {
+  const { t } = useTranslation(["projects", "common"]);
   const { createProject, sshConfigs, fetchSshConfigs } = useProjectStore();
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
@@ -53,11 +55,11 @@ export function CreateProjectDialog({ open, onOpenChange }: CreateProjectDialogP
   const handleCreate = async () => {
     if (!name.trim()) return;
     if (projectType === "local" && !repoPath.trim()) {
-      setErrorMessage("本地项目必须填写本地仓库路径。");
+      setErrorMessage(t("errorLocalPathRequired"));
       return;
     }
     if (projectType === "ssh" && (!sshConfigId || !remoteRepoPath.trim())) {
-      setErrorMessage("SSH 项目必须选择 SSH 配置并填写远程仓库目录。");
+      setErrorMessage(t("errorSshRequired"));
       return;
     }
 
@@ -115,32 +117,36 @@ export function CreateProjectDialog({ open, onOpenChange }: CreateProjectDialogP
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-md">
         <DialogHeader>
-          <DialogTitle>新建项目</DialogTitle>
+          <DialogTitle>{t("createTitle")}</DialogTitle>
         </DialogHeader>
 
         <div className="space-y-3">
           <div>
-            <label className="text-xs font-medium text-muted-foreground">项目名称 *</label>
+            <label className="text-xs font-medium text-muted-foreground">
+              {t("projectName")} *
+            </label>
             <Input
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder="项目名称"
+              placeholder={t("projectName")}
               className="mt-1"
             />
           </div>
 
           <div>
-            <label className="text-xs font-medium text-muted-foreground">描述</label>
+            <label className="text-xs font-medium text-muted-foreground">{t("description")}</label>
             <Textarea
               value={description}
               onChange={(e) => setDescription(e.target.value)}
-              placeholder="项目描述（可选）"
+              placeholder={t("descriptionOptional")}
               className="mt-1 min-h-[60px] resize-y"
             />
           </div>
 
           <div>
-            <label className="text-xs font-medium text-muted-foreground">项目类型 *</label>
+            <label className="text-xs font-medium text-muted-foreground">
+              {t("projectType")} *
+            </label>
             <Select
               value={projectType}
               onValueChange={(value) => {
@@ -159,8 +165,8 @@ export function CreateProjectDialog({ open, onOpenChange }: CreateProjectDialogP
                 </SelectValue>
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="local">本地项目</SelectItem>
-                <SelectItem value="ssh">SSH 项目</SelectItem>
+                <SelectItem value="local">{t("common:projectType.local")}</SelectItem>
+                <SelectItem value="ssh">{t("common:projectType.ssh")}</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -174,7 +180,9 @@ export function CreateProjectDialog({ open, onOpenChange }: CreateProjectDialogP
           ) : (
             <>
               <div>
-                <label className="text-xs font-medium text-muted-foreground">SSH 配置 *</label>
+                <label className="text-xs font-medium text-muted-foreground">
+                  {t("sshConfig")} *
+                </label>
                 <Select
                   value={sshConfigId || null}
                   onValueChange={(value) => {
@@ -183,9 +191,10 @@ export function CreateProjectDialog({ open, onOpenChange }: CreateProjectDialogP
                   }}
                 >
                   <SelectTrigger className="mt-1 bg-background">
-                    <SelectValue placeholder="选择 SSH 配置">
+                    <SelectValue placeholder={t("selectSshConfig")}>
                       {(value) =>
-                        sshConfigs.find((config) => config.id === value)?.name ?? "选择 SSH 配置"
+                        sshConfigs.find((config) => config.id === value)?.name ??
+                        t("selectSshConfig")
                       }
                     </SelectValue>
                   </SelectTrigger>
@@ -200,7 +209,9 @@ export function CreateProjectDialog({ open, onOpenChange }: CreateProjectDialogP
               </div>
 
               <div>
-                <label className="text-xs font-medium text-muted-foreground">远程仓库目录 *</label>
+                <label className="text-xs font-medium text-muted-foreground">
+                  {t("remoteRepoDir")} *
+                </label>
                 <Input
                   value={remoteRepoPath}
                   onChange={(e) => setRemoteRepoPath(e.target.value)}
@@ -219,10 +230,8 @@ export function CreateProjectDialog({ open, onOpenChange }: CreateProjectDialogP
               onChange={(e) => setApplyScaffold(e.target.checked)}
             />
             <span>
-              <span className="font-medium">应用项目脚手架</span>
-              <span className="mt-0.5 block text-muted-foreground">
-                自动创建标签（bug/feature/chore）与首个里程碑 MVP，便于交付管理开箱即用。
-              </span>
+              <span className="font-medium">{t("scaffoldLabel")}</span>
+              <span className="mt-0.5 block text-muted-foreground">{t("scaffoldHint")}</span>
             </span>
           </label>
 
@@ -237,14 +246,14 @@ export function CreateProjectDialog({ open, onOpenChange }: CreateProjectDialogP
               onClick={() => onOpenChange(false)}
               className="px-3 py-1.5 text-sm border border-input rounded-md hover:bg-accent"
             >
-              取消
+              {t("common:cancel")}
             </button>
             <button
               onClick={handleCreate}
               disabled={!canSubmit || saving}
               className="px-3 py-1.5 text-sm bg-primary text-primary-foreground rounded-md hover:bg-primary/90 disabled:opacity-50"
             >
-              {saving ? "创建中..." : "创建"}
+              {saving ? t("creating") : t("create")}
             </button>
           </div>
         </div>

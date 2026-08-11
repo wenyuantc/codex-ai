@@ -84,5 +84,39 @@
   "terminalEmpty": "No output yet",
   "terminalClear": "Clear log",
   "terminalUserInputPrefix": "[User input]",
-  "terminalEndSession": "[End session] Closed interactive input; waiting for process exit to continue the task"
+  "terminalEndSession": "[End session] Closed interactive input; waiting for process exit to continue the task",
+  "continueDialog": {
+    "title": "Continue Conversation",
+    "description": "Send a follow-up to conversation “{{name}}”.",
+    "sessionId": "Session ID: {{id}}",
+    "idNone": "None",
+    "linkedTask": "Linked task: {{title}}",
+    "promptLabel": "Conversation content",
+    "aiOptimize": "Optimize prompt with AI",
+    "promptPlaceholder": "Type what you want to follow up on or continue executing...",
+    "optimizedTitle": "Optimized prompt",
+    "optimizedHint": "Confirming will replace the current input",
+    "replaceInput": "Replace input",
+    "executing": "Executing...",
+    "executeAndViewLog": "Execute & view log",
+    "noProjectError": "This conversation is not linked to a project, so the prompt cannot be optimized."
+  },
+  "logDialog": {
+    "title": "Terminal Log",
+    "description": "View real-time terminal output of conversation “{{name}}”.",
+    "descriptionGeneric": "View conversation terminal output",
+    "sessionRecordId": "Session record ID: {{id}}",
+    "sessionId": "Session ID: {{id}}",
+    "idNone": "None",
+    "employee": "Employee: {{name}}",
+    "task": "Task: {{title}}",
+    "loadingHistory": "Loading session history log...",
+    "filterPlaceholder": "Filter log by keyword…",
+    "filterAriaLabel": "Filter log by keyword",
+    "clearFilter": "Clear filter",
+    "matchCount": "Matched {{matched}} / {{total}} lines",
+    "totalCount": "{{total}} lines",
+    "empty": "No terminal log available for this session.",
+    "loadFailed": "Failed to read session log"
+  }
 }

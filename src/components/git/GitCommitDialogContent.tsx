@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { useTranslation } from "react-i18next";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -44,7 +45,7 @@ export function GitCommitDialogContent({
   busy,
   generatingCommitMessage,
   error = null,
-  placeholder = "输入提交信息…（Cmd/Ctrl+Enter 提交）",
+  placeholder,
   footerStart,
   extraActions,
   generateDisabled = false,
@@ -55,6 +56,8 @@ export function GitCommitDialogContent({
   onCancel,
   onSubmit,
 }: GitCommitDialogContentProps) {
+  const { t } = useTranslation(["projects", "common"]);
+  const resolvedPlaceholder = placeholder ?? t("gitCommitDialog.placeholder");
   return (
     <DialogContent className="max-w-lg">
       <DialogHeader>
@@ -72,14 +75,16 @@ export function GitCommitDialogContent({
 
       <div className="space-y-1.5">
         <div className="flex items-center justify-between gap-2">
-          <span className="text-xs font-medium text-muted-foreground">提交说明</span>
+          <span className="text-xs font-medium text-muted-foreground">
+            {t("gitCommitDialog.messageLabel")}
+          </span>
           <Button
             type="button"
             variant="ghost"
             size="icon-sm"
             onClick={() => void onGenerateCommitMessage()}
             disabled={busy || generateDisabled}
-            title="AI 生成提交信息"
+            title={t("gitCommitDialog.generateTitle")}
           >
             {generatingCommitMessage ? (
               <Loader2 className="h-4 w-4 animate-spin" />
@@ -92,7 +97,7 @@ export function GitCommitDialogContent({
           value={commitMessage}
           onChange={(event) => onCommitMessageChange(event.target.value)}
           disabled={busy}
-          placeholder={placeholder}
+          placeholder={resolvedPlaceholder}
           className="min-h-28"
           onKeyDown={(event) => {
             if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
@@ -113,7 +118,7 @@ export function GitCommitDialogContent({
         {footerStart}
         <div className="flex gap-2">
           <Button type="button" variant="outline" onClick={onCancel} disabled={busy}>
-            取消
+            {t("common:cancel")}
           </Button>
           {extraActions}
           <Button type="button" onClick={() => void onSubmit()} disabled={busy || submitDisabled}>

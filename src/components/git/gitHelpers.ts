@@ -1,4 +1,5 @@
 import type { ProjectGitWorkingTreeChange } from "@/lib/types";
+import i18n from "@/lib/i18n";
 
 export type GitActionButtonTone =
   "neutral" | "positive" | "create" | "info" | "warning" | "rollback" | "merge" | "danger";
@@ -26,18 +27,7 @@ export function getGitActionButtonClassName(tone: GitActionButtonTone) {
 }
 
 export function getWorkingTreeChangeLabel(changeType: ProjectGitWorkingTreeChange["change_type"]) {
-  switch (changeType) {
-    case "added":
-      return "新增";
-    case "modified":
-      return "修改";
-    case "deleted":
-      return "删除";
-    case "renamed":
-      return "重命名";
-    default:
-      return changeType;
-  }
+  return i18n.t(`projects:gitChangeType.${changeType}`, { defaultValue: changeType });
 }
 
 export function getWorkingTreeChangeClassName(
@@ -60,18 +50,7 @@ export function getWorkingTreeChangeClassName(
 export function getWorkingTreeStageStatusLabel(
   stageStatus: ProjectGitWorkingTreeChange["stage_status"],
 ) {
-  switch (stageStatus) {
-    case "staged":
-      return "已暂存";
-    case "unstaged":
-      return "未暂存";
-    case "partially_staged":
-      return "部分暂存";
-    case "untracked":
-      return "未跟踪";
-    default:
-      return stageStatus;
-  }
+  return i18n.t(`projects:gitStageStatus.${stageStatus}`, { defaultValue: stageStatus });
 }
 
 export function getWorkingTreeStageStatusClassName(

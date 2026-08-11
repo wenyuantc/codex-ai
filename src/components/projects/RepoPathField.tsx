@@ -1,5 +1,6 @@
 import { open } from "@tauri-apps/plugin-dialog";
 import { FolderOpen, X } from "lucide-react";
+import { useTranslation } from "react-i18next";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -18,18 +19,19 @@ const isTauriRuntime =
     "undefined";
 
 export function RepoPathField({
-  label = "仓库路径",
-  placeholder = "/path/to/repo（可选）",
+  label,
+  placeholder,
   value,
   onChange,
   onDirectorySelected,
 }: RepoPathFieldProps) {
+  const { t } = useTranslation("projects");
   const handleSelectDirectory = async () => {
     const selected = await open({
       directory: true,
       multiple: false,
       defaultPath: value.trim() || undefined,
-      title: "选择仓库文件夹",
+      title: t("repoSelectFolderTitle"),
     });
 
     if (typeof selected === "string") {
@@ -38,14 +40,17 @@ export function RepoPathField({
     }
   };
 
+  const resolvedLabel = label ?? t("repoPathLabel");
+  const resolvedPlaceholder = placeholder ?? t("repoPathPlaceholder");
+
   return (
     <div>
-      <label className="text-xs font-medium text-muted-foreground">{label}</label>
+      <label className="text-xs font-medium text-muted-foreground">{resolvedLabel}</label>
       <div className="mt-1 flex gap-2">
         <Input
           value={value}
           onChange={(e) => onChange(e.target.value)}
-          placeholder={placeholder}
+          placeholder={resolvedPlaceholder}
           className="flex-1"
         />
         <Button
@@ -53,10 +58,10 @@ export function RepoPathField({
           variant="outline"
           onClick={handleSelectDirectory}
           disabled={!isTauriRuntime}
-          title={isTauriRuntime ? "选择文件夹" : "仅桌面端支持选择文件夹"}
+          title={isTauriRuntime ? t("repoSelectTitle") : t("repoSelectDesktopOnly")}
         >
           <FolderOpen className="h-4 w-4" />
-          选择
+          {t("repoSelect")}
         </Button>
         {value.trim() && (
           <Button
@@ -64,7 +69,7 @@ export function RepoPathField({
             variant="ghost"
             size="icon-sm"
             onClick={() => onChange("")}
-            title="清空路径"
+            title={t("repoClearPath")}
           >
             <X className="h-4 w-4" />
           </Button>

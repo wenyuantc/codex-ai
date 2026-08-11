@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 
 import { countStageableGitFiles, countStagedGitFiles } from "@/lib/gitWorkingTree";
 import type { ProjectGitWorkingTreeChange } from "@/lib/types";
@@ -33,7 +34,7 @@ export function GitChangesPanel({
   description,
   changes,
   maxDisplay = 20,
-  emptyLabel = "当前没有可展示的工作区文件变更。",
+  emptyLabel,
   stagingFilePath,
   bulkStageAction,
   selectedFilesStageAction,
@@ -44,6 +45,8 @@ export function GitChangesPanel({
   onRollback,
   onPreview,
 }: GitChangesPanelProps) {
+  const { t } = useTranslation("projects");
+  const resolvedEmptyLabel = emptyLabel ?? t("gitChanges.empty");
   const [selectedFiles, setSelectedFiles] = useState<Set<string>>(new Set());
   const visibleChanges = useMemo(
     () => changes.slice(0, Math.max(1, maxDisplay)),
@@ -88,7 +91,7 @@ export function GitChangesPanel({
                 }
                 setSelectedFiles(new Set());
               }}
-              title="全选/取消全选"
+              title={t("gitChanges.selectAllTitle")}
             />
           )}
           <div>
@@ -97,7 +100,9 @@ export function GitChangesPanel({
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <span className="text-xs text-muted-foreground">{changes.length} 条</span>
+          <span className="text-xs text-muted-foreground">
+            {t("gitChanges.count", { count: changes.length })}
+          </span>
           <Button
             type="button"
             variant="outline"
@@ -106,7 +111,7 @@ export function GitChangesPanel({
             onClick={() => onBulkStage("stage_all")}
             className={getGitActionButtonClassName("positive")}
           >
-            {bulkStageAction === "stage_all" ? "暂存中..." : "全部暂存"}
+            {bulkStageAction === "stage_all" ? t("gitChanges.staging") : t("gitChanges.stageAll")}
           </Button>
           <Button
             type="button"
@@ -116,7 +121,9 @@ export function GitChangesPanel({
             onClick={() => onBulkStage("unstage_all")}
             className={getGitActionButtonClassName("warning")}
           >
-            {bulkStageAction === "unstage_all" ? "取消中..." : "全部取消暂存"}
+            {bulkStageAction === "unstage_all"
+              ? t("gitChanges.unstaging")
+              : t("gitChanges.unstageAll")}
           </Button>
           {selectedPaths.length > 0 && (
             <Button
@@ -128,8 +135,8 @@ export function GitChangesPanel({
               className={getGitActionButtonClassName("positive")}
             >
               {selectedFilesStageAction === "stage"
-                ? "暂存中..."
-                : `暂存选中 (${selectedPaths.length})`}
+                ? t("gitChanges.staging")
+                : t("gitChanges.stageSelected", { count: selectedPaths.length })}
             </Button>
           )}
           {selectedPaths.length > 0 && (
@@ -142,8 +149,8 @@ export function GitChangesPanel({
               className={getGitActionButtonClassName("warning")}
             >
               {selectedFilesStageAction === "unstage"
-                ? "取消中..."
-                : `取消暂存选中 (${selectedPaths.length})`}
+                ? t("gitChanges.unstaging")
+                : t("gitChanges.unstageSelected", { count: selectedPaths.length })}
             </Button>
           )}
           {selectedPaths.length > 0 && (
@@ -155,7 +162,7 @@ export function GitChangesPanel({
               onClick={() => onRollback("selected", selectedPaths)}
               className={getGitActionButtonClassName("rollback")}
             >
-              回滚选中 ({selectedPaths.length})
+              {t("gitChanges.rollbackSelected", { count: selectedPaths.length })}
             </Button>
           )}
           {changes.length > 0 && (
@@ -167,7 +174,7 @@ export function GitChangesPanel({
               onClick={() => onRollback("all")}
               className={getGitActionButtonClassName("danger")}
             >
-              全局回滚
+              {t("gitChanges.rollbackAll")}
             </Button>
           )}
         </div>
@@ -175,7 +182,7 @@ export function GitChangesPanel({
 
       {changes.length === 0 ? (
         <div className="rounded-md border border-dashed border-border px-3 py-4 text-center text-xs text-muted-foreground">
-          {emptyLabel}
+          {resolvedEmptyLabel}
         </div>
       ) : (
         <div className="space-y-2">
@@ -244,14 +251,14 @@ export function GitChangesPanel({
                     disabled={!change.can_open_file}
                     title={
                       change.can_open_file
-                        ? "使用内置代码预览浏览当前文件"
+                        ? t("gitChanges.browseHint")
                         : change.change_type === "deleted"
-                          ? "已删除文件无法直接浏览"
-                          : "当前文件暂不可浏览"
+                          ? t("gitChanges.deletedBrowseHint")
+                          : t("gitChanges.unavailableBrowseHint")
                     }
                     className={getGitActionButtonClassName("neutral")}
                   >
-                    浏览文件
+                    {t("gitChanges.browseFile")}
                   </Button>
                   <Button
                     type="button"
@@ -271,18 +278,20 @@ export function GitChangesPanel({
                     {stagingFilePath === change.path
                       ? change.stage_status === "staged" ||
                         change.stage_status === "partially_staged"
-                        ? "取消中..."
-                        : "暂存中..."
+                        ? t("gitChanges.unstaging")
+                        : t("gitChanges.staging")
                       : change.stage_status === "staged" ||
                           change.stage_status === "partially_staged"
-                        ? "取消暂存"
-                        : "暂存"}
+                        ? t("gitChanges.unstage")
+                        : t("gitChanges.stage")}
                   </Button>
                 </div>
               </div>
               {change.previous_path && (
                 <div className="mt-1 text-[11px] text-muted-foreground">
-                  原路径：<span className="break-all font-mono">{change.previous_path}</span>
+                  {t("originalPath", {
+                    path: <span className="break-all font-mono">{change.previous_path}</span>,
+                  })}
                 </div>
               )}
             </div>

@@ -84,5 +84,39 @@
   "terminalEmpty": "暂无输出",
   "terminalClear": "清空日志",
   "terminalUserInputPrefix": "[用户输入]",
-  "terminalEndSession": "[结束会话] 已关闭交互输入，等待进程退出以继续任务"
+  "terminalEndSession": "[结束会话] 已关闭交互输入，等待进程退出以继续任务",
+  "continueDialog": {
+    "title": "继续对话",
+    "description": "向对话“{{name}}”发送新的续聊内容。",
+    "sessionId": "对话 ID: {{id}}",
+    "idNone": "暂无",
+    "linkedTask": "关联任务：{{title}}",
+    "promptLabel": "对话内容",
+    "aiOptimize": "AI优化提示词",
+    "promptPlaceholder": "输入想继续追问或继续执行的内容...",
+    "optimizedTitle": "优化后的提示词",
+    "optimizedHint": "确认后会替换当前输入框内容",
+    "replaceInput": "替换输入",
+    "executing": "执行中...",
+    "executeAndViewLog": "执行并查看日志",
+    "noProjectError": "当前对话未关联项目，无法生成优化提示词。"
+  },
+  "logDialog": {
+    "title": "终端日志",
+    "description": "查看对话“{{name}}”的实时终端输出。",
+    "descriptionGeneric": "查看对话终端输出",
+    "sessionRecordId": "对话记录 ID: {{id}}",
+    "sessionId": "对话 ID: {{id}}",
+    "idNone": "暂无",
+    "employee": "员工：{{name}}",
+    "task": "任务：{{title}}",
+    "loadingHistory": "正在加载对话历史日志...",
+    "filterPlaceholder": "关键字过滤日志…",
+    "filterAriaLabel": "日志关键字过滤",
+    "clearFilter": "清空过滤",
+    "matchCount": "匹配 {{matched}} / {{total}} 行",
+    "totalCount": "共 {{total}} 行",
+    "empty": "当前没有可查看的终端日志。",
+    "loadFailed": "读取对话日志失败"
+  }
 }

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Check, Copy, GitBranch, Link2Off, ServerCog } from "lucide-react";
+import { useTranslation } from "react-i18next";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -22,12 +23,17 @@ export function RepoPathDisplay({
   showCopyAction = false,
   className,
 }: RepoPathDisplayProps) {
+  const { t } = useTranslation("projects");
   const [copied, setCopied] = useState(false);
   const resetTimerRef = useRef<number | null>(null);
   const fullPath = useMemo(() => repoPath?.trim() || "", [repoPath]);
   const normalizedProjectType = normalizeProjectType(projectType);
-  const configuredLabel = normalizedProjectType === "ssh" ? "远程仓库" : "本地仓库";
-  const emptyLabel = normalizedProjectType === "ssh" ? "未配置远程仓库" : "未配置仓库路径";
+  const configuredLabel = normalizedProjectType === "ssh" ? t("repoRemote") : t("repoLocal");
+  const emptyLabel = normalizedProjectType === "ssh" ? t("repoEmptyRemote") : t("repoEmptyLocal");
+  const notConfiguredLabel = t("repoNotConfigured");
+  const copiedLabel = t("repoCopied");
+  const copyAriaLabel = t("repoCopyAria");
+  const copiedAriaLabel = t("repoCopiedAria");
   const canCopy =
     showCopyAction &&
     typeof navigator !== "undefined" &&
@@ -82,7 +88,7 @@ export function RepoPathDisplay({
             ) : (
               <>
                 <Link2Off className="h-3 w-3" />
-                未配置
+                {notConfiguredLabel}
               </>
             )}
           </Badge>
@@ -96,7 +102,7 @@ export function RepoPathDisplay({
               )}
               onClick={() => void handleCopy()}
               title={fullPath}
-              aria-label={copied ? "已复制完整路径" : "点击复制完整路径"}
+              aria-label={copied ? copiedAriaLabel : copyAriaLabel}
             >
               {fullPath}
             </button>
@@ -112,7 +118,7 @@ export function RepoPathDisplay({
 
         {copied ? (
           <div className="pointer-events-none fixed bottom-6 right-6 z-50 rounded-md border border-primary/20 bg-background/95 px-3 py-2 text-sm text-foreground shadow-lg backdrop-blur-sm">
-            路径已复制
+            {copiedLabel}
           </div>
         ) : null}
       </>
@@ -141,7 +147,7 @@ export function RepoPathDisplay({
           ) : (
             <>
               <Link2Off className="h-3 w-3" />
-              未配置
+              {notConfiguredLabel}
             </>
           )}
         </Badge>
@@ -155,7 +161,7 @@ export function RepoPathDisplay({
             )}
             onClick={() => void handleCopy()}
             title={fullPath}
-            aria-label={copied ? "已复制完整路径" : "点击复制完整路径"}
+            aria-label={copied ? copiedAriaLabel : copyAriaLabel}
           >
             {fullPath}
           </button>
@@ -175,8 +181,8 @@ export function RepoPathDisplay({
             size="icon-sm"
             className="shrink-0 cursor-pointer text-muted-foreground hover:text-foreground"
             onClick={() => void handleCopy()}
-            title={copied ? "已复制完整路径" : "复制完整路径"}
-            aria-label={copied ? "已复制完整路径" : "复制完整路径"}
+            title={copied ? copiedAriaLabel : t("repoCopyFull")}
+            aria-label={copied ? copiedAriaLabel : t("repoCopyFull")}
           >
             {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
           </Button>
@@ -185,7 +191,7 @@ export function RepoPathDisplay({
 
       {copied ? (
         <div className="pointer-events-none fixed bottom-6 right-6 z-50 rounded-md border border-primary/20 bg-background/95 px-3 py-2 text-sm text-foreground shadow-lg backdrop-blur-sm">
-          路径已复制
+          {copiedLabel}
         </div>
       ) : null}
     </>

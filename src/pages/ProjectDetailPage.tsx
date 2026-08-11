@@ -1,5 +1,6 @@
 import { Suspense, lazy, startTransition, useEffect, useRef, useState } from "react";
 import { useParams, Link, useNavigate } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import { useProjectStore } from "@/stores/projectStore";
 import { useTaskStore } from "@/stores/taskStore";
 import { useEmployeeStore } from "@/stores/employeeStore";
@@ -77,6 +78,7 @@ import {
   isTaskOverdue,
 } from "@/lib/utils";
 import { getProjectWorkingDir, getProjectTypeLabel } from "@/lib/projects";
+import i18n from "@/lib/i18n";
 
 const ProjectGitFilePreviewDialog = lazy(async () => {
   const module = await import("@/components/projects/ProjectGitFilePreviewDialog");
@@ -88,65 +90,26 @@ const RECENT_COMMIT_PAGE_SIZE = 20;
 type ProjectGitPreviewSource = "working_tree" | "commit";
 
 function getTaskGitContextStateLabel(state: string) {
-  switch (state) {
-    case "provisioning":
-      return "准备中";
-    case "ready":
-      return "可执行";
-    case "running":
-      return "执行中";
-    case "merge_ready":
-      return "待合并";
-    case "action_pending":
-      return "待确认";
-    case "completed":
-      return "已完成";
-    case "failed":
-      return "失败";
-    case "drifted":
-      return "上下文失效";
-    default:
-      return state;
-  }
+  return i18n.t(`projects:gitContextState.${state}`, { defaultValue: state });
 }
 
 function getGitActionTypeLabel(actionType: string | null | undefined) {
-  switch (actionType) {
-    case "merge":
-      return "将任务分支合并到目标分支";
-    case "push":
-      return "推送分支";
-    case "rebase":
-      return "变基到目标分支";
-    case "cherry_pick":
-      return "挑拣提交（Cherry-pick）";
-    case "stash":
-      return "暂存当前改动（Stash）";
-    case "unstash":
-      return "恢复暂存改动（Unstash）";
-    case "cleanup_worktree":
-      return "清理任务工作树";
-    default:
-      return actionType ?? "待确认操作";
+  if (!actionType) {
+    return i18n.t("projects:detailPage.pendingActionFallback");
   }
+  return i18n.t(`projects:gitActionOptions.${actionType}`, {
+    defaultValue: actionType ?? undefined,
+  });
 }
 
 function getGitRuntimeStatusLabel(status: string) {
-  switch (status) {
-    case "ready":
-      return "运行时已就绪";
-    case "bootstrapping":
-      return "运行时准备中";
-    case "unavailable":
-      return "运行时不可用";
-    default:
-      return status;
-  }
+  return i18n.t(`projects:gitRuntimeStatus.${status}`, { defaultValue: status });
 }
 
 export function ProjectDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const { t } = useTranslation(["projects", "common"]);
   const { projects, deleteProject } = useProjectStore();
   const { tasks, fetchTasks } = useTaskStore();
   const { employees, fetchEmployees } = useEmployeeStore();
@@ -355,7 +318,9 @@ export function ProjectDetailPage() {
       const refreshed = await reconcileTaskGitContext(contextId);
       setGitActionNotice({
         tone: "success",
-        message: `已修复 Git 上下文，当前状态：${getTaskGitContextStateLabel(refreshed.state)}`,
+        message: t("detailPage.reconcileSuccess", {
+          state: getTaskGitContextStateLabel(refreshed.state),
+        }),
       });
       setGitOverviewReloadNonce((value) => value + 1);
     } catch (error) {
@@ -669,7 +634,10 @@ export function ProjectDetailPage() {
       });
       setGitActionNotice({
         tone: "success",
-        message: `已${action === "stage" ? "暂存" : "取消暂存"} ${paths.length} 个文件`,
+        message:
+          action === "stage"
+            ? t("worktree.stagedNotice", { count: paths.length })
+            : t("worktree.unstagedNotice", { count: paths.length }),
       });
     } catch (error) {
       setGitActionNotice({
@@ -713,9 +681,9 @@ export function ProjectDetailPage() {
   if (!project) {
     return (
       <div className="text-center py-12">
-        <p className="text-muted-foreground mb-4">项目不存在</p>
+        <p className="text-muted-foreground mb-4">{t("detailPage.projectNotFound")}</p>
         <Link to="/projects" className="text-primary hover:underline">
-          返回项目列表
+          {t("detailPage.backToProjects")}
         </Link>
       </div>
     );
@@ -766,17 +734,17 @@ export function ProjectDetailPage() {
             </Badge>
             <Badge variant="outline">{getProjectTypeLabel(project.project_type)}</Badge>
             <span className="text-xs text-muted-foreground">
-              创建于 {formatDate(project.created_at)}
+              {t("detailPage.createdOn", { date: formatDate(project.created_at) })}
             </span>
           </div>
         </div>
         <Button variant="outline" size="sm" onClick={() => setShowEdit(true)}>
           <Edit2 className="h-3.5 w-3.5 mr-1" />
-          编辑
+          {t("common:edit")}
         </Button>
         <Button variant="destructive" size="sm" onClick={() => setShowDeleteConfirm(true)}>
           <Trash2 className="h-3.5 w-3.5 mr-1" />
-          删除
+          {t("common:delete")}
         </Button>
       </div>
 
@@ -789,7 +757,7 @@ export function ProjectDetailPage() {
 
       <Card className="p-4 space-y-3">
         <div className="flex items-center justify-between gap-2">
-          <h3 className="text-sm font-semibold">仓库信息 / 接入预检</h3>
+          <h3 className="text-sm font-semibold">{t("detailPage.repoInfoTitle")}</h3>
           <Button
             size="sm"
             variant="outline"
@@ -812,7 +780,7 @@ export function ProjectDetailPage() {
             ) : (
               <RefreshCw className="h-3.5 w-3.5" />
             )}
-            重新预检
+            {t("detailPage.recheck")}
           </Button>
         </div>
         <RepoPathDisplay
@@ -858,11 +826,9 @@ export function ProjectDetailPage() {
           <div>
             <div className="flex items-center gap-2">
               <GitBranch className="h-4 w-4 text-muted-foreground" />
-              <h3 className="text-sm font-semibold">Git 工作流</h3>
+              <h3 className="text-sm font-semibold">{t("detailPage.gitWorkflowTitle")}</h3>
             </div>
-            <p className="mt-1 text-xs text-muted-foreground">
-              项目级 Git 概览、任务上下文与待确认操作入口。
-            </p>
+            <p className="mt-1 text-xs text-muted-foreground">{t("detailPage.gitWorkflowHint")}</p>
           </div>
           {gitOverview?.refreshed_at && (
             <div className="flex items-center gap-2">
@@ -873,10 +839,10 @@ export function ProjectDetailPage() {
                 disabled={gitOverviewLoading}
               >
                 <RefreshCw className="mr-1 h-3.5 w-3.5" />
-                刷新
+                {t("common:refresh")}
               </Button>
               <span className="text-[11px] text-muted-foreground">
-                刷新于 {formatDate(gitOverview.refreshed_at)}
+                {t("detailPage.refreshedAt", { date: formatDate(gitOverview.refreshed_at) })}
               </span>
             </div>
           )}
@@ -897,44 +863,54 @@ export function ProjectDetailPage() {
         {gitOverviewLoading ? (
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
             <Loader2 className="h-4 w-4 animate-spin" />
-            正在加载 Git 概览...
+            {t("detailPage.loadingGitOverview")}
           </div>
         ) : gitOverviewError ? (
           <div className="rounded-lg border border-dashed border-border px-3 py-3 text-sm text-muted-foreground">
-            Git 概览暂不可用：{gitOverviewError}
+            {t("detailPage.gitOverviewError", { message: gitOverviewError })}
           </div>
         ) : gitOverview ? (
           <>
             <div className="grid gap-3 md:grid-cols-4">
               <div className="rounded-lg border border-border/60 px-3 py-2">
-                <div className="text-[11px] text-muted-foreground">Git 运行时</div>
+                <div className="text-[11px] text-muted-foreground">
+                  {t("detailPage.gitRuntime")}
+                </div>
                 <div className="mt-1 text-sm font-medium">
                   {getGitRuntimeStatusLabel(gitOverview.git_runtime_status)}
                 </div>
-                <div className="mt-1 text-[11px] text-muted-foreground">提供方：simple-git</div>
-              </div>
-              <div className="rounded-lg border border-border/60 px-3 py-2">
-                <div className="text-[11px] text-muted-foreground">默认分支</div>
-                <div className="mt-1 text-sm font-medium">
-                  {gitOverview.default_branch ?? "未知"}
+                <div className="mt-1 text-[11px] text-muted-foreground">
+                  {t("detailPage.providerSimpleGit")}
                 </div>
               </div>
               <div className="rounded-lg border border-border/60 px-3 py-2">
-                <div className="text-[11px] text-muted-foreground">当前分支</div>
+                <div className="text-[11px] text-muted-foreground">
+                  {t("detailPage.defaultBranchField")}
+                </div>
                 <div className="mt-1 text-sm font-medium">
-                  {gitOverview.current_branch ?? "未知"}
+                  {gitOverview.default_branch ?? t("common:unknown")}
+                </div>
+              </div>
+              <div className="rounded-lg border border-border/60 px-3 py-2">
+                <div className="text-[11px] text-muted-foreground">
+                  {t("detailPage.currentBranchField")}
+                </div>
+                <div className="mt-1 text-sm font-medium">
+                  {gitOverview.current_branch ?? t("common:unknown")}
                 </div>
               </div>
               <div className="rounded-lg border border-border/60 px-3 py-2">
                 <div className="text-[11px] text-muted-foreground">HEAD</div>
                 <div className="mt-1 text-sm font-medium break-all">
-                  {gitOverview.head_commit_sha ?? "未知"}
+                  {gitOverview.head_commit_sha ?? t("common:unknown")}
                 </div>
               </div>
               <div className="rounded-lg border border-border/60 px-3 py-2">
-                <div className="text-[11px] text-muted-foreground">工作区摘要</div>
+                <div className="text-[11px] text-muted-foreground">
+                  {t("detailPage.workingTreeSummaryField")}
+                </div>
                 <div className="mt-1 text-sm font-medium">
-                  {gitOverview.working_tree_summary ?? "工作区干净"}
+                  {gitOverview.working_tree_summary ?? t("detailPage.workingTreeClean")}
                 </div>
               </div>
             </div>
@@ -942,9 +918,9 @@ export function ProjectDetailPage() {
             <div className="rounded-lg border border-border/60 p-3">
               <div className="mb-3 flex flex-wrap items-start justify-between gap-3 rounded-lg border border-border/60 bg-secondary/20 px-3 py-3">
                 <div>
-                  <h4 className="text-sm font-medium">仓库操作</h4>
+                  <h4 className="text-sm font-medium">{t("detailPage.repoActions")}</h4>
                   <p className="mt-1 text-[11px] text-muted-foreground">
-                    直接基于当前项目仓库执行提交、推送和拉取，默认使用当前分支。
+                    {t("detailPage.repoActionsHint")}
                   </p>
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
@@ -956,7 +932,7 @@ export function ProjectDetailPage() {
                     onClick={() => setSelectedRepoAction("commit")}
                     className={getGitActionButtonClassName("positive")}
                   >
-                    提交
+                    {t("detailPage.commitShort")}
                   </Button>
                   <Button
                     type="button"
@@ -967,7 +943,7 @@ export function ProjectDetailPage() {
                     className={getGitActionButtonClassName("info")}
                   >
                     <span className="inline-flex items-center gap-1">
-                      推送
+                      {t("detailPage.pushShort")}
                       <span className="inline-flex items-center gap-0.5 text-sky-600 dark:text-sky-300">
                         <ArrowUp className="h-3.5 w-3.5" />
                         {aheadCommits}
@@ -985,7 +961,7 @@ export function ProjectDetailPage() {
                     className={getGitActionButtonClassName("warning")}
                   >
                     <span className="inline-flex items-center gap-1">
-                      拉取
+                      {t("detailPage.pullShort")}
                       <span className="inline-flex items-center gap-0.5 text-amber-600 dark:text-amber-300">
                         <ArrowDown className="h-3.5 w-3.5" />
                         {behindCommits}
@@ -1001,7 +977,7 @@ export function ProjectDetailPage() {
                     onClick={() => setSelectedBranchAction("switch")}
                     className={getGitActionButtonClassName("neutral")}
                   >
-                    切换分支
+                    {t("gitBranchDialog.switch")}
                   </Button>
                   <Button
                     type="button"
@@ -1011,7 +987,7 @@ export function ProjectDetailPage() {
                     onClick={() => setSelectedBranchAction("create")}
                     className={getGitActionButtonClassName("create")}
                   >
-                    新建分支
+                    {t("gitBranchDialog.create")}
                   </Button>
                   <Button
                     type="button"
@@ -1021,7 +997,7 @@ export function ProjectDetailPage() {
                     onClick={() => setSelectedBranchAction("delete")}
                     className={getGitActionButtonClassName("danger")}
                   >
-                    删除分支
+                    {t("gitBranchDialog.delete")}
                   </Button>
                   <Button
                     type="button"
@@ -1031,14 +1007,14 @@ export function ProjectDetailPage() {
                     onClick={() => setSelectedBranchAction("merge")}
                     className={getGitActionButtonClassName("merge")}
                   >
-                    合并分支
+                    {t("gitBranchDialog.merge")}
                   </Button>
                 </div>
               </div>
 
               <GitChangesPanel
-                title="工作区文件"
-                description="当前仓库实时变更文件列表，可直接在应用内预览文件内容。"
+                title={t("detailPage.workingTreeTitle")}
+                description={t("detailPage.workingTreeDescription")}
                 changes={gitOverview.working_tree_changes}
                 stagingFilePath={stagingFilePath}
                 bulkStageAction={bulkStageAction}
@@ -1094,13 +1070,15 @@ export function ProjectDetailPage() {
             <div className="grid gap-3 md:grid-cols-2">
               <div className="rounded-lg border border-border/60 p-3">
                 <div className="mb-2 flex items-center justify-between">
-                  <h4 className="text-sm font-medium">活动任务上下文</h4>
+                  <h4 className="text-sm font-medium">{t("detailPage.activeContextsTitle")}</h4>
                   <span className="text-xs text-muted-foreground">
-                    {gitOverview.active_contexts.length} 条
+                    {t("detailPage.countSuffix", { count: gitOverview.active_contexts.length })}
                   </span>
                 </div>
                 {gitOverview.active_contexts.length === 0 ? (
-                  <p className="text-xs text-muted-foreground">当前暂无活动中的 Git 执行上下文。</p>
+                  <p className="text-xs text-muted-foreground">
+                    {t("detailPage.noActiveContexts")}
+                  </p>
                 ) : (
                   <div className="space-y-2">
                     {gitOverview.active_contexts.slice(0, 3).map((context) => (
@@ -1109,25 +1087,31 @@ export function ProjectDetailPage() {
                         className="rounded-md bg-secondary/40 px-2.5 py-2 text-xs"
                       >
                         <div className="flex items-center justify-between gap-2">
-                          <span className="font-medium">{context.task_branch ?? "未命名分支"}</span>
+                          <span className="font-medium">
+                            {context.task_branch ?? t("unnamedBranch")}
+                          </span>
                           <Badge variant="outline">
                             {getTaskGitContextStateLabel(context.state)}
                           </Badge>
                         </div>
                         <div className="mt-1 text-muted-foreground">
-                          目标分支：{context.target_branch ?? "未设置"}
+                          {t("targetBranch", { branch: context.target_branch ?? t("notSet") })}
                         </div>
                         <div className="mt-1 text-muted-foreground">
-                          更新时间：{formatDate(context.updated_at)}
+                          {t("detailPage.contextUpdatedAt", {
+                            date: formatDate(context.updated_at),
+                          })}
                         </div>
                         {context.last_error && (
                           <div className="mt-1 text-destructive">
-                            最近错误：{context.last_error}
+                            {t("detailPage.contextLastError", {
+                              message: context.last_error,
+                            })}
                           </div>
                         )}
                         {context.worktree_missing && (
                           <div className="mt-1 text-muted-foreground">
-                            当前任务 worktree 已不存在，可直接删除这条上下文记录。
+                            {t("detailPage.contextWorktreeMissing")}
                           </div>
                         )}
                         <div className="mt-2 flex flex-wrap items-center gap-2">
@@ -1142,7 +1126,9 @@ export function ProjectDetailPage() {
                                   }}
                                   disabled={reconcilingContextId === context.id}
                                 >
-                                  {reconcilingContextId === context.id ? "修复中..." : "修复上下文"}
+                                  {reconcilingContextId === context.id
+                                    ? t("detailPage.fixing")
+                                    : t("detailPage.fixContext")}
                                 </Button>
                               )}
                               <Button
@@ -1151,7 +1137,9 @@ export function ProjectDetailPage() {
                                 onClick={() => setPendingDeleteContext(context)}
                                 disabled={deletingContextId === context.id}
                               >
-                                {deletingContextId === context.id ? "删除中..." : "删除记录"}
+                                {deletingContextId === context.id
+                                  ? t("worktree.deletingWorktree")
+                                  : t("detailPage.deleteRecord")}
                               </Button>
                             </>
                           ) : context.state === "drifted" ? (
@@ -1164,14 +1152,16 @@ export function ProjectDetailPage() {
                                 }}
                                 disabled={reconcilingContextId === context.id}
                               >
-                                {reconcilingContextId === context.id ? "修复中..." : "修复上下文"}
+                                {reconcilingContextId === context.id
+                                  ? t("detailPage.fixing")
+                                  : t("detailPage.fixContext")}
                               </Button>
                               <Button
                                 variant="outline"
                                 size="sm"
                                 onClick={() => openGitActionDialog(context, "cleanup_worktree")}
                               >
-                                直接清理
+                                {t("detailPage.cleanupDirectly")}
                               </Button>
                             </>
                           ) : context.state !== "failed" && context.state !== "completed" ? (
@@ -1180,7 +1170,7 @@ export function ProjectDetailPage() {
                               size="sm"
                               onClick={() => openGitActionDialog(context)}
                             >
-                              Git 动作
+                              {t("detailPage.gitAction")}
                             </Button>
                           ) : null}
                         </div>
@@ -1192,13 +1182,17 @@ export function ProjectDetailPage() {
 
               <div className="rounded-lg border border-border/60 p-3">
                 <div className="mb-2 flex items-center justify-between">
-                  <h4 className="text-sm font-medium">待确认操作</h4>
+                  <h4 className="text-sm font-medium">{t("detailPage.pendingActionsTitle")}</h4>
                   <span className="text-xs text-muted-foreground">
-                    {gitOverview.pending_action_contexts.length} 条
+                    {t("detailPage.countSuffix", {
+                      count: gitOverview.pending_action_contexts.length,
+                    })}
                   </span>
                 </div>
                 {gitOverview.pending_action_contexts.length === 0 ? (
-                  <p className="text-xs text-muted-foreground">当前没有待确认的高风险 Git 操作。</p>
+                  <p className="text-xs text-muted-foreground">
+                    {t("detailPage.noPendingActions")}
+                  </p>
                 ) : (
                   <div className="space-y-2">
                     {gitOverview.pending_action_contexts.slice(0, 3).map((context) => (
@@ -1215,16 +1209,18 @@ export function ProjectDetailPage() {
                           </Badge>
                         </div>
                         <div className="mt-1 text-muted-foreground">
-                          请求时间：
-                          {context.pending_action_requested_at
-                            ? formatDate(context.pending_action_requested_at)
-                            : "未知"}
+                          {t("detailPage.requestedAt", {
+                            time: context.pending_action_requested_at
+                              ? formatDate(context.pending_action_requested_at)
+                              : t("common:unknown"),
+                          })}
                         </div>
                         <div className="mt-1 text-muted-foreground">
-                          过期时间：
-                          {context.pending_action_expires_at
-                            ? formatDate(context.pending_action_expires_at)
-                            : "未知"}
+                          {t("detailPage.expiresAtValue", {
+                            time: context.pending_action_expires_at
+                              ? formatDate(context.pending_action_expires_at)
+                              : t("common:unknown"),
+                          })}
                         </div>
                         <div className="mt-2">
                           <Button
@@ -1232,7 +1228,7 @@ export function ProjectDetailPage() {
                             size="sm"
                             onClick={() => openGitActionDialog(context)}
                           >
-                            继续处理
+                            {t("detailPage.continueProcessing")}
                           </Button>
                         </div>
                       </div>
@@ -1245,21 +1241,23 @@ export function ProjectDetailPage() {
             <div className="rounded-lg border border-border/60 p-3">
               <div className="mb-2 flex items-center justify-between">
                 <div>
-                  <h4 className="text-sm font-medium">最近提交</h4>
+                  <h4 className="text-sm font-medium">{t("detailPage.recentCommitsTitle")}</h4>
                   <p className="text-[11px] text-muted-foreground">
                     {recentCommitsExpanded
-                      ? `已加载 ${recentCommits.length} 条提交记录`
-                      : `默认展示最近 ${Math.min(recentCommits.length, RECENT_COMMIT_SUMMARY_LIMIT)} 条摘要`}
+                      ? t("detailPage.loadedCount", { count: recentCommits.length })
+                      : t("detailPage.defaultSummary", {
+                          count: Math.min(recentCommits.length, RECENT_COMMIT_SUMMARY_LIMIT),
+                        })}
                   </p>
                 </div>
                 <span className="text-xs text-muted-foreground">
                   {recentCommitsExpanded
-                    ? `${recentCommits.length} 条`
-                    : `${visibleRecentCommits.length} 条`}
+                    ? t("detailPage.countSuffix", { count: recentCommits.length })
+                    : t("detailPage.countSuffix", { count: visibleRecentCommits.length })}
                 </span>
               </div>
               {recentCommits.length === 0 ? (
-                <p className="text-xs text-muted-foreground">暂无最近提交记录。</p>
+                <p className="text-xs text-muted-foreground">{t("detailPage.noRecentCommits")}</p>
               ) : (
                 <>
                   <div className="space-y-2">
@@ -1280,9 +1278,10 @@ export function ProjectDetailPage() {
                         </div>
                         <div className="mt-1 flex flex-wrap items-center justify-between gap-2 text-muted-foreground">
                           <span>
-                            {commit.author_name ?? "未知作者"} · {formatDate(commit.authored_at)}
+                            {commit.author_name ?? t("detailPage.unknownAuthor")} ·{" "}
+                            {formatDate(commit.authored_at)}
                           </span>
-                          <span className="text-primary">查看详情</span>
+                          <span className="text-primary">{t("viewDetails")}</span>
                         </div>
                       </button>
                     ))}
@@ -1303,7 +1302,9 @@ export function ProjectDetailPage() {
                           disabled={recentCommitsLoading}
                           onClick={handleExpandRecentCommits}
                         >
-                          {recentCommitsLoading ? "加载中..." : "查看更多历史提交"}
+                          {recentCommitsLoading
+                            ? t("common:loading")
+                            : t("detailPage.viewMoreHistory")}
                         </Button>
                       ) : (
                         <>
@@ -1316,7 +1317,9 @@ export function ProjectDetailPage() {
                                 void handleLoadRecentCommits(false);
                               }}
                             >
-                              {recentCommitsLoading ? "加载中..." : "查看更多"}
+                              {recentCommitsLoading
+                                ? t("common:loading")
+                                : t("detailPage.viewMore")}
                             </Button>
                           )}
                           <Button
@@ -1324,11 +1327,11 @@ export function ProjectDetailPage() {
                             size="sm"
                             onClick={() => setRecentCommitsExpanded(false)}
                           >
-                            收起摘要
+                            {t("detailPage.collapseSummary")}
                           </Button>
                           {!recentCommitsHasMore && (
                             <span className="text-[11px] text-muted-foreground">
-                              已显示全部可用提交记录
+                              {t("detailPage.allCommitsShown")}
                             </span>
                           )}
                         </>
@@ -1341,7 +1344,7 @@ export function ProjectDetailPage() {
           </>
         ) : (
           <div className="rounded-lg border border-dashed border-border px-3 py-3 text-sm text-muted-foreground">
-            暂无 Git 概览数据。
+            {t("detailPage.noGitOverview")}
           </div>
         )}
       </Card>
@@ -1361,9 +1364,11 @@ export function ProjectDetailPage() {
 
       {/* Task List */}
       <Card className="p-4">
-        <h3 className="text-sm font-semibold mb-3">任务列表</h3>
+        <h3 className="text-sm font-semibold mb-3">{t("detailPage.taskListTitle")}</h3>
         {activeTasks.length === 0 ? (
-          <p className="text-sm text-muted-foreground text-center py-4">暂无活跃任务</p>
+          <p className="text-sm text-muted-foreground text-center py-4">
+            {t("detailPage.noActiveTasks")}
+          </p>
         ) : (
           <div className="space-y-2">
             {activeTasks.map((task) => (
@@ -1373,10 +1378,12 @@ export function ProjectDetailPage() {
               >
                 <div className={`w-1.5 h-1.5 rounded-full ${getStatusColor(task.status)}`} />
                 <span className="flex-1 font-medium truncate">{task.title}</span>
-                {isTaskOverdue(task) && <span className="text-[11px] text-destructive">逾期</span>}
+                {isTaskOverdue(task) && (
+                  <span className="text-[11px] text-destructive">{t("detailPage.overdue")}</span>
+                )}
                 {task.due_date && !isTaskOverdue(task) && (
                   <span className="text-[11px] text-muted-foreground">
-                    截止 {formatDate(task.due_date)}
+                    {t("detailPage.dueBy", { date: formatDate(task.due_date) })}
                   </span>
                 )}
                 <span className="text-xs text-muted-foreground">
@@ -1390,9 +1397,11 @@ export function ProjectDetailPage() {
 
       {/* Team Members */}
       <Card className="p-4">
-        <h3 className="text-sm font-semibold mb-3">团队成员</h3>
+        <h3 className="text-sm font-semibold mb-3">{t("detailPage.teamMembers")}</h3>
         {projectEmployees.length === 0 ? (
-          <p className="text-sm text-muted-foreground text-center py-4">暂无成员</p>
+          <p className="text-sm text-muted-foreground text-center py-4">
+            {t("detailPage.noMembers")}
+          </p>
         ) : (
           <div className="flex flex-wrap gap-2">
             {projectEmployees.map((emp) => (
@@ -1545,12 +1554,12 @@ export function ProjectDetailPage() {
           <DialogHeader>
             <DialogTitle>
               {rollbackConfirm?.target === "all"
-                ? "确认全局回滚"
-                : `确认回滚 ${rollbackConfirm?.paths.length ?? 0} 个文件`}
+                ? t("detailPage.rollbackAllTitle")
+                : t("worktree.rollbackSelectedTitle", {
+                    count: rollbackConfirm?.paths.length ?? 0,
+                  })}
             </DialogTitle>
-            <DialogDescription>
-              此操作将丢弃所有本地未提交的变更，且无法撤销。请确认后再继续。
-            </DialogDescription>
+            <DialogDescription>{t("detailPage.rollbackDescription")}</DialogDescription>
           </DialogHeader>
 
           {rollbackConfirm?.target === "selected" && (rollbackConfirm.paths.length ?? 0) > 0 && (
@@ -1570,7 +1579,7 @@ export function ProjectDetailPage() {
               onClick={() => setRollbackConfirm(null)}
               disabled={rollbackInProgress}
             >
-              取消
+              {t("common:cancel")}
             </Button>
             <Button
               type="button"
@@ -1578,7 +1587,7 @@ export function ProjectDetailPage() {
               onClick={() => void handleRollback(rollbackConfirm?.target ?? "all")}
               disabled={rollbackInProgress}
             >
-              {rollbackInProgress ? "回滚中..." : "确认回滚"}
+              {rollbackInProgress ? t("worktree.rollbacking") : t("worktree.confirmRollback")}
             </Button>
           </DialogFooter>
         </DialogContent>

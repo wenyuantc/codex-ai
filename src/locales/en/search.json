@@ -1,0 +1,21 @@
+{
+  "triggerButton": "Global Search",
+  "title": "Global Search",
+  "searchPlaceholder": "Search projects, tasks, employees, sessions",
+  "all": "All",
+  "type": {
+    "project": "Project",
+    "task": "Task",
+    "employee": "Employee",
+    "session": "Session"
+  },
+  "resultCount": "{{count}} matching results",
+  "searching": "Searching...",
+  "hintFirst": "Search projects, tasks, employees and sessions from one entry.",
+  "hintSecond": "Click to open, or use the up/down arrow keys and press Enter to jump.",
+  "searchPrompt": "Type a keyword to start searching.",
+  "noResults": "No matching items found",
+  "itemCount": "{{count}} items",
+  "viewAll": "View all",
+  "searchFailed": "Global search failed"
+}

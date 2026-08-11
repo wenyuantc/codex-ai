@@ -1,5 +1,6 @@
 import type { Project } from "@/lib/types";
 import { getStatusLabel, getStatusColor, formatDate } from "@/lib/utils";
+import { useTranslation } from "react-i18next";
 import { Trash2, Edit2, FolderKanban, ArrowRight, ArrowDown, ArrowUp } from "lucide-react";
 import { RepoPathDisplay } from "@/components/projects/RepoPathDisplay";
 import { getProjectTypeLabel, getProjectWorkingDir } from "@/lib/projects";
@@ -27,6 +28,7 @@ export function ProjectCard({
   onEdit,
   onDelete,
 }: ProjectCardProps) {
+  const { t } = useTranslation(["projects", "common"]);
   return (
     <div className="flex h-full min-h-44 w-full min-w-0 flex-col rounded-lg border border-border bg-card p-4 transition-shadow hover:shadow-sm">
       <div className="flex flex-1 items-start justify-between gap-3">
@@ -55,7 +57,7 @@ export function ProjectCard({
                 <button
                   type="button"
                   className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-sm font-semibold text-sky-600 transition-colors hover:bg-sky-500/10 dark:text-sky-300"
-                  title={`当前有 ${aheadCommits} 个提交待推送`}
+                  title={t("pushTitle", { count: aheadCommits })}
                   onClick={() => onPushRequested?.(project)}
                 >
                   <ArrowUp className="h-4 w-4" />
@@ -66,7 +68,7 @@ export function ProjectCard({
                 <button
                   type="button"
                   className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-sm font-semibold text-amber-600 transition-colors hover:bg-amber-500/10 dark:text-amber-300"
-                  title={`当前有 ${behindCommits} 个提交待拉取`}
+                  title={t("pullTitle", { count: behindCommits })}
                   onClick={() => onPullRequested?.(project)}
                 >
                   <ArrowDown className="h-4 w-4" />
@@ -87,14 +89,14 @@ export function ProjectCard({
           <button
             onClick={() => onEdit(project)}
             className="p-1 text-muted-foreground hover:text-foreground transition-colors"
-            title="编辑项目"
+            title={t("common:edit")}
           >
             <Edit2 className="h-3.5 w-3.5" />
           </button>
           <button
             onClick={() => onDelete(project)}
             className="p-1 text-muted-foreground hover:text-destructive transition-colors"
-            title="删除项目"
+            title={t("common:delete")}
           >
             <Trash2 className="h-3.5 w-3.5" />
           </button>
@@ -107,7 +109,9 @@ export function ProjectCard({
           {getStatusLabel(project.status)}
         </span>
         {taskCount !== undefined && (
-          <span className="text-xs text-muted-foreground">{taskCount} 个任务</span>
+          <span className="text-xs text-muted-foreground">
+            {t("taskCount", { count: taskCount })}
+          </span>
         )}
         <span className="text-xs text-muted-foreground ml-auto">
           {formatDate(project.created_at)}
@@ -119,7 +123,7 @@ export function ProjectCard({
           to={`/projects/${project.id}`}
           className="inline-flex items-center gap-1 text-xs font-medium text-primary transition-colors hover:text-primary/80"
         >
-          查看详情
+          {t("viewDetails")}
           <ArrowRight className="h-3.5 w-3.5" />
         </Link>
       </div>

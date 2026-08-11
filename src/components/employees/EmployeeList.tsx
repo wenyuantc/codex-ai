@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { useEmployeeStore } from "@/stores/employeeStore";
 import { useTaskStore } from "@/stores/taskStore";
 import { EmployeeCard } from "./EmployeeCard";
@@ -18,6 +19,7 @@ export function EmployeeList({
   highlightedEmployeeNonce,
   onCreateEmployee,
 }: EmployeeListProps) {
+  const { t } = useTranslation(["employees", "common", "projects"]);
   const { employees, fetchEmployees } = useEmployeeStore();
   const { tasks, fetchTasks } = useTaskStore();
   const [filter, setFilter] = useState<string>("all");
@@ -97,18 +99,12 @@ export function EmployeeList({
                 : "text-muted-foreground hover:bg-accent"
             }`}
           >
-            {f === "all"
-              ? "全部"
-              : f === "online"
-                ? "在线"
-                : f === "busy"
-                  ? "忙碌"
-                  : f === "offline"
-                    ? "离线"
-                    : "错误"}
+            {f === "all" ? t("projects:filterAll") : t(`common:status.${f}`, { defaultValue: f })}
           </button>
         ))}
-        <span className="text-xs text-muted-foreground ml-auto">{filtered.length} 名员工</span>
+        <span className="text-xs text-muted-foreground ml-auto">
+          {t("countEmployees", { count: filtered.length })}
+        </span>
       </div>
 
       {/* Grid */}
@@ -127,8 +123,10 @@ export function EmployeeList({
         <div className="flex flex-col items-center justify-center gap-3 py-12 text-center">
           <p className="text-sm text-muted-foreground">
             {filter === "all"
-              ? "暂无员工。创建 AI 员工并绑定项目后即可运行任务。"
-              : `没有${filter === "online" ? "在线" : filter === "busy" ? "忙碌" : filter === "offline" ? "离线" : "错误"}员工`}
+              ? t("emptyAll")
+              : t("emptyStatus", {
+                  status: t(`common:status.${filter}`, { defaultValue: filter }),
+                })}
           </p>
           {filter === "all" && onCreateEmployee && (
             <button
@@ -136,7 +134,7 @@ export function EmployeeList({
               onClick={onCreateEmployee}
               className="rounded-md bg-primary px-3 py-1.5 text-sm text-primary-foreground hover:bg-primary/90"
             >
-              添加员工
+              {t("create")}
             </button>
           )}
         </div>

@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { useTranslation } from "react-i18next";
 import { useProjectStore } from "@/stores/projectStore";
 import type { Project, ProjectType } from "@/lib/types";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -22,6 +23,7 @@ interface EditProjectDialogProps {
 }
 
 export function EditProjectDialog({ open, onOpenChange, project }: EditProjectDialogProps) {
+  const { t } = useTranslation(["projects", "common"]);
   const { updateProject, sshConfigs, fetchSshConfigs } = useProjectStore();
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
@@ -52,11 +54,11 @@ export function EditProjectDialog({ open, onOpenChange, project }: EditProjectDi
   const handleSave = async () => {
     if (!name.trim() || !project) return;
     if (projectType === "local" && !repoPath.trim()) {
-      setErrorMessage("本地项目必须填写本地仓库路径。");
+      setErrorMessage(t("errorLocalPathRequired"));
       return;
     }
     if (projectType === "ssh" && (!sshConfigId || !remoteRepoPath.trim())) {
-      setErrorMessage("SSH 项目必须选择 SSH 配置并填写远程仓库目录。");
+      setErrorMessage(t("errorSshRequired"));
       return;
     }
 
@@ -85,32 +87,36 @@ export function EditProjectDialog({ open, onOpenChange, project }: EditProjectDi
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-md">
         <DialogHeader>
-          <DialogTitle>编辑项目</DialogTitle>
+          <DialogTitle>{t("editTitle")}</DialogTitle>
         </DialogHeader>
 
         <div className="space-y-3">
           <div>
-            <label className="text-xs font-medium text-muted-foreground">项目名称 *</label>
+            <label className="text-xs font-medium text-muted-foreground">
+              {t("projectName")} *
+            </label>
             <Input
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder="项目名称"
+              placeholder={t("projectName")}
               className="mt-1"
             />
           </div>
 
           <div>
-            <label className="text-xs font-medium text-muted-foreground">描述</label>
+            <label className="text-xs font-medium text-muted-foreground">{t("description")}</label>
             <Textarea
               value={description}
               onChange={(e) => setDescription(e.target.value)}
-              placeholder="项目描述（可选）"
+              placeholder={t("descriptionOptional")}
               className="mt-1 min-h-[60px] resize-y"
             />
           </div>
 
           <div>
-            <label className="text-xs font-medium text-muted-foreground">项目类型 *</label>
+            <label className="text-xs font-medium text-muted-foreground">
+              {t("projectType")} *
+            </label>
             <Select
               value={projectType}
               onValueChange={(value) => {
@@ -128,8 +134,8 @@ export function EditProjectDialog({ open, onOpenChange, project }: EditProjectDi
                 </SelectValue>
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="local">本地项目</SelectItem>
-                <SelectItem value="ssh">SSH 项目</SelectItem>
+                <SelectItem value="local">{t("common:projectType.local")}</SelectItem>
+                <SelectItem value="ssh">{t("common:projectType.ssh")}</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -139,7 +145,9 @@ export function EditProjectDialog({ open, onOpenChange, project }: EditProjectDi
           ) : (
             <>
               <div>
-                <label className="text-xs font-medium text-muted-foreground">SSH 配置 *</label>
+                <label className="text-xs font-medium text-muted-foreground">
+                  {t("sshConfig")} *
+                </label>
                 <Select
                   value={sshConfigId || null}
                   onValueChange={(value) => {
@@ -148,9 +156,10 @@ export function EditProjectDialog({ open, onOpenChange, project }: EditProjectDi
                   }}
                 >
                   <SelectTrigger className="mt-1 bg-background">
-                    <SelectValue placeholder="选择 SSH 配置">
+                    <SelectValue placeholder={t("selectSshConfig")}>
                       {(value) =>
-                        sshConfigs.find((config) => config.id === value)?.name ?? "选择 SSH 配置"
+                        sshConfigs.find((config) => config.id === value)?.name ??
+                        t("selectSshConfig")
                       }
                     </SelectValue>
                   </SelectTrigger>
@@ -165,7 +174,9 @@ export function EditProjectDialog({ open, onOpenChange, project }: EditProjectDi
               </div>
 
               <div>
-                <label className="text-xs font-medium text-muted-foreground">远程仓库目录 *</label>
+                <label className="text-xs font-medium text-muted-foreground">
+                  {t("remoteRepoDir")} *
+                </label>
                 <Input
                   value={remoteRepoPath}
                   onChange={(e) => setRemoteRepoPath(e.target.value)}
@@ -177,29 +188,29 @@ export function EditProjectDialog({ open, onOpenChange, project }: EditProjectDi
           )}
 
           <div>
-            <label className="text-xs font-medium text-muted-foreground">测试命令（验收）</label>
+            <label className="text-xs font-medium text-muted-foreground">{t("testCommand")}</label>
             <Input
               value={testCommand}
               onChange={(e) => setTestCommand(e.target.value)}
-              placeholder="例如 npm test / cargo test（可空，继承全局默认）"
+              placeholder={t("testCommandPlaceholder")}
               className="mt-1 font-mono text-sm"
             />
-            <p className="mt-1 text-[11px] text-muted-foreground">
-              用于测试员自动化与「运行验收」；local 在本地仓库执行，SSH 在远程目录执行。
-            </p>
+            <p className="mt-1 text-[11px] text-muted-foreground">{t("testCommandHint")}</p>
           </div>
 
           <div>
-            <label className="text-xs font-medium text-muted-foreground">状态</label>
+            <label className="text-xs font-medium text-muted-foreground">{t("status")}</label>
             <Select value={status} onValueChange={(value) => setStatus(value ?? "active")}>
               <SelectTrigger className="mt-1">
-                <SelectValue placeholder="选择状态">
-                  {(value) => (typeof value === "string" ? getStatusLabel(value) : "选择状态")}
+                <SelectValue placeholder={t("selectStatus")}>
+                  {(value) =>
+                    typeof value === "string" ? getStatusLabel(value) : t("selectStatus")
+                  }
                 </SelectValue>
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="active">活跃</SelectItem>
-                <SelectItem value="archived">归档</SelectItem>
+                <SelectItem value="active">{t("common:status.active")}</SelectItem>
+                <SelectItem value="archived">{t("common:status.archived")}</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -215,7 +226,7 @@ export function EditProjectDialog({ open, onOpenChange, project }: EditProjectDi
               onClick={() => onOpenChange(false)}
               className="px-3 py-1.5 text-sm border border-input rounded-md hover:bg-accent"
             >
-              取消
+              {t("common:cancel")}
             </button>
             <button
               onClick={handleSave}
@@ -228,7 +239,7 @@ export function EditProjectDialog({ open, onOpenChange, project }: EditProjectDi
               }
               className="px-3 py-1.5 text-sm bg-primary text-primary-foreground rounded-md hover:bg-primary/90 disabled:opacity-50"
             >
-              {saving ? "保存中..." : "保存"}
+              {saving ? t("saving") : t("common:save")}
             </button>
           </div>
         </div>

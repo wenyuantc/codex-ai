@@ -1,5 +1,6 @@
 import { Suspense, lazy, useEffect, useMemo, useRef, useState } from "react";
 import { Check, ChevronDown, Copy, Loader2, RefreshCw, Trash2 } from "lucide-react";
+import { useTranslation } from "react-i18next";
 
 import {
   getProjectWorktreeFilePreview,
@@ -66,6 +67,7 @@ export function ProjectWorktreeSection({
   projectBranches,
   onChanged,
 }: ProjectWorktreeSectionProps) {
+  const { t } = useTranslation(["projects", "common"]);
   const [open, setOpen] = useState(false);
   const [worktrees, setWorktrees] = useState<ProjectGitWorktree[]>([]);
   const [loading, setLoading] = useState(false);
@@ -310,7 +312,10 @@ export function ProjectWorktreeSection({
       );
       setNotice({
         tone: "success",
-        message: `已${action === "stage" ? "暂存" : "取消暂存"} ${paths.length} 个文件`,
+        message:
+          action === "stage"
+            ? t("worktree.stagedNotice", { count: paths.length })
+            : t("worktree.unstagedNotice", { count: paths.length }),
       });
     } catch (selectedError) {
       setNotice({
@@ -370,8 +375,8 @@ export function ProjectWorktreeSection({
       setNotice({
         tone: "error",
         message: worktree.lock_reason
-          ? `当前 worktree 已锁定，请先解锁：${worktree.lock_reason}`
-          : "当前 worktree 已锁定，请先解锁后再删除。",
+          ? t("worktree.lockedNotice", { reason: worktree.lock_reason })
+          : t("worktree.lockedNoticeGeneric"),
       });
       return;
     }
@@ -413,10 +418,10 @@ export function ProjectWorktreeSection({
         <div className="rounded-lg border border-border/60">
           <CollapsibleTrigger className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left">
             <div>
-              <h4 className="text-sm font-medium">Worktree 管理（{worktrees.length}）</h4>
-              <p className="text-[11px] text-muted-foreground">
-                统一查看当前项目的 Git worktree，支持预览、暂存、回滚、提交、合并与删除。
-              </p>
+              <h4 className="text-sm font-medium">
+                {t("worktree.title", { count: worktrees.length })}
+              </h4>
+              <p className="text-[11px] text-muted-foreground">{t("worktree.description")}</p>
             </div>
             <ChevronDown
               className={`h-4 w-4 text-muted-foreground transition-transform ${open ? "rotate-180" : ""}`}
@@ -427,7 +432,9 @@ export function ProjectWorktreeSection({
             <div className="space-y-3">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div className="text-xs text-muted-foreground">
-                  {loading ? "正在刷新 worktree 列表..." : `共发现 ${worktrees.length} 个 worktree`}
+                  {loading
+                    ? t("worktree.loadingList")
+                    : t("worktree.foundCount", { count: worktrees.length })}
                 </div>
                 <Button
                   type="button"
@@ -439,12 +446,12 @@ export function ProjectWorktreeSection({
                   {loading ? (
                     <>
                       <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
-                      刷新中...
+                      {t("worktree.refreshing")}
                     </>
                   ) : (
                     <>
                       <RefreshCw className="mr-2 h-3.5 w-3.5" />
-                      刷新
+                      {t("common:refresh")}
                     </>
                   )}
                 </Button>
@@ -470,7 +477,7 @@ export function ProjectWorktreeSection({
 
               {!loading && worktrees.length === 0 && !error && (
                 <div className="rounded-md border border-dashed border-border px-3 py-4 text-center text-xs text-muted-foreground">
-                  当前项目没有可展示的 Git worktree。
+                  {t("worktree.empty")}
                 </div>
               )}
 
@@ -489,7 +496,7 @@ export function ProjectWorktreeSection({
                   worktree.branch ??
                   (worktree.is_detached
                     ? `detached HEAD${worktree.short_head_sha ? ` · ${worktree.short_head_sha}` : ""}`
-                    : "未知分支");
+                    : t("worktree.unknownBranch"));
 
                 return (
                   <div key={worktree.path} className="rounded-lg border border-border/60 p-3">
@@ -512,7 +519,11 @@ export function ProjectWorktreeSection({
                             size="icon-sm"
                             className="h-6 w-6 text-muted-foreground"
                             onClick={() => void handleCopyPath(worktree.path)}
-                            title={copiedPath === worktree.path ? "已复制路径" : "复制路径"}
+                            title={
+                              copiedPath === worktree.path
+                                ? t("worktree.copiedPath")
+                                : t("worktree.copyPath")
+                            }
                           >
                             {copiedPath === worktree.path ? (
                               <Check className="h-3.5 w-3.5" />
@@ -524,17 +535,25 @@ export function ProjectWorktreeSection({
 
                         <div className="mt-2 flex flex-wrap items-center gap-2">
                           <Badge variant="outline">{statusLabel}</Badge>
-                          {worktree.is_main && <Badge variant="outline">主仓库</Badge>}
+                          {worktree.is_main && (
+                            <Badge variant="outline">{t("worktree.mainRepo")}</Badge>
+                          )}
                           {worktree.task_id && (
                             <Badge variant="outline">
-                              任务：{worktree.task_title ?? worktree.task_id}
+                              {t("worktree.taskPrefix", {
+                                title: worktree.task_title ?? worktree.task_id,
+                              })}
                             </Badge>
                           )}
                           {!worktree.is_main && !worktree.task_id && (
-                            <Badge variant="outline">孤立</Badge>
+                            <Badge variant="outline">{t("worktree.orphan")}</Badge>
                           )}
-                          {worktree.is_locked && <Badge variant="outline">锁定</Badge>}
-                          {worktree.is_prunable && <Badge variant="outline">可清理</Badge>}
+                          {worktree.is_locked && (
+                            <Badge variant="outline">{t("worktree.locked")}</Badge>
+                          )}
+                          {worktree.is_prunable && (
+                            <Badge variant="outline">{t("worktree.prunable")}</Badge>
+                          )}
                           {worktree.is_bare && <Badge variant="outline">bare</Badge>}
                         </div>
 
@@ -545,12 +564,12 @@ export function ProjectWorktreeSection({
                         )}
                         {worktree.lock_reason && (
                           <div className="mt-1 text-xs text-muted-foreground">
-                            锁定原因：{worktree.lock_reason}
+                            {t("worktree.lockReason", { reason: worktree.lock_reason })}
                           </div>
                         )}
                         {worktree.prunable_reason && (
                           <div className="mt-1 text-xs text-muted-foreground">
-                            可清理原因：{worktree.prunable_reason}
+                            {t("worktree.prunableReason", { reason: worktree.prunable_reason })}
                           </div>
                         )}
                       </div>
@@ -564,7 +583,7 @@ export function ProjectWorktreeSection({
                           disabled={loading}
                           className={getGitActionButtonClassName("neutral")}
                         >
-                          刷新
+                          {t("common:refresh")}
                         </Button>
                         <Button
                           type="button"
@@ -572,10 +591,10 @@ export function ProjectWorktreeSection({
                           size="sm"
                           onClick={() => setSelectedMergePath(worktree.path)}
                           disabled={mergeDisabled}
-                          title={mergeDisabled ? "当前 worktree 不支持直接合并" : undefined}
+                          title={mergeDisabled ? t("worktree.mergeDisabledHint") : undefined}
                           className={getGitActionButtonClassName("merge")}
                         >
-                          合并
+                          {t("worktree.merge")}
                         </Button>
                         <Button
                           type="button"
@@ -585,7 +604,7 @@ export function ProjectWorktreeSection({
                           disabled={!hasStagedChanges || worktree.is_bare || worktree.is_prunable}
                           className={getGitActionButtonClassName("positive")}
                         >
-                          提交
+                          {t("worktree.commit")}
                         </Button>
                         <Button
                           type="button"
@@ -593,11 +612,11 @@ export function ProjectWorktreeSection({
                           size="sm"
                           onClick={() => handleRemoveClick(worktree)}
                           disabled={removeDisabled}
-                          title={removeDisabled ? "主仓库 worktree 不可删除" : undefined}
+                          title={removeDisabled ? t("worktree.removeDisabledHint") : undefined}
                           className={getGitActionButtonClassName("danger")}
                         >
                           <Trash2 className="mr-2 h-3.5 w-3.5" />
-                          删除
+                          {t("common:delete")}
                         </Button>
                         <Button
                           type="button"
@@ -607,8 +626,12 @@ export function ProjectWorktreeSection({
                           className={getGitActionButtonClassName("neutral")}
                         >
                           {isExpanded
-                            ? "收起"
-                            : `展开${hasChanges ? `（${worktree.working_tree_changes.length}）` : ""}`}
+                            ? t("worktree.collapse")
+                            : hasChanges
+                              ? t("worktree.expand", {
+                                  count: worktree.working_tree_changes.length,
+                                })
+                              : t("worktree.expandPlain")}
                         </Button>
                       </div>
                     </div>
@@ -616,15 +639,15 @@ export function ProjectWorktreeSection({
                     {isExpanded && (
                       <div className="mt-3 border-t border-border/60 pt-3">
                         <GitChangesPanel
-                          title="Worktree 文件"
-                          description="当前 worktree 的实时变更文件列表，可直接在应用内预览 Diff。"
+                          title={t("worktree.changesPanelTitle")}
+                          description={t("worktree.changesPanelDescription")}
                           changes={worktree.working_tree_changes}
                           emptyLabel={
                             worktree.is_prunable
-                              ? "当前 worktree 已可清理，暂无可展示的文件变更。"
+                              ? t("worktree.emptyPrunable")
                               : worktree.is_bare
-                                ? "裸仓库 worktree 不提供工作区文件列表。"
-                                : "当前 worktree 没有可展示的文件变更。"
+                                ? t("worktree.emptyBare")
+                                : t("worktree.emptyChanges")
                           }
                           stagingFilePath={
                             stagingFileState?.worktreePath === worktree.path
@@ -668,7 +691,7 @@ export function ProjectWorktreeSection({
 
       {copiedPath && (
         <div className="pointer-events-none fixed bottom-6 right-6 z-50 rounded-md border border-primary/20 bg-background/95 px-3 py-2 text-sm text-foreground shadow-lg backdrop-blur-sm">
-          路径已复制
+          {t("repoCopied")}
         </div>
       )}
 
@@ -738,12 +761,12 @@ export function ProjectWorktreeSection({
           <DialogHeader>
             <DialogTitle>
               {rollbackConfirm?.target === "all"
-                ? "确认回滚整个 Worktree"
-                : `确认回滚 ${rollbackConfirm?.paths.length ?? 0} 个文件`}
+                ? t("worktree.rollbackAllTitle")
+                : t("worktree.rollbackSelectedTitle", {
+                    count: rollbackConfirm?.paths.length ?? 0,
+                  })}
             </DialogTitle>
-            <DialogDescription>
-              此操作将丢弃当前 worktree 中未提交的本地变更，且无法撤销。
-            </DialogDescription>
+            <DialogDescription>{t("worktree.rollbackDescription")}</DialogDescription>
           </DialogHeader>
 
           {rollbackConfirm?.target === "selected" && (rollbackConfirm.paths.length ?? 0) > 0 && (
@@ -763,7 +786,7 @@ export function ProjectWorktreeSection({
               disabled={rollbackInProgressPath !== null}
               onClick={() => setRollbackConfirm(null)}
             >
-              取消
+              {t("common:cancel")}
             </Button>
             <Button
               type="button"
@@ -771,7 +794,7 @@ export function ProjectWorktreeSection({
               disabled={rollbackInProgressPath !== null}
               onClick={() => void confirmRollback()}
             >
-              {rollbackInProgressPath ? "回滚中..." : "确认回滚"}
+              {rollbackInProgressPath ? t("worktree.rollbacking") : t("worktree.confirmRollback")}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -787,21 +810,24 @@ export function ProjectWorktreeSection({
       >
         <DialogContent className="max-w-md" showCloseButton={removeMode === null}>
           <DialogHeader>
-            <DialogTitle>确认删除 Worktree</DialogTitle>
-            <DialogDescription>
-              将移除这个 Git worktree；如果它仍有未提交改动，可以选择强制删除。
-            </DialogDescription>
+            <DialogTitle>{t("worktree.removeTitle")}</DialogTitle>
+            <DialogDescription>{t("worktree.removeDescription")}</DialogDescription>
           </DialogHeader>
 
           {pendingRemove && (
             <div className="rounded-md border border-border/60 bg-secondary/30 px-3 py-2 text-xs text-muted-foreground">
               <div className="break-all font-mono text-foreground">{pendingRemove.path}</div>
               <div className="mt-1">
-                分支：
-                {pendingRemove.branch ?? (pendingRemove.is_detached ? "detached HEAD" : "未知")}
+                {t("worktree.branchLabel", {
+                  branch:
+                    pendingRemove.branch ??
+                    (pendingRemove.is_detached ? "detached HEAD" : t("worktree.unknownBranch")),
+                })}
               </div>
               <div className="mt-1">
-                当前变更：{pendingRemove.working_tree_changes.length} 个文件
+                {t("worktree.currentChanges", {
+                  count: pendingRemove.working_tree_changes.length,
+                })}
               </div>
             </div>
           )}
@@ -813,7 +839,7 @@ export function ProjectWorktreeSection({
               disabled={removeMode !== null}
               onClick={() => setPendingRemove(null)}
             >
-              取消
+              {t("common:cancel")}
             </Button>
             <Button
               type="button"
@@ -821,7 +847,9 @@ export function ProjectWorktreeSection({
               disabled={removeMode !== null}
               onClick={() => void confirmRemove("normal")}
             >
-              {removeMode === "normal" ? "删除中..." : "正常删除"}
+              {removeMode === "normal"
+                ? t("worktree.deletingWorktree")
+                : t("worktree.removeNormal")}
             </Button>
             <Button
               type="button"
@@ -829,7 +857,9 @@ export function ProjectWorktreeSection({
               disabled={removeMode !== null}
               onClick={() => void confirmRemove("force")}
             >
-              {removeMode === "force" ? "强制删除中..." : "强制删除"}
+              {removeMode === "force"
+                ? t("worktree.forceDeleting")
+                : t("worktree.forceDeleteWorktree")}
             </Button>
           </DialogFooter>
         </DialogContent>
