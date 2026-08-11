@@ -88,12 +88,16 @@
 - 四引擎支持：Codex (OpenAI)、Claude (Anthropic)、Grok (xAI)、OpenCode (开源)
 - 会话生命周期：启动、停止、重启、继续对话、发送输入。各引擎能力不同，以 `get_ai_provider_capabilities` 为准：
 
-  | 引擎 | 启动 | 停止 | 重启 | 会话中发送输入 | 续聊 |
+  | 引擎 | 启动 | 停止 | 重启\* | 会话中发送输入 | 续聊 |
   |------|:---:|:---:|:---:|:---:|:---:|
   | Codex | ✅ | ✅ | ✅ | ✅ | ✅ |
-  | Claude | ✅ | ✅ | ❌ | ❌ | ✅ |
-  | Grok | ✅ | ✅ | ❌ | ❌ | ✅ |
-  | OpenCode | ✅ | ✅ | ❌ | ❌ | ✅ |
+  | Claude | ✅ | ✅ | ✅ | ✅ | ✅ |
+  | Grok | ✅ | ✅ | ✅ | ❌ | ✅ |
+  | OpenCode | ✅ | ✅ | ✅ | ✅ | ✅ |
+
+  \* 重启 = 停止当前运行的进程后重新启动，**不是** CLI 层面 resume 旧 session id。
+
+  会话中发送输入依赖 SDK 通道保留可写 stdin；CLI 批处理通道无 stdin 时命令返回明确错误。Grok 为 headless CLI（`-p` + `Stdio::null`），无会话中可写 stdin，属 B1 豁免。
 - 会话列表查询与全文搜索过滤（ID、任务、内容、项目、执行目标）
 - 会话日志实时流式展示
 - 会话文件变更记录与 diff 查看
@@ -159,7 +163,7 @@
 
 ## 数据模型摘要
 
-共 22 张表，由 `src-tauri/src/db/migrations.rs` 内联的 80 个版本化迁移维护。
+共 24 张表，由 `src-tauri/src/db/migrations.rs` 内联的 44 个版本化迁移维护。
 
 **核心业务**
 
@@ -190,6 +194,8 @@
 - `notifications` — 通知记录
 - `task_automation_state` — 任务自动化状态机持久化
 - `task_git_contexts` — 任务 Git 上下文绑定
+- `task_pipeline_steps` — 协调员流水线步骤
+- `task_acceptance_runs` — 测试员验收运行记录
 
 说明：
 
@@ -219,7 +225,7 @@ npm run tauri:linux                    # Linux 打包（AppImage/deb/rpm）
 npm run tauri:windows                  # Windows 打包（NSIS/MSI）
 npm test                               # 前端测试（Vitest watch）
 npm run test:ci                        # 前端测试单次运行（CI 门禁）
-cargo test --manifest-path src-tauri/Cargo.toml               # Rust 测试（339 个用例）
+cargo test --manifest-path src-tauri/Cargo.toml               # Rust 测试（366 个用例）
 cargo test --manifest-path src-tauri/Cargo.toml <test_name>   # 运行单个测试
 ```
 
