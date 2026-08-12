@@ -4,8 +4,9 @@ use tauri::{AppHandle, Emitter};
 use tokio::io::{AsyncBufReadExt, BufReader};
 
 use crate::app::{
-    fetch_codex_session_by_id, insert_codex_session_event, insert_codex_session_event_with_id,
-    now_sqlite, parse_review_verdict_json, sqlite_pool, update_codex_session_record,
+    apply_codex_session_usage, fetch_codex_session_by_id, insert_codex_session_event,
+    insert_codex_session_event_with_id, now_sqlite, parse_review_verdict_json, sqlite_pool,
+    update_codex_session_record,
 };
 use crate::codex::{CodexExecutionProvider, CodexSessionKind, ExecutionChangeBaseline};
 use crate::db::models::{ClaudeExit, ClaudeOutput, ClaudeSession};
@@ -14,12 +15,13 @@ use crate::task_automation;
 
 use super::stream::{
     extract_session_id, parse_claude_cli_json_event_line, parse_claude_file_change_event,
-    ClaudeCliJsonStreamState,
+    parse_claude_usage_event, ClaudeCliJsonStreamState,
 };
 use super::{
     extract_review_report, extract_review_verdict, upsert_sdk_file_change_event, ClaudeChild,
     ClaudeExecutionProvider, ClaudeManager, ClaudeSessionKind, SdkFileChangeStore,
-    CLAUDE_FILE_CHANGE_EVENT_PREFIX, SESSION_ID_PREFIX, STOP_WAIT_MAX_ATTEMPTS, STOP_WAIT_POLL_MS,
+    CLAUDE_FILE_CHANGE_EVENT_PREFIX, CLAUDE_USAGE_EVENT_PREFIX, SESSION_ID_PREFIX,
+    STOP_WAIT_MAX_ATTEMPTS, STOP_WAIT_POLL_MS,
 };
 
 fn push_captured_line(captured: &Arc<Mutex<Vec<String>>>, line: String) {
@@ -189,6 +191,24 @@ pub(super) fn spawn_claude_session_runtime(
                         continue;
                     }
 
+                    if let Some(usage) = parse_claude_usage_event(&line, CLAUDE_USAGE_EVENT_PREFIX)
+                    {
+                        let _ = apply_codex_session_usage(&pool, &session_id, &usage).await;
+                        if let Some(usage_line) = usage.format_terminal_line() {
+                            emit_claude_output_line(
+                                &app,
+                                &pool,
+                                &emp_id,
+                                t_id.as_ref(),
+                                sk,
+                                &session_id,
+                                usage_line,
+                            )
+                            .await;
+                        }
+                        continue;
+                    }
+
                     if let Some(state) = cli_json_state.as_mut() {
                         if let Some(parsed) = parse_claude_cli_json_event_line(&line, state) {
                             if let Some(session_id_value) = parsed.session_id {
@@ -201,6 +221,10 @@ pub(super) fn spawn_claude_session_runtime(
                                     session_id_value,
                                 )
                                 .await;
+                            }
+
+                            if let Some(usage) = parsed.usage {
+                                let _ = apply_codex_session_usage(&pool, &session_id, &usage).await;
                             }
 
                             for event in parsed.file_change_events {

@@ -283,6 +283,8 @@
       "autoFixRunningTitle": "Auto-fix is starting or running",
       "terminalTitle": "Codex terminal",
       "waitingOutput": "Waiting for output…",
+      "tokenUsage": "Tokens in {{input}} · out {{output}} · total {{total}}",
+      "tokenUsageTitle": "{{withUsage}} of {{total}} sessions reported token usage; sessions without data are excluded from totals",
       "fileChangesTitle": "Changed files",
       "fileChangesDesc": "SDK sessions record precise Codex events; CLI sessions fall back to Git snapshot estimates only when structured events are unavailable.",
       "fileChangesEmpty": "No file records from an execution session yet."

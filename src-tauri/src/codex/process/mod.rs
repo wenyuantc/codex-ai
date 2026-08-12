@@ -19,11 +19,11 @@ use crate::app::{
     insert_codex_session_event_with_id, insert_codex_session_record, inspect_remote_codex_runtime,
     inspect_remote_opencode_runtime, normalize_runtime_path_string, now_sqlite,
     parse_review_verdict_json, path_to_runtime_string, remote_sdk_bridge_path,
-    remote_shell_path_expression, replace_codex_session_file_changes, sqlite_pool,
-    sync_task_image_attachments_to_remote, update_codex_session_record,
-    validate_runtime_working_dir, ARTIFACT_CAPTURE_MODE_LOCAL_FULL, ARTIFACT_CAPTURE_MODE_SSH_FULL,
-    ARTIFACT_CAPTURE_MODE_SSH_GIT_STATUS, ARTIFACT_CAPTURE_MODE_SSH_NONE, EXECUTION_TARGET_LOCAL,
-    EXECUTION_TARGET_SSH, should_await_session_followups,
+    remote_shell_path_expression, replace_codex_session_file_changes,
+    should_await_session_followups, sqlite_pool, sync_task_image_attachments_to_remote,
+    update_codex_session_record, validate_runtime_working_dir, ARTIFACT_CAPTURE_MODE_LOCAL_FULL,
+    ARTIFACT_CAPTURE_MODE_SSH_FULL, ARTIFACT_CAPTURE_MODE_SSH_GIT_STATUS,
+    ARTIFACT_CAPTURE_MODE_SSH_NONE, EXECUTION_TARGET_LOCAL, EXECUTION_TARGET_SSH,
 };
 use crate::codex::{
     ensure_sdk_runtime_layout, inspect_sdk_runtime, load_codex_settings,
@@ -78,6 +78,7 @@ const SUPPORTED_MODELS: &[&str] = &[
 const SUPPORTED_REASONING_EFFORTS: &[&str] = &["low", "medium", "high", "xhigh", "max"];
 const SESSION_ID_PREFIX: &str = "session id:";
 const SDK_FILE_CHANGE_EVENT_PREFIX: &str = "[CODEX_FILE_CHANGE]";
+const SDK_USAGE_EVENT_PREFIX: &str = "[CODEX_USAGE]";
 const REVIEW_VERDICT_START_TAG: &str = "<review_verdict>";
 const REVIEW_VERDICT_END_TAG: &str = "</review_verdict>";
 const REVIEW_REPORT_START_TAG: &str = "<review_report>";
@@ -151,6 +152,7 @@ struct CliJsonStreamState {
 struct CliJsonParsedEvent {
     session_id: Option<String>,
     lines: Vec<String>,
+    usage: Option<crate::engine::UsageDelta>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -966,12 +968,8 @@ pub async fn start_codex_with_manager(
             }
         };
     let (resolved_mcp, mcp_resolve_error) =
-        match crate::codex::mcp::resolve_effective_mcp_for_task(
-            &app,
-            &pool,
-            task_id.as_deref(),
-        )
-        .await
+        match crate::codex::mcp::resolve_effective_mcp_for_task(&app, &pool, task_id.as_deref())
+            .await
         {
             Ok(resolved) => (resolved, None),
             Err(error) => {
@@ -1171,8 +1169,7 @@ pub async fn start_codex_with_manager(
     let mut retained_stdin = None;
     match provider {
         CodexExecutionProvider::Sdk => {
-            let await_followups =
-                should_await_session_followups(&pool, task_id.as_deref()).await;
+            let await_followups = should_await_session_followups(&pool, task_id.as_deref()).await;
             let payload = serde_json::json!({
                 "mode": "session",
                 "prompt": prompt.clone(),
@@ -1451,12 +1448,8 @@ pub async fn send_codex_input(
         return Ok(());
     }
 
-    Err(last_error.unwrap_or_else(|| {
-        format!(
-            "员工 {} 当前没有可写入的 Codex 会话 stdin。",
-            employee_id
-        )
-    }))
+    Err(last_error
+        .unwrap_or_else(|| format!("员工 {} 当前没有可写入的 Codex 会话 stdin。", employee_id)))
 }
 
 /// Close retained stdin so interactive bridges leave "wait for input" and exit (exit 0),
@@ -1481,9 +1474,8 @@ pub async fn finish_codex_input(
     let mut last_error = None;
     for process in processes {
         if process.extra.provider != CodexExecutionProvider::Sdk {
-            last_error = Some(
-                "当前运行中的 Codex 会话为 CLI 批处理通道，请使用停止会话。".to_string(),
-            );
+            last_error =
+                Some("当前运行中的 Codex 会话为 CLI 批处理通道，请使用停止会话。".to_string());
             continue;
         }
         {
@@ -1508,9 +1500,8 @@ pub async fn finish_codex_input(
         return Ok(());
     }
 
-    Err(last_error.unwrap_or_else(|| {
-        format!("员工 {} 当前没有可结束的 Codex 会话 stdin。", employee_id)
-    }))
+    Err(last_error
+        .unwrap_or_else(|| format!("员工 {} 当前没有可结束的 Codex 会话 stdin。", employee_id)))
 }
 
 /// When the terminal log UI opens, enable post-turn wait-for-input on a live SDK session.
@@ -1545,9 +1536,8 @@ pub async fn set_codex_await_followups(
         return child.write_await_followups_control(enabled).await;
     }
 
-    Err(last_error.unwrap_or_else(|| {
-        format!("员工 {} 当前没有可写入的 Codex 会话 stdin。", employee_id)
-    }))
+    Err(last_error
+        .unwrap_or_else(|| format!("员工 {} 当前没有可写入的 Codex 会话 stdin。", employee_id)))
 }
 
 async fn should_use_sdk_for_session(app: &AppHandle) -> bool {

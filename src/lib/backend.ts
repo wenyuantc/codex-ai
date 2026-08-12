@@ -486,6 +486,32 @@ export interface DashboardReportSummary {
   milestone_burndown_empty_reason: string | null;
   selected_milestone_id: string | null;
   milestones: DashboardMilestoneOption[];
+  token_usage: TokenUsageSummary;
+  /** Token totals bucketed like trend_series. */
+  token_usage_series: DashboardTrendPoint[];
+  token_usage_by_provider: DashboardTokenProviderUsage[];
+}
+
+/** 会话 token 用量聚合；sessions_with_usage=0 表示所有会话都没有用量数据。 */
+export interface TokenUsageSummary {
+  input_tokens: number;
+  output_tokens: number;
+  total_tokens: number;
+  reasoning_tokens: number;
+  sessions_with_usage: number;
+  session_count: number;
+}
+
+export interface DashboardTokenProviderUsage {
+  provider: string;
+  input_tokens: number;
+  output_tokens: number;
+  total_tokens: number;
+  sessions_with_usage: number;
+}
+
+export async function getTaskTokenUsage(taskId: string): Promise<TokenUsageSummary> {
+  return invoke("get_task_token_usage", { taskId });
 }
 
 export async function getDashboardReportSummary(input?: {

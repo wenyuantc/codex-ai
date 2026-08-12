@@ -409,6 +409,9 @@ async function runSession(thread, input) {
         emitItemUpdate(event.item, state);
         break;
       case "turn.completed":
+        if (event.usage && typeof event.usage === "object") {
+          emit(`[CODEX_USAGE] ${JSON.stringify(event.usage)}`);
+        }
         emit("[SDK] 执行完成");
         break;
       case "turn.failed":

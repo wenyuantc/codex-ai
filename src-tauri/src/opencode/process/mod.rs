@@ -17,9 +17,9 @@ use crate::app::{
     should_await_session_followups, sqlite_pool, update_codex_session_record,
     validate_runtime_working_dir, EXECUTION_TARGET_LOCAL, EXECUTION_TARGET_SSH,
 };
-use crate::db::models::SshConfigRecord;
 use crate::codex::{CodexExecutionProvider, CodexSessionKind, ExecutionChangeBaseline};
 use crate::db::models::OpenCodeOutput;
+use crate::db::models::SshConfigRecord;
 use crate::git_workflow::{
     mark_task_git_context_running, mark_task_git_context_session_finished,
     validate_task_git_context_launch,
@@ -473,7 +473,10 @@ async fn ensure_no_cross_provider_conflict<R: Runtime>(
                 return Err(format!("任务{}的会话已在运行", task_id));
             }
         } else if manager.has_employee_processes(employee_id) {
-            return Err(format!("员工{}已有未绑定任务的 Grok 会话在运行", employee_id));
+            return Err(format!(
+                "员工{}已有未绑定任务的 Grok 会话在运行",
+                employee_id
+            ));
         }
     }
 
@@ -722,28 +725,27 @@ impl OpenCodeRuntimeConfigBackup {
                     )),
                 },
             },
-            OpenCodeRuntimeConfigBackupTarget::Remote { .. } => Err(
-                "远程 OpenCode 配置恢复需要异步路径，请使用 restore_async".to_string(),
-            ),
+            OpenCodeRuntimeConfigBackupTarget::Remote { .. } => {
+                Err("远程 OpenCode 配置恢复需要异步路径，请使用 restore_async".to_string())
+            }
         }
     }
 
-    pub(crate) async fn restore_async<R: Runtime>(
-        &self,
-        app: &AppHandle<R>,
-    ) -> Result<(), String> {
+    pub(crate) async fn restore_async<R: Runtime>(&self, app: &AppHandle<R>) -> Result<(), String> {
         match &self.target {
             OpenCodeRuntimeConfigBackupTarget::Local { .. } => self.restore(),
             OpenCodeRuntimeConfigBackupTarget::Remote {
                 ssh_config,
                 remote_path,
-            } => restore_remote_opencode_runtime_config_file(
-                app,
-                ssh_config,
-                remote_path,
-                self.original_content.as_deref(),
-            )
-            .await,
+            } => {
+                restore_remote_opencode_runtime_config_file(
+                    app,
+                    ssh_config,
+                    remote_path,
+                    self.original_content.as_deref(),
+                )
+                .await
+            }
         }
     }
 }
@@ -919,10 +921,7 @@ pub(crate) async fn write_remote_opencode_runtime_config_file<R: Runtime>(
     let write_output = execute_ssh_command_with_input(
         app,
         ssh_config,
-        &build_remote_shell_command(
-            &format!("cat > {remote_path_expr}"),
-            None,
-        ),
+        &build_remote_shell_command(&format!("cat > {remote_path_expr}"), None),
         json_str.as_bytes(),
         true,
     )
@@ -986,10 +985,7 @@ async fn restore_remote_opencode_runtime_config_file<R: Runtime>(
             let remove_output = execute_ssh_command(
                 app,
                 ssh_config,
-                &build_remote_shell_command(
-                    &format!("rm -f {remote_path_expr}"),
-                    None,
-                ),
+                &build_remote_shell_command(&format!("rm -f {remote_path_expr}"), None),
                 true,
             )
             .await?;
@@ -1210,6 +1206,28 @@ async fn stream_opencode_output(
                                     format!("[ERROR] {message}"),
                                 )
                                 .await;
+                            }
+                            "usage" => {
+                                if let Some(delta) = crate::engine::parse_usage_value(&event.data) {
+                                    let _ = crate::app::apply_codex_session_usage(
+                                        &pool,
+                                        &session_record_id,
+                                        &delta,
+                                    )
+                                    .await;
+                                    if let Some(usage_line) = delta.format_terminal_line() {
+                                        emit_session_terminal_line(
+                                            &app,
+                                            &pool,
+                                            &session_record_id,
+                                            &employee_id,
+                                            task_id.as_deref(),
+                                            session_kind,
+                                            usage_line,
+                                        )
+                                        .await;
+                                    }
+                                }
                             }
                             "done" => {
                                 bridge_done = true;
@@ -1752,25 +1770,29 @@ pub async fn start_opencode_with_manager(
                         return Err(error);
                     }
                 }
-                runtime =
-                    match inspect_remote_opencode_runtime(&app, ssh_config, &default_install_dir, None)
-                        .await
-                    {
-                        Ok(runtime) => runtime,
-                        Err(error) => {
-                            finalize_launch_failure(
-                                &app,
-                                &pool,
-                                &session_record.id,
-                                task_git_context_id.as_deref(),
-                                git_context_marked_running,
-                                "remote_runtime_inspect_failed",
-                                &error,
-                            )
-                            .await;
-                            return Err(error);
-                        }
-                    };
+                runtime = match inspect_remote_opencode_runtime(
+                    &app,
+                    ssh_config,
+                    &default_install_dir,
+                    None,
+                )
+                .await
+                {
+                    Ok(runtime) => runtime,
+                    Err(error) => {
+                        finalize_launch_failure(
+                            &app,
+                            &pool,
+                            &session_record.id,
+                            task_git_context_id.as_deref(),
+                            git_context_marked_running,
+                            "remote_runtime_inspect_failed",
+                            &error,
+                        )
+                        .await;
+                        return Err(error);
+                    }
+                };
             }
 
             if !runtime.available {
@@ -2220,10 +2242,7 @@ pub(crate) async fn stop_opencode_for_automation_restart<R: Runtime>(
     expected_session_record_id: Option<&str>,
     message: &str,
 ) -> Result<bool, String> {
-    let manager_state = app
-        .state::<Arc<Mutex<OpenCodeManager>>>()
-        .inner()
-        .clone();
+    let manager_state = app.state::<Arc<Mutex<OpenCodeManager>>>().inner().clone();
     let Some(expected_session_record_id) = expected_session_record_id else {
         return Err("当前自动化步骤缺少会话标识，无法安全重启".to_string());
     };
@@ -2292,9 +2311,8 @@ pub async fn send_opencode_input(
         return Ok(());
     }
 
-    Err(last_error.unwrap_or_else(|| {
-        format!("员工 {employee_id} 当前没有可写入的 OpenCode 会话 stdin。")
-    }))
+    Err(last_error
+        .unwrap_or_else(|| format!("员工 {employee_id} 当前没有可写入的 OpenCode 会话 stdin。")))
 }
 
 #[tauri::command]
@@ -2337,9 +2355,8 @@ pub async fn finish_opencode_input(
         return Ok(());
     }
 
-    Err(last_error.unwrap_or_else(|| {
-        format!("员工 {employee_id} 当前没有可结束的 OpenCode 会话 stdin。")
-    }))
+    Err(last_error
+        .unwrap_or_else(|| format!("员工 {employee_id} 当前没有可结束的 OpenCode 会话 stdin。")))
 }
 
 #[tauri::command]
@@ -2353,7 +2370,9 @@ pub async fn set_opencode_await_followups(
         manager.get_employee_processes(&employee_id)
     };
     if processes.is_empty() {
-        return Err(format!("员工 {employee_id} 当前没有运行中的 OpenCode 会话。"));
+        return Err(format!(
+            "员工 {employee_id} 当前没有运行中的 OpenCode 会话。"
+        ));
     }
 
     let mut last_error = None;
@@ -2366,9 +2385,8 @@ pub async fn set_opencode_await_followups(
         return child.write_await_followups_control(enabled).await;
     }
 
-    Err(last_error.unwrap_or_else(|| {
-        format!("员工 {employee_id} 当前没有可写入的 OpenCode 会话 stdin。")
-    }))
+    Err(last_error
+        .unwrap_or_else(|| format!("员工 {employee_id} 当前没有可写入的 OpenCode 会话 stdin。")))
 }
 
 #[tauri::command]

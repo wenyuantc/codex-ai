@@ -422,6 +422,21 @@ function emitTextOutput(textOutput) {
   }
 }
 
+function emitUsage(message) {
+  const tokens = message?.info?.tokens;
+  if (!tokens || typeof tokens !== "object") {
+    return;
+  }
+  const payload = {};
+  if (Number.isFinite(tokens.input)) payload.input_tokens = tokens.input;
+  if (Number.isFinite(tokens.output)) payload.output_tokens = tokens.output;
+  if (Number.isFinite(tokens.reasoning)) payload.reasoning_tokens = tokens.reasoning;
+  if (Object.keys(payload).length === 0) {
+    return;
+  }
+  emit("usage", payload);
+}
+
 function opencodeRuntimeConfig(model, effort) {
   const normalizedModel = String(model || "").trim();
   const ref = modelRef(normalizedModel);
@@ -513,6 +528,8 @@ async function runSession(client, config) {
       return sessionId;
     }
 
+    emitUsage(message);
+
     const textOutput = await collectPromptText(client, sessionId, config, result, beforeCursor);
 
     if (textOutput) {
@@ -554,6 +571,7 @@ async function runFollowupPrompt(client, sessionId, config, prompt) {
       emit("error", { message: formatSdkError(message.info.error).slice(0, 500) });
       return;
     }
+    emitUsage(message);
     const textOutput = await collectPromptText(
       client,
       sessionId,

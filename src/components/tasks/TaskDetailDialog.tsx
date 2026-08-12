@@ -22,6 +22,8 @@ import {
   getCodexSessionFileChangeDetail,
   getTaskExecutionChangeHistory,
   getTaskLatestReview,
+  getTaskTokenUsage,
+  type TokenUsageSummary,
   listTaskDependencies,
   openTaskAttachment,
   resumeTaskPipeline,
@@ -177,6 +179,7 @@ export function TaskDetailDialog({
   const [executionChangeHistoryError, setExecutionChangeHistoryError] = useState<string | null>(
     null,
   );
+  const [taskTokenUsage, setTaskTokenUsage] = useState<TokenUsageSummary | null>(null);
   const [executionChangeDetailOpen, setExecutionChangeDetailOpen] = useState(false);
   const [executionChangeDetailLoading, setExecutionChangeDetailLoading] = useState(false);
   const [executionChangeDetailError, setExecutionChangeDetailError] = useState<string | null>(null);
@@ -773,6 +776,9 @@ export function TaskDetailDialog({
   const loadExecutionChangeHistory = async () => {
     setExecutionChangeHistoryLoading(true);
     setExecutionChangeHistoryError(null);
+    getTaskTokenUsage(task.id)
+      .then(setTaskTokenUsage)
+      .catch(() => setTaskTokenUsage(null));
     try {
       const history = await getTaskExecutionChangeHistory(task.id);
       setExecutionChangeHistory(history);
@@ -1661,6 +1667,7 @@ export function TaskDetailDialog({
                     codexLoading={codexLoading}
                     output={output}
                     terminalRef={terminalRef}
+                    tokenUsage={taskTokenUsage}
                     executionChangeHistory={executionChangeHistory}
                     executionChangeHistoryLoading={executionChangeHistoryLoading}
                     executionChangeHistoryError={executionChangeHistoryError}

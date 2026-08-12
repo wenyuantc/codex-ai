@@ -98,6 +98,7 @@ pub fn run() {
             app::sessions::prepare_codex_session_resume,
             app::sessions::get_codex_session_log_lines,
             app::sessions::get_task_latest_review,
+            app::sessions::get_task_token_usage,
             app::sessions::get_task_execution_change_history,
             app::sessions::get_codex_session_execution_change_history,
             app::sessions::get_codex_session_file_change_detail,

@@ -7,14 +7,14 @@ use super::{
     attach_session_file_change_details, build_ai_generate_commit_message_prompt,
     build_ai_generate_plan_prompt, build_ai_generate_plan_prompt_with_attachments,
     build_ai_generate_tester_acceptance_prompt, build_ai_optimize_prompt_prompt,
-    build_one_shot_exec_args, build_remote_codex_session_command,
-    build_remote_sdk_bridge_command, build_session_exec_args, commit_message_uses_process_language,
-    compose_codex_prompt, compute_execution_session_file_changes_from_entries,
-    detect_exec_json_output_flag, extract_review_report, extract_review_verdict,
-    extract_session_id_from_output, format_commit_message_validation_failure,
-    format_session_prompt_log, hash_worktree_path, normalize_model, normalize_reasoning_effort,
-    normalize_session_file_change_paths, parse_ai_subtasks_response, parse_cli_json_event_line,
-    parse_sdk_bridge_output, parse_sdk_file_change_event, sdk_codex_path_override_allowed_for_os,
+    build_one_shot_exec_args, build_remote_codex_session_command, build_remote_sdk_bridge_command,
+    build_session_exec_args, commit_message_uses_process_language, compose_codex_prompt,
+    compute_execution_session_file_changes_from_entries, detect_exec_json_output_flag,
+    extract_review_report, extract_review_verdict, extract_session_id_from_output,
+    format_commit_message_validation_failure, format_session_prompt_log, hash_worktree_path,
+    normalize_model, normalize_reasoning_effort, normalize_session_file_change_paths,
+    parse_ai_subtasks_response, parse_cli_json_event_line, parse_sdk_bridge_output,
+    parse_sdk_file_change_event, parse_sdk_usage_event, sdk_codex_path_override_allowed_for_os,
     should_capture_execution_change_baseline, validate_generated_commit_message, CliJsonOutputFlag,
     CliJsonStreamState, CodexExecutionProvider, CodexSessionKind, TextSnapshot,
     WorkingTreeSnapshotEntry, EXECUTION_TARGET_LOCAL, EXECUTION_TARGET_SSH,
@@ -129,6 +129,40 @@ fn cli_json_parser_extracts_session_id_and_command_output_delta() {
     )
     .expect("parse item.updated delta");
     assert_eq!(command_updated_again.lines, vec!["line3"]);
+}
+
+#[test]
+fn cli_json_parser_extracts_turn_completed_usage() {
+    let mut state = CliJsonStreamState::default();
+
+    let completed = parse_cli_json_event_line(
+        r#"{"type":"turn.completed","usage":{"input_tokens":812,"cached_input_tokens":200,"output_tokens":45}}"#,
+        &mut state,
+    )
+    .expect("parse turn.completed");
+
+    let usage = completed.usage.expect("usage delta");
+    assert_eq!(usage.input_tokens, Some(812));
+    assert_eq!(usage.output_tokens, Some(45));
+    assert_eq!(usage.total_tokens, Some(857));
+    assert_eq!(completed.lines, vec!["[用量] in=812 out=45 total=857"]);
+
+    let empty = parse_cli_json_event_line(r#"{"type":"turn.completed"}"#, &mut state)
+        .expect("parse turn.completed without usage");
+    assert!(empty.usage.is_none());
+    assert!(empty.lines.is_empty());
+}
+
+#[test]
+fn sdk_usage_marker_line_parses_into_delta() {
+    let usage = parse_sdk_usage_event(r#"[CODEX_USAGE] {"input_tokens":10,"output_tokens":5}"#)
+        .expect("usage delta");
+    assert_eq!(usage.input_tokens, Some(10));
+    assert_eq!(usage.output_tokens, Some(5));
+    assert_eq!(usage.total_tokens, Some(15));
+
+    assert!(parse_sdk_usage_event("[CODEX_USAGE] not-json").is_none());
+    assert!(parse_sdk_usage_event("normal output line").is_none());
 }
 
 #[test]

@@ -226,6 +226,10 @@ export interface CodexSessionRecord {
   resume_session_id: string | null;
   ai_provider: AiProvider;
   thinking_budget_tokens: number | null;
+  input_tokens: number | null;
+  output_tokens: number | null;
+  total_tokens: number | null;
+  reasoning_tokens: number | null;
   execution_target: EnvironmentMode;
   ssh_config_id: string | null;
   target_host_label: string | null;

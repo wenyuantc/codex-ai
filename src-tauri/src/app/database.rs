@@ -890,8 +890,10 @@ mod ai_provider_capabilities_tests {
             );
         }
 
-        let by_provider: std::collections::HashMap<&str, &crate::db::models::AiProviderCapabilities> =
-            caps.iter().map(|c| (c.provider.as_str(), c)).collect();
+        let by_provider: std::collections::HashMap<
+            &str,
+            &crate::db::models::AiProviderCapabilities,
+        > = caps.iter().map(|c| (c.provider.as_str(), c)).collect();
 
         assert!(
             by_provider["codex"].send_input,
@@ -946,12 +948,9 @@ mod dashboard_report_tests {
     #[test]
     fn dashboard_report_burndown_window_uses_due_or_today() {
         let today = NaiveDate::from_ymd_opt(2026, 8, 10).unwrap();
-        let (start, end) = resolve_milestone_burndown_window(
-            "2026-08-01 09:00:00",
-            Some("2026-08-08"),
-            today,
-        )
-        .expect("window");
+        let (start, end) =
+            resolve_milestone_burndown_window("2026-08-01 09:00:00", Some("2026-08-08"), today)
+                .expect("window");
         assert_eq!(start, NaiveDate::from_ymd_opt(2026, 8, 1).unwrap());
         assert_eq!(end, NaiveDate::from_ymd_opt(2026, 8, 8).unwrap());
 
@@ -961,12 +960,9 @@ mod dashboard_report_tests {
         assert_eq!(end2, today);
 
         // Due before created falls back to today.
-        let (start3, end3) = resolve_milestone_burndown_window(
-            "2026-08-05",
-            Some("2026-08-01"),
-            today,
-        )
-        .expect("window");
+        let (start3, end3) =
+            resolve_milestone_burndown_window("2026-08-05", Some("2026-08-01"), today)
+                .expect("window");
         assert_eq!(start3, NaiveDate::from_ymd_opt(2026, 8, 5).unwrap());
         assert_eq!(end3, today);
     }
@@ -1371,7 +1367,10 @@ pub(crate) async fn list_activity_logs_with_pool(
     // Resolve visible projects when environment or explicit ids are provided,
     // or when a single project_id filter needs membership check.
     let needs_scope = environment_mode.is_some()
-        || payload.project_ids.as_ref().is_some_and(|ids| !ids.is_empty())
+        || payload
+            .project_ids
+            .as_ref()
+            .is_some_and(|ids| !ids.is_empty())
         || project_id.is_some();
 
     let visible_project_ids = if needs_scope {
@@ -1388,9 +1387,8 @@ pub(crate) async fn list_activity_logs_with_pool(
 
     let mut available_actions = Vec::new();
     if include_total {
-        let mut actions_builder = QueryBuilder::<Sqlite>::new(
-            "SELECT DISTINCT a.action FROM activity_logs a",
-        );
+        let mut actions_builder =
+            QueryBuilder::<Sqlite>::new("SELECT DISTINCT a.action FROM activity_logs a");
         // Scope-only for available actions (ignore keyword/action/date filters).
         let env_for_scope = if needs_scope { environment_mode } else { None };
         let _ = push_activity_scope_conditions(
@@ -1417,7 +1415,8 @@ pub(crate) async fn list_activity_logs_with_pool(
         });
     }
 
-    let items_select = "SELECT a.id, a.employee_id, a.action, a.details, a.task_id, a.project_id, a.created_at, \
+    let items_select =
+        "SELECT a.id, a.employee_id, a.action, a.details, a.task_id, a.project_id, a.created_at, \
          e.name AS employee_name, p.name AS project_name \
          FROM activity_logs a \
          LEFT JOIN employees e ON a.employee_id = e.id \
@@ -1551,13 +1550,9 @@ pub(crate) async fn get_dashboard_stats_with_pool(
         .map(str::trim)
         .filter(|v| !v.is_empty());
 
-    let scoped_ids = resolve_scoped_project_ids_for_stats(
-        pool,
-        environment_mode,
-        selected_ssh,
-        project_id,
-    )
-    .await?;
+    let scoped_ids =
+        resolve_scoped_project_ids_for_stats(pool, environment_mode, selected_ssh, project_id)
+            .await?;
 
     // Projects
     let (total_projects, active_projects) = if scoped_ids.is_empty() {
@@ -1713,11 +1708,7 @@ fn parse_sqlite_date_prefix(value: &str) -> Option<chrono::NaiveDate> {
     if trimmed.is_empty() {
         return None;
     }
-    let date_part = trimmed
-        .split(['T', ' '])
-        .next()
-        .unwrap_or(trimmed)
-        .trim();
+    let date_part = trimmed.split(['T', ' ']).next().unwrap_or(trimmed).trim();
     chrono::NaiveDate::parse_from_str(date_part, "%Y-%m-%d").ok()
 }
 
@@ -1873,6 +1864,181 @@ async fn build_weekly_completion_series(
     Ok(series)
 }
 
+const SESSION_HAS_USAGE_CONDITION: &str = "(s.input_tokens IS NOT NULL OR s.output_tokens IS NOT NULL OR s.total_tokens IS NOT NULL OR s.reasoning_tokens IS NOT NULL)";
+
+/// 拼接 codex_sessions 的项目作用域条件。`include_null_project` 对齐员工负载口径：
+/// 未指定具体项目时，无项目归属的 ad-hoc 会话计入全局统计。
+fn push_session_scope_condition(
+    builder: &mut QueryBuilder<'_, Sqlite>,
+    scoped_ids: &[String],
+    include_null_project: bool,
+) {
+    builder.push(" WHERE (");
+    if scoped_ids.is_empty() {
+        builder.push(if include_null_project {
+            "s.project_id IS NULL"
+        } else {
+            "0 = 1"
+        });
+    } else {
+        builder.push("s.project_id IN (");
+        {
+            let mut separated = builder.separated(", ");
+            for id in scoped_ids {
+                separated.push_bind(id.clone());
+            }
+        }
+        builder.push(")");
+        if include_null_project {
+            builder.push(" OR s.project_id IS NULL");
+        }
+    }
+    builder.push(")");
+}
+
+async fn load_token_usage_summary(
+    pool: &SqlitePool,
+    scoped_ids: &[String],
+    include_null_project: bool,
+) -> Result<crate::db::models::TokenUsageSummary, String> {
+    let mut builder = QueryBuilder::<Sqlite>::new(format!(
+        "SELECT COALESCE(SUM(s.input_tokens), 0), COALESCE(SUM(s.output_tokens), 0), \
+         COALESCE(SUM(s.total_tokens), 0), COALESCE(SUM(s.reasoning_tokens), 0), \
+         COALESCE(SUM(CASE WHEN {SESSION_HAS_USAGE_CONDITION} THEN 1 ELSE 0 END), 0), COUNT(*) \
+         FROM codex_sessions s"
+    ));
+    push_session_scope_condition(&mut builder, scoped_ids, include_null_project);
+
+    let row = builder
+        .build_query_as::<(i64, i64, i64, i64, i64, i64)>()
+        .fetch_one(pool)
+        .await
+        .map_err(|e| format!("统计 token 用量失败: {e}"))?;
+
+    Ok(crate::db::models::TokenUsageSummary {
+        input_tokens: row.0,
+        output_tokens: row.1,
+        total_tokens: row.2,
+        reasoning_tokens: row.3,
+        sessions_with_usage: row.4,
+        session_count: row.5,
+    })
+}
+
+async fn load_token_usage_by_provider(
+    pool: &SqlitePool,
+    scoped_ids: &[String],
+    include_null_project: bool,
+) -> Result<Vec<crate::db::models::DashboardTokenProviderUsage>, String> {
+    let mut builder = QueryBuilder::<Sqlite>::new(format!(
+        "SELECT s.ai_provider, COALESCE(SUM(s.input_tokens), 0), COALESCE(SUM(s.output_tokens), 0), \
+         COALESCE(SUM(s.total_tokens), 0), \
+         COALESCE(SUM(CASE WHEN {SESSION_HAS_USAGE_CONDITION} THEN 1 ELSE 0 END), 0) \
+         FROM codex_sessions s"
+    ));
+    push_session_scope_condition(&mut builder, scoped_ids, include_null_project);
+    builder.push(format!(
+        " GROUP BY s.ai_provider \
+         HAVING COALESCE(SUM(CASE WHEN {SESSION_HAS_USAGE_CONDITION} THEN 1 ELSE 0 END), 0) > 0 \
+         ORDER BY COALESCE(SUM(s.total_tokens), 0) DESC"
+    ));
+
+    let rows = builder
+        .build_query_as::<(String, i64, i64, i64, i64)>()
+        .fetch_all(pool)
+        .await
+        .map_err(|e| format!("按引擎统计 token 用量失败: {e}"))?;
+
+    Ok(rows
+        .into_iter()
+        .map(
+            |(provider, input_tokens, output_tokens, total_tokens, sessions_with_usage)| {
+                crate::db::models::DashboardTokenProviderUsage {
+                    provider,
+                    input_tokens,
+                    output_tokens,
+                    total_tokens,
+                    sessions_with_usage,
+                }
+            },
+        )
+        .collect())
+}
+
+async fn sum_session_tokens_with_condition(
+    pool: &SqlitePool,
+    scoped_ids: &[String],
+    include_null_project: bool,
+    extra_condition: &str,
+) -> Result<i64, String> {
+    let mut builder = QueryBuilder::<Sqlite>::new(
+        "SELECT COALESCE(SUM(s.total_tokens), 0) FROM codex_sessions s",
+    );
+    push_session_scope_condition(&mut builder, scoped_ids, include_null_project);
+    builder.push(format!(" {extra_condition}"));
+
+    builder
+        .build_query_as::<(i64,)>()
+        .fetch_one(pool)
+        .await
+        .map(|row| row.0)
+        .map_err(|e| format!("统计 token 趋势失败: {e}"))
+}
+
+/// token 用量趋势，桶粒度与 `trend_series` 对齐（7d/30d 按天，8w 按周）。
+async fn build_token_usage_series(
+    pool: &SqlitePool,
+    scoped_ids: &[String],
+    include_null_project: bool,
+    trend_range: &str,
+) -> Result<Vec<crate::db::models::DashboardTrendPoint>, String> {
+    use crate::db::models::DashboardTrendPoint;
+    let mut series = Vec::new();
+
+    if trend_range == "8w" {
+        for weeks_ago in (0..8).rev() {
+            let days_offset = weeks_ago * 7;
+            let label: String = sqlx::query_scalar(&format!(
+                "SELECT strftime('%Y', date('now', '-{days_offset} day')) || '-W' || strftime('%W', date('now', '-{days_offset} day'))"
+            ))
+            .fetch_one(pool)
+            .await
+            .unwrap_or_else(|_| format!("W-{weeks_ago}"));
+            let count = sum_session_tokens_with_condition(
+                pool,
+                scoped_ids,
+                include_null_project,
+                &format!(
+                    "AND (strftime('%Y', s.started_at) || '-W' || strftime('%W', s.started_at)) = '{label}'"
+                ),
+            )
+            .await?;
+            series.push(DashboardTrendPoint { label, count });
+        }
+        return Ok(series);
+    }
+
+    let days = if trend_range == "30d" { 30 } else { 7 };
+    for days_ago in (0..days).rev() {
+        let label: String = sqlx::query_scalar(&format!("SELECT date('now', '-{days_ago} day')"))
+            .fetch_one(pool)
+            .await
+            .unwrap_or_else(|_| format!("d-{days_ago}"));
+        let count = sum_session_tokens_with_condition(
+            pool,
+            scoped_ids,
+            include_null_project,
+            &format!("AND date(s.started_at) = date('now', '-{days_ago} day')"),
+        )
+        .await?;
+        series.push(DashboardTrendPoint {
+            label: label.chars().skip(5).collect::<String>(),
+            count,
+        });
+    }
+    Ok(series)
+}
+
 async fn list_scoped_milestone_options(
     pool: &SqlitePool,
     scoped_ids: &[String],
@@ -1898,12 +2064,14 @@ async fn list_scoped_milestone_options(
         .map_err(|e| format!("加载里程碑失败: {e}"))?;
     Ok(rows
         .into_iter()
-        .map(|(id, name, project_id, due_date)| DashboardMilestoneOption {
-            id,
-            name,
-            project_id,
-            due_date,
-        })
+        .map(
+            |(id, name, project_id, due_date)| DashboardMilestoneOption {
+                id,
+                name,
+                project_id,
+                due_date,
+            },
+        )
         .collect())
 }
 
@@ -1915,9 +2083,8 @@ async fn load_milestone_task_snapshots(
     if scoped_ids.is_empty() {
         return Ok((None, Vec::new()));
     }
-    let mut meta_builder = QueryBuilder::<Sqlite>::new(
-        "SELECT created_at, due_date FROM milestones WHERE id = ",
-    );
+    let mut meta_builder =
+        QueryBuilder::<Sqlite>::new("SELECT created_at, due_date FROM milestones WHERE id = ");
     meta_builder.push_bind(milestone_id);
     meta_builder.push(" AND project_id IN (");
     {
@@ -1969,9 +2136,7 @@ pub(crate) async fn get_dashboard_report_summary_with_pool(
     pool: &SqlitePool,
     payload: &crate::db::models::GetDashboardReportPayload,
 ) -> Result<crate::db::models::DashboardReportSummary, String> {
-    use crate::db::models::{
-        DashboardReportSummary, DashboardWorkloadItem,
-    };
+    use crate::db::models::{DashboardReportSummary, DashboardWorkloadItem};
 
     let environment_mode = payload
         .environment_mode
@@ -2046,11 +2211,23 @@ pub(crate) async fn get_dashboard_report_summary_with_pool(
 
     let milestones = list_scoped_milestone_options(pool, &scoped_ids).await?;
 
-    let (
-        selected_milestone_id,
-        milestone_burndown,
-        milestone_burndown_empty_reason,
-    ) = if milestones.is_empty() {
+    // token 统计口径与员工负载一致：未指定具体项目时计入无项目归属的 ad-hoc 会话
+    let include_null_project_sessions = project_id.is_none();
+    let token_usage =
+        load_token_usage_summary(pool, &scoped_ids, include_null_project_sessions).await?;
+    let token_usage_series = build_token_usage_series(
+        pool,
+        &scoped_ids,
+        include_null_project_sessions,
+        trend_range,
+    )
+    .await?;
+    let token_usage_by_provider =
+        load_token_usage_by_provider(pool, &scoped_ids, include_null_project_sessions).await?;
+
+    let (selected_milestone_id, milestone_burndown, milestone_burndown_empty_reason) = if milestones
+        .is_empty()
+    {
         (
             None,
             Vec::new(),
@@ -2163,14 +2340,16 @@ pub(crate) async fn get_dashboard_report_summary_with_pool(
 
         workload_rows
             .into_iter()
-            .map(|(employee_id, employee_name, active_tasks, completed_tasks)| {
-                DashboardWorkloadItem {
-                    employee_id,
-                    employee_name,
-                    active_tasks,
-                    completed_tasks,
-                }
-            })
+            .map(
+                |(employee_id, employee_name, active_tasks, completed_tasks)| {
+                    DashboardWorkloadItem {
+                        employee_id,
+                        employee_name,
+                        active_tasks,
+                        completed_tasks,
+                    }
+                },
+            )
             .collect()
     };
 
@@ -2192,6 +2371,9 @@ pub(crate) async fn get_dashboard_report_summary_with_pool(
         milestone_burndown_empty_reason,
         selected_milestone_id,
         milestones,
+        token_usage,
+        token_usage_series,
+        token_usage_by_provider,
     })
 }
 

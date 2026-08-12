@@ -1,7 +1,8 @@
 import type { RefObject } from "react";
 import { useTranslation } from "react-i18next";
-import { Eraser, Loader2, Play, Square } from "lucide-react";
+import { Coins, Eraser, Loader2, Play, Square } from "lucide-react";
 
+import type { TokenUsageSummary } from "@/lib/backend";
 import type { CodexSessionFileChange, TaskExecutionChangeHistoryItem } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -16,6 +17,7 @@ interface TaskExecutionPanelProps {
   codexLoading: boolean;
   output: string[];
   terminalRef: RefObject<HTMLDivElement | null>;
+  tokenUsage: TokenUsageSummary | null;
   executionChangeHistory: TaskExecutionChangeHistoryItem[];
   executionChangeHistoryLoading: boolean;
   executionChangeHistoryError: string | null;
@@ -34,6 +36,7 @@ export function TaskExecutionPanel({
   codexLoading,
   output,
   terminalRef,
+  tokenUsage,
   executionChangeHistory,
   executionChangeHistoryLoading,
   executionChangeHistoryError,
@@ -92,6 +95,22 @@ export function TaskExecutionPanel({
           <span className="flex items-center gap-1.5 text-xs text-green-500">
             <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-green-500" />
             {t("detail.execution.running")}
+          </span>
+        )}
+        {tokenUsage && tokenUsage.sessions_with_usage > 0 && (
+          <span
+            className="ml-auto flex items-center gap-1 text-xs text-muted-foreground"
+            title={t("detail.execution.tokenUsageTitle", {
+              withUsage: tokenUsage.sessions_with_usage,
+              total: tokenUsage.session_count,
+            })}
+          >
+            <Coins className="h-3 w-3" />
+            {t("detail.execution.tokenUsage", {
+              input: tokenUsage.input_tokens.toLocaleString(),
+              output: tokenUsage.output_tokens.toLocaleString(),
+              total: tokenUsage.total_tokens.toLocaleString(),
+            })}
           </span>
         )}
       </div>

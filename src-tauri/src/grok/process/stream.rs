@@ -30,6 +30,7 @@ pub(super) struct GrokJsonStreamState {
 pub(super) struct GrokJsonParsedEvent {
     pub(super) session_id: Option<String>,
     pub(super) lines: Vec<String>,
+    pub(super) usage: Option<crate::engine::UsageDelta>,
 }
 
 fn json_string_field_raw<'a>(value: &'a Value, key: &str) -> Option<&'a str> {
@@ -125,7 +126,10 @@ fn drain_complete_lines(
         return;
     }
 
-    let mut parts = normalized.split('\n').map(str::to_owned).collect::<Vec<_>>();
+    let mut parts = normalized
+        .split('\n')
+        .map(str::to_owned)
+        .collect::<Vec<_>>();
     let remainder = parts.pop().unwrap_or_default();
     *buffer = remainder;
 
@@ -138,11 +142,7 @@ fn drain_complete_lines(
     }
 }
 
-fn flush_channel(
-    state: &mut GrokJsonStreamState,
-    channel: &str,
-    parsed: &mut GrokJsonParsedEvent,
-) {
+fn flush_channel(state: &mut GrokJsonStreamState, channel: &str, parsed: &mut GrokJsonParsedEvent) {
     drain_complete_lines(state, channel, parsed);
     if let Some(buffer) = state.stream_buffers.get_mut(channel) {
         let remaining = std::mem::take(buffer);
@@ -175,10 +175,7 @@ fn append_stream_delta(
     }
     state.active_channel = Some(channel.to_string());
 
-    let buffer = state
-        .stream_buffers
-        .entry(channel.to_string())
-        .or_default();
+    let buffer = state.stream_buffers.entry(channel.to_string()).or_default();
     buffer.push_str(delta);
     drain_complete_lines(state, channel, parsed);
 }
@@ -230,9 +227,7 @@ fn emit_assistant_content(
             .cloned()
             .unwrap_or_default();
         let delta = json_text_delta(&previous, text);
-        state
-            .assistant_messages
-            .insert(key, text.to_string());
+        state.assistant_messages.insert(key, text.to_string());
         parsed.lines.extend(json_text_lines(&delta));
     }
 }
@@ -299,10 +294,7 @@ fn tool_input_object(payload: &Value) -> Option<&serde_json::Map<String, Value>>
     tool_input_value(payload)?.as_object()
 }
 
-fn map_string<'a>(
-    map: &'a serde_json::Map<String, Value>,
-    keys: &[&str],
-) -> Option<&'a str> {
+fn map_string<'a>(map: &'a serde_json::Map<String, Value>, keys: &[&str]) -> Option<&'a str> {
     keys.iter().find_map(|key| {
         map.get(*key)
             .and_then(|item| item.as_str())
@@ -372,7 +364,10 @@ fn path_from_title(title: &str) -> Option<String> {
     None
 }
 
-fn extract_tool_path(payload: &Value, input: Option<&serde_json::Map<String, Value>>) -> Option<String> {
+fn extract_tool_path(
+    payload: &Value,
+    input: Option<&serde_json::Map<String, Value>>,
+) -> Option<String> {
     if let Some(input) = input {
         if let Some(path) = map_string(input, TOOL_PATH_KEYS) {
             return Some(path.to_string());
@@ -438,7 +433,11 @@ fn summarize_todos(input: &serde_json::Map<String, Value>) -> Option<String> {
         .get("merge")
         .and_then(|item| item.as_bool())
         .unwrap_or(false);
-    let prefix = if merge { "[待办·合并]" } else { "[待办]" };
+    let prefix = if merge {
+        "[待办·合并]"
+    } else {
+        "[待办]"
+    };
 
     let titles: Vec<String> = arr
         .iter()
@@ -510,11 +509,7 @@ fn summarize_tool_start(payload: &Value) -> Option<String> {
 
     if let Some(input) = input {
         if let Some(pattern) = map_string(input, &["pattern", "query", "glob"]) {
-            return Some(format!(
-                "[工具] {} {}",
-                name,
-                truncate_chars(pattern, 180)
-            ));
+            return Some(format!("[工具] {} {}", name, truncate_chars(pattern, 180)));
         }
 
         if let Some(url) = map_string(input, &["url", "uri"]) {
@@ -528,7 +523,11 @@ fn summarize_tool_start(payload: &Value) -> Option<String> {
             return Some(format!("[写入] {name}"));
         }
     } else if let Some(input_val) = tool_input_value(payload) {
-        if let Some(text) = input_val.as_str().map(str::trim).filter(|item| !item.is_empty()) {
+        if let Some(text) = input_val
+            .as_str()
+            .map(str::trim)
+            .filter(|item| !item.is_empty())
+        {
             return Some(format!(
                 "[工具] {} {}",
                 name,
@@ -540,11 +539,7 @@ fn summarize_tool_start(payload: &Value) -> Option<String> {
     // title 含路径信息（反引号已在 extract_tool_path 处理）；其余有意义 title 也展示
     if let Some(title) = title {
         if !title.eq_ignore_ascii_case(&name) {
-            return Some(format!(
-                "[工具] {} {}",
-                name,
-                truncate_chars(title, 160)
-            ));
+            return Some(format!("[工具] {} {}", name, truncate_chars(title, 160)));
         }
     }
 
@@ -577,15 +572,12 @@ fn extract_tool_result_text(payload: &Value) -> Option<String> {
                 return Some(summary.to_string());
             }
             // Todo 完成等嵌套结构
-            if let Some(nested) = obj
-                .values()
-                .find_map(|item| {
-                    item.as_object().and_then(|inner| {
-                        map_string(inner, &["summary_for_prompt", "summary", "stdout", "text"])
-                            .map(ToOwned::to_owned)
-                    })
+            if let Some(nested) = obj.values().find_map(|item| {
+                item.as_object().and_then(|inner| {
+                    map_string(inner, &["summary_for_prompt", "summary", "stdout", "text"])
+                        .map(ToOwned::to_owned)
                 })
-            {
+            }) {
                 return Some(nested);
             }
             if let Some(lines) = obj.get("lines") {
@@ -619,7 +611,14 @@ fn extract_tool_result_text(payload: &Value) -> Option<String> {
 fn is_terminal_tool_status(status: &str) -> bool {
     matches!(
         status.to_ascii_lowercase().as_str(),
-        "completed" | "complete" | "success" | "succeeded" | "failed" | "error" | "cancelled" | "canceled"
+        "completed"
+            | "complete"
+            | "success"
+            | "succeeded"
+            | "failed"
+            | "error"
+            | "cancelled"
+            | "canceled"
     )
 }
 
@@ -761,7 +760,11 @@ fn summarize_plan(value: &Value) -> Option<String> {
         return None;
     };
 
-    if let Some(text) = entries.as_str().map(str::trim).filter(|item| !item.is_empty()) {
+    if let Some(text) = entries
+        .as_str()
+        .map(str::trim)
+        .filter(|item| !item.is_empty())
+    {
         return Some(format!("[计划] {}", truncate_chars(&one_line(text), 200)));
     }
 
@@ -777,8 +780,7 @@ fn summarize_plan(value: &Value) -> Option<String> {
                 return Some(s.to_string());
             }
             let obj = item.as_object()?;
-            map_string(obj, &["content", "title", "text", "summary", "name"])
-                .map(ToOwned::to_owned)
+            map_string(obj, &["content", "title", "text", "summary", "name"]).map(ToOwned::to_owned)
         })
         .take(4)
         .map(|s| truncate_chars(&s, 60))
@@ -796,74 +798,26 @@ fn summarize_plan(value: &Value) -> Option<String> {
     Some(format!("[计划] {}{}", titles.join(" · "), more))
 }
 
-fn usage_u64(usage: &Value, keys: &[&str]) -> Option<u64> {
-    keys.iter().find_map(|key| {
-        usage.get(*key).and_then(|item| {
-            item.as_u64()
-                .or_else(|| item.as_i64().map(|v| v.max(0) as u64))
-                .or_else(|| {
-                    item.as_f64()
-                        .map(|v| if v.is_finite() && v >= 0.0 { v as u64 } else { 0 })
-                })
-        })
-    })
-}
-
-fn summarize_usage(value: &Value) -> Option<String> {
-    let payload = tool_payload(value);
-    let usage = payload
-        .get("usage")
-        .or_else(|| payload.get("data"))
-        .unwrap_or(payload);
-
-    let input = usage_u64(
-        usage,
-        &["input_tokens", "inputTokens", "prompt_tokens", "input"],
-    );
-    let output = usage_u64(
-        usage,
-        &["output_tokens", "outputTokens", "completion_tokens", "output"],
-    );
-    let total = usage_u64(usage, &["total_tokens", "totalTokens", "total"]).or_else(|| {
-        match (input, output) {
-            (Some(i), Some(o)) => Some(i + o),
-            _ => None,
-        }
-    });
-    let reasoning = usage_u64(usage, &["reasoning_tokens", "reasoningTokens", "thoughtTokens"]);
-
-    if input.is_none() && output.is_none() && total.is_none() {
-        return None;
-    }
-
-    let mut parts = Vec::new();
-    if let Some(v) = input {
-        parts.push(format!("in={v}"));
-    }
-    if let Some(v) = output {
-        parts.push(format!("out={v}"));
-    }
-    if let Some(v) = reasoning {
-        if v > 0 {
-            parts.push(format!("reason={v}"));
-        }
-    }
-    if let Some(v) = total {
-        parts.push(format!("total={v}"));
-    }
-    Some(format!("[用量] {}", parts.join(" ")))
+/// 解析 usage 事件为共享 UsageDelta（兼容 data 包装）。
+fn parse_usage_event(value: &Value) -> Option<crate::engine::UsageDelta> {
+    crate::engine::parse_usage_value(tool_payload(value))
 }
 
 fn summarize_unknown_event(event_type: &str, value: &Value) -> Option<String> {
     if let Some(text) = json_first_string_field(
         value,
-        &["title", "toolName", "tool_name", "name", "message", "detail"],
+        &[
+            "title",
+            "toolName",
+            "tool_name",
+            "name",
+            "message",
+            "detail",
+        ],
     ) {
         return Some(format!("[{event_type}] {}", truncate_chars(text, 160)));
     }
-    if let Some(text) =
-        json_first_string_field_raw(value, &["data", "text", "content", "result"])
-    {
+    if let Some(text) = json_first_string_field_raw(value, &["data", "text", "content", "result"]) {
         return Some(format!(
             "[{event_type}] {}",
             truncate_chars(&one_line(text), 160)
@@ -895,6 +849,7 @@ pub(super) fn parse_grok_json_event_line(
             return Some(GrokJsonParsedEvent {
                 session_id: None,
                 lines: vec![trimmed.to_string()],
+                usage: None,
             });
         }
     };
@@ -936,9 +891,10 @@ pub(super) fn parse_grok_json_event_line(
         }
         Some("result") | Some("final") | Some("completion") => {
             flush_all_channels(state, &mut parsed);
-            if let Some(result) =
-                json_first_string_field_raw(&value, &["result", "text", "content", "output", "data"])
-            {
+            if let Some(result) = json_first_string_field_raw(
+                &value,
+                &["result", "text", "content", "output", "data"],
+            ) {
                 parsed.lines.extend(json_text_lines(result));
             } else if let Some(message) = value.get("message") {
                 emit_assistant_content(message, state, &mut parsed);
@@ -977,8 +933,11 @@ pub(super) fn parse_grok_json_event_line(
         }
         Some("usage") => {
             flush_all_channels(state, &mut parsed);
-            if let Some(line) = summarize_usage(&value) {
-                parsed.lines.push(line);
+            if let Some(delta) = parse_usage_event(&value) {
+                if let Some(line) = delta.format_terminal_line() {
+                    parsed.lines.push(line);
+                }
+                parsed.usage = Some(delta);
             }
         }
         Some(other) => {
@@ -1093,11 +1052,9 @@ mod tests {
     #[test]
     fn parses_session_id_from_system_like_event() {
         let mut state = GrokJsonStreamState::default();
-        let parsed = parse_grok_json_event_line(
-            r#"{"type":"system","session_id":"sess-123"}"#,
-            &mut state,
-        )
-        .expect("json event");
+        let parsed =
+            parse_grok_json_event_line(r#"{"type":"system","session_id":"sess-123"}"#, &mut state)
+                .expect("json event");
 
         assert_eq!(parsed.session_id.as_deref(), Some("sess-123"));
         assert!(parsed.lines.is_empty());
@@ -1118,11 +1075,8 @@ mod tests {
     #[test]
     fn unknown_json_falls_back_to_raw_or_text_fields() {
         let mut state = GrokJsonStreamState::default();
-        let parsed = parse_grok_json_event_line(
-            r#"{"type":"delta","text":"partial"}"#,
-            &mut state,
-        )
-        .expect("json event");
+        let parsed = parse_grok_json_event_line(r#"{"type":"delta","text":"partial"}"#, &mut state)
+            .expect("json event");
         // delta 走 text 通道缓冲，需 flush 才完整输出
         let flushed = flush_grok_json_stream_state(&mut state);
         let mut lines = parsed.lines;
@@ -1210,11 +1164,8 @@ mod tests {
     #[test]
     fn does_not_emit_raw_json_for_thought_tokens() {
         let mut state = GrokJsonStreamState::default();
-        let parsed = parse_grok_json_event_line(
-            r#"{"type":"thought","data":","}"#,
-            &mut state,
-        )
-        .expect("event");
+        let parsed = parse_grok_json_event_line(r#"{"type":"thought","data":","}"#, &mut state)
+            .expect("event");
         assert!(parsed.lines.is_empty());
         assert!(!format!("{:?}", parsed).contains("type"));
 
@@ -1245,7 +1196,10 @@ mod tests {
         let lines = collect_lines(&[
             r#"{"type":"tool_call_update","toolCallId":"r1","title":"read_file","toolName":"read_file","rawInput":{"target_file":"/Users/wenyuan/proj/src/App.tsx"}}"#,
         ]);
-        assert_eq!(lines, vec!["[读取] /Users/wenyuan/proj/src/App.tsx".to_string()]);
+        assert_eq!(
+            lines,
+            vec!["[读取] /Users/wenyuan/proj/src/App.tsx".to_string()]
+        );
     }
 
     #[test]
@@ -1337,6 +1291,22 @@ mod tests {
                 "[用量] in=812 out=45 reason=12 total=857".to_string(),
             ]
         );
+    }
+
+    #[test]
+    fn usage_event_produces_structured_delta() {
+        let mut state = GrokJsonStreamState::default();
+        let parsed = parse_grok_json_event_line(
+            r#"{"type":"usage","usage":{"input_tokens":812,"output_tokens":45,"reasoning_tokens":12}}"#,
+            &mut state,
+        )
+        .expect("usage event");
+
+        let usage = parsed.usage.expect("usage delta");
+        assert_eq!(usage.input_tokens, Some(812));
+        assert_eq!(usage.output_tokens, Some(45));
+        assert_eq!(usage.reasoning_tokens, Some(12));
+        assert_eq!(usage.total_tokens, Some(857));
     }
 
     #[test]

@@ -4,8 +4,9 @@ use tauri::{AppHandle, Emitter};
 use tokio::io::{AsyncBufReadExt, BufReader};
 
 use crate::app::{
-    fetch_codex_session_by_id, insert_codex_session_event, insert_codex_session_event_with_id,
-    now_sqlite, parse_review_verdict_json, sqlite_pool, update_codex_session_record,
+    apply_codex_session_usage, fetch_codex_session_by_id, insert_codex_session_event,
+    insert_codex_session_event_with_id, now_sqlite, parse_review_verdict_json, sqlite_pool,
+    update_codex_session_record,
 };
 use crate::codex::{CodexExecutionProvider, CodexSessionKind, ExecutionChangeBaseline};
 use crate::db::models::{GrokExit, GrokOutput, GrokSession};
@@ -31,10 +32,7 @@ fn push_captured_line(captured: &Arc<Mutex<Vec<String>>>, line: String) {
     }
 }
 
-fn resolve_final_grok_status(
-    current_status: Option<&str>,
-    exit_code: Option<i32>,
-) -> &'static str {
+fn resolve_final_grok_status(current_status: Option<&str>, exit_code: Option<i32>) -> &'static str {
     crate::engine::resolve_final_session_status(current_status, exit_code)
 }
 
@@ -167,6 +165,10 @@ pub(super) fn spawn_grok_session_runtime(
                                 session_id_value,
                             )
                             .await;
+                        }
+
+                        if let Some(usage) = parsed.usage {
+                            let _ = apply_codex_session_usage(&pool, &session_id, &usage).await;
                         }
 
                         for emitted_line in parsed.lines {

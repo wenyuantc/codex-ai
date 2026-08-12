@@ -274,6 +274,10 @@ pub struct CodexSessionRecord {
     pub resume_session_id: Option<String>,
     pub ai_provider: String,
     pub thinking_budget_tokens: Option<i32>,
+    pub input_tokens: Option<i64>,
+    pub output_tokens: Option<i64>,
+    pub total_tokens: Option<i64>,
+    pub reasoning_tokens: Option<i64>,
     pub created_at: String,
 }
 
@@ -1105,12 +1109,38 @@ pub struct DashboardReportSummary {
     pub selected_milestone_id: Option<String>,
     /// Milestones visible in the current project/SSH scope (picker).
     pub milestones: Vec<DashboardMilestoneOption>,
+    /// Scoped token usage totals across sessions (unknown sessions excluded from sums).
+    pub token_usage: TokenUsageSummary,
+    /// Token totals bucketed like `trend_series` (daily for `7d`/`30d`, weekly for `8w`).
+    pub token_usage_series: Vec<DashboardTrendPoint>,
+    /// Token usage grouped by AI provider (providers with no usage data omitted).
+    pub token_usage_by_provider: Vec<DashboardTokenProviderUsage>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DashboardTrendPoint {
     pub label: String,
     pub count: i64,
+}
+
+/// 会话 token 用量聚合（值为已知会话之和；`sessions_with_usage=0` 表示全部未知）。
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct TokenUsageSummary {
+    pub input_tokens: i64,
+    pub output_tokens: i64,
+    pub total_tokens: i64,
+    pub reasoning_tokens: i64,
+    pub sessions_with_usage: i64,
+    pub session_count: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DashboardTokenProviderUsage {
+    pub provider: String,
+    pub input_tokens: i64,
+    pub output_tokens: i64,
+    pub total_tokens: i64,
+    pub sessions_with_usage: i64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -49,9 +49,21 @@ pub async fn log_activity<R: Runtime>(
         &pool,
         action,
         details,
-        payload.employee_id.as_deref().map(str::trim).filter(|v| !v.is_empty()),
-        payload.task_id.as_deref().map(str::trim).filter(|v| !v.is_empty()),
-        payload.project_id.as_deref().map(str::trim).filter(|v| !v.is_empty()),
+        payload
+            .employee_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|v| !v.is_empty()),
+        payload
+            .task_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|v| !v.is_empty()),
+        payload
+            .project_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|v| !v.is_empty()),
     )
     .await
 }
@@ -244,6 +256,10 @@ pub(crate) async fn insert_codex_session_record<R: Runtime>(
         resume_session_id: resume_session_id.map(ToOwned::to_owned),
         ai_provider: ai_provider.unwrap_or("codex").to_string(),
         thinking_budget_tokens,
+        input_tokens: None,
+        output_tokens: None,
+        total_tokens: None,
+        reasoning_tokens: None,
         created_at: now_sqlite(),
     };
 
@@ -323,6 +339,39 @@ pub(crate) async fn update_codex_session_record<R: Runtime>(
         .execute(&pool)
         .await
         .map_err(|error| format!("Failed to update session record: {}", error))?;
+
+    Ok(())
+}
+
+/// 将一次 usage 事件累加到会话的 token 用量列。
+///
+/// 语义：列保持 NULL 直到第一条可解析的 usage 事件到达（无值即未知，不假装 0）；
+/// 之后按增量累加（Grok/Codex 按轮上报，Claude 在 result 一次性上报）。
+pub(crate) async fn apply_codex_session_usage(
+    pool: &SqlitePool,
+    session_record_id: &str,
+    usage: &crate::engine::UsageDelta,
+) -> Result<(), String> {
+    if usage.is_empty() {
+        return Ok(());
+    }
+
+    sqlx::query(
+        "UPDATE codex_sessions SET \
+         input_tokens = CASE WHEN $2 IS NULL THEN input_tokens ELSE COALESCE(input_tokens, 0) + $2 END, \
+         output_tokens = CASE WHEN $3 IS NULL THEN output_tokens ELSE COALESCE(output_tokens, 0) + $3 END, \
+         total_tokens = CASE WHEN $4 IS NULL THEN total_tokens ELSE COALESCE(total_tokens, 0) + $4 END, \
+         reasoning_tokens = CASE WHEN $5 IS NULL THEN reasoning_tokens ELSE COALESCE(reasoning_tokens, 0) + $5 END \
+         WHERE id = $1",
+    )
+    .bind(session_record_id)
+    .bind(usage.input_tokens.map(|value| value as i64))
+    .bind(usage.output_tokens.map(|value| value as i64))
+    .bind(usage.total_tokens.map(|value| value as i64))
+    .bind(usage.reasoning_tokens.map(|value| value as i64))
+    .execute(pool)
+    .await
+    .map_err(|error| format!("Failed to apply session usage: {}", error))?;
 
     Ok(())
 }
@@ -1372,6 +1421,34 @@ pub async fn get_task_latest_review<R: Runtime>(
         report,
         reviewer_name,
     }))
+}
+
+#[tauri::command]
+pub async fn get_task_token_usage<R: Runtime>(
+    app: AppHandle<R>,
+    task_id: String,
+) -> Result<crate::db::models::TokenUsageSummary, String> {
+    let pool = sqlite_pool(&app).await?;
+    let row = sqlx::query_as::<_, (i64, i64, i64, i64, i64, i64)>(
+        "SELECT COALESCE(SUM(input_tokens), 0), COALESCE(SUM(output_tokens), 0), \
+         COALESCE(SUM(total_tokens), 0), COALESCE(SUM(reasoning_tokens), 0), \
+         COALESCE(SUM(CASE WHEN input_tokens IS NOT NULL OR output_tokens IS NOT NULL OR total_tokens IS NOT NULL OR reasoning_tokens IS NOT NULL THEN 1 ELSE 0 END), 0), \
+         COUNT(*) \
+         FROM codex_sessions WHERE task_id = $1",
+    )
+    .bind(&task_id)
+    .fetch_one(&pool)
+    .await
+    .map_err(|error| format!("Failed to aggregate task token usage: {}", error))?;
+
+    Ok(crate::db::models::TokenUsageSummary {
+        input_tokens: row.0,
+        output_tokens: row.1,
+        total_tokens: row.2,
+        reasoning_tokens: row.3,
+        sessions_with_usage: row.4,
+        session_count: row.5,
+    })
 }
 
 async fn resolve_execution_session_capture_mode(

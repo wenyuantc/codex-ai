@@ -5,6 +5,13 @@ pub(super) fn parse_sdk_file_change_event(line: &str) -> Option<SdkFileChangeEve
     serde_json::from_str::<SdkFileChangeEvent>(payload.trim()).ok()
 }
 
+/// 解析 SDK bridge 透传的用量标记行：`[CODEX_USAGE] {json}`。
+pub(super) fn parse_sdk_usage_event(line: &str) -> Option<crate::engine::UsageDelta> {
+    let payload = line.strip_prefix(SDK_USAGE_EVENT_PREFIX)?;
+    let value = serde_json::from_str::<serde_json::Value>(payload.trim()).ok()?;
+    crate::engine::parse_usage_value(&value)
+}
+
 pub(super) fn detect_exec_json_output_flag(help_output: &str) -> Option<CliJsonOutputFlag> {
     if help_output.contains("--json") {
         Some(CliJsonOutputFlag::Json)
@@ -131,6 +138,14 @@ pub(super) fn parse_cli_json_event_line(
             parsed
                 .lines
                 .push("[ERROR] Codex 执行失败，请查看后续退出信息。".to_string());
+        }
+        "turn.completed" => {
+            if let Some(delta) = crate::engine::parse_usage_value(&value) {
+                if let Some(line) = delta.format_terminal_line() {
+                    parsed.lines.push(line);
+                }
+                parsed.usage = Some(delta);
+            }
         }
         "error" => {
             if let Some(message) = json_first_string_field(&value, &["message"]) {

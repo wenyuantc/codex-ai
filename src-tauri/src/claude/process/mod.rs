@@ -39,6 +39,7 @@ const SUPPORTED_REASONING_EFFORTS: &[&str] = &["low", "medium", "high", "xhigh",
 const DEFAULT_REASONING_EFFORT: &str = "high";
 const SESSION_ID_PREFIX: &str = "session id:";
 const CLAUDE_FILE_CHANGE_EVENT_PREFIX: &str = "[CLAUDE_FILE_CHANGE]";
+const CLAUDE_USAGE_EVENT_PREFIX: &str = "[CLAUDE_USAGE]";
 const STOP_WAIT_POLL_MS: u64 = 50;
 const STOP_WAIT_MAX_ATTEMPTS: usize = 600;
 
@@ -1644,9 +1645,8 @@ pub async fn send_claude_input(
         return Ok(());
     }
 
-    Err(last_error.unwrap_or_else(|| {
-        format!("员工 {employee_id} 当前没有可写入的 Claude 会话 stdin。")
-    }))
+    Err(last_error
+        .unwrap_or_else(|| format!("员工 {employee_id} 当前没有可写入的 Claude 会话 stdin。")))
 }
 
 #[tauri::command]

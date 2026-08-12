@@ -315,6 +315,9 @@ async function runSession(payload) {
         break;
 
       case "result":
+        if (message.usage && typeof message.usage === "object") {
+          emit(`[CLAUDE_USAGE] ${JSON.stringify(message.usage)}`);
+        }
         if (message.subtype === "success") {
           emit("[SDK] 执行完成");
           if (message.result) {

@@ -92,6 +92,24 @@ fn spawn_stdout_reader(
                 continue;
             }
 
+            if let Some(usage) = parse_sdk_usage_event(&line) {
+                let _ =
+                    crate::app::apply_codex_session_usage(&pool, &session_record_id, &usage).await;
+                if let Some(usage_line) = usage.format_terminal_line() {
+                    emit_session_terminal_line(
+                        &app,
+                        &pool,
+                        &session_record_id,
+                        &employee_id,
+                        task_id.as_deref(),
+                        session_kind,
+                        usage_line,
+                    )
+                    .await;
+                }
+                continue;
+            }
+
             if let Some(cli_json_state) = cli_json_stream_state.as_ref() {
                 if let Some(parsed) = {
                     let mut state = cli_json_state.lock().unwrap();
@@ -111,6 +129,15 @@ fn spawn_stdout_reader(
                                 .await;
                             }
                         }
+                    }
+
+                    if let Some(usage) = parsed.usage {
+                        let _ = crate::app::apply_codex_session_usage(
+                            &pool,
+                            &session_record_id,
+                            &usage,
+                        )
+                        .await;
                     }
 
                     for emitted_line in parsed.lines {

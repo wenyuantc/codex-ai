@@ -32,6 +32,17 @@ pub(super) struct ClaudeCliJsonParsedEvent {
     pub(super) session_id: Option<String>,
     pub(super) lines: Vec<String>,
     pub(super) file_change_events: Vec<SdkFileChangeEvent>,
+    pub(super) usage: Option<crate::engine::UsageDelta>,
+}
+
+/// 解析 SDK bridge 透传的用量标记行：`[CLAUDE_USAGE] {json}`。
+pub(super) fn parse_claude_usage_event(
+    line: &str,
+    prefix: &str,
+) -> Option<crate::engine::UsageDelta> {
+    let json_str = line.strip_prefix(prefix)?.trim();
+    let value = serde_json::from_str::<Value>(json_str).ok()?;
+    crate::engine::parse_usage_value(&value)
 }
 
 pub(super) fn parse_claude_file_change_event(
@@ -258,27 +269,39 @@ pub(super) fn parse_claude_cli_json_event_line(
                 emit_user_tool_results(message, state, &mut parsed);
             }
         }
-        Some("result") => match json_string_field(&value, "subtype") {
-            Some("success") => {
-                if let Some(result) = json_first_string_field_raw(&value, &["result"]) {
-                    parsed.lines.extend(json_text_lines(result));
+        Some("result") => {
+            match json_string_field(&value, "subtype") {
+                Some("success") => {
+                    if let Some(result) = json_first_string_field_raw(&value, &["result"]) {
+                        parsed.lines.extend(json_text_lines(result));
+                    }
+                }
+                Some("error_max_turns") => {
+                    parsed.lines.push("[Claude] 已达最大轮次限制".to_string());
+                }
+                Some("error_during_execution") => {
+                    parsed
+                        .lines
+                        .push("[ERROR] Claude 执行过程中出错".to_string());
+                }
+                Some(other) if other.starts_with("error") => {
+                    parsed
+                        .lines
+                        .push(format!("[ERROR] Claude 执行失败: {other}"));
+                }
+                _ => {}
+            }
+
+            // result 事件顶层携带整次运行的 usage（无论 subtype），解析不到保持 None
+            if value.get("usage").is_some() {
+                if let Some(delta) = crate::engine::parse_usage_value(&value) {
+                    if let Some(line) = delta.format_terminal_line() {
+                        parsed.lines.push(line);
+                    }
+                    parsed.usage = Some(delta);
                 }
             }
-            Some("error_max_turns") => {
-                parsed.lines.push("[Claude] 已达最大轮次限制".to_string());
-            }
-            Some("error_during_execution") => {
-                parsed
-                    .lines
-                    .push("[ERROR] Claude 执行过程中出错".to_string());
-            }
-            Some(other) if other.starts_with("error") => {
-                parsed
-                    .lines
-                    .push(format!("[ERROR] Claude 执行失败: {other}"));
-            }
-            _ => {}
-        },
+        }
         Some("error") => {
             if let Some(message) = json_first_string_field(&value, &["message"]) {
                 parsed.lines.push(format!("[ERROR] {message}"));
@@ -322,6 +345,35 @@ mod tests {
         .expect("json event");
 
         assert_eq!(parsed.lines, vec!["hello".to_string(), "world".to_string()]);
+    }
+
+    #[test]
+    fn parses_claude_cli_result_usage() {
+        let mut state = ClaudeCliJsonStreamState::default();
+        let parsed = parse_claude_cli_json_event_line(
+            r#"{"type":"result","subtype":"success","result":"done","usage":{"input_tokens":100,"output_tokens":30}}"#,
+            &mut state,
+        )
+        .expect("json event");
+
+        let usage = parsed.usage.expect("usage delta");
+        assert_eq!(usage.input_tokens, Some(100));
+        assert_eq!(usage.output_tokens, Some(30));
+        assert_eq!(usage.total_tokens, Some(130));
+        assert!(parsed
+            .lines
+            .contains(&"[用量] in=100 out=30 total=130".to_string()));
+    }
+
+    #[test]
+    fn parses_claude_usage_marker_line() {
+        let usage = parse_claude_usage_event(
+            r#"[CLAUDE_USAGE] {"input_tokens":7,"output_tokens":3}"#,
+            "[CLAUDE_USAGE]",
+        )
+        .expect("usage delta");
+        assert_eq!(usage.total_tokens, Some(10));
+        assert!(parse_claude_usage_event("plain line", "[CLAUDE_USAGE]").is_none());
     }
 
     #[test]

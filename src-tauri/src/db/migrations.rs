@@ -1119,6 +1119,17 @@ pub fn get_all_migrations() -> Vec<Migration> {
             "#,
             kind: tauri_plugin_sql::MigrationKind::Up,
         },
+        Migration {
+            version: 45,
+            description: "codex session token usage columns (nullable, unknown stays NULL)",
+            sql: r#"
+                ALTER TABLE codex_sessions ADD COLUMN input_tokens INTEGER;
+                ALTER TABLE codex_sessions ADD COLUMN output_tokens INTEGER;
+                ALTER TABLE codex_sessions ADD COLUMN total_tokens INTEGER;
+                ALTER TABLE codex_sessions ADD COLUMN reasoning_tokens INTEGER;
+            "#,
+            kind: tauri_plugin_sql::MigrationKind::Up,
+        },
     ]
 }
 
@@ -1160,7 +1171,7 @@ mod tests {
 
     #[test]
     fn latest_migration_version_includes_session_events_retention_index() {
-        assert_eq!(latest_migration_version(), 44);
+        assert_eq!(latest_migration_version(), 45);
     }
 
     #[test]

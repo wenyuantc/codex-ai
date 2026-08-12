@@ -78,9 +78,10 @@ pub(crate) use remote::{
     default_remote_opencode_sdk_install_dir, ensure_remote_opencode_sdk_runtime_layout,
     ensure_remote_sdk_runtime_layout, ensure_ssh_config_exists, execute_ssh_command,
     execute_ssh_command_with_input, fetch_ssh_config_record_by_id, inspect_remote_codex_runtime,
-    inspect_remote_opencode_runtime, normalize_ssh_auth_type, redact_secret_text, remote_path_join,
-    remote_opencode_sdk_bridge_path, remote_sdk_bridge_path, remote_shell_path_expression,
-    sdk_notification_unavailable, shell_escape_single_quoted, ssh_config_target_host_label,
+    inspect_remote_opencode_runtime, normalize_ssh_auth_type, redact_secret_text,
+    remote_opencode_sdk_bridge_path, remote_path_join, remote_sdk_bridge_path,
+    remote_shell_path_expression, sdk_notification_unavailable, shell_escape_single_quoted,
+    ssh_config_target_host_label,
 };
 #[allow(unused_imports)]
 pub(crate) use review::{
@@ -100,7 +101,7 @@ pub(crate) use review::{
 };
 #[allow(unused_imports)]
 pub(crate) use sessions::{
-    compare_global_search_items, fetch_codex_session_by_id,
+    apply_codex_session_usage, compare_global_search_items, fetch_codex_session_by_id,
     fetch_execution_change_history_item_by_session_id, insert_activity_log,
     insert_codex_session_event, insert_codex_session_event_with_id, insert_codex_session_record,
     normalize_global_search_types, replace_codex_session_file_changes,
@@ -137,12 +138,12 @@ pub(crate) use shared::{
 pub(crate) use tasks::{
     build_task_completion_timer_update, clear_task_automation_state_for_disabled_mode,
     decode_task_automation_state, disable_task_automation_for_archived_task,
-    export_tasks_json_with_pool, fetch_task_attachments, fetch_task_automation_state_record,
-    fetch_task_by_id, ensure_task_dependencies_satisfied, fetch_task_subtasks, import_tasks_json_with_pool, insert_task_record,
-    is_orchestration_awaiting_session_exit, is_task_automation_active_for_archival,
-    list_tasks_with_pool, parse_tasks_json_envelope, record_completion_metric,
-    resolve_await_session_followups, resolve_project_task_default_settings,
-    should_await_session_followups,
+    ensure_task_dependencies_satisfied, export_tasks_json_with_pool, fetch_task_attachments,
+    fetch_task_automation_state_record, fetch_task_by_id, fetch_task_subtasks,
+    import_tasks_json_with_pool, insert_task_record, is_orchestration_awaiting_session_exit,
+    is_task_automation_active_for_archival, list_tasks_with_pool, parse_tasks_json_envelope,
+    record_completion_metric, resolve_await_session_followups,
+    resolve_project_task_default_settings, should_await_session_followups,
     should_clear_task_completed_at, start_task_timer_internal, stop_task_timer_internal,
     tasks_json_payload_is_field_safe, validate_coordinator_for_project,
     validate_reviewer_for_project, validate_task_archival_guard,

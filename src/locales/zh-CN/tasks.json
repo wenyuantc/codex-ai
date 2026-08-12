@@ -283,6 +283,8 @@
       "autoFixRunningTitle": "自动修复正在启动或运行中",
       "terminalTitle": "Codex 终端",
       "waitingOutput": "等待输出...",
+      "tokenUsage": "Token 输入 {{input}} · 输出 {{output}} · 合计 {{total}}",
+      "tokenUsageTitle": "{{total}} 个会话中 {{withUsage}} 个上报了 token 用量；未上报的会话不计入合计",
       "fileChangesTitle": "改动文件",
       "fileChangesDesc": "SDK 会话按 Codex 事件精确记录；CLI 会话仅在无法获取结构化事件时回退为 Git 快照估算。",
       "fileChangesEmpty": "还没有 execution 会话的文件记录。"

@@ -19,6 +19,7 @@ import {
   type DashboardTrendRange,
 } from "@/lib/backend";
 import {
+  formatTokenCount,
   getDashboardTrendRangeOptions,
   normalizeTrendRange,
   shortTrendPointLabel,
@@ -56,6 +57,7 @@ export function DashboardPage() {
     : (report?.weekly_completed ?? []);
   const maxTrend = Math.max(...trendSeries.map((p) => p.count), 0);
   const maxBurndown = Math.max(...(report?.milestone_burndown?.map((p) => p.remaining) ?? [0]), 0);
+  const maxTokenTrend = Math.max(...(report?.token_usage_series?.map((p) => p.count) ?? [0]), 0);
 
   const loadReport = useCallback(async () => {
     setReportLoading(true);
@@ -397,6 +399,71 @@ export function DashboardPage() {
                       </div>
                     );
                   })}
+                </div>
+              )}
+            </div>
+            <div className="lg:col-span-2">
+              <p className="mb-2 text-xs font-medium text-muted-foreground">
+                {t("report.tokenTitle")}
+              </p>
+              {(report.token_usage?.sessions_with_usage ?? 0) === 0 ? (
+                <div className="flex h-16 items-center rounded-md border border-dashed px-3">
+                  <p className="text-xs text-muted-foreground">{t("report.tokenEmpty")}</p>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+                    <span>
+                      {t("report.tokenSummary", {
+                        total: formatTokenCount(report.token_usage.total_tokens),
+                        input: formatTokenCount(report.token_usage.input_tokens),
+                        output: formatTokenCount(report.token_usage.output_tokens),
+                        withUsage: report.token_usage.sessions_with_usage,
+                        sessions: report.token_usage.session_count,
+                      })}
+                    </span>
+                    {report.token_usage_by_provider.map((item) => (
+                      <span
+                        key={item.provider}
+                        className="rounded-full border px-2 py-0.5 font-mono text-[10px]"
+                        title={t("report.tokenProviderTitle", {
+                          provider: item.provider,
+                          input: formatTokenCount(item.input_tokens),
+                          output: formatTokenCount(item.output_tokens),
+                        })}
+                      >
+                        {item.provider} {formatTokenCount(item.total_tokens)}
+                      </span>
+                    ))}
+                  </div>
+                  <div className="flex h-24 items-end gap-1.5">
+                    {report.token_usage_series.map((point, index) => {
+                      const height = maxTokenTrend > 0 ? (point.count / maxTokenTrend) * 100 : 0;
+                      const shortLabel = shortTrendPointLabel(point.label, appliedTrendRange);
+                      return (
+                        <div
+                          key={`token-${appliedTrendRange}-${point.label}-${index}`}
+                          className="flex flex-1 flex-col items-center gap-1"
+                        >
+                          <span className="text-[10px] font-medium">
+                            {formatTokenCount(point.count)}
+                          </span>
+                          <div className="flex h-16 w-full items-end rounded-sm bg-muted/40 px-0.5">
+                            <div
+                              className="w-full rounded-t bg-emerald-500/80 transition-all"
+                              style={{
+                                height: point.count > 0 ? `${Math.max(height, 8)}%` : "0%",
+                              }}
+                              title={`${point.label}: ${point.count.toLocaleString()}`}
+                            />
+                          </div>
+                          <span className="text-[10px] text-muted-foreground" title={point.label}>
+                            {shortLabel}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
               )}
             </div>
