@@ -13,6 +13,7 @@ export default tseslint.config(
       ".trellis/**",
       ".omx/**",
       ".opencode/**",
+      ".pi/**",
       "scripts/**",
       "coverage/**",
     ],

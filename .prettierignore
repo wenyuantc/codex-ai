@@ -6,6 +6,7 @@ package-lock.json
 Cargo.lock
 .trellis
 .omx
+.pi
 .github
 *.md
 *.json
