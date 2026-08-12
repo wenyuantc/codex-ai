@@ -1,0 +1,4 @@
+{"file": ".trellis/spec/frontend/component-guidelines.md", "reason": "卡片/筛选/视图切换等新组件的 props、组合与 Tailwind 样式约定"}
+{"file": ".trellis/spec/frontend/directory-structure.md", "reason": "新组件文件（SessionCard 等）应放到 src/components/sessions/ 的命名与目录约定"}
+{"file": ".trellis/spec/frontend/i18n.md", "reason": "视图切换、更多筛选等新文案必须 zh-CN + en 双语且走 sessions namespace"}
+{"file": ".trellis/spec/guides/code-reuse-thinking-guide.md", "reason": "优先复用 @/components/ui 与 src/lib/utils.ts 现有能力，避免新造 Badge/下拉/格式化工具"}

@@ -1,125 +1,62 @@
 import { useHotkeys } from "react-hotkeys-hook";
 import { Kbd } from "@/components/keyboard/Kbd";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { ChevronLeft, ChevronRight, Loader2, RefreshCw } from "lucide-react";
+import {
+  ChevronDown,
+  ChevronLeft,
+  ChevronRight,
+  LayoutGrid,
+  Loader2,
+  MoreHorizontal,
+  RefreshCw,
+  SlidersHorizontal,
+  Table,
+} from "lucide-react";
 import { useLocation, useSearchParams } from "react-router-dom";
 
+import { SessionCard } from "@/components/sessions/SessionCard";
 import { SessionContinueDialog } from "@/components/sessions/SessionContinueDialog";
 import { SessionExecutionChangesDialog } from "@/components/sessions/SessionExecutionChangesDialog";
 import { SessionLogDialog, type SessionLogTarget } from "@/components/sessions/SessionLogDialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { listCodexSessions, prepareCodexSessionResume } from "@/lib/backend";
 import { startCodex, stopCodexSession } from "@/lib/codex";
 import { startClaude, stopClaudeSession } from "@/lib/claude";
 import { startGrok, stopGrokSession } from "@/lib/grok";
 import { startOpenCode, stopOpenCodeSession } from "@/lib/opencode";
-import type { AiProvider, CodexSessionListItem, CodexSessionResumeStatus } from "@/lib/types";
+import {
+  aiProviderBadgeVariant,
+  formatAiProviderLabel,
+  formatResumeStatus,
+  formatSessionKind,
+  formatSessionStatus,
+  getStoredSessionsViewMode,
+  matchesSessionIdentifier,
+  normalizeSearchText,
+  sessionStatusBadgeVariant,
+  storeSessionsViewMode,
+  type SessionsViewMode,
+} from "@/lib/sessions";
+import type { CodexSessionListItem } from "@/lib/types";
 import { AI_PROVIDER_OPTIONS, normalizeAiProvider } from "@/lib/types";
 import i18n from "@/lib/i18n";
-import { formatDate, isArtifactCaptureLimited } from "@/lib/utils";
+import { cn, formatDate, isArtifactCaptureLimited } from "@/lib/utils";
 import { useEmployeeStore } from "@/stores/employeeStore";
 import { useProjectStore } from "@/stores/projectStore";
 import { SshArtifactLimitedNotice } from "@/components/sessions/SshArtifactLimitedNotice";
 
 const PAGE_SIZE = 10;
-
-function normalizeSearchText(value: string | null | undefined) {
-  return (value ?? "").toLocaleLowerCase().trim();
-}
-
-function matchesSessionIdentifier(session: CodexSessionListItem, query: string | null) {
-  if (!query) {
-    return false;
-  }
-
-  const normalizedQuery = normalizeSearchText(query);
-  return [session.session_id, session.session_record_id, session.cli_session_id].some(
-    (value) => normalizeSearchText(value) === normalizedQuery,
-  );
-}
-
-function formatAiProviderLabel(provider: AiProvider) {
-  const option = AI_PROVIDER_OPTIONS.find((o) => o.value === provider);
-  return option?.label ?? provider;
-}
-
-function aiProviderBadgeVariant(provider: AiProvider): "default" | "secondary" | "outline" {
-  switch (provider) {
-    case "codex":
-      return "default";
-    case "claude":
-      return "secondary";
-    case "opencode":
-      return "outline";
-    case "grok":
-      return "outline";
-    default:
-      return "outline";
-  }
-}
-
-function formatSessionKind(kind: CodexSessionListItem["session_kind"]) {
-  return kind === "review" ? i18n.t("sessions:kindReview") : i18n.t("sessions:kindExecution");
-}
-
-function formatSessionStatus(status: string) {
-  switch (status) {
-    case "pending":
-      return i18n.t("sessions:statusPending");
-    case "running":
-      return i18n.t("sessions:statusRunning");
-    case "stopping":
-      return i18n.t("sessions:statusStopping");
-    case "exited":
-      return i18n.t("sessions:statusExited");
-    case "failed":
-      return i18n.t("sessions:statusFailed");
-    default:
-      return status;
-  }
-}
-
-function formatResumeStatus(status: CodexSessionResumeStatus) {
-  switch (status) {
-    case "ready":
-      return i18n.t("sessions:resumeReady");
-    case "running":
-      return i18n.t("sessions:resumeRunning");
-    case "missing_employee":
-      return i18n.t("sessions:resumeMissingEmployee");
-    case "missing_cli_session":
-      return i18n.t("sessions:resumeMissingCli");
-    case "stopping":
-      return i18n.t("sessions:resumeStopping");
-    case "invalid":
-      return i18n.t("sessions:resumeInvalid");
-    default:
-      return status;
-  }
-}
-
-function resumeBadgeVariant(
-  status: CodexSessionResumeStatus,
-): "default" | "secondary" | "destructive" | "outline" {
-  switch (status) {
-    case "ready":
-      return "default";
-    case "running":
-    case "stopping":
-      return "secondary";
-    case "missing_employee":
-    case "missing_cli_session":
-    case "invalid":
-      return "destructive";
-    default:
-      return "outline";
-  }
-}
 
 function buildLogTarget(session: {
   session_record_id?: string | null;
@@ -183,6 +120,10 @@ export function SessionsPage() {
   const [providerFilter, setProviderFilter] = useState<string>("all");
   const [employeeFilter, setEmployeeFilter] = useState<string>("all");
   const [failedOnly, setFailedOnly] = useState(false);
+  const [moreFiltersOpen, setMoreFiltersOpen] = useState(false);
+  const moreFiltersButtonRef = useRef<HTMLButtonElement>(null);
+  const wasMoreFiltersOpen = useRef(false);
+  const [viewMode, setViewMode] = useState<SessionsViewMode>(() => getStoredSessionsViewMode());
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [infoMessage, setInfoMessage] = useState<string | null>(null);
   const highlightedSessionId = searchParams.get("sessionId");
@@ -303,6 +244,15 @@ export function SessionsPage() {
   const rangeEnd =
     filteredSessions.length === 0 ? 0 : Math.min(page * PAGE_SIZE, filteredSessions.length);
 
+  const activeMoreFilterCount = [
+    normalizeSearchText(sessionIdQuery),
+    normalizeSearchText(taskIdQuery),
+    kindFilter !== "all",
+    providerFilter !== "all",
+    employeeFilter !== "all",
+    failedOnly,
+  ].filter(Boolean).length;
+
   useEffect(() => {
     setPage(1);
   }, [contentQuery, currentProjectId, sessionIdQuery, taskIdQuery]);
@@ -403,6 +353,20 @@ export function SessionsPage() {
   useEffect(() => {
     void loadSessions();
   }, []);
+
+  const handleViewModeChange = (mode: SessionsViewMode) => {
+    setViewMode(mode);
+    storeSessionsViewMode(mode);
+  };
+
+  useEffect(() => {
+    // Restore focus to the toggle when the panel collapses, so keyboard
+    // users are not left without a focus target.
+    if (wasMoreFiltersOpen.current && !moreFiltersOpen) {
+      moreFiltersButtonRef.current?.focus();
+    }
+    wasMoreFiltersOpen.current = moreFiltersOpen;
+  }, [moreFiltersOpen]);
 
   const openContinueDialog = (session: CodexSessionListItem) => {
     setContinueSession(session);
@@ -550,22 +514,48 @@ export function SessionsPage() {
               })}
             </p>
           </div>
-          <Button
-            type="button"
-            variant="outline"
-            onClick={() => void loadSessions(true)}
-            disabled={loading || refreshing}
-          >
-            {refreshing ? (
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-            ) : (
-              <RefreshCw className="mr-2 h-4 w-4" />
-            )}
-            {t("refresh")}
-            <Kbd variant="subtle" size="xs" className="ml-1.5">
-              R
-            </Kbd>
-          </Button>
+          <div className="flex items-center gap-2">
+            <div className="flex items-center rounded-lg border border-border p-0.5">
+              <Button
+                type="button"
+                size="icon-sm"
+                variant={viewMode === "card" ? "secondary" : "ghost"}
+                onClick={() => handleViewModeChange("card")}
+                title={t("viewCard")}
+                aria-label={t("viewCard")}
+                aria-pressed={viewMode === "card"}
+              >
+                <LayoutGrid />
+              </Button>
+              <Button
+                type="button"
+                size="icon-sm"
+                variant={viewMode === "table" ? "secondary" : "ghost"}
+                onClick={() => handleViewModeChange("table")}
+                title={t("viewTable")}
+                aria-label={t("viewTable")}
+                aria-pressed={viewMode === "table"}
+              >
+                <Table />
+              </Button>
+            </div>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => void loadSessions(true)}
+              disabled={loading || refreshing}
+            >
+              {refreshing ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <RefreshCw className="mr-2 h-4 w-4" />
+              )}
+              {t("refresh")}
+              <Kbd variant="subtle" size="xs" className="ml-1.5">
+                R
+              </Kbd>
+            </Button>
+          </div>
         </div>
 
         {activeSession && (
@@ -588,126 +578,167 @@ export function SessionsPage() {
 
         <Card>
           <CardContent className="space-y-4">
-            <div className="grid gap-3 md:grid-cols-3">
-              <div className="space-y-2">
-                <label className="text-sm font-medium text-foreground" htmlFor="session-id-search">
-                  {t("sessionIdSearch")}
-                </label>
-                <Input
-                  id="session-id-search"
-                  value={sessionIdQuery}
-                  onChange={(event) => setSessionIdQuery(event.target.value)}
-                  placeholder={t("sessionIdPlaceholder")}
+            <div className="flex flex-wrap items-center gap-2">
+              <Input
+                id="session-content-search"
+                value={contentQuery}
+                onChange={(event) => setContentQuery(event.target.value)}
+                placeholder={t("contentPlaceholder")}
+                aria-label={t("contentSearch")}
+                className="min-w-56 flex-1"
+              />
+              <select
+                className="h-9 rounded-md border border-input bg-background px-2 text-sm"
+                value={statusFilter}
+                onChange={(e) => setStatusFilter(e.target.value)}
+                aria-label={t("status")}
+              >
+                <option value="all">{t("allStatuses")}</option>
+                <option value="pending">{t("statusPending")}</option>
+                <option value="running">{t("statusRunning")}</option>
+                <option value="stopping">{t("statusStopping")}</option>
+                <option value="exited">{t("statusExited")}</option>
+                <option value="failed">{t("statusFailed")}</option>
+              </select>
+              <Button
+                type="button"
+                variant="outline"
+                ref={moreFiltersButtonRef}
+                onClick={() => setMoreFiltersOpen((open) => !open)}
+                aria-expanded={moreFiltersOpen}
+                aria-controls={moreFiltersOpen ? "sessions-more-filters" : undefined}
+              >
+                <SlidersHorizontal className="mr-1.5 h-4 w-4" />
+                {t("moreFilters")}
+                {activeMoreFilterCount > 0 && (
+                  <Badge variant="secondary" className="ml-1.5">
+                    {activeMoreFilterCount}
+                  </Badge>
+                )}
+                <ChevronDown
+                  className={cn(
+                    "ml-1.5 h-4 w-4 transition-transform",
+                    moreFiltersOpen && "rotate-180",
+                  )}
                 />
-              </div>
-              <div className="space-y-2">
-                <label className="text-sm font-medium text-foreground" htmlFor="task-id-search">
-                  {t("taskIdSearch")}
-                </label>
-                <Input
-                  id="task-id-search"
-                  value={taskIdQuery}
-                  onChange={(event) => setTaskIdQuery(event.target.value)}
-                  placeholder={t("taskIdPlaceholder")}
-                />
-              </div>
-              <div className="space-y-2">
-                <label
-                  className="text-sm font-medium text-foreground"
-                  htmlFor="session-content-search"
-                >
-                  {t("contentSearch")}
-                </label>
-                <Input
-                  id="session-content-search"
-                  value={contentQuery}
-                  onChange={(event) => setContentQuery(event.target.value)}
-                  placeholder={t("contentPlaceholder")}
-                />
-              </div>
+              </Button>
             </div>
 
-            <div className="grid gap-3 md:grid-cols-5">
-              <div className="space-y-2">
-                <label className="text-sm font-medium">{t("status")}</label>
-                <select
-                  className="h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
-                  value={statusFilter}
-                  onChange={(e) => setStatusFilter(e.target.value)}
-                >
-                  <option value="all">{t("allStatuses")}</option>
-                  <option value="pending">{t("statusPending")}</option>
-                  <option value="running">{t("statusRunning")}</option>
-                  <option value="stopping">{t("statusStopping")}</option>
-                  <option value="exited">{t("statusExited")}</option>
-                  <option value="failed">{t("statusFailed")}</option>
-                </select>
+            {moreFiltersOpen && (
+              <div
+                id="sessions-more-filters"
+                className="space-y-3 rounded-lg border border-border/60 bg-muted/30 p-3"
+              >
+                <div className="grid gap-3 md:grid-cols-3">
+                  <div className="space-y-2">
+                    <label
+                      className="text-sm font-medium text-foreground"
+                      htmlFor="session-id-search"
+                    >
+                      {t("sessionIdSearch")}
+                    </label>
+                    <Input
+                      id="session-id-search"
+                      value={sessionIdQuery}
+                      onChange={(event) => setSessionIdQuery(event.target.value)}
+                      placeholder={t("sessionIdPlaceholder")}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium text-foreground" htmlFor="task-id-search">
+                      {t("taskIdSearch")}
+                    </label>
+                    <Input
+                      id="task-id-search"
+                      value={taskIdQuery}
+                      onChange={(event) => setTaskIdQuery(event.target.value)}
+                      placeholder={t("taskIdPlaceholder")}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">{t("kind")}</label>
+                    <select
+                      className="h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
+                      value={kindFilter}
+                      onChange={(e) => setKindFilter(e.target.value)}
+                    >
+                      <option value="all">{t("allKinds")}</option>
+                      <option value="execution">{t("kindExecution")}</option>
+                      <option value="review">{t("kindReview")}</option>
+                    </select>
+                  </div>
+                </div>
+                <div className="grid gap-3 md:grid-cols-3">
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">{t("provider")}</label>
+                    <select
+                      className="h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
+                      value={providerFilter}
+                      onChange={(e) => setProviderFilter(e.target.value)}
+                    >
+                      <option value="all">{t("allProviders")}</option>
+                      {AI_PROVIDER_OPTIONS.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">{t("employee")}</label>
+                    <select
+                      className="h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
+                      value={employeeFilter}
+                      onChange={(e) => setEmployeeFilter(e.target.value)}
+                    >
+                      <option value="all">{t("allEmployees")}</option>
+                      {employees.map((employee) => (
+                        <option key={employee.id} value={employee.id}>
+                          {employee.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="flex items-end pb-1">
+                    <label className="flex items-center gap-2 text-sm">
+                      <input
+                        type="checkbox"
+                        checked={failedOnly}
+                        onChange={(e) => setFailedOnly(e.target.checked)}
+                      />
+                      {t("failedOnly")}
+                    </label>
+                  </div>
+                </div>
               </div>
-              <div className="space-y-2">
-                <label className="text-sm font-medium">{t("kind")}</label>
-                <select
-                  className="h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
-                  value={kindFilter}
-                  onChange={(e) => setKindFilter(e.target.value)}
-                >
-                  <option value="all">{t("allKinds")}</option>
-                  <option value="execution">{t("kindExecution")}</option>
-                  <option value="review">{t("kindReview")}</option>
-                </select>
+            )}
+
+            {loading ? (
+              <div className="flex h-[28rem] items-center justify-center rounded-xl border border-border/70 text-sm text-muted-foreground">
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                {t("loading")}
               </div>
-              <div className="space-y-2">
-                <label className="text-sm font-medium">{t("provider")}</label>
-                <select
-                  className="h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
-                  value={providerFilter}
-                  onChange={(e) => setProviderFilter(e.target.value)}
-                >
-                  <option value="all">{t("allProviders")}</option>
-                  {AI_PROVIDER_OPTIONS.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
+            ) : filteredSessions.length === 0 ? (
+              <div className="flex h-[28rem] items-center justify-center rounded-xl border border-border/70 text-sm text-muted-foreground">
+                {t("emptyFiltered")}
               </div>
-              <div className="space-y-2">
-                <label className="text-sm font-medium">{t("employee")}</label>
-                <select
-                  className="h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
-                  value={employeeFilter}
-                  onChange={(e) => setEmployeeFilter(e.target.value)}
-                >
-                  <option value="all">{t("allEmployees")}</option>
-                  {employees.map((employee) => (
-                    <option key={employee.id} value={employee.id}>
-                      {employee.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div className="flex items-end pb-1">
-                <label className="flex items-center gap-2 text-sm">
-                  <input
-                    type="checkbox"
-                    checked={failedOnly}
-                    onChange={(e) => setFailedOnly(e.target.checked)}
+            ) : viewMode === "card" ? (
+              <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                {pageSessions.map((session) => (
+                  <SessionCard
+                    key={session.session_record_id}
+                    session={session}
+                    highlighted={matchesSessionIdentifier(session, highlightedSessionId)}
+                    stopping={stoppingSessionId === session.session_record_id}
+                    onContinue={openContinueDialog}
+                    onStop={(target) => void handleStopSession(target)}
+                    onViewLog={openLogDialog}
+                    onViewChanges={openChangeDialog}
                   />
-                  {t("failedOnly")}
-                </label>
+                ))}
               </div>
-            </div>
-
-            <div className="overflow-hidden rounded-xl border border-border/70">
-              {loading ? (
-                <div className="flex h-[28rem] items-center justify-center text-sm text-muted-foreground">
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  {t("loading")}
-                </div>
-              ) : filteredSessions.length === 0 ? (
-                <div className="flex h-[28rem] items-center justify-center text-sm text-muted-foreground">
-                  {t("emptyFiltered")}
-                </div>
-              ) : (
+            ) : (
+              <div className="overflow-hidden rounded-xl border border-border/70">
                 <div className="overflow-x-auto">
                   <table className="min-w-full text-sm">
                     <thead className="bg-muted/40 text-left">
@@ -734,40 +765,48 @@ export function SessionsPage() {
                         >
                           <td className="px-4 py-3">
                             <div className="space-y-1">
-                              <div className="font-medium">{session.display_name}</div>
-                              <div className="font-mono text-xs text-muted-foreground">
+                              <div
+                                className="max-w-md truncate font-medium"
+                                title={session.display_name}
+                              >
+                                {session.display_name}
+                              </div>
+                              <div
+                                className="max-w-md truncate font-mono text-xs text-muted-foreground"
+                                title={session.session_id}
+                              >
                                 {session.session_id}
                               </div>
                               {session.summary && (
-                                <div className="max-w-md text-xs text-muted-foreground">
+                                <div
+                                  className="max-w-md truncate text-xs text-muted-foreground"
+                                  title={session.summary}
+                                >
                                   {session.summary}
                                 </div>
                               )}
                               {session.content_preview && (
-                                <div className="max-w-md text-xs text-muted-foreground/80">
+                                <div
+                                  className="max-w-md truncate text-xs text-muted-foreground/80"
+                                  title={session.content_preview}
+                                >
                                   {t("contentPrefix", { preview: session.content_preview })}
                                 </div>
                               )}
                             </div>
                           </td>
                           <td className="px-4 py-3">
-                            <div className="flex flex-col gap-2">
-                              <Badge variant="outline">
-                                {formatSessionKind(session.session_kind)}
-                              </Badge>
-                              <Badge variant="secondary">
-                                {formatSessionStatus(session.status)}
-                              </Badge>
-                              <Badge
-                                variant={session.execution_target === "ssh" ? "default" : "outline"}
-                              >
-                                {session.execution_target === "ssh"
-                                  ? t("common:sshShort")
-                                  : t("common:localShort")}
-                              </Badge>
-                              <Badge variant={resumeBadgeVariant(session.resume_status)}>
-                                {formatResumeStatus(session.resume_status)}
-                              </Badge>
+                            <Badge variant={sessionStatusBadgeVariant(session.status)}>
+                              {formatSessionStatus(session.status)}
+                            </Badge>
+                            <div className="mt-1 whitespace-nowrap text-[11px] text-muted-foreground">
+                              {formatSessionKind(session.session_kind)}
+                              {" · "}
+                              {session.execution_target === "ssh"
+                                ? t("common:sshShort")
+                                : t("common:localShort")}
+                              {" · "}
+                              {formatResumeStatus(session.resume_status)}
                             </div>
                           </td>
                           <td className="px-4 py-3">
@@ -779,21 +818,32 @@ export function SessionsPage() {
                               {formatAiProviderLabel(normalizeAiProvider(session.ai_provider))}
                             </Badge>
                           </td>
-                          <td className="px-4 py-3 text-xs text-muted-foreground">
+                          <td className="whitespace-nowrap px-4 py-3 text-xs text-muted-foreground">
                             {formatDate(session.last_updated_at)}
                           </td>
                           <td className="px-4 py-3">
                             <div className="space-y-1 text-xs">
-                              <div>{session.task_title ?? t("noLinkedTask")}</div>
+                              <div
+                                className="max-w-56 truncate"
+                                title={session.task_title ?? undefined}
+                              >
+                                {session.task_title ?? t("noLinkedTask")}
+                              </div>
                               <div className="text-muted-foreground">
                                 {t("taskIdPrefix")}
                                 <span className="ml-1 font-mono">{session.task_id ?? "-"}</span>
                               </div>
-                              <div className="text-muted-foreground">
+                              <div
+                                className="max-w-56 truncate text-muted-foreground"
+                                title={session.project_name ?? undefined}
+                              >
                                 {session.project_name ?? t("noLinkedProject")}
                               </div>
                               {session.target_host_label && (
-                                <div className="text-muted-foreground">
+                                <div
+                                  className="max-w-56 truncate text-muted-foreground"
+                                  title={session.target_host_label}
+                                >
                                   {t("hostPrefix", { host: session.target_host_label })}
                                 </div>
                               )}
@@ -803,7 +853,10 @@ export function SessionsPage() {
                             <div className="space-y-1 text-xs">
                               <div>{session.employee_name ?? t("unboundEmployee")}</div>
                               {session.working_dir && (
-                                <div className="max-w-56 break-all text-muted-foreground">
+                                <div
+                                  className="max-w-56 truncate text-muted-foreground"
+                                  title={session.working_dir}
+                                >
                                   {session.working_dir}
                                 </div>
                               )}
@@ -816,38 +869,7 @@ export function SessionsPage() {
                             </div>
                           </td>
                           <td className="px-4 py-3">
-                            <div className="flex min-w-40 flex-col gap-2">
-                              {session.session_kind === "execution" && (
-                                <Button
-                                  type="button"
-                                  size="sm"
-                                  variant="secondary"
-                                  onClick={() => openChangeDialog(session)}
-                                >
-                                  {t("changes")}
-                                </Button>
-                              )}
-                              {(session.status === "running" || session.status === "stopping") && (
-                                <Button
-                                  type="button"
-                                  size="sm"
-                                  variant="destructive"
-                                  onClick={() => void handleStopSession(session)}
-                                  disabled={
-                                    session.status === "stopping" ||
-                                    stoppingSessionId === session.session_record_id
-                                  }
-                                >
-                                  {stoppingSessionId === session.session_record_id ? (
-                                    <>
-                                      <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
-                                      {t("stopping")}
-                                    </>
-                                  ) : (
-                                    t("stop")
-                                  )}
-                                </Button>
-                              )}
+                            <div className="flex items-center gap-1.5">
                               <Button
                                 type="button"
                                 size="sm"
@@ -866,20 +888,62 @@ export function SessionsPage() {
                               >
                                 {t("viewLog")}
                               </Button>
-                              {session.resume_message && (
-                                <div className="text-xs text-muted-foreground">
-                                  {session.resume_message}
-                                </div>
+                              {(session.session_kind === "execution" ||
+                                session.status === "running" ||
+                                session.status === "stopping") && (
+                                <DropdownMenu>
+                                  <DropdownMenuTrigger
+                                    className="inline-flex size-7 items-center justify-center rounded-lg border border-border bg-background text-foreground outline-none hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
+                                    aria-label={t("moreActions")}
+                                  >
+                                    <MoreHorizontal className="h-4 w-4" />
+                                  </DropdownMenuTrigger>
+                                  <DropdownMenuContent align="end" className="min-w-40">
+                                    {session.session_kind === "execution" && (
+                                      <DropdownMenuItem onClick={() => openChangeDialog(session)}>
+                                        {t("changes")}
+                                      </DropdownMenuItem>
+                                    )}
+                                    {(session.status === "running" ||
+                                      session.status === "stopping") && (
+                                      <DropdownMenuItem
+                                        variant="destructive"
+                                        disabled={
+                                          session.status === "stopping" ||
+                                          stoppingSessionId === session.session_record_id
+                                        }
+                                        onClick={() => void handleStopSession(session)}
+                                      >
+                                        {stoppingSessionId === session.session_record_id ? (
+                                          <>
+                                            <Loader2 className="animate-spin" />
+                                            {t("stopping")}
+                                          </>
+                                        ) : (
+                                          t("stop")
+                                        )}
+                                      </DropdownMenuItem>
+                                    )}
+                                  </DropdownMenuContent>
+                                </DropdownMenu>
                               )}
                             </div>
+                            {session.resume_message && (
+                              <div
+                                className="mt-1 max-w-56 truncate text-xs text-muted-foreground"
+                                title={session.resume_message}
+                              >
+                                {session.resume_message}
+                              </div>
+                            )}
                           </td>
                         </tr>
                       ))}
                     </tbody>
                   </table>
                 </div>
-              )}
-            </div>
+              </div>
+            )}
 
             <div className="flex items-center justify-between gap-3">
               <span className="text-xs text-muted-foreground">

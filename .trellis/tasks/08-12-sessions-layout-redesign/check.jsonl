@@ -1,0 +1,3 @@
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "验收前跑 build/lint/format/test 质量门与 a11y 检查"}
+{"file": ".trellis/spec/frontend/i18n.md", "reason": "核对新增 key 在 zh-CN 与 en 语言包中齐全、无硬编码文案"}
+{"file": ".trellis/spec/frontend/component-guidelines.md", "reason": "核对新组件遵循组件/样式约定，未重复造轮子"}

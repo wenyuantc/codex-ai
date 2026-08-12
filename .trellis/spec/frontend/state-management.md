@@ -74,6 +74,27 @@ For imperative work inside effects/event handlers, `useXStore.getState()` is acc
 - Do **not** optimistically force `task.status` from `session_kind` (e.g. execution → `in_progress`, review → `review`). Session id fields may update locally; status is owned by backend commands / automation and must come from `fetchTasks` / `updateTaskStatus` / returned task rows.
 - After manual **stop**, refresh `employeeRuntime` **and** `automationStates` (and tasks if status/timer fields change). Cards treat active automation phases (`waiting_execution`, `launching_fix`, …) as “running”; a stale phase shows permanent Loader UI even when the process is gone.
 
+## LocalStorage Persistence
+
+### Convention: Guard browser-only storage with `typeof window`
+
+**What**: Any exported helper that reads/writes `localStorage` must no-op (or return the documented default) when `typeof window === "undefined"`.
+
+**Why**: Vitest runs in the node env — unguarded `window.localStorage` access crashes the pure-function tests that Quality Guidelines require for new lib logic. Canonical reference: `src/lib/i18n/locale.ts` (`getStoredLocale`); persisted keys use the `codex-ai:*` prefix (e.g. `codex-ai:locale`, `codex-ai:sessions-view-mode`).
+
+**Example**:
+
+```ts
+export function getStoredSessionsViewMode(): SessionsViewMode {
+  if (typeof window === "undefined") {
+    return "card"; // documented default
+  }
+  return window.localStorage.getItem(SESSIONS_VIEW_MODE_STORAGE_KEY) === "table" ? "table" : "card";
+}
+```
+
+Stored values must fail closed to the default when corrupted (only an exact known value opts out of the default).
+
 ## Derived / Display Helpers
 
 Keep pure display derivation in `src/lib/utils.ts` or small lib modules, not duplicated inside multiple components:
