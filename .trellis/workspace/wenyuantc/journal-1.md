@@ -134,3 +134,25 @@ i18next zh-CN/en framework, main-path extraction, activity single-source, leftov
 ### Status
 
 [OK] **Completed**
+
+
+## Session 6: Sessions 布局重构收尾
+
+**Date**: 2026-08-12
+**Task**: Sessions 布局重构收尾
+**Branch**: `main`
+
+### Summary
+
+对话管理页完成卡片/表格可切换布局与筛选收敛；补齐 Pi 平台脚手架并排除 lint/format；质量门 format/lint/test/build 通过后提交、归档并推送。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `d3d17ef` | (see git log) |
+| `74e88d7` | (see git log) |
+
+### Status
+
+[OK] **Completed**

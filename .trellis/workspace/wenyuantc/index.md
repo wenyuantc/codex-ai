@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 5
-- **Last Active**: 2026-08-11
+- **Total Sessions**: 6
+- **Last Active**: 2026-08-12
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~115 | Active |
+| `journal-1.md` | ~158 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 6 | 2026-08-12 | Sessions 布局重构收尾 | `d3d17ef`, `74e88d7` | `main` |
 | 5 | 2026-08-11 | P3 send_input 真会话输入 | `2aac559`, `1f890b3` | `cursor/p3-send-input-planning` |
 | 4 | 2026-08-10 | P3 i18n I2 | `a1dd67f`, `16ad2a7` | `main` |
 | 3 | 2026-08-10 | P3 reports R1 | `eff5027`, `5fadede` | `main` |
