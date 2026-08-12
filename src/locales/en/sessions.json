@@ -87,6 +87,9 @@
   "inputLiveHint": "Log open: send follow-ups; End session or close this window to continue. Without the log open, the session exits automatically",
   "terminalEmpty": "No output yet",
   "terminalClear": "Clear log",
+  "terminalCopy": "Copy log",
+  "terminalCopied": "Copied",
+  "terminalExport": "Export log file",
   "terminalUserInputPrefix": "[User input]",
   "terminalEndSession": "[End session] Closed interactive input; waiting for process exit to continue the task",
   "continueDialog": {

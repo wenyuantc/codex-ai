@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { Eraser } from "lucide-react";
+import { Check, Copy, Download, Eraser } from "lucide-react";
 
 import { formatTerminalLine, getLineColor } from "@/components/tasks/detail/taskDetailViewHelpers";
 import { SessionInputBar } from "@/components/sessions/SessionInputBar";
@@ -82,6 +82,49 @@ export function CodexTerminal({
     return [];
   }, [lines, sessionLogs, sessionRecordId, taskId, taskLogs, sessionKind, i18n.language]);
 
+  const [logCopied, setLogCopied] = useState(false);
+  const copyResetRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (copyResetRef.current !== null) {
+        window.clearTimeout(copyResetRef.current);
+      }
+    };
+  }, []);
+
+  const handleCopyLog = async () => {
+    if (output.length === 0) {
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(output.map((item) => item.line).join("\n"));
+      setLogCopied(true);
+      if (copyResetRef.current !== null) {
+        window.clearTimeout(copyResetRef.current);
+      }
+      copyResetRef.current = window.setTimeout(() => setLogCopied(false), 1500);
+    } catch (error) {
+      console.error("Failed to copy terminal log:", error);
+    }
+  };
+
+  const handleExportLog = () => {
+    if (output.length === 0) {
+      return;
+    }
+    const content = output.map((item) => item.line).join("\n");
+    const blob = new Blob([content], { type: "text/plain;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    const scope = sessionRecordId ?? taskId ?? "output";
+    const timestamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-");
+    anchor.href = url;
+    anchor.download = `session-log-${scope}-${timestamp}.log`;
+    anchor.click();
+    URL.revokeObjectURL(url);
+  };
+
   const scrollParentRef = useRef<HTMLDivElement | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const shouldVirtualize = output.length >= VIRTUALIZE_THRESHOLD;
@@ -112,24 +155,48 @@ export function CodexTerminal({
     <div className={`relative ${className}`}>
       <div className="flex items-center justify-between px-2 py-1 bg-black/80 rounded-t border-b border-zinc-800">
         <span className="text-xs text-zinc-500 font-mono">终端输出</span>
-        {!hideClear && (
+        <div className="flex items-center gap-1">
           <button
             type="button"
-            onClick={() => {
-              if (sessionRecordId) {
-                clearSessionCodexOutput(sessionRecordId);
-                return;
-              }
-              if (taskId) {
-                clearTaskCodexOutput(taskId, sessionKind);
-              }
-            }}
-            className="p-0.5 text-zinc-500 hover:text-zinc-300 transition-colors"
-            title={t("terminalClear")}
+            onClick={() => void handleCopyLog()}
+            disabled={output.length === 0}
+            className="p-0.5 text-zinc-500 hover:text-zinc-300 transition-colors disabled:cursor-not-allowed disabled:opacity-40"
+            title={logCopied ? t("terminalCopied") : t("terminalCopy")}
           >
-            <Eraser className="h-3 w-3" />
+            {logCopied ? (
+              <Check className="h-3 w-3 text-green-500" />
+            ) : (
+              <Copy className="h-3 w-3" />
+            )}
           </button>
-        )}
+          <button
+            type="button"
+            onClick={handleExportLog}
+            disabled={output.length === 0}
+            className="p-0.5 text-zinc-500 hover:text-zinc-300 transition-colors disabled:cursor-not-allowed disabled:opacity-40"
+            title={t("terminalExport")}
+          >
+            <Download className="h-3 w-3" />
+          </button>
+          {!hideClear && (
+            <button
+              type="button"
+              onClick={() => {
+                if (sessionRecordId) {
+                  clearSessionCodexOutput(sessionRecordId);
+                  return;
+                }
+                if (taskId) {
+                  clearTaskCodexOutput(taskId, sessionKind);
+                }
+              }}
+              className="p-0.5 text-zinc-500 hover:text-zinc-300 transition-colors"
+              title={t("terminalClear")}
+            >
+              <Eraser className="h-3 w-3" />
+            </button>
+          )}
+        </div>
       </div>
       {shouldVirtualize ? (
         <div
