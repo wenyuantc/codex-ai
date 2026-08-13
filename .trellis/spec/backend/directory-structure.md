@@ -28,7 +28,7 @@ src-tauri/
     ├── db/
     │   ├── models.rs           # FromRow entities + command DTOs
     │   └── migrations.rs       # ordered Migration list
-    ├── engine/                 # Shared AI process kernel (context/child/manager/status)
+    ├── engine/                 # Shared AI process kernel (context/child/manager/status/usage)
     ├── codex/                  # Codex engine manager/process/settings/mcp/secrets
     ├── claude/                 # Claude engine
     ├── opencode/               # OpenCode engine

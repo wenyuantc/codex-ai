@@ -38,6 +38,7 @@ Clippy notes:
 Many modules include `#[cfg(test)]` blocks:
 - `notifications.rs`
 - `db/migrations.rs`
+- `engine/` kernel + `engine/usage.rs` (`UsageDelta` / `parse_usage_value`)
 - engine process modules (`codex/process`, `opencode/process`, ...)
 - `app/shared.rs`
 - `task_automation/prompt.rs`

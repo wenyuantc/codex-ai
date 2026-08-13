@@ -29,9 +29,10 @@ When adding columns:
 File: `src-tauri/src/db/migrations.rs`
 
 - `get_all_migrations() -> Vec<Migration>`
-- Strictly increasing `version` integers (currently through **41**)
+- Strictly increasing `version` integers (`1..=latest_migration_version()`; `migration_versions_are_contiguous` enforces this)
 - Each entry has `description` + SQL string
 - Applied at app startup by `tauri-plugin-sql` in `lib.rs`
+- After adding a version, update the `latest_migration_version()` assertion in `migrations.rs` tests
 
 ### Adding A Migration
 
@@ -59,6 +60,49 @@ Rules:
 Version 40 adds delivery management: `tasks.due_date`, `blocked_reason`, `milestone_id`, plus `milestones`, `tags`, `task_tags`, dependency tables. Follow this style for related delivery features.
 
 Version 41 adds `idx_codex_session_events_created_at` for session-events retention purge by `created_at`.
+
+Version 45 adds nullable token columns on `codex_sessions`: `input_tokens`, `output_tokens`, `total_tokens`, `reasoning_tokens` (all `INTEGER`, no default). **NULL means unknown** — never backfill 0. `SELECT *` / `CodexSessionRecord` / explicit INSERT fixtures must stay in sync; omitting the columns on INSERT is correct (they stay NULL until the first usage event).
+
+## Scenario: Session token columns (v45)
+
+### 1. Scope / Trigger
+- New persisted telemetry on shared `codex_sessions` (all engines). Cross-layer: migration + `FromRow` + insert lists + dashboard/task SUM commands.
+
+### 2. Signatures
+- DDL: `ALTER TABLE codex_sessions ADD COLUMN {input,output,total,reasoning}_tokens INTEGER;`
+- Persist: `apply_codex_session_usage(pool, session_record_id, &UsageDelta) -> Result<(), String>`
+- Read: `get_task_token_usage(task_id) -> TokenUsageSummary`
+
+### 3. Contracts
+- Columns nullable. First delta for a field uses `COALESCE(col, 0) + delta`; a NULL delta leaves that column unchanged.
+- Empty `UsageDelta` is a no-op (does not write zeros).
+- Token telemetry is **not** an activity-log domain event (would flood logs per stream tick).
+
+### 4. Validation & Error Matrix
+| Case | Behavior |
+|------|----------|
+| Empty delta | `Ok(())`, row stays NULL |
+| Unknown session id | UPDATE affects 0 rows; caller currently ignores (`let _ = apply_...`) like other stdout persist paths |
+| Parse miss | leave columns NULL; do not store 0 |
+
+### 5. Good / Base / Bad Cases
+- Good: first usage writes 812/45; second usage adds; NULL fields stay NULL until seen
+- Base: session never emits usage → all four columns NULL; UI hides the row
+- Bad: `DEFAULT 0` on the migration; `SUM` treating NULL sessions as 0 in a “has usage” empty state
+
+### 6. Tests Required
+- `latest_migration_version` / contiguous versions
+- Pool test: NULL until first delta, then accumulate (`app/tests/sql_and_session.rs`)
+
+### 7. Wrong vs Correct
+#### Wrong
+```sql
+ALTER TABLE codex_sessions ADD COLUMN total_tokens INTEGER NOT NULL DEFAULT 0;
+```
+#### Correct
+```sql
+ALTER TABLE codex_sessions ADD COLUMN total_tokens INTEGER; -- NULL = unknown
+```
 
 ### Session events retention (C2)
 

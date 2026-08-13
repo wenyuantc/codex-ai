@@ -118,6 +118,11 @@ For UI:
 **Bad**: add to `types.ts` and a form  
 **Good**: migration → Rust model → command SQL → types → UI
 
+### 2b. Unknown telemetry coerced to zero
+
+**Bad**: `NOT NULL DEFAULT 0` on usage/cost columns, or always showing `SUM(...)` as “0 tokens used”  
+**Good**: nullable columns; UI gates on `sessions_with_usage > 0`. See [Database & Migrations](../backend/database-migrations.md) v45 and [Dashboard Report](../backend/dashboard-report.md) token scenario.
+
 ### 3. Activity without label
 
 **Bad**: log `foo_bar_created` only in Rust  

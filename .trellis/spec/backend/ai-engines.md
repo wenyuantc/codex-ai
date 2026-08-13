@@ -13,6 +13,7 @@
 | `engine/stdin.rs` | NDJSON follow-up framing (`encode_session_followup_input`) + `write_stdin_bytes` (flush, keep pipe open) |
 | `engine/manager.rs` | `ProcessManager<SessionKind, Extra>` + `ManagedProcess` + `EngineProcessRegistry` trait |
 | `engine/status.rs` | `resolve_final_session_status` (stopping / exit 0 / failed) |
+| `engine/usage.rs` | `UsageDelta` + `parse_usage_value` / `usage_u64` — shared token parsing for all engines |
 
 Rules:
 - **Do not copy** manager / lifecycle / context implementations into a new engine — re-export or type-alias the shared kernel.
@@ -143,6 +144,7 @@ Before launch:
 During run:
 - Stream output/error events to the frontend (`onCodexOutput` / `onClaude*` / `onOpenCode*` / `onGrok*`)
 - Keep employee runtime status coherent (`busy` / online / error)
+- When a usage event is parsed, runtime (not `stream.rs`) calls `apply_codex_session_usage` — stream parsers stay pure.
 
 On exit:
 - Finalize session record
@@ -209,6 +211,62 @@ New engine features must not assume local filesystem diffs always exist.
 Both channels must share `serialize_opencode_bridge_config` — the bridge protocol has exactly one serializer. Adding a field for local only silently desyncs SSH.
 
 When adding another CLI engine, prefer **Claude/Grok process shape** over Codex SDK unless SDK is required.
+
+## Scenario: Token usage parse + persist (A1)
+
+### 1. Scope / Trigger
+- Any engine stdout/SDK event that reports token counts. Persist onto `codex_sessions` before/during session end. Local and SSH share the same reader (no SSH-only parser).
+
+### 2. Signatures
+- `parse_usage_value(&Value) -> Option<UsageDelta>`
+- `UsageDelta { input_tokens, output_tokens, total_tokens, reasoning_tokens: Option<u64> }`
+- Persist: `crate::app::apply_codex_session_usage(pool, session_record_id, &delta)`
+- Display: `UsageDelta::format_terminal_line() -> Option<String>` → `[用量] in=… out=…`
+
+### 3. Contracts
+- `parse_usage_value` accepts a wrapper (`usage` / `data`) or a bare usage object. Key fallbacks: `input_tokens` / `inputTokens` / `prompt_tokens` / `input`; same pattern for output/total/reasoning.
+- Missing `total` may be derived as input+output when both exist.
+- **Marker lines** (reuse `[CODEX_FILE_CHANGE]` style, **not** `[[codex-ai:usage]]`):
+  - Codex SDK: `[CODEX_USAGE] {json}`
+  - Claude SDK: `[CLAUDE_USAGE] {json}`
+  - Codex CLI `--json`: `turn.completed` + `usage`
+  - Claude CLI: `result` event + top-level `usage`
+  - Grok: JSON `type=usage`
+  - OpenCode: **SDK bridge only** (no second CLI stream). Bridge emits `{ "type": "usage", "data": { input_tokens, output_tokens, ... } }`; `stream_opencode_output` matches `"usage"`.
+- Stream `let _ = apply_codex_session_usage(...)` — persist failure must not kill the session (same as other stdout event writes).
+
+### 4. Validation & Error Matrix
+| Case | Behavior |
+|------|----------|
+| Unrecognized JSON / no keys | `None` — columns stay NULL |
+| Marker line with invalid JSON | skip persist |
+| Empty delta | persist no-op |
+| OpenCode CLI (does not exist) | N/A; do not invent a second parser |
+
+### 5. Good / Base / Bad Cases
+- Good: Codex `turn.completed` usage → session row + terminal `[用量]` line
+- Base: engine never emits usage → NULL columns, UI hidden
+- Bad: coerce parse miss to 0; put DB writes inside `process/stream.rs`; invent a unique `[[codex-ai:usage]]` marker that bypasses the existing `[CODEX_*]` convention
+
+### 6. Tests Required
+- `engine/usage.rs`: multi-key parse + OpenCode native `input`/`output` keys
+- Codex: CLI `turn.completed` + `[CODEX_USAGE]` marker
+- Claude: CLI `result` + `[CLAUDE_USAGE]` marker
+- Grok: `type=usage` structured delta
+- OpenCode: bridge `{"type":"usage","data":...}` in `opencode/process/mod.rs` tests
+
+### 7. Wrong vs Correct
+#### Wrong
+```rust
+// stream.rs opens sqlite and writes zeros on parse miss
+let total = parsed.total.unwrap_or(0);
+```
+#### Correct
+```rust
+if let Some(delta) = parse_usage_value(&value) {
+    let _ = apply_codex_session_usage(&pool, &session_id, &delta).await;
+}
+```
 
 ## Settings & Secrets
 
