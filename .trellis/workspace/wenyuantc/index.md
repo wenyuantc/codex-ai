@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 6
-- **Last Active**: 2026-08-12
+- **Total Sessions**: 7
+- **Last Active**: 2026-08-13
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~158 | Active |
+| `journal-1.md` | ~195 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 7 | 2026-08-13 | A1 token 用量落库与展示收尾 | `c0acc3c`, `429f772`, `bb01242` | `main` |
 | 6 | 2026-08-12 | Sessions 布局重构收尾 | `d3d17ef`, `74e88d7` | `main` |
 | 5 | 2026-08-11 | P3 send_input 真会话输入 | `2aac559`, `1f890b3` | `cursor/p3-send-input-planning` |
 | 4 | 2026-08-10 | P3 i18n I2 | `a1dd67f`, `16ad2a7` | `main` |

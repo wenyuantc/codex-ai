@@ -156,3 +156,40 @@ i18next zh-CN/en framework, main-path extraction, activity single-source, leftov
 ### Status
 
 [OK] **Completed**
+
+
+## Session 7: A1 token 用量落库与展示收尾
+
+**Date**: 2026-08-13
+**Task**: A1 token 用量落库与展示收尾
+**Branch**: `main`
+
+### Summary
+
+四引擎 token 解析落库，任务执行 Tab 与仪表盘展示用量；检查补齐 NULL 累加与 OpenCode 解析测试，并写入 backend spec。
+
+### Main Changes
+
+- codex_sessions 增加可空 token 列，无上报保持 NULL
+- 共享 UsageDelta 解析四引擎 CLI/SDK 用量并累加落库
+- 任务详情与仪表盘按 sessions_with_usage 展示，不假装 0
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `c0acc3c` | (see git log) |
+| `429f772` | (see git log) |
+| `bb01242` | (see git log) |
+
+### Testing
+
+- [OK] clippy / format:check / test:ci / build 通过；补 OpenCode 解析与 SUM 忽略未知会话测试
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 继续 B1 并发闸门与运行队列（工作区已有后端 WIP，前端未接）
