@@ -738,8 +738,34 @@ pub async fn start_claude(
     resume_session_id: Option<String>,
     image_paths: Option<Vec<String>>,
     session_kind: Option<String>,
-) -> Result<(), String> {
-    start_claude_with_manager(
+) -> Result<crate::run_queue::StartSessionOutcome, String> {
+    let mut reservation = None;
+    if crate::run_queue::should_gate_task_run(
+        task_id.as_deref(),
+        resume_session_id.as_deref(),
+        session_kind.as_deref(),
+    ) {
+        let gated_task_id = task_id.clone().expect("gated run has task_id");
+        let run = crate::run_queue::QueuedTaskRun {
+            provider: "claude".to_string(),
+            employee_id: employee_id.clone(),
+            task_description: task_description.clone(),
+            model: model.clone(),
+            reasoning_effort: reasoning_effort.clone(),
+            system_prompt: system_prompt.clone(),
+            working_dir: working_dir.clone(),
+            task_git_context_id: task_git_context_id.clone(),
+            image_paths: image_paths.clone(),
+        };
+        match crate::run_queue::gate_or_enqueue(&app, &gated_task_id, run).await? {
+            crate::run_queue::GateOutcome::Queued { position } => {
+                return Ok(crate::run_queue::StartSessionOutcome::Queued { position });
+            }
+            crate::run_queue::GateOutcome::Proceed(slot) => reservation = Some(slot),
+        }
+    }
+
+    let result = start_claude_with_manager(
         app,
         state.inner().clone(),
         employee_id,
@@ -754,7 +780,9 @@ pub async fn start_claude(
         image_paths,
         session_kind,
     )
-    .await
+    .await;
+    drop(reservation);
+    result.map(|_| crate::run_queue::StartSessionOutcome::Started)
 }
 
 pub async fn start_claude_with_manager(
@@ -1814,4 +1842,5 @@ pub async fn restart_claude(
         session_kind,
     )
     .await
+    .map(|_| ())
 }

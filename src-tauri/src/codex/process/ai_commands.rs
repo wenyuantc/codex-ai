@@ -3,9 +3,8 @@ use tauri::{AppHandle, Runtime};
 
 use super::{
     build_ai_generate_commit_message_prompt, build_ai_generate_plan_prompt,
-    build_ai_generate_plan_prompt_with_attachments,
-    build_ai_generate_tester_acceptance_prompt, build_ai_optimize_prompt_prompt,
-    parse_ai_subtasks_response, resolve_project_execution_context,
+    build_ai_generate_plan_prompt_with_attachments, build_ai_generate_tester_acceptance_prompt,
+    build_ai_optimize_prompt_prompt, parse_ai_subtasks_response, resolve_project_execution_context,
     resolve_task_project_execution_context, run_ai_command, ExecutionContext,
 };
 use crate::app::{
@@ -13,11 +12,11 @@ use crate::app::{
     fetch_task_subtasks, insert_activity_log, new_id, now_sqlite, sqlite_pool,
     task_attachment_is_image, PROJECT_TYPE_SSH,
 };
-use crate::db::models::Employee;
 use crate::codex::{
     find_ai_prompt_template, load_ai_prompt_templates, load_codex_settings,
     load_remote_codex_settings,
 };
+use crate::db::models::Employee;
 
 /// Process-language phrases that indicate the model is describing git staging
 /// workflow rather than product/code changes. Prefer multi-character phrases
@@ -249,12 +248,17 @@ async fn resolve_tester_for_acceptance(
     if let Some(tester_id) = tester_id.map(str::trim).filter(|value| !value.is_empty()) {
         let tester = fetch_employee_by_id(pool, tester_id).await?;
         if tester.role != "tester" {
-            return Err(format!("员工 {} 不是测试员角色，无法生成验收清单", tester.name));
+            return Err(format!(
+                "员工 {} 不是测试员角色，无法生成验收清单",
+                tester.name
+            ));
         }
         return Ok(tester);
     }
 
-    let Some(reviewer_id) = task_reviewer_id.map(str::trim).filter(|value| !value.is_empty())
+    let Some(reviewer_id) = task_reviewer_id
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
     else {
         return Err("当前任务未指定测试员，请指定 tester_id 或将测试员设为审查员".to_string());
     };
@@ -515,9 +519,8 @@ pub async fn ai_suggest_assignee(
     task_id: Option<String>,
     working_dir: Option<String>,
 ) -> Result<String, String> {
-    let templates = load_ai_prompt_templates(&app).unwrap_or_else(|_| {
-        crate::codex::default_ai_prompt_templates()
-    });
+    let templates = load_ai_prompt_templates(&app)
+        .unwrap_or_else(|_| crate::codex::default_ai_prompt_templates());
     let template = find_ai_prompt_template(&templates, "suggest_assignee");
     let output_goal = template
         .map(|value| value.output_goal.as_str())
@@ -613,9 +616,8 @@ pub async fn ai_generate_plan(
     task_id: Option<String>,
     working_dir: Option<String>,
 ) -> Result<String, String> {
-    let templates = load_ai_prompt_templates(&app).unwrap_or_else(|_| {
-        crate::codex::default_ai_prompt_templates()
-    });
+    let templates = load_ai_prompt_templates(&app)
+        .unwrap_or_else(|_| crate::codex::default_ai_prompt_templates());
     let plan_template = find_ai_prompt_template(&templates, "coordinator_plan");
     let prompt = build_ai_generate_plan_prompt(
         &task_title,
@@ -680,7 +682,9 @@ fn extract_json_object_slice(raw: &str) -> Option<&str> {
     Some(trimmed[start..=end].trim())
 }
 
-fn parse_coordinator_structured_plan(raw: &str) -> Result<(String, Vec<CoordinatorPlanStepDraft>), String> {
+fn parse_coordinator_structured_plan(
+    raw: &str,
+) -> Result<(String, Vec<CoordinatorPlanStepDraft>), String> {
     if let Some(json_slice) = extract_json_object_slice(raw) {
         if let Ok(parsed) = serde_json::from_str::<CoordinatorPlanStructured>(json_slice) {
             let markdown = parsed.markdown.trim().to_string();
@@ -771,13 +775,12 @@ async fn replace_task_pipeline_steps_from_plan(
         .map_err(|error| format!("Failed to insert pipeline step: {}", error))?;
     }
 
-    let count = sqlx::query_scalar::<_, i64>(
-        "SELECT COUNT(*) FROM task_pipeline_steps WHERE task_id = $1",
-    )
-    .bind(task_id)
-    .fetch_one(pool)
-    .await
-    .map_err(|error| format!("Failed to count pipeline steps: {}", error))?;
+    let count =
+        sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM task_pipeline_steps WHERE task_id = $1")
+            .bind(task_id)
+            .fetch_one(pool)
+            .await
+            .map_err(|error| format!("Failed to count pipeline steps: {}", error))?;
 
     if count == 0 {
         return Err("结构化计划未包含有效工作包步骤".to_string());
@@ -825,11 +828,7 @@ pub async fn ai_generate_coordinator_task_plan(
             .map(|employee| {
                 format!(
                     "- id={} | name={} | role={} | provider={} | model={}",
-                    employee.id,
-                    employee.name,
-                    employee.role,
-                    employee.ai_provider,
-                    employee.model
+                    employee.id, employee.name, employee.role, employee.ai_provider, employee.model
                 )
             })
             .collect::<Vec<_>>()
@@ -856,9 +855,8 @@ pub async fn ai_generate_coordinator_task_plan(
         .unwrap_or_else(|| task.description.as_deref().unwrap_or_default());
     let task_status = payload.status.trim();
     let task_priority = payload.priority.trim();
-    let templates = load_ai_prompt_templates(&app).unwrap_or_else(|_| {
-        crate::codex::default_ai_prompt_templates()
-    });
+    let templates = load_ai_prompt_templates(&app)
+        .unwrap_or_else(|_| crate::codex::default_ai_prompt_templates());
     let plan_template = find_ai_prompt_template(&templates, "coordinator_plan");
     let base_prompt = build_ai_generate_plan_prompt_with_attachments(
         if task_title.is_empty() {
@@ -967,9 +965,8 @@ pub async fn ai_generate_tester_acceptance(
         .iter()
         .map(|subtask| subtask.title.clone())
         .collect::<Vec<_>>();
-    let templates = load_ai_prompt_templates(&app).unwrap_or_else(|_| {
-        crate::codex::default_ai_prompt_templates()
-    });
+    let templates = load_ai_prompt_templates(&app)
+        .unwrap_or_else(|_| crate::codex::default_ai_prompt_templates());
     let acceptance_template = find_ai_prompt_template(&templates, "tester_acceptance");
     let prompt = build_ai_generate_tester_acceptance_prompt(
         &task.title,
@@ -1102,9 +1099,8 @@ pub async fn ai_optimize_prompt(
     employee_specialization: Option<String>,
     employee_draft_system_prompt: Option<String>,
 ) -> Result<String, String> {
-    let templates = load_ai_prompt_templates(&app).unwrap_or_else(|_| {
-        crate::codex::default_ai_prompt_templates()
-    });
+    let templates = load_ai_prompt_templates(&app)
+        .unwrap_or_else(|_| crate::codex::default_ai_prompt_templates());
     let scene_template = find_ai_prompt_template(&templates, &scene);
     let prompt = build_ai_optimize_prompt_prompt(
         &scene,
@@ -1182,9 +1178,8 @@ pub async fn ai_split_subtasks(
     task_id: Option<String>,
     working_dir: Option<String>,
 ) -> Result<Vec<String>, String> {
-    let templates = load_ai_prompt_templates(&app).unwrap_or_else(|_| {
-        crate::codex::default_ai_prompt_templates()
-    });
+    let templates = load_ai_prompt_templates(&app)
+        .unwrap_or_else(|_| crate::codex::default_ai_prompt_templates());
     let template = find_ai_prompt_template(&templates, "generate_subtasks");
     let output_goal = template
         .map(|value| value.output_goal.as_str())
@@ -1267,6 +1262,7 @@ mod tests {
             node_path_override: None,
             sdk_install_dir: "/tmp/codex-sdk".to_string(),
             one_shot_preferred_provider: one_shot_provider.to_string(),
+            max_concurrent_sessions: 3,
         }
     }
 

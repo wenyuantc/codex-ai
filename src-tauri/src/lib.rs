@@ -14,6 +14,7 @@ mod grok;
 mod notifications;
 mod opencode;
 mod process_spawn;
+mod run_queue;
 mod task_automation;
 mod tray;
 mod window_event;
@@ -48,6 +49,7 @@ pub fn run() {
             app.manage(Arc::new(tokio::sync::Mutex::new(GrokManager::new())));
             let opencode_manager = Arc::new(tokio::sync::Mutex::new(OpenCodeManager::new()));
             app.manage(opencode_manager.clone());
+            app.manage(Arc::new(run_queue::RunQueueGate::default()));
             let app_handle = app.handle().clone();
             if let Err(error) = window_state::restore_main_window_size(&app_handle) {
                 eprintln!("恢复主窗口尺寸失败: {error}");
@@ -69,6 +71,7 @@ pub fn run() {
             }
 
             task_automation::spawn_resume_pending_automation(app_handle.clone());
+            run_queue::spawn_drain(app_handle.clone());
             opencode::spawn_opencode_sdk_server_on_startup(app_handle.clone(), opencode_manager);
 
             Ok(())
@@ -294,6 +297,8 @@ pub fn run() {
             opencode::finish_opencode_input,
             opencode::set_opencode_await_followups,
             opencode::get_opencode_models,
+            run_queue::list_task_run_queue,
+            run_queue::cancel_queued_task_run,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -1390,6 +1390,7 @@ async fn stream_opencode_output(
     }
 
     task_automation::handle_session_exit_blocking(app.clone(), session_record_id.clone()).await;
+    crate::run_queue::spawn_drain(app.clone());
 
     let _ = app.emit(
         "opencode-exit",
@@ -1499,8 +1500,34 @@ pub async fn start_opencode(
     task_git_context_id: Option<String>,
     resume_session_id: Option<String>,
     image_paths: Option<Vec<String>>,
-) -> Result<(), String> {
-    start_opencode_with_manager(
+) -> Result<crate::run_queue::StartSessionOutcome, String> {
+    let mut reservation = None;
+    if crate::run_queue::should_gate_task_run(
+        task_id.as_deref(),
+        resume_session_id.as_deref(),
+        None,
+    ) {
+        let gated_task_id = task_id.clone().expect("gated run has task_id");
+        let run = crate::run_queue::QueuedTaskRun {
+            provider: "opencode".to_string(),
+            employee_id: employee_id.clone(),
+            task_description: task_description.clone(),
+            model: model.clone(),
+            reasoning_effort: None,
+            system_prompt: None,
+            working_dir: working_dir.clone(),
+            task_git_context_id: task_git_context_id.clone(),
+            image_paths: image_paths.clone(),
+        };
+        match crate::run_queue::gate_or_enqueue(&app, &gated_task_id, run).await? {
+            crate::run_queue::GateOutcome::Queued { position } => {
+                return Ok(crate::run_queue::StartSessionOutcome::Queued { position });
+            }
+            crate::run_queue::GateOutcome::Proceed(slot) => reservation = Some(slot),
+        }
+    }
+
+    let result = start_opencode_with_manager(
         app,
         state.inner().clone(),
         employee_id,
@@ -1512,7 +1539,9 @@ pub async fn start_opencode(
         resume_session_id,
         image_paths,
     )
-    .await
+    .await;
+    drop(reservation);
+    result.map(|_| crate::run_queue::StartSessionOutcome::Started)
 }
 
 pub async fn start_opencode_with_manager(
@@ -2486,6 +2515,7 @@ pub async fn restart_opencode(
         image_paths,
     )
     .await
+    .map(|_| ())
 }
 
 use tokio::io::AsyncReadExt;
@@ -2902,5 +2932,26 @@ mod tests {
             .expect("restore should remove generated file");
         assert!(!config_path.exists());
         let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn parse_bridge_usage_event_reads_token_delta() {
+        let event = parse_opencode_bridge_event(
+            r#"{"type":"usage","data":{"input_tokens":40,"output_tokens":12,"reasoning_tokens":3},"timestamp":1}"#,
+        )
+        .expect("usage event should parse");
+
+        assert_eq!(event.event_type, "usage");
+        let usage = crate::engine::parse_usage_value(&event.data).expect("usage delta");
+        assert_eq!(usage.input_tokens, Some(40));
+        assert_eq!(usage.output_tokens, Some(12));
+        assert_eq!(usage.reasoning_tokens, Some(3));
+        assert_eq!(usage.total_tokens, Some(52));
+
+        let stdout = parse_opencode_bridge_event(
+            r#"{"type":"stdout","data":{"line":"[OUTPUT] hi"},"timestamp":2}"#,
+        )
+        .expect("stdout event");
+        assert!(crate::engine::parse_usage_value(&stdout.data).is_none());
     }
 }

@@ -473,6 +473,8 @@ pub struct CodexSettings {
     pub node_path_override: Option<String>,
     pub sdk_install_dir: String,
     pub one_shot_preferred_provider: String,
+    /// 全局任务执行会话并发上限；0 表示不限制。
+    pub max_concurrent_sessions: i32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1354,6 +1356,7 @@ pub struct UpdateCodexSettings {
     pub task_automation_failure_strategy: Option<String>,
     pub tester_automation_enabled: Option<bool>,
     pub tester_allow_ai_only: Option<bool>,
+    pub max_concurrent_sessions: Option<i32>,
     #[serde(default, deserialize_with = "deserialize_explicit_nullable")]
     pub default_test_command: Option<Option<String>>,
     pub git_preferences: Option<UpdateGitPreferences>,

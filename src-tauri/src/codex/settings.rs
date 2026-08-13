@@ -28,6 +28,7 @@ const DEFAULT_ONE_SHOT_PROVIDER: &str = "codex";
 const DEFAULT_ONE_SHOT_REASONING_EFFORT: &str = "high";
 const DEFAULT_ONE_SHOT_OPENCODE_MODEL: &str = "openai/gpt-4o";
 const DEFAULT_TASK_AUTOMATION_MAX_FIX_ROUNDS: i32 = 3;
+const DEFAULT_MAX_CONCURRENT_SESSIONS: i32 = 3;
 const DEFAULT_TASK_AUTOMATION_FAILURE_STRATEGY: &str = "blocked";
 const DEFAULT_WORKTREE_LOCATION_MODE: &str = "repo_sibling_hidden";
 const DEFAULT_AI_COMMIT_MESSAGE_LENGTH: &str = "title_with_body";
@@ -127,6 +128,8 @@ struct RawCodexSettings {
     sdk_install_dir: Option<String>,
     #[serde(default)]
     one_shot_preferred_provider: Option<String>,
+    #[serde(default)]
+    max_concurrent_sessions: Option<i32>,
 }
 
 #[derive(Debug, Default, Deserialize, Serialize)]
@@ -191,6 +194,14 @@ fn normalize_task_automation_max_fix_rounds(value: Option<i32>) -> i32 {
     match value {
         Some(value) if (1..=10).contains(&value) => value,
         _ => DEFAULT_TASK_AUTOMATION_MAX_FIX_ROUNDS,
+    }
+}
+
+/// 0 表示不限制并发；其余取 0..=64 之外的值回落默认值。
+pub(crate) fn normalize_max_concurrent_sessions(value: Option<i32>) -> i32 {
+    match value {
+        Some(value) if (0..=64).contains(&value) => value,
+        _ => DEFAULT_MAX_CONCURRENT_SESSIONS,
     }
 }
 
@@ -412,6 +423,7 @@ fn default_codex_settings_with_install_dir(install_dir: String) -> CodexSettings
         git_preferences: default_git_preferences(),
         node_path_override: None,
         sdk_install_dir: install_dir,
+        max_concurrent_sessions: DEFAULT_MAX_CONCURRENT_SESSIONS,
     }
 }
 
@@ -510,6 +522,9 @@ fn normalize_settings_with_scope(
         node_path_override: normalize_optional_text(settings.node_path_override.as_deref()),
         sdk_install_dir: normalize_optional_text(Some(&settings.sdk_install_dir))
             .unwrap_or_else(|| default_install_dir.to_string()),
+        max_concurrent_sessions: normalize_max_concurrent_sessions(Some(
+            settings.max_concurrent_sessions,
+        )),
     }
 }
 
@@ -556,6 +571,7 @@ fn normalize_raw_settings_with_scope(
         node_path_override: normalize_optional_text(raw.node_path_override.as_deref()),
         sdk_install_dir: normalize_optional_text(raw.sdk_install_dir.as_deref())
             .unwrap_or_else(|| default_install_dir.to_string()),
+        max_concurrent_sessions: normalize_max_concurrent_sessions(raw.max_concurrent_sessions),
     }
 }
 
@@ -824,6 +840,11 @@ pub fn merge_codex_settings<R: Runtime>(
 
     if let Some(tester_allow_ai_only) = updates.tester_allow_ai_only {
         settings.tester_allow_ai_only = tester_allow_ai_only;
+    }
+
+    if let Some(max_concurrent_sessions) = updates.max_concurrent_sessions {
+        settings.max_concurrent_sessions =
+            normalize_max_concurrent_sessions(Some(max_concurrent_sessions));
     }
 
     if let Some(default_test_command) = updates.default_test_command {
@@ -1470,8 +1491,7 @@ mod tests {
         };
         let base = create_temp_dir();
         write_cli_package_json(&base);
-        let binary_path =
-            write_platform_binary(&base, "bin").expect("create modern layout binary");
+        let binary_path = write_platform_binary(&base, "bin").expect("create modern layout binary");
 
         assert!(sdk_cli_binaries_available(&base));
         assert_eq!(
@@ -1610,10 +1630,7 @@ mod tests {
             normalize_one_shot_model("grok", Some("custom/model")),
             "custom/model"
         );
-        assert_eq!(
-            normalize_one_shot_model("grok", Some("")),
-            "grok-4.5"
-        );
+        assert_eq!(normalize_one_shot_model("grok", Some("")), "grok-4.5");
         assert_eq!(
             normalize_one_shot_reasoning_effort("grok", Some("medium")),
             "medium"

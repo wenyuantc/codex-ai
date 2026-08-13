@@ -178,12 +178,8 @@ pub fn build_grok_prompt_json(prompt: &str, image_paths: &[String]) -> Result<St
 
     for path in image_paths {
         let path = Path::new(path);
-        let bytes = fs::read(path).map_err(|error| {
-            format!(
-                "读取 Grok 图片附件失败（{}）: {error}",
-                path.display()
-            )
-        })?;
+        let bytes = fs::read(path)
+            .map_err(|error| format!("读取 Grok 图片附件失败（{}）: {error}", path.display()))?;
         let data = BASE64.encode(bytes);
         blocks.push(json!({
             "type": "image",
@@ -450,10 +446,7 @@ async fn ensure_no_cross_provider_conflict<R: Runtime>(
         let manager = opencode_state.lock().await;
         if let Some(task_id) = task_id {
             if manager
-                .get_task_process_any(
-                    task_id,
-                    crate::opencode::OpenCodeSessionKind::Execution,
-                )
+                .get_task_process_any(task_id, crate::opencode::OpenCodeSessionKind::Execution)
                 .is_some()
             {
                 return Err(format!(
@@ -580,9 +573,7 @@ async fn capture_grok_execution_change_baseline<R: Runtime>(
                 employee_id,
                 task_id,
                 session_kind,
-                format!(
-                    "[WARN] Grok 会话文件基线采集失败，文件详情将退化为最佳努力快照: {error}"
-                ),
+                format!("[WARN] Grok 会话文件基线采集失败，文件详情将退化为最佳努力快照: {error}"),
             )
             .await;
             None
@@ -620,8 +611,34 @@ pub async fn start_grok(
     resume_session_id: Option<String>,
     image_paths: Option<Vec<String>>,
     session_kind: Option<String>,
-) -> Result<(), String> {
-    start_grok_with_manager(
+) -> Result<crate::run_queue::StartSessionOutcome, String> {
+    let mut reservation = None;
+    if crate::run_queue::should_gate_task_run(
+        task_id.as_deref(),
+        resume_session_id.as_deref(),
+        session_kind.as_deref(),
+    ) {
+        let gated_task_id = task_id.clone().expect("gated run has task_id");
+        let run = crate::run_queue::QueuedTaskRun {
+            provider: "grok".to_string(),
+            employee_id: employee_id.clone(),
+            task_description: task_description.clone(),
+            model: model.clone(),
+            reasoning_effort: reasoning_effort.clone(),
+            system_prompt: system_prompt.clone(),
+            working_dir: working_dir.clone(),
+            task_git_context_id: task_git_context_id.clone(),
+            image_paths: image_paths.clone(),
+        };
+        match crate::run_queue::gate_or_enqueue(&app, &gated_task_id, run).await? {
+            crate::run_queue::GateOutcome::Queued { position } => {
+                return Ok(crate::run_queue::StartSessionOutcome::Queued { position });
+            }
+            crate::run_queue::GateOutcome::Proceed(slot) => reservation = Some(slot),
+        }
+    }
+
+    let result = start_grok_with_manager(
         app,
         state.inner().clone(),
         employee_id,
@@ -636,7 +653,9 @@ pub async fn start_grok(
         image_paths,
         session_kind,
     )
-    .await
+    .await;
+    drop(reservation);
+    result.map(|_| crate::run_queue::StartSessionOutcome::Started)
 }
 
 pub async fn start_grok_with_manager(
@@ -852,10 +871,11 @@ pub async fn start_grok_with_manager(
     }
 
     // 本地：通过 --prompt-json 内嵌 base64 图片。SSH：命令行过长风险，仍跳过图片。
-    let (effective_image_paths, prompt_json) =
-        if execution_context.execution_target == EXECUTION_TARGET_SSH {
-            if !image_paths.is_empty() {
-                emit_session_terminal_line(
+    let (effective_image_paths, prompt_json) = if execution_context.execution_target
+        == EXECUTION_TARGET_SSH
+    {
+        if !image_paths.is_empty() {
+            emit_session_terminal_line(
                     &app,
                     &pool,
                     &session_record.id,
@@ -868,43 +888,43 @@ pub async fn start_grok_with_manager(
                     ),
                 )
                 .await;
+        }
+        (Vec::new(), None)
+    } else if image_paths.is_empty() {
+        (Vec::new(), None)
+    } else {
+        match build_grok_prompt_json(&prompt, &image_paths) {
+            Ok(json) => {
+                emit_session_terminal_line(
+                    &app,
+                    &pool,
+                    &session_record.id,
+                    &employee_id,
+                    task_id.as_deref(),
+                    session_kind,
+                    format!(
+                        "[INFO] 已通过 prompt-json 附带 {} 张图片。",
+                        image_paths.len()
+                    ),
+                )
+                .await;
+                (image_paths.clone(), Some(json))
             }
-            (Vec::new(), None)
-        } else if image_paths.is_empty() {
-            (Vec::new(), None)
-        } else {
-            match build_grok_prompt_json(&prompt, &image_paths) {
-                Ok(json) => {
-                    emit_session_terminal_line(
-                        &app,
-                        &pool,
-                        &session_record.id,
-                        &employee_id,
-                        task_id.as_deref(),
-                        session_kind,
-                        format!(
-                            "[INFO] 已通过 prompt-json 附带 {} 张图片。",
-                            image_paths.len()
-                        ),
-                    )
-                    .await;
-                    (image_paths.clone(), Some(json))
-                }
-                Err(error) => {
-                    emit_session_terminal_line(
-                        &app,
-                        &pool,
-                        &session_record.id,
-                        &employee_id,
-                        task_id.as_deref(),
-                        session_kind,
-                        format!("[WARN] 构造 Grok 图片 prompt-json 失败，已跳过图片：{error}"),
-                    )
-                    .await;
-                    (Vec::new(), None)
-                }
+            Err(error) => {
+                emit_session_terminal_line(
+                    &app,
+                    &pool,
+                    &session_record.id,
+                    &employee_id,
+                    task_id.as_deref(),
+                    session_kind,
+                    format!("[WARN] 构造 Grok 图片 prompt-json 失败，已跳过图片：{error}"),
+                )
+                .await;
+                (Vec::new(), None)
             }
-        };
+        }
+    };
     let _ = effective_image_paths;
 
     let ssh_config_for_artifact_capture =
@@ -1426,6 +1446,7 @@ pub async fn restart_grok(
         session_kind,
     )
     .await
+    .map(|_| ())
 }
 
 #[cfg(test)]
@@ -1459,22 +1480,24 @@ mod tests {
             None,
         );
 
-        assert!(args.windows(2).any(|pair| pair[0] == "-p" && pair[1] == "修复 bug"));
+        assert!(args
+            .windows(2)
+            .any(|pair| pair[0] == "-p" && pair[1] == "修复 bug"));
         assert!(args
             .windows(2)
             .any(|pair| pair[0] == "-m" && pair[1] == "grok-4.5"));
-        assert!(args.windows(2).any(|pair| {
-            pair[0] == "--reasoning-effort" && pair[1] == "high"
-        }));
-        assert!(args.windows(2).any(|pair| {
-            pair[0] == "--output-format" && pair[1] == "streaming-json"
-        }));
-        assert!(args.windows(2).any(|pair| {
-            pair[0] == "--permission-mode" && pair[1] == "bypassPermissions"
-        }));
-        assert!(args.windows(2).any(|pair| {
-            pair[0] == "--system-prompt-override" && pair[1] == "你是工程师"
-        }));
+        assert!(args
+            .windows(2)
+            .any(|pair| { pair[0] == "--reasoning-effort" && pair[1] == "high" }));
+        assert!(args
+            .windows(2)
+            .any(|pair| { pair[0] == "--output-format" && pair[1] == "streaming-json" }));
+        assert!(args
+            .windows(2)
+            .any(|pair| { pair[0] == "--permission-mode" && pair[1] == "bypassPermissions" }));
+        assert!(args
+            .windows(2)
+            .any(|pair| { pair[0] == "--system-prompt-override" && pair[1] == "你是工程师" }));
         assert!(args
             .windows(2)
             .any(|pair| pair[0] == "--resume" && pair[1] == "sess-1"));
@@ -1527,9 +1550,11 @@ mod tests {
             None,
             Some(r#"[{"type":"text","text":"hi"}]"#),
         );
-        assert!(args.windows(2).any(|pair| {
-            pair[0] == "--prompt-json" && pair[1].contains(r#""type":"text""#)
-        }));
-        assert!(!args.windows(2).any(|pair| pair[0] == "-p" && pair[1] == "fallback"));
+        assert!(args
+            .windows(2)
+            .any(|pair| { pair[0] == "--prompt-json" && pair[1].contains(r#""type":"text""#) }));
+        assert!(!args
+            .windows(2)
+            .any(|pair| pair[0] == "-p" && pair[1] == "fallback"));
     }
 }

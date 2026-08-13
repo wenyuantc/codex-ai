@@ -1130,6 +1130,22 @@ pub fn get_all_migrations() -> Vec<Migration> {
             "#,
             kind: tauri_plugin_sql::MigrationKind::Up,
         },
+        Migration {
+            version: 46,
+            description: "task run queue for global concurrency gate",
+            sql: r#"
+                CREATE TABLE task_run_queue (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    task_id TEXT NOT NULL UNIQUE,
+                    provider TEXT NOT NULL,
+                    payload TEXT NOT NULL,
+                    status TEXT NOT NULL DEFAULT 'queued',
+                    enqueued_at TEXT NOT NULL DEFAULT (datetime('now')),
+                    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+                );
+            "#,
+            kind: tauri_plugin_sql::MigrationKind::Up,
+        },
     ]
 }
 
@@ -1171,7 +1187,29 @@ mod tests {
 
     #[test]
     fn latest_migration_version_includes_session_events_retention_index() {
-        assert_eq!(latest_migration_version(), 45);
+        assert_eq!(latest_migration_version(), 46);
+    }
+
+    #[test]
+    fn migration_46_creates_task_run_queue() {
+        tauri::async_runtime::block_on(async {
+            let pool = setup_test_pool_through(46).await;
+
+            let columns: Vec<String> = sqlx::query(
+                "SELECT name FROM pragma_table_info('task_run_queue') WHERE name IN ('task_id', 'provider', 'payload', 'status', 'enqueued_at') ORDER BY name",
+            )
+            .fetch_all(&pool)
+            .await
+            .expect("read task_run_queue columns")
+            .into_iter()
+            .map(|row| row.get::<String, _>("name"))
+            .collect();
+
+            assert_eq!(
+                columns,
+                vec!["enqueued_at", "payload", "provider", "status", "task_id"]
+            );
+        });
     }
 
     #[test]

@@ -442,6 +442,7 @@ pub(super) fn spawn_claude_session_runtime(
                 session_record_id.clone(),
             )
             .await;
+            crate::run_queue::spawn_drain(app_clone.clone());
 
             let _ = app_clone.emit(
                 "claude-exit",

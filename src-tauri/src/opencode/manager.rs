@@ -60,6 +60,10 @@ impl OpenCodeManager {
         self.inner.get_employee_processes(employee_id)
     }
 
+    pub fn get_processes(&self) -> Vec<ManagedOpenCodeProcess> {
+        self.inner.get_processes()
+    }
+
     pub fn set_sdk_server(&mut self, host: String, port: u16, child: Arc<Mutex<OpenCodeChild>>) {
         self.sdk_server = Some(ManagedOpenCodeSdkServer { child, host, port });
     }

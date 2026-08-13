@@ -364,6 +364,7 @@ fn spawn_exit_watcher(
                         session_record_id.clone(),
                     )
                     .await;
+                    crate::run_queue::spawn_drain(app.clone());
                     return;
                 }
             }
@@ -599,6 +600,7 @@ fn spawn_exit_watcher(
         }
 
         task_automation::handle_session_exit_blocking(app.clone(), session_record_id.clone()).await;
+        crate::run_queue::spawn_drain(app.clone());
 
         let _ = app.emit(
             "codex-exit",
