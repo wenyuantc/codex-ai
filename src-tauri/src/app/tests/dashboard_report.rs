@@ -23,13 +23,15 @@ fn dashboard_report_empty_scope_has_readable_milestone_empty_state() {
         assert_eq!(summary.weekly_completed_series.len(), 8);
         assert!(summary.milestones.is_empty());
         assert!(summary.milestone_burndown.is_empty());
-        assert!(
-            summary
-                .milestone_burndown_empty_reason
-                .as_deref()
-                .unwrap_or("")
-                .contains("暂无里程碑")
-        );
+        assert!(summary
+            .milestone_burndown_empty_reason
+            .as_deref()
+            .unwrap_or("")
+            .contains("暂无里程碑"));
+        assert_eq!(summary.token_usage.sessions_with_usage, 0);
+        assert_eq!(summary.token_usage.session_count, 0);
+        assert_eq!(summary.token_usage_series.len(), 7);
+        assert!(summary.token_usage_by_provider.is_empty());
     });
 }
 
@@ -221,12 +223,93 @@ fn dashboard_report_respects_project_and_ssh_scope_for_milestones() {
         .await
         .expect("ssh without host");
         assert!(ssh_b_empty_host.milestones.is_empty());
-        assert!(
-            ssh_b_empty_host
-                .milestone_burndown_empty_reason
-                .as_deref()
-                .unwrap_or("")
-                .contains("暂无里程碑")
+        assert!(ssh_b_empty_host
+            .milestone_burndown_empty_reason
+            .as_deref()
+            .unwrap_or("")
+            .contains("暂无里程碑"));
+        assert_eq!(ssh_b_empty_host.token_usage.sessions_with_usage, 0);
+        assert!(ssh_b_empty_host.token_usage_by_provider.is_empty());
+    });
+}
+
+#[test]
+fn dashboard_report_token_usage_groups_by_provider_and_omits_unknown_sessions() {
+    tauri::async_runtime::block_on(async {
+        let pool = setup_test_pool().await;
+        insert_project(&pool, "proj-token").await;
+        insert_project(&pool, "proj-other").await;
+
+        sqlx::query(
+            r#"
+            INSERT INTO codex_sessions (
+                id, project_id, session_kind, status, ai_provider,
+                input_tokens, output_tokens, total_tokens, reasoning_tokens,
+                started_at, created_at
+            ) VALUES
+            (
+                'sess-codex', 'proj-token', 'execution', 'exited', 'codex',
+                80, 20, 100, NULL,
+                datetime('now'), datetime('now')
+            ),
+            (
+                'sess-claude', 'proj-token', 'execution', 'exited', 'claude',
+                10, 5, 15, 2,
+                datetime('now'), datetime('now')
+            ),
+            (
+                'sess-unknown', 'proj-token', 'execution', 'exited', 'grok',
+                NULL, NULL, NULL, NULL,
+                datetime('now'), datetime('now')
+            ),
+            (
+                'sess-other-project', 'proj-other', 'execution', 'exited', 'codex',
+                999, 1, 1000, NULL,
+                datetime('now'), datetime('now')
+            )
+            "#,
+        )
+        .execute(&pool)
+        .await
+        .expect("insert token sessions");
+
+        let summary = get_dashboard_report_summary_with_pool(
+            &pool,
+            &GetDashboardReportPayload {
+                project_id: Some("proj-token".into()),
+                environment_mode: Some("local".into()),
+                trend_range: Some("7d".into()),
+                ..Default::default()
+            },
+        )
+        .await
+        .expect("token report");
+
+        assert_eq!(summary.token_usage.input_tokens, 90);
+        assert_eq!(summary.token_usage.output_tokens, 25);
+        assert_eq!(summary.token_usage.total_tokens, 115);
+        assert_eq!(summary.token_usage.reasoning_tokens, 2);
+        assert_eq!(summary.token_usage.sessions_with_usage, 2);
+        assert_eq!(summary.token_usage.session_count, 3);
+        assert_eq!(summary.token_usage_series.len(), 7);
+        assert_eq!(
+            summary.token_usage_series.last().map(|p| p.count),
+            Some(115)
         );
+
+        let providers: Vec<_> = summary
+            .token_usage_by_provider
+            .iter()
+            .map(|item| {
+                (
+                    item.provider.as_str(),
+                    item.total_tokens,
+                    item.sessions_with_usage,
+                )
+            })
+            .collect();
+        assert_eq!(providers, vec![("codex", 100, 1), ("claude", 15, 1)]);
+
+        pool.close().await;
     });
 }

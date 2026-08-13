@@ -1,0 +1,12 @@
+{"file": ".trellis/spec/backend/index.md", "reason": "Backend quality-check entry: commands, migrations, engines, dashboard"}
+{"file": ".trellis/spec/backend/database-migrations.md", "reason": "v45 token columns must stay contiguous and nullable"}
+{"file": ".trellis/spec/backend/dashboard-report.md", "reason": "token_usage series/provider fields extend get_dashboard_report_summary"}
+{"file": ".trellis/spec/backend/ai-engines.md", "reason": "Per-engine stream parse + shared engine/usage.rs contract"}
+{"file": ".trellis/spec/backend/testing.md", "reason": "Engine parse unit tests and app/tests pool fixtures"}
+{"file": ".trellis/spec/backend/command-guidelines.md", "reason": "get_task_token_usage IPC shape and backend.ts wrapper"}
+{"file": ".trellis/spec/frontend/index.md", "reason": "Frontend quality-check entry: i18n, types, IPC"}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "No empty catch; test:ci/build; hide unknown token as non-zero fake"}
+{"file": ".trellis/spec/frontend/i18n.md", "reason": "zh-CN + en keys for task execution and dashboard token UI"}
+{"file": ".trellis/spec/frontend/data-access.md", "reason": "New command must go through backend.ts, not invoke in components"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "Migration → model → command → types → UI alignment for token columns"}
+{"file": ".trellis/spec/guides/code-reuse-thinking-guide.md", "reason": "Reuse Grok usage_u64 via engine/usage.rs; reuse file-change marker pattern"}

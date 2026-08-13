@@ -169,6 +169,16 @@ mod tests {
     }
 
     #[test]
+    fn parses_opencode_native_input_output_keys() {
+        let value = json!({ "input": 40, "output": 12, "reasoning": 3 });
+        let delta = parse_usage_value(&value).expect("usage");
+        assert_eq!(delta.input_tokens, Some(40));
+        assert_eq!(delta.output_tokens, Some(12));
+        assert_eq!(delta.reasoning_tokens, Some(3));
+        assert_eq!(delta.total_tokens, Some(52));
+    }
+
+    #[test]
     fn formats_terminal_line() {
         let delta = UsageDelta {
             input_tokens: Some(100),

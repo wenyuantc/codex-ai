@@ -372,3 +372,146 @@ fn list_tasks_applies_global_limit_and_project_scope() {
         pool.close().await;
     });
 }
+
+#[test]
+fn apply_codex_session_usage_keeps_null_until_first_delta_then_accumulates() {
+    tauri::async_runtime::block_on(async {
+        let pool = setup_test_pool().await;
+        insert_session(&pool, "sess-usage", Some("cli-1"), "execution").await;
+
+        let before = sqlx::query_as::<_, (Option<i64>, Option<i64>, Option<i64>, Option<i64>)>(
+            "SELECT input_tokens, output_tokens, total_tokens, reasoning_tokens FROM codex_sessions WHERE id = $1",
+        )
+        .bind("sess-usage")
+        .fetch_one(&pool)
+        .await
+        .expect("fetch unused session");
+        assert_eq!(before, (None, None, None, None));
+
+        crate::app::apply_codex_session_usage(
+            &pool,
+            "sess-usage",
+            &crate::engine::UsageDelta {
+                input_tokens: Some(10),
+                output_tokens: Some(5),
+                total_tokens: Some(15),
+                reasoning_tokens: None,
+            },
+        )
+        .await
+        .expect("apply first usage");
+
+        let after_first = sqlx::query_as::<_, (Option<i64>, Option<i64>, Option<i64>, Option<i64>)>(
+            "SELECT input_tokens, output_tokens, total_tokens, reasoning_tokens FROM codex_sessions WHERE id = $1",
+        )
+        .bind("sess-usage")
+        .fetch_one(&pool)
+        .await
+        .expect("fetch after first usage");
+        assert_eq!(after_first, (Some(10), Some(5), Some(15), None));
+
+        crate::app::apply_codex_session_usage(
+            &pool,
+            "sess-usage",
+            &crate::engine::UsageDelta {
+                input_tokens: Some(2),
+                output_tokens: Some(3),
+                total_tokens: Some(5),
+                reasoning_tokens: Some(4),
+            },
+        )
+        .await
+        .expect("apply second usage");
+
+        let after_second = sqlx::query_as::<_, (Option<i64>, Option<i64>, Option<i64>, Option<i64>)>(
+            "SELECT input_tokens, output_tokens, total_tokens, reasoning_tokens FROM codex_sessions WHERE id = $1",
+        )
+        .bind("sess-usage")
+        .fetch_one(&pool)
+        .await
+        .expect("fetch after second usage");
+        assert_eq!(after_second, (Some(12), Some(8), Some(20), Some(4)));
+
+        crate::app::apply_codex_session_usage(
+            &pool,
+            "sess-usage",
+            &crate::engine::UsageDelta::default(),
+        )
+        .await
+        .expect("empty delta is a no-op");
+
+        let after_empty = sqlx::query_as::<_, (Option<i64>, Option<i64>, Option<i64>, Option<i64>)>(
+            "SELECT input_tokens, output_tokens, total_tokens, reasoning_tokens FROM codex_sessions WHERE id = $1",
+        )
+        .bind("sess-usage")
+        .fetch_one(&pool)
+        .await
+        .expect("fetch after empty delta");
+        assert_eq!(after_empty, after_second);
+
+        pool.close().await;
+    });
+}
+
+#[test]
+fn task_token_usage_sum_ignores_sessions_without_usage() {
+    tauri::async_runtime::block_on(async {
+        let pool = setup_test_pool().await;
+        insert_project(&pool, "proj-usage").await;
+        sqlx::query(
+            r#"
+            INSERT INTO tasks (
+                id, title, status, priority, project_id, use_worktree, created_at, updated_at
+            ) VALUES (
+                'task-usage', 'Usage', 'todo', 'medium', 'proj-usage', 0,
+                '2026-08-12 10:00:00', '2026-08-12 10:00:00'
+            )
+            "#,
+        )
+        .execute(&pool)
+        .await
+        .expect("insert task");
+
+        sqlx::query(
+            r#"
+            INSERT INTO codex_sessions (
+                id, task_id, project_id, session_kind, status, ai_provider, started_at, created_at
+            ) VALUES
+            ('sess-known', 'task-usage', 'proj-usage', 'execution', 'exited', 'codex', '2026-08-12 11:00:00', '2026-08-12 11:00:00'),
+            ('sess-unknown', 'task-usage', 'proj-usage', 'execution', 'exited', 'claude', '2026-08-12 12:00:00', '2026-08-12 12:00:00')
+            "#,
+        )
+        .execute(&pool)
+        .await
+        .expect("insert sessions");
+
+        crate::app::apply_codex_session_usage(
+            &pool,
+            "sess-known",
+            &crate::engine::UsageDelta {
+                input_tokens: Some(100),
+                output_tokens: Some(20),
+                total_tokens: Some(120),
+                reasoning_tokens: None,
+            },
+        )
+        .await
+        .expect("apply known usage");
+
+        let row = sqlx::query_as::<_, (i64, i64, i64, i64, i64, i64)>(
+            "SELECT COALESCE(SUM(input_tokens), 0), COALESCE(SUM(output_tokens), 0), \
+             COALESCE(SUM(total_tokens), 0), COALESCE(SUM(reasoning_tokens), 0), \
+             COALESCE(SUM(CASE WHEN input_tokens IS NOT NULL OR output_tokens IS NOT NULL OR total_tokens IS NOT NULL OR reasoning_tokens IS NOT NULL THEN 1 ELSE 0 END), 0), \
+             COUNT(*) \
+             FROM codex_sessions WHERE task_id = $1",
+        )
+        .bind("task-usage")
+        .fetch_one(&pool)
+        .await
+        .expect("aggregate task usage");
+
+        assert_eq!(row, (100, 20, 120, 0, 1, 2));
+
+        pool.close().await;
+    });
+}

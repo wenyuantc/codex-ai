@@ -778,7 +778,10 @@ export function TaskDetailDialog({
     setExecutionChangeHistoryError(null);
     getTaskTokenUsage(task.id)
       .then(setTaskTokenUsage)
-      .catch(() => setTaskTokenUsage(null));
+      .catch((error) => {
+        console.error("Failed to load task token usage:", error);
+        setTaskTokenUsage(null);
+      });
     try {
       const history = await getTaskExecutionChangeHistory(task.id);
       setExecutionChangeHistory(history);
