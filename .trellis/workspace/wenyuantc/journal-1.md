@@ -193,3 +193,36 @@ i18next zh-CN/en framework, main-path extraction, activity single-source, leftov
 ### Next Steps
 
 - 继续 B1 并发闸门与运行队列（工作区已有后端 WIP，前端未接）
+
+
+## Session 8: B1 队列后端提交与 A2 归档
+
+**Date**: 2026-08-13
+**Task**: B1 队列后端提交与 A2 归档
+**Branch**: `main`
+
+### Summary
+
+提交全局并发闸门与持久化运行队列后端；保存产品缺口下一波 Trellis 规划；归档已落地的 A2 日志复制导出。
+
+### Main Changes
+
+- 四引擎 start 接闸门，超限任务写入 task_run_queue，退出后 FIFO 放行
+- 提交父任务与剩余子任务 PRD/设计文档
+- 归档 A2 会话日志复制与导出
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `8dbd82a` | (see git log) |
+| `564c89e` | (see git log) |
+| `7d48973` | (see git log) |
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 补齐 B1 设置页、看板排队徽标与批量运行 UI
