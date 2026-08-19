@@ -326,3 +326,42 @@ i18next zh-CN/en framework, main-path extraction, activity single-source, leftov
 ### Status
 
 [OK] **Completed**
+
+
+## Session 12: D1 应用自动更新
+
+**Date**: 2026-08-19
+**Task**: D1 应用自动更新
+**Branch**: `main`
+
+### Summary
+
+落地应用内检查/安装更新：设置页入口、updater 签名产物与 latest.json；写入契约并归档 D1。
+
+### Main Changes
+
+- tauri-plugin-updater/process + 设置页 AboutUpdateSection：检查、进度、确认后重启；app_update_installed 活动
+- CI：tag 必须有签名 secret；macOS --bundles app,dmg 后补签 .app.tar.gz；dispatch 无密钥只打安装包
+- spec 记录插件封装、latest.json 平台键与 macOS 签名陷阱
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `ff7343b` | (see git log) |
+| `4e324e8` | (see git log) |
+| `2e25a04` | (see git log) |
+
+### Testing
+
+- [OK] clippy -D warnings / npm run test:ci / format:check / build 通过
+- [OK] 浏览器设置页：中英文案与开发模式错误提示可见；未跑 tauri 安装包端到端下载
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 把 ~/.tauri/codex-ai-updater.key 配进 GitHub secret TAURI_SIGNING_PRIVATE_KEY
+- 父任务 08-12-product-gap-wave 收尾：全量门禁、文档计数、归档父任务
