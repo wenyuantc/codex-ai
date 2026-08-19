@@ -18,7 +18,7 @@
 
 ## N-P2 · 复用与审查深度
 
-- [ ] **任务模板（B2）**：`prompt_templates.rs` 是 AI 功能提示词模板，不是任务模板；重复性任务（给 20 个模块补 i18n）要手工建 20 次。可复用 `export/import_tasks_json` 的版本化 envelope + `batch_update_tasks` 的选中机制
+- [x] **任务模板（B2）**：看板「模板」+ 右键存为模板；`{{ident}}` 批量套用（≤100）；标签按名 find-or-create，子任务标题复制为待办
 - [ ] **审查行级定位（C1）**：`app/review.rs` 只解析整体 verdict + 阻塞数 + 摘要，无行级定位；用户得自己翻 diff 找问题在哪。已有 `codex_session_file_change_details` + Monaco 可锚定
 
 ## N-P3 · 技术债
