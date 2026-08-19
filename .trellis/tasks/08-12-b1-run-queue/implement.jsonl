@@ -1,1 +1,7 @@
 {"_example": "Fill with {\"file\": \"<path>\", \"reason\": \"<why>\"}. Put spec/research files only — no code paths. Run `python3 .trellis/scripts/get_context.py --mode packages` to list available specs. Delete this line once real entries are added."}
+{"file": ".trellis/spec/frontend/index.md", "reason": "Frontend hard rules: no SQLite writes, IPC via backend.ts, i18n, formatDate, SSH first-class"}
+{"file": ".trellis/spec/frontend/state-management.md", "reason": "Queue cache and task-run-queue-changed listener belong in taskStore with MainLayout lifecycle"}
+{"file": ".trellis/spec/frontend/data-access.md", "reason": "All queue/settings reads and writes go through backend.ts command wrappers"}
+{"file": ".trellis/spec/frontend/i18n.md", "reason": "New settings/kanban/tasks copy and activity:actions keys need zh-CN + en"}
+{"file": ".trellis/spec/frontend/component-guidelines.md", "reason": "TaskCard badge, context menu, RuntimeSettingsTab input, Kanban batch bar composition"}
+{"file": ".trellis/spec/backend/ai-engines.md", "reason": "Start commands stay per-engine; frontend must consume StartSessionOutcome without adding a unified dispatcher"}

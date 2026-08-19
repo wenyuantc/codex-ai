@@ -1,1 +1,6 @@
 {"_example": "Fill with {\"file\": \"<path>\", \"reason\": \"<why>\"}. Put spec/research files only — no code paths. Run `python3 .trellis/scripts/get_context.py --mode packages` to list available specs. Delete this line once real entries are added."}
+{"file": ".trellis/spec/frontend/index.md", "reason": "Check IPC, i18n, formatDate, and SSH compatibility on queue UI"}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "Quality gate: test:ci, format, build, no a11y regressions on new controls"}
+{"file": ".trellis/spec/frontend/i18n.md", "reason": "Activity keys and new UI strings must exist in both locale packs"}
+{"file": ".trellis/spec/frontend/state-management.md", "reason": "Listener cleanup and no optimistic task.status from queue events"}
+{"file": ".trellis/spec/backend/testing.md", "reason": "Existing run_queue Rust tests must still pass"}
