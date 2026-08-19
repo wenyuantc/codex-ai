@@ -8,7 +8,8 @@
 
 - `src/` 负责页面、交互和 Zustand 状态缓存
 - `src-tauri/src/app/` 提供应用服务层，统一处理写操作、运行时健康检查和业务校验
-  （`projects` / `employees` / `tasks` / `delivery` / `sessions` / `review` / `remote` / `database`）
+  （`projects` / `employees` / `tasks` / `templates` / `delivery` / `sessions` / `review` / `remote` / `database`）
+- `src-tauri/src/run_queue.rs` 负责全局会话并发闸门与 `task_run_queue` 持久化排队
 - `src-tauri/src/codex` 负责 Codex CLI 进程控制和会话事件
 - `src-tauri/src/claude` 负责 Claude CLI 集成与会话管理
 - `src-tauri/src/grok` 负责 Grok CLI 集成与会话管理
@@ -73,6 +74,8 @@
 - 归档管理：查看已归档任务、取消归档、永久删除
 - 任务执行变更历史追踪
 - Worktree 绑定：任务可选在独立 worktree 中执行
+- 任务模板：从任务存为模板、变量 `{{ident}}` 批量套用（≤100）
+- 看板批量运行选中任务；超并发上限时持久化排队，卡片显示「排队中（第 N 位）」
 
 ### AI 员工管理
 
@@ -99,7 +102,8 @@
 
   会话中发送输入依赖 SDK 通道保留可写 stdin；CLI 批处理通道无 stdin 时命令返回明确错误。Grok 为 headless CLI（`-p` + `Stdio::null`），无会话中可写 stdin，属 B1 豁免。
 - 会话列表查询与全文搜索过滤（ID、任务、内容、项目、执行目标）
-- 会话日志实时流式展示
+- 会话日志实时流式展示，支持复制与导出 `.log`
+- 会话 token 用量落库（无值保持未知，不假装 0）；任务详情与仪表盘按项目/引擎聚合
 - 会话文件变更记录与 diff 查看
 - 会话续聊状态检测
 - AI 提供商标签展示
@@ -109,6 +113,7 @@
 
 - 自动收集任务上下文（Git diff、未跟踪文件等）发送给 AI 审查
 - 审查结论自动解析：通过/不通过、阻塞问题数量、摘要
+- 行级 findings 列表：点击打开 Monaco Diff 并跳到修改后一侧对应行
 - 任务审查状态追踪与附件同步（SSH 场景）
 
 ### 任务自动化
@@ -122,7 +127,7 @@
 
 ### 仪表盘
 
-- 统计指标卡：项目总数、活跃项目、任务总数、员工总数、在线员工数、完成率、未读通知数
+- 统计指标卡：项目总数、活跃项目、任务总数、员工总数、在线员工数、完成率、未读通知数、token 用量
 - 任务分布柱状图：按状态展示数量对比
 - 活动动态时间线：支持按项目/动作/关键词/日期过滤和分页查询
 - 员工绩效图表：完成任务数、平均完成时间、成功率
@@ -163,7 +168,7 @@
 
 ## 数据模型摘要
 
-共 24 张表，由 `src-tauri/src/db/migrations.rs` 内联的 44 个版本化迁移维护。
+共 26 张表，由 `src-tauri/src/db/migrations.rs` 内联的 47 个版本化迁移维护。
 
 **核心业务**
 
@@ -196,6 +201,8 @@
 - `task_git_contexts` — 任务 Git 上下文绑定
 - `task_pipeline_steps` — 协调员流水线步骤
 - `task_acceptance_runs` — 测试员验收运行记录
+- `task_run_queue` — 超并发上限时的任务运行排队（重启可重放）
+- `task_templates` — 任务模板（软删；标题/描述模板、标签名、子任务标题）
 
 说明：
 

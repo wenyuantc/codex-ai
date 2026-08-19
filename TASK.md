@@ -7,12 +7,12 @@
 
 ## N-P0 · 可度量 + 可批量
 
-- [ ] **成本可见性（A1）**：`codex_sessions` 无任何 token 消耗列（v43 的 `thinking_budget_tokens` 是预算上限不是消耗）；全库唯一 usage 解析在 `grok/process/stream.rs:812` 且只刷日志不落库。补 migration v45 加 `input/output/total/reasoning_tokens`（nullable，无值即未知不假装 0）→ 四引擎 `process/stream.rs` 解析 → 任务详情 + 仪表盘趋势。**一期只做 token 用量，不做金额换算**（各引擎计费口径不同，会误导）
-- [ ] **并发闸门 + 运行队列（B1）**：后端 grep `semaphore`/`max_concurrent`/`cron` 零命中，但产品支持员工多任务并发 = 同时 N 个 AI 进程裸奔。在 `engine/` 共享内核加全局并发上限（设置页可配，默认 2–3）+ 超限排队 + 看板「排队中（第 N 位）」+ 批量运行选中任务。**队列状态需持久化**，否则重启丢失（参照 `task_automation_state` 的 resume 模式）
+- [x] **成本可见性（A1）**：`codex_sessions` 无任何 token 消耗列（v43 的 `thinking_budget_tokens` 是预算上限不是消耗）；全库唯一 usage 解析在 `grok/process/stream.rs:812` 且只刷日志不落库。补 migration v45 加 `input/output/total/reasoning_tokens`（nullable，无值即未知不假装 0）→ 四引擎 `process/stream.rs` 解析 → 任务详情 + 仪表盘趋势。**一期只做 token 用量，不做金额换算**（各引擎计费口径不同，会误导）
+- [x] **并发闸门 + 运行队列（B1）**：后端 grep `semaphore`/`max_concurrent`/`cron` 零命中，但产品支持员工多任务并发 = 同时 N 个 AI 进程裸奔。在 `engine/` 共享内核加全局并发上限（设置页可配，默认 2–3）+ 超限排队 + 看板「排队中（第 N 位）」+ 批量运行选中任务。**队列状态需持久化**，否则重启丢失（参照 `task_automation_state` 的 resume 模式）
 
 ## N-P1 · 低成本高频
 
-- [ ] **会话日志复制/导出（A2）**：`CodexTerminal.tsx` 有虚拟化/过滤/清空/输入条，但无复制无导出，跑挂了只能截图
+- [x] **会话日志复制/导出（A2）**：`CodexTerminal.tsx` 有虚拟化/过滤/清空/输入条，但无复制无导出，跑挂了只能截图
 - [x] **应用自动更新（D1）**：`Cargo.toml` 无 `tauri-plugin-updater`；CI 已在 tag 打好三平台包，但用户永远不知道有新版。发版链路最后一公里
 - [x] **文档校准（D2）**：README 引擎矩阵与 `app/database.rs` 真源矛盾（Claude/OpenCode 的 send_input 与 restart 都写错）、表数/迁移数/命令数/测试数四项失真、`app/session_events_retention.rs` 整个模块未被任何文档记录 —— 2026-08-11 已修正
 

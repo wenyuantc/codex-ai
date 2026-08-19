@@ -88,10 +88,10 @@ Four engines, each with the same internal shape — `manager.rs` + `settings.rs`
 
 | Engine | LOC | Capabilities (`app/database.rs::get_ai_provider_capabilities`) |
 |---|---|---|
-| `codex/` | 12.3k | start / stop / restart / resume; **`send_input=true`** (SDK bridge keeps stdin; CLI batch rejects) |
-| `claude/` | 3.3k | start / stop / restart / resume; **`send_input=true`** (SDK bridge keeps stdin; CLI batch rejects) |
-| `opencode/` | 3.2k | start / stop / restart / resume; **`send_input=true`** (SDK bridge keeps stdin; SDK server spawned at startup from `lib.rs`) |
-| `grok/` | 3.4k | start / stop / restart / resume; **`send_input=false`** (B1: headless `-p` + `Stdio::null`) |
+| `codex/` | 14.4k | start / stop / restart / resume; **`send_input=true`** (SDK bridge keeps stdin; CLI batch rejects) |
+| `claude/` | 3.4k | start / stop / restart / resume; **`send_input=true`** (SDK bridge keeps stdin; CLI batch rejects) |
+| `opencode/` | 4.0k | start / stop / restart / resume; **`send_input=true`** (SDK bridge keeps stdin; SDK server spawned at startup from `lib.rs`) |
+| `grok/` | 4.2k | start / stop / restart / resume; **`send_input=false`** (B1: headless `-p` + `Stdio::null`) |
 
 Capability matrix is the single UI truth source. `restart_*` = stop live processes then `start_*` (not CLI session resume). Only advertise `send_input` when a verifiable mid-session write path exists; Grok stays B1-exempt.
 
@@ -114,9 +114,9 @@ SQLite at `$APPCONFIG/codex-ai.db`, 26 tables:
 
 ### Tests
 
-Rust is the primary suite: **366 test cases**, mostly `#[cfg(test)]` modules colocated with the code they cover. Densest areas include codex process/settings, shared `engine/` kernel, `git_workflow/`, and `task_automation`. Non-codex engines (claude/grok/opencode) still have thinner coverage than codex, but share the kernel tests.
+Rust is the primary suite: **417 test cases**, mostly `#[cfg(test)]` modules colocated with the code they cover. Densest areas include codex process/settings, shared `engine/` kernel, `git_workflow/`, and `task_automation`. Non-codex engines (claude/grok/opencode) still have thinner coverage than codex, but share the kernel tests.
 
-Frontend has a minimal Vitest net: **104 assertions across 9 files** (`src/stores/{task,project,dashboard}Store.test.ts`, `src/lib/{utils,kanbanFilters,projects,taskPrimaryCta,dashboardReport}.test.ts`, `src/lib/i18n/locale.test.ts`) covering exported pure functions only — store scope filters, SSH host selection, activity label mapping, kanban filters, primary-CTA resolution, dashboard report shaping, locale resolution. No component or e2e tests. `npm run test:ci` is a CI hard gate.
+Frontend has a minimal Vitest net: **82 tests / 186 assertions across 12 files** (`src/stores/{task,project,dashboard}Store.test.ts`, `src/lib/{utils,kanbanFilters,projects,taskPrimaryCta,dashboardReport,sessions,reviewFindings,appUpdate}.test.ts`, `src/lib/i18n/locale.test.ts`) covering exported pure functions only — store scope filters, SSH host selection, activity label mapping, kanban filters, primary-CTA resolution, dashboard report shaping, session log export, review findings parse, updater payload, locale resolution. No component or e2e tests. `npm run test:ci` is a CI hard gate.
 
 Cross-cutting integration tests live in `src-tauri/src/app/tests/`:
 - `runtime_and_paths.rs` — app runtime setup
