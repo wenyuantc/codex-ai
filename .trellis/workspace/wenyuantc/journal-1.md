@@ -264,3 +264,42 @@ i18next zh-CN/en framework, main-path extraction, activity single-source, leftov
 ### Next Steps
 
 - B2 任务模板（父任务下一波未完成项）
+
+
+## Session 10: B2 任务模板
+
+**Date**: 2026-08-19
+**Task**: B2 任务模板
+**Branch**: `main`
+
+### Summary
+
+落地任务模板：看板管理/右键存为模板、{{变量}}批量套用、v47 表与套用事务；写入契约并归档 B2。
+
+### Main Changes
+
+- v47 task_templates + 6 条命令：CRUD、from_task、先校验再事务套用
+- 看板「模板」对话框与 TaskCard 右键存为模板；标签按名 find-or-create，子任务复制为待办
+- 活动日志 task_template_created/applied/deleted 中英文案；spec 与 CLAUDE 计数同步
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `673c975` | (see git log) |
+| `b478792` | (see git log) |
+| `92afc27` | (see git log) |
+
+### Testing
+
+- [OK] cargo test templates（15）与 latest_migration_version 通过
+- [OK] clippy -D warnings / npm run test:ci / format:check / build 通过
+- [OK] 未跑 tauri:dev 手工冒烟
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- C1 审查行级定位（父任务下一未完成项；其后是 D1 自动更新）
