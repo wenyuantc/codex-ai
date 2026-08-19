@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 10
+- **Total Sessions**: 11
 - **Last Active**: 2026-08-19
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~305 | Active |
+| `journal-1.md` | ~328 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 11 | 2026-08-19 | C1 审查行级定位 | `5043c04`, `f441e09`, `e27df73` | `main` |
 | 10 | 2026-08-19 | B2 任务模板 | `673c975`, `b478792`, `92afc27` | `main` |
 | 9 | 2026-08-19 | B1 看板与设置对接运行队列 | `d9327cc`, `e1c20cb`, `1f5a28f` | `main` |
 | 8 | 2026-08-13 | B1 队列后端提交与 A2 归档 | `8dbd82a`, `564c89e`, `7d48973` | `main` |
