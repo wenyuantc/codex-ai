@@ -1,1 +1,6 @@
-{"_example": "Fill with {\"file\": \"<path>\", \"reason\": \"<why>\"}. Put spec/research files only — no code paths. Run `python3 .trellis/scripts/get_context.py --mode packages` to list available specs. Delete this line once real entries are added."}
+{"file": ".trellis/spec/backend/index.md", "reason": "Verify no frontend writes, no extra migration, activity keys unchanged, SSH still snapshot-only."}
+{"file": ".trellis/spec/backend/ai-engines.md", "reason": "Check all Review engines persist findings via one helper; OpenCode untouched; stream parsers not forked."}
+{"file": ".trellis/spec/backend/testing.md", "reason": "Require extract/parse malformed-degrade tests and prompt tag assertions."}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "Gate: test:ci, format:check, build; Monaco reveal must not break sessions-page dialog."}
+{"file": ".trellis/spec/frontend/i18n.md", "reason": "Both locales for findings UI; no parallel activity label map."}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "Trace click-to-line through backend command, stored snapshots, and optional revealLine."}

@@ -1,1 +1,9 @@
-{"_example": "Fill with {\"file\": \"<path>\", \"reason\": \"<why>\"}. Put spec/research files only — no code paths. Run `python3 .trellis/scripts/get_context.py --mode packages` to list available specs. Delete this line once real entries are added."}
+{"file": ".trellis/spec/backend/index.md", "reason": "Backend hard rules: commands own writes, no frontend SQLite, local+SSH both first-class."}
+{"file": ".trellis/spec/backend/ai-engines.md", "reason": "Review extraction lives in Codex/Claude/Grok session_runtime; OpenCode has no Review kind; persist helper must not fork stream parsers."}
+{"file": ".trellis/spec/backend/command-guidelines.md", "reason": "Extend get_task_latest_review return shape; keep Result<T, String> and do not add a new command."}
+{"file": ".trellis/spec/backend/testing.md", "reason": "Colocate extract/parse/persist tests; reuse existing review_and_attachments and extract_review_verdict patterns."}
+{"file": ".trellis/spec/frontend/index.md", "reason": "IPC via backend.ts, types in types.ts, Monaco for large diffs, i18n for copy."}
+{"file": ".trellis/spec/frontend/component-guidelines.md", "reason": "Named exports, domain folder tasks/detail, reuse Dialog + existing review panel instead of a new page."}
+{"file": ".trellis/spec/frontend/data-access.md", "reason": "No invoke in components; wrap any payload change in backend.ts."}
+{"file": ".trellis/spec/frontend/i18n.md", "reason": "tasks namespace zh-CN+en; do not add a new activity action key for findings."}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "Prompt → event → get_task_latest_review → panel → file-change detail must stay one path on local and SSH."}
