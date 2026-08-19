@@ -26,6 +26,8 @@ Frontend **must not** open SQLite directly. `sql:allow-select` is removed from
 
 All command access should go through this module.
 
+Official desktop plugins that are **not** SQLite/business commands (updater, process relaunch) stay in a dedicated lib wrapper (`src/lib/appUpdate.ts`). Components still must not import those plugins or call `invoke()`. See [App Auto-Update](./app-update.md).
+
 Patterns:
 1. Import `invoke` only here.
 2. Export `async function` wrappers with typed inputs/outputs from `@/lib/types` (or local DTOs).

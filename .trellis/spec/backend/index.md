@@ -43,6 +43,7 @@
 | [SSH Remote](./ssh-remote.md) | `build_ssh_command` multiplexing, askpass env, quit cleanup, remote SDK runtimes |
 | [Testing](./testing.md) | Integration/unit test patterns |
 | [Dashboard Report](./dashboard-report.md) | `get_dashboard_report_summary` R1 trend/milestone + token usage contract |
+| [App Auto-Update](../frontend/app-update.md) | Plugin registration + CI updater artifacts; no new business command |
 
 ## Data Flow
 

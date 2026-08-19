@@ -52,6 +52,7 @@ If any step is “unknown”, stop and find the existing closest flow (`create_t
 | Concurrency cap | local `max_concurrent_sessions` only (0 = unlimited) | `CodexSettings`, not remote settings |
 | Task templates | validate all `{{ident}}` sets then one tx; tags by name; no `create_task` attachments | [task-templates.md](../backend/task-templates.md) |
 | Review findings | third `<review_findings>` tag → session event → `get_task_latest_review.findings`; click must forward `{line,message}` | [review-findings.md](../backend/review-findings.md) |
+| App auto-update | Settings card → `appUpdate.ts` plugin wrap → GitHub `latest.json`; macOS needs `app` bundle + post `--no-sign` signer | [app-update.md](../frontend/app-update.md) |
 | Employee membership | only `employees.project_id` | employees commands + CLAUDE/README |
 | Schema | migration version bump | `db/migrations.rs` |
 | Permissions | frontend cannot SQL-read or SQL-write | `capabilities/default.json`, `database.ts` (hard-fail stub) |

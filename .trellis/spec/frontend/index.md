@@ -40,6 +40,7 @@
 | [Type Safety](./type-safety.md) | Types, unions, nullable update payloads |
 | [Quality Guidelines](./quality-guidelines.md) | Build checks, a11y, ErrorBoundary, smoke |
 | [i18n](./i18n.md) | Locale packs, persistence, activity single-source |
+| [App Auto-Update](./app-update.md) | Updater/process plugins, Settings check/install, CI latest.json + signing |
 
 ## Primary References
 
