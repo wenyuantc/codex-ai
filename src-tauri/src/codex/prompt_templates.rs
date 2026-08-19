@@ -89,6 +89,7 @@ pub fn default_ai_prompt_templates() -> AiPromptTemplatesDocument {
 - 审核范围仅限下方提供的任务信息和当前工作区改动\n\
 - 最终结构化判定必须且只能输出在 <review_verdict> 和 </review_verdict> 之间，内容必须是 JSON，对应字段：passed(boolean)、needs_human(boolean)、blocking_issue_count(number)、summary(string)\n\
 - 最终人类可读报告必须且只能输出在 <review_report> 和 </review_report> 之间\n\
+- 最终逐条问题必须且只能输出在 <review_findings> 和 </review_findings> 之间，内容必须是 JSON 数组，元素字段：file(string, 相对仓库根路径)、line(number, 修改后文件 1-based 行号)、severity(\"blocker\"|\"warning\"|\"info\")、message(string)；没有行级问题则输出 []\n\
 - 报告必须使用中文 Markdown，包含以下小节：## 结论、## 阻断问题、## 风险提醒、## 改进建议、## 验证缺口\n\
 - 如果没有阻断问题，明确写“无阻断问题”\n\
 - 如果 diff 信息被截断，要把这件事写进“验证缺口”".to_string(),

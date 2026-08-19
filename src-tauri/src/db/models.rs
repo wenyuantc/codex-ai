@@ -519,6 +519,18 @@ pub struct TaskLatestReview {
     pub session: CodexSessionRecord,
     pub report: Option<String>,
     pub reviewer_name: Option<String>,
+    #[serde(default)]
+    pub findings: Vec<ReviewFinding>,
+    #[serde(default)]
+    pub has_findings_event: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ReviewFinding {
+    pub file: String,
+    pub line: Option<i64>,
+    pub severity: String,
+    pub message: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

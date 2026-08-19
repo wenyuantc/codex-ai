@@ -273,3 +273,13 @@
     color: rgb(203 213 225);
   }
 }
+
+.review-finding-line {
+  background-color: rgba(245, 158, 11, 0.22);
+}
+
+.review-finding-line-margin {
+  background: rgb(245 158 11);
+  width: 3px !important;
+  margin-left: 3px;
+}

@@ -5,7 +5,7 @@ use tokio::io::{AsyncBufReadExt, BufReader};
 
 use crate::app::{
     apply_codex_session_usage, fetch_codex_session_by_id, insert_codex_session_event,
-    insert_codex_session_event_with_id, now_sqlite, parse_review_verdict_json, sqlite_pool,
+    insert_codex_session_event_with_id, now_sqlite, persist_review_session_events, sqlite_pool,
     update_codex_session_record,
 };
 use crate::codex::{CodexExecutionProvider, CodexSessionKind, ExecutionChangeBaseline};
@@ -18,10 +18,9 @@ use super::stream::{
     parse_claude_usage_event, ClaudeCliJsonStreamState,
 };
 use super::{
-    extract_review_report, extract_review_verdict, upsert_sdk_file_change_event, ClaudeChild,
-    ClaudeExecutionProvider, ClaudeManager, ClaudeSessionKind, SdkFileChangeStore,
-    CLAUDE_FILE_CHANGE_EVENT_PREFIX, CLAUDE_USAGE_EVENT_PREFIX, SESSION_ID_PREFIX,
-    STOP_WAIT_MAX_ATTEMPTS, STOP_WAIT_POLL_MS,
+    upsert_sdk_file_change_event, ClaudeChild, ClaudeExecutionProvider, ClaudeManager,
+    ClaudeSessionKind, SdkFileChangeStore, CLAUDE_FILE_CHANGE_EVENT_PREFIX,
+    CLAUDE_USAGE_EVENT_PREFIX, SESSION_ID_PREFIX, STOP_WAIT_MAX_ATTEMPTS, STOP_WAIT_POLL_MS,
 };
 
 fn push_captured_line(captured: &Arc<Mutex<Vec<String>>>, line: String) {
@@ -398,26 +397,7 @@ pub(super) fn spawn_claude_session_runtime(
                     .as_ref()
                     .map(|captured| captured.lock().unwrap().join("\n"))
                     .unwrap_or_default();
-                if let Some(verdict_raw) = extract_review_verdict(&raw_output) {
-                    if parse_review_verdict_json(&verdict_raw).is_ok() {
-                        let _ = insert_codex_session_event(
-                            &pool,
-                            &session_record_id,
-                            "review_verdict",
-                            Some(&verdict_raw),
-                        )
-                        .await;
-                    }
-                }
-                if let Some(report) = extract_review_report(&raw_output) {
-                    let _ = insert_codex_session_event(
-                        &pool,
-                        &session_record_id,
-                        "review_report",
-                        Some(&report),
-                    )
-                    .await;
-                }
+                let _ = persist_review_session_events(&pool, &session_record_id, &raw_output).await;
             }
 
             let exit_msg = format!(

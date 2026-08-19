@@ -535,7 +535,7 @@ fn format_session_log_line(event_type: &str, message: &str) -> Option<String> {
         | "activity_log_failed"
         | "session_file_changes_failed" => Some(format!("[ERROR] {}", preserved.trim())),
         "session_exited" => Some(format!("[EXIT] {}", preserved.trim())),
-        "review_report" => None,
+        "review_report" | "review_verdict" | "review_findings" => None,
         _ => Some(format!("[SYSTEM] {}", preserved.trim())),
     }
 }
@@ -1383,11 +1383,18 @@ pub async fn get_task_latest_review<R: Runtime>(
     task_id: String,
 ) -> Result<Option<TaskLatestReview>, String> {
     let pool = sqlite_pool(&app).await?;
+    fetch_task_latest_review(&pool, &task_id).await
+}
+
+pub(crate) async fn fetch_task_latest_review(
+    pool: &SqlitePool,
+    task_id: &str,
+) -> Result<Option<TaskLatestReview>, String> {
     let session = sqlx::query_as::<_, CodexSessionRecord>(
         "SELECT * FROM codex_sessions WHERE task_id = $1 AND session_kind = 'review' ORDER BY started_at DESC LIMIT 1",
     )
-    .bind(&task_id)
-    .fetch_optional(&pool)
+    .bind(task_id)
+    .fetch_optional(pool)
     .await
     .map_err(|error| format!("Failed to fetch task latest review session: {}", error))?;
 
@@ -1399,17 +1406,34 @@ pub async fn get_task_latest_review<R: Runtime>(
         "SELECT message FROM codex_session_events WHERE session_id = $1 AND event_type = 'review_report' ORDER BY created_at DESC LIMIT 1",
     )
     .bind(&session.id)
-    .fetch_optional(&pool)
+    .fetch_optional(pool)
     .await
     .map_err(|error| format!("Failed to fetch task latest review report: {}", error))?
     .flatten();
+
+    let findings_raw = sqlx::query_scalar::<_, Option<String>>(
+        "SELECT message FROM codex_session_events WHERE session_id = $1 AND event_type = 'review_findings' ORDER BY created_at DESC LIMIT 1",
+    )
+    .bind(&session.id)
+    .fetch_optional(pool)
+    .await
+    .map_err(|error| format!("Failed to fetch task latest review findings: {}", error))?
+    .flatten();
+
+    let (has_findings_event, findings) = match findings_raw.as_deref() {
+        Some(raw) => match parse_review_findings_json(raw) {
+            Ok(findings) => (true, findings),
+            Err(_) => (false, Vec::new()),
+        },
+        None => (false, Vec::new()),
+    };
 
     let reviewer_name = match session.employee_id.as_deref() {
         Some(employee_id) => sqlx::query_scalar::<_, Option<String>>(
             "SELECT name FROM employees WHERE id = $1 LIMIT 1",
         )
         .bind(employee_id)
-        .fetch_optional(&pool)
+        .fetch_optional(pool)
         .await
         .map_err(|error| format!("Failed to fetch task reviewer name: {}", error))?
         .flatten(),
@@ -1420,6 +1444,8 @@ pub async fn get_task_latest_review<R: Runtime>(
         session,
         report,
         reviewer_name,
+        findings,
+        has_findings_event,
     }))
 }
 
@@ -1449,6 +1475,27 @@ pub async fn get_task_token_usage<R: Runtime>(
         sessions_with_usage: row.4,
         session_count: row.5,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::format_session_log_line;
+
+    #[test]
+    fn hides_review_structured_events_from_terminal() {
+        assert_eq!(
+            format_session_log_line("review_report", "## 结论\n通过"),
+            None
+        );
+        assert_eq!(
+            format_session_log_line("review_verdict", r#"{"passed":true}"#),
+            None
+        );
+        assert_eq!(
+            format_session_log_line("review_findings", r#"[{"file":"a.rs"}]"#),
+            None
+        );
+    }
 }
 
 async fn resolve_execution_session_capture_mode(

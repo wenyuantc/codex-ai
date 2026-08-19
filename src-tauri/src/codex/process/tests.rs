@@ -10,14 +10,15 @@ use super::{
     build_one_shot_exec_args, build_remote_codex_session_command, build_remote_sdk_bridge_command,
     build_session_exec_args, commit_message_uses_process_language, compose_codex_prompt,
     compute_execution_session_file_changes_from_entries, detect_exec_json_output_flag,
-    extract_review_report, extract_review_verdict, extract_session_id_from_output,
-    format_commit_message_validation_failure, format_session_prompt_log, hash_worktree_path,
-    normalize_model, normalize_reasoning_effort, normalize_session_file_change_paths,
-    parse_ai_subtasks_response, parse_cli_json_event_line, parse_sdk_bridge_output,
-    parse_sdk_file_change_event, parse_sdk_usage_event, sdk_codex_path_override_allowed_for_os,
-    should_capture_execution_change_baseline, validate_generated_commit_message, CliJsonOutputFlag,
-    CliJsonStreamState, CodexExecutionProvider, CodexSessionKind, TextSnapshot,
-    WorkingTreeSnapshotEntry, EXECUTION_TARGET_LOCAL, EXECUTION_TARGET_SSH,
+    extract_review_findings, extract_review_report, extract_review_verdict,
+    extract_session_id_from_output, format_commit_message_validation_failure,
+    format_session_prompt_log, hash_worktree_path, normalize_model, normalize_reasoning_effort,
+    normalize_session_file_change_paths, parse_ai_subtasks_response, parse_cli_json_event_line,
+    parse_sdk_bridge_output, parse_sdk_file_change_event, parse_sdk_usage_event,
+    sdk_codex_path_override_allowed_for_os, should_capture_execution_change_baseline,
+    validate_generated_commit_message, CliJsonOutputFlag, CliJsonStreamState,
+    CodexExecutionProvider, CodexSessionKind, TextSnapshot, WorkingTreeSnapshotEntry,
+    EXECUTION_TARGET_LOCAL, EXECUTION_TARGET_SSH,
 };
 use crate::db::models::CodexSessionFileChangeInput;
 
@@ -282,6 +283,41 @@ fn review_verdict_extraction_supports_escaped_closing_tag() {
         Some(
             r#"{"passed":false,"needs_human":true,"blocking_issue_count":2,"summary":"发现 2 个阻断问题。"}"#
         )
+    );
+}
+
+#[test]
+fn extract_review_findings_reads_tagged_array() {
+    let raw = r#"<review_findings>
+[{"file":"src/main.rs","line":4,"severity":"warning","message":"未处理错误"}]
+</review_findings>"#;
+
+    assert_eq!(
+        extract_review_findings(raw).as_deref(),
+        Some(r#"[{"file":"src/main.rs","line":4,"severity":"warning","message":"未处理错误"}]"#)
+    );
+}
+
+#[test]
+fn extract_review_findings_supports_empty_array_and_escaped_closing_tag() {
+    assert_eq!(
+        extract_review_findings("<review_findings>[]</review_findings>").as_deref(),
+        Some("[]")
+    );
+    assert_eq!(
+        extract_review_findings(
+            r#"<review_findings>[{"file":"a.rs","line":1,"severity":"info","message":"ok"}]<\/review_findings>"#
+        )
+        .as_deref(),
+        Some(r#"[{"file":"a.rs","line":1,"severity":"info","message":"ok"}]"#)
+    );
+}
+
+#[test]
+fn extract_review_findings_returns_none_without_tags() {
+    assert_eq!(
+        extract_review_findings("审查完成，没有结构化 findings"),
+        None
     );
 }
 

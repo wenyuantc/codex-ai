@@ -1275,7 +1275,15 @@ export async function deleteTaskGitContextRecord(taskGitContextId: string): Prom
 }
 
 export async function getTaskLatestReview(taskId: string): Promise<TaskLatestReview | null> {
-  return invoke("get_task_latest_review", { taskId });
+  const review = await invoke<TaskLatestReview | null>("get_task_latest_review", { taskId });
+  if (!review) {
+    return null;
+  }
+  return {
+    ...review,
+    findings: Array.isArray(review.findings) ? review.findings : [],
+    has_findings_event: Boolean(review.has_findings_event),
+  };
 }
 
 export async function getTaskExecutionChangeHistory(

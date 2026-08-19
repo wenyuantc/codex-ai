@@ -274,14 +274,6 @@ fn format_claude_session_prompt_log(
     )
 }
 
-pub(crate) fn extract_review_report(raw: &str) -> Option<String> {
-    crate::codex::extract_review_report(raw)
-}
-
-pub(crate) fn extract_review_verdict(raw: &str) -> Option<String> {
-    crate::codex::extract_review_verdict(raw)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -186,6 +186,10 @@ export function TaskDetailDialog({
     useState<CodexSessionFileChange | null>(null);
   const [executionChangeDetail, setExecutionChangeDetail] =
     useState<CodexSessionFileChangeDetail | null>(null);
+  const [executionChangeRevealLine, setExecutionChangeRevealLine] = useState<number | null>(null);
+  const [executionChangeFindingMessage, setExecutionChangeFindingMessage] = useState<string | null>(
+    null,
+  );
   const [coordinatorPlanDialogOpen, setCoordinatorPlanDialogOpen] = useState(false);
   const [coordinatorPlanDraft, setCoordinatorPlanDraft] = useState("");
   const [coordinatorPlanLoading, setCoordinatorPlanLoading] = useState(false);
@@ -793,11 +797,16 @@ export function TaskDetailDialog({
     }
   };
 
-  const handleOpenExecutionChangeDetail = async (change: CodexSessionFileChange) => {
+  const handleOpenExecutionChangeDetail = async (
+    change: CodexSessionFileChange,
+    options?: { line?: number | null; message?: string },
+  ) => {
     const requestId = executionChangeDetailRequestIdRef.current + 1;
     executionChangeDetailRequestIdRef.current = requestId;
     setSelectedExecutionChange(change);
     setExecutionChangeDetail(null);
+    setExecutionChangeRevealLine(options?.line && options.line > 0 ? options.line : null);
+    setExecutionChangeFindingMessage(options?.message?.trim() ? options.message.trim() : null);
     setExecutionChangeDetailOpen(true);
     setExecutionChangeDetailLoading(true);
     setExecutionChangeDetailError(null);
@@ -829,6 +838,8 @@ export function TaskDetailDialog({
       setExecutionChangeDetailError(null);
       setExecutionChangeDetail(null);
       setSelectedExecutionChange(null);
+      setExecutionChangeRevealLine(null);
+      setExecutionChangeFindingMessage(null);
     }
   };
 
@@ -1684,7 +1695,9 @@ export function TaskDetailDialog({
                     executionChangeHistoryLoading={executionChangeHistoryLoading}
                     executionChangeHistoryError={executionChangeHistoryError}
                     onRefreshHistory={() => void loadExecutionChangeHistory()}
-                    onOpenChangeDetail={(change) => void handleOpenExecutionChangeDetail(change)}
+                    onOpenChangeDetail={(change, options) =>
+                      void handleOpenExecutionChangeDetail(change, options)
+                    }
                   />
                 </TabsContent>
 
@@ -1834,6 +1847,8 @@ export function TaskDetailDialog({
         open={executionChangeDetailOpen}
         loading={executionChangeDetailLoading}
         error={executionChangeDetailError}
+        revealLine={executionChangeRevealLine}
+        findingMessage={executionChangeFindingMessage}
         detail={
           executionChangeDetail ??
           (selectedExecutionChange

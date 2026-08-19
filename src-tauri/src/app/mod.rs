@@ -32,9 +32,8 @@ use crate::db::models::{
     CodexSettings, Comment, CreateComment, CreateEmployee, CreateProject, CreateSshConfig,
     CreateSubtask, CreateTask, DatabaseBackupResult, DatabaseRestoreResult, Employee,
     EmployeeMetric, EmployeeRunningSession, EmployeeRuntimeStatus, GlobalSearchItem,
-    GlobalSearchResponse, PasswordAuthProbeResult, Project, ReviewVerdict, SearchGlobalPayload,
-    SetTaskAutomationModePayload, SshConfig, SshConfigRecord, Subtask, Task, TaskAttachment,
-    TaskAutomationState, TaskAutomationStateRecord, TaskExecutionChangeHistoryItem,
+    GlobalSearchResponse, PasswordAuthProbeResult, Project, ReviewVerdict, SearchGlobalPayload, SetTaskAutomationModePayload, SshConfig, SshConfigRecord, Subtask, Task,
+    TaskAttachment, TaskAutomationState, TaskAutomationStateRecord, TaskExecutionChangeHistoryItem,
     TaskLatestReview, TransientNotification, UpdateEmployee, UpdateProject, UpdateSshConfig,
     UpdateTask,
 };
@@ -89,7 +88,8 @@ pub(crate) use review::{
     build_task_attachments_from_sources, build_task_review_prompt, cleanup_empty_attachment_dir,
     cleanup_remote_task_attachment, cleanup_remote_task_attachment_paths,
     cleanup_remote_task_attachments_for_task, cleanup_task_attachment_files,
-    filter_image_attachments, parse_review_verdict_json, record_task_review_requested_activity,
+    filter_image_attachments, parse_review_findings_json, parse_review_verdict_json,
+    persist_review_session_events, record_task_review_requested_activity,
     remote_task_attachment_dir, remote_task_attachment_path, start_task_code_review_internal,
     sync_task_attachment_records_to_remote, sync_task_image_attachments_to_remote,
     task_attachment_dir, task_attachment_is_image, truncate_review_text,
@@ -103,9 +103,9 @@ pub(crate) use review::{
 #[allow(unused_imports)]
 pub(crate) use sessions::{
     apply_codex_session_usage, compare_global_search_items, fetch_codex_session_by_id,
-    fetch_execution_change_history_item_by_session_id, insert_activity_log,
-    insert_codex_session_event, insert_codex_session_event_with_id, insert_codex_session_record,
-    normalize_global_search_types, replace_codex_session_file_changes,
+    fetch_execution_change_history_item_by_session_id, fetch_task_latest_review,
+    insert_activity_log, insert_codex_session_event, insert_codex_session_event_with_id,
+    insert_codex_session_record, normalize_global_search_types, replace_codex_session_file_changes,
     resolve_running_conflict_message, resolve_session_resume_state,
     rewrite_file_change_diff_labels, update_codex_session_record,
 };
@@ -121,13 +121,13 @@ pub(crate) use shared::{
     EXECUTION_TARGET_SSH, FILE_CHANGE_DIFF_CHAR_LIMIT, GLOBAL_SEARCH_DEFAULT_LIMIT,
     GLOBAL_SEARCH_MAX_LIMIT, GLOBAL_SEARCH_MIN_QUERY_LENGTH, GLOBAL_SEARCH_TYPE_EMPLOYEE,
     GLOBAL_SEARCH_TYPE_PROJECT, GLOBAL_SEARCH_TYPE_SESSION, GLOBAL_SEARCH_TYPE_TASK,
-    PROJECT_TYPE_LOCAL, PROJECT_TYPE_SSH, REMOTE_TASK_ATTACHMENT_ROOT_DIR, REVIEW_REPORT_END_TAG,
-    REVIEW_REPORT_START_TAG, REVIEW_VERDICT_END_TAG, REVIEW_VERDICT_START_TAG,
-    SDK_BRIDGE_FILE_NAME, SDK_RUNTIME_PACKAGE_JSON, SQLITE_DATETIME_FORMAT,
-    TASK_AUTOMATION_MODE_REVIEW_FIX_LOOP_V1, TASK_AUTOMATION_PHASE_COMMITTING_CODE,
-    TASK_AUTOMATION_PHASE_LAUNCHING_FIX, TASK_AUTOMATION_PHASE_LAUNCHING_REVIEW,
-    TASK_AUTOMATION_PHASE_WAITING_EXECUTION, TASK_AUTOMATION_PHASE_WAITING_REVIEW,
-    TASK_STATUS_ARCHIVED,
+    PROJECT_TYPE_LOCAL, PROJECT_TYPE_SSH, REMOTE_TASK_ATTACHMENT_ROOT_DIR, REVIEW_FINDINGS_END_TAG,
+    REVIEW_FINDINGS_START_TAG, REVIEW_REPORT_END_TAG, REVIEW_REPORT_START_TAG,
+    REVIEW_VERDICT_END_TAG, REVIEW_VERDICT_START_TAG, SDK_BRIDGE_FILE_NAME,
+    SDK_RUNTIME_PACKAGE_JSON, SQLITE_DATETIME_FORMAT, TASK_AUTOMATION_MODE_REVIEW_FIX_LOOP_V1,
+    TASK_AUTOMATION_PHASE_COMMITTING_CODE, TASK_AUTOMATION_PHASE_LAUNCHING_FIX,
+    TASK_AUTOMATION_PHASE_LAUNCHING_REVIEW, TASK_AUTOMATION_PHASE_WAITING_EXECUTION,
+    TASK_AUTOMATION_PHASE_WAITING_REVIEW, TASK_STATUS_ARCHIVED,
 };
 #[cfg(test)]
 #[allow(unused_imports)]

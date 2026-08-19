@@ -1,5 +1,9 @@
-import type { CodexSessionFileChangeDetail } from "@/lib/types";
+import { useEffect, useMemo, useRef, useState } from "react";
+import type * as Monaco from "monaco-editor";
 import { useTranslation } from "react-i18next";
+
+import type { CodexSessionFileChangeDetail } from "@/lib/types";
+import { detectMonacoLanguage, getMonacoThemeName, loadMonaco } from "@/lib/monaco";
 import {
   Dialog,
   DialogContent,
@@ -7,14 +11,11 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { ScrollArea } from "@/components/ui/scroll-area";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   getExecutionChangeCaptureModeDescription,
   getExecutionChangeCaptureModeLabel,
   getExecutionChangeTypeClassName,
   getExecutionChangeTypeLabel,
-  getExecutionDiffLineClassName,
   getExecutionSnapshotStatusLabel,
 } from "./taskDetailViewHelpers";
 
@@ -23,26 +24,9 @@ interface TaskExecutionChangeDetailDialogProps {
   loading: boolean;
   error: string | null;
   detail: CodexSessionFileChangeDetail | null;
+  revealLine?: number | null;
+  findingMessage?: string | null;
   onOpenChange: (open: boolean) => void;
-}
-
-function CodePreview({ text, diffMode = false }: { text: string; diffMode?: boolean }) {
-  const lines = text.split(/\r?\n/);
-
-  return (
-    <ScrollArea className="h-[28rem] overflow-hidden rounded-md border bg-background/80">
-      <div className="p-3 font-mono text-xs leading-5">
-        {lines.map((line, index) => (
-          <div
-            key={`${index}-${line}`}
-            className={`whitespace-pre-wrap break-all ${diffMode ? getExecutionDiffLineClassName(line) : "text-foreground"}`}
-          >
-            {line || " "}
-          </div>
-        ))}
-      </div>
-    </ScrollArea>
-  );
 }
 
 function SnapshotMeta({
@@ -71,24 +55,204 @@ export function TaskExecutionChangeDetailDialog({
   loading,
   error,
   detail,
+  revealLine,
+  findingMessage,
   onOpenChange,
 }: TaskExecutionChangeDetailDialogProps) {
   const { t } = useTranslation("tasks");
+  const editorContainerRef = useRef<HTMLDivElement | null>(null);
+  const diffEditorRef = useRef<Monaco.editor.IStandaloneDiffEditor | null>(null);
+  const standaloneEditorRef = useRef<Monaco.editor.IStandaloneCodeEditor | null>(null);
+  const originalModelRef = useRef<Monaco.editor.ITextModel | null>(null);
+  const modifiedModelRef = useRef<Monaco.editor.ITextModel | null>(null);
+  const decorationsRef = useRef<Monaco.editor.IEditorDecorationsCollection | null>(null);
+  const resizeObserverRef = useRef<ResizeObserver | null>(null);
+  const [editorError, setEditorError] = useState<string | null>(null);
+  const [lineLocated, setLineLocated] = useState(false);
+  const [revealChecked, setRevealChecked] = useState(false);
+
   const hasBeforeText = detail?.before_status === "text" && detail.before_text !== null;
   const hasAfterText = detail?.after_status === "text" && detail.after_text !== null;
   const hasDiffText = detail?.diff_text !== null && detail?.diff_text !== undefined;
-  const defaultTab =
-    detail?.change.change_type === "added" && hasAfterText
-      ? "after"
-      : hasDiffText
-        ? "diff"
-        : hasBeforeText
-          ? "before"
-          : "after";
+  const useDiffEditor = Boolean(hasBeforeText || hasAfterText);
+  const useUnifiedDiff = !useDiffEditor && Boolean(hasDiffText);
+  const requestedRevealLine = revealLine && revealLine > 0 ? revealLine : null;
+  const language = useMemo(
+    () => detectMonacoLanguage(detail?.change.path ?? ""),
+    [detail?.change.path],
+  );
+
+  useEffect(() => {
+    if (
+      !open ||
+      loading ||
+      error ||
+      editorError ||
+      !detail ||
+      detail.snapshot_status !== "ready" ||
+      (!useDiffEditor && !useUnifiedDiff)
+    ) {
+      return;
+    }
+
+    let cancelled = false;
+
+    void loadMonaco()
+      .then((monaco) => {
+        if (cancelled || !editorContainerRef.current) {
+          return;
+        }
+
+        decorationsRef.current?.clear();
+        decorationsRef.current = null;
+        originalModelRef.current?.dispose();
+        modifiedModelRef.current?.dispose();
+        originalModelRef.current = null;
+        modifiedModelRef.current = null;
+
+        if (useDiffEditor) {
+          standaloneEditorRef.current?.dispose();
+          standaloneEditorRef.current = null;
+          originalModelRef.current = monaco.editor.createModel(detail.before_text ?? "", language);
+          modifiedModelRef.current = monaco.editor.createModel(detail.after_text ?? "", language);
+          if (!diffEditorRef.current) {
+            diffEditorRef.current = monaco.editor.createDiffEditor(editorContainerRef.current, {
+              theme: getMonacoThemeName(),
+              readOnly: true,
+              originalEditable: false,
+              automaticLayout: true,
+              renderSideBySide: true,
+              useInlineViewWhenSpaceIsLimited: false,
+              minimap: { enabled: false },
+              scrollBeyondLastLine: false,
+              wordWrap: "on",
+              lineNumbersMinChars: 3,
+              renderOverviewRuler: false,
+              diffWordWrap: "on",
+              ignoreTrimWhitespace: false,
+              fontSize: 13,
+            });
+          }
+          diffEditorRef.current.setModel({
+            original: originalModelRef.current,
+            modified: modifiedModelRef.current,
+          });
+          diffEditorRef.current.layout();
+
+          const lineCount = modifiedModelRef.current.getLineCount();
+          const canReveal =
+            Boolean(requestedRevealLine) &&
+            hasAfterText &&
+            requestedRevealLine !== null &&
+            requestedRevealLine <= lineCount;
+          if (canReveal && requestedRevealLine) {
+            const modifiedEditor = diffEditorRef.current.getModifiedEditor();
+            const line = requestedRevealLine;
+            const reveal = () => {
+              if (cancelled || !diffEditorRef.current) {
+                return;
+              }
+              diffEditorRef.current.layout();
+              modifiedEditor.revealLineInCenter(line);
+            };
+            reveal();
+            requestAnimationFrame(reveal);
+            decorationsRef.current = modifiedEditor.createDecorationsCollection([
+              {
+                range: new monaco.Range(line, 1, line, 1),
+                options: {
+                  isWholeLine: true,
+                  className: "review-finding-line",
+                  linesDecorationsClassName: "review-finding-line-margin",
+                },
+              },
+            ]);
+          }
+          setLineLocated(canReveal);
+          setRevealChecked(true);
+        } else {
+          diffEditorRef.current?.dispose();
+          diffEditorRef.current = null;
+          modifiedModelRef.current = monaco.editor.createModel(detail.diff_text ?? "", "plaintext");
+          if (!standaloneEditorRef.current) {
+            standaloneEditorRef.current = monaco.editor.create(editorContainerRef.current, {
+              model: modifiedModelRef.current,
+              theme: getMonacoThemeName(),
+              readOnly: true,
+              automaticLayout: true,
+              minimap: { enabled: false },
+              scrollBeyondLastLine: false,
+              wordWrap: "on",
+              fontSize: 13,
+            });
+          } else {
+            standaloneEditorRef.current.setModel(modifiedModelRef.current);
+          }
+          standaloneEditorRef.current.layout();
+          setLineLocated(false);
+          setRevealChecked(true);
+        }
+
+        resizeObserverRef.current?.disconnect();
+        resizeObserverRef.current = new ResizeObserver(() => {
+          diffEditorRef.current?.layout();
+          standaloneEditorRef.current?.layout();
+        });
+        resizeObserverRef.current.observe(editorContainerRef.current);
+      })
+      .catch((loadError) => {
+        if (!cancelled) {
+          setEditorError(loadError instanceof Error ? loadError.message : String(loadError));
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    detail,
+    editorError,
+    error,
+    hasAfterText,
+    language,
+    loading,
+    open,
+    requestedRevealLine,
+    useDiffEditor,
+    useUnifiedDiff,
+  ]);
+
+  useEffect(() => {
+    if (!open) {
+      resizeObserverRef.current?.disconnect();
+      resizeObserverRef.current = null;
+      decorationsRef.current?.clear();
+      decorationsRef.current = null;
+      diffEditorRef.current?.dispose();
+      diffEditorRef.current = null;
+      standaloneEditorRef.current?.dispose();
+      standaloneEditorRef.current = null;
+      originalModelRef.current?.dispose();
+      originalModelRef.current = null;
+      modifiedModelRef.current?.dispose();
+      modifiedModelRef.current = null;
+      setEditorError(null);
+      setLineLocated(false);
+      setRevealChecked(false);
+    }
+  }, [open]);
+
+  const showCannotLocate =
+    (Boolean(requestedRevealLine) || Boolean(findingMessage)) &&
+    revealChecked &&
+    !loading &&
+    !error &&
+    Boolean(detail) &&
+    !lineLocated;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="w-[min(96vw,72rem)] max-w-[min(96vw,72rem)] sm:max-w-[min(96vw,72rem)]">
+      <DialogContent className="w-[min(96vw,88rem)] max-w-[min(96vw,88rem)] sm:max-w-[min(96vw,88rem)]">
         <DialogHeader>
           <DialogTitle>
             {detail
@@ -163,6 +327,26 @@ export function TaskExecutionChangeDetailDialog({
               </div>
             )}
 
+            {findingMessage && (
+              <div className="rounded-md border border-border/70 bg-muted/20 px-3 py-2 text-xs text-foreground">
+                {findingMessage}
+              </div>
+            )}
+
+            {showCannotLocate && (
+              <div className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-800">
+                {useUnifiedDiff
+                  ? t("detail.changeDetail.unifiedDiffOnly")
+                  : t("detail.changeDetail.cannotLocateLine")}
+              </div>
+            )}
+
+            {editorError && (
+              <div className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-3 text-sm text-destructive">
+                {editorError}
+              </div>
+            )}
+
             {detail.snapshot_status === "ready" && (
               <>
                 <div className="grid gap-2 md:grid-cols-2">
@@ -184,50 +368,11 @@ export function TaskExecutionChangeDetailDialog({
                   </div>
                 )}
 
-                {hasDiffText || hasBeforeText || hasAfterText ? (
-                  <Tabs defaultValue={defaultTab}>
-                    <TabsList className="grid w-full grid-cols-3">
-                      <TabsTrigger value="diff" disabled={!hasDiffText}>
-                        {t("detail.changeDetail.tabDiff")}
-                      </TabsTrigger>
-                      <TabsTrigger value="before" disabled={!hasBeforeText}>
-                        {t("detail.changeDetail.tabBefore")}
-                      </TabsTrigger>
-                      <TabsTrigger value="after" disabled={!hasAfterText}>
-                        {t("detail.changeDetail.tabAfter")}
-                      </TabsTrigger>
-                    </TabsList>
-
-                    <TabsContent value="diff" className="space-y-2">
-                      {hasDiffText ? (
-                        <CodePreview text={detail.diff_text ?? ""} diffMode />
-                      ) : (
-                        <div className="rounded-md border border-dashed border-border px-3 py-6 text-center text-xs text-muted-foreground">
-                          {t("detail.changeDetail.noDiff")}
-                        </div>
-                      )}
-                    </TabsContent>
-
-                    <TabsContent value="before" className="space-y-2">
-                      {hasBeforeText ? (
-                        <CodePreview text={detail.before_text ?? ""} />
-                      ) : (
-                        <div className="rounded-md border border-dashed border-border px-3 py-6 text-center text-xs text-muted-foreground">
-                          {t("detail.changeDetail.noBefore")}
-                        </div>
-                      )}
-                    </TabsContent>
-
-                    <TabsContent value="after" className="space-y-2">
-                      {hasAfterText ? (
-                        <CodePreview text={detail.after_text ?? ""} />
-                      ) : (
-                        <div className="rounded-md border border-dashed border-border px-3 py-6 text-center text-xs text-muted-foreground">
-                          {t("detail.changeDetail.noAfter")}
-                        </div>
-                      )}
-                    </TabsContent>
-                  </Tabs>
+                {useDiffEditor || useUnifiedDiff ? (
+                  <div
+                    ref={editorContainerRef}
+                    className="h-[36rem] overflow-hidden rounded-md border border-border/70 bg-background"
+                  />
                 ) : (
                   <div className="rounded-md border border-dashed border-border px-3 py-6 text-center text-xs text-muted-foreground">
                     {t("detail.changeDetail.noTextContent")}

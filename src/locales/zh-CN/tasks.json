@@ -359,7 +359,13 @@
       "unknownReviewer": "未知审查员",
       "fileChangesTitle": "Codex 改动文件审核",
       "fileChangesDesc": "这里按任务执行会话汇总 Codex 改动过的文件记录，点击文件可查看对应的代码 diff 与快照。",
-      "fileChangesEmpty": "还没有可审核的 Codex 改动文件记录。"
+      "fileChangesEmpty": "还没有可审核的 Codex 改动文件记录。",
+      "findingsTitle": "行级问题",
+      "findingsEmpty": "无行级问题",
+      "findingsCannotLocate": "无法在执行变更历史中定位该文件",
+      "severityBlocker": "阻断",
+      "severityWarning": "警告",
+      "severityInfo": "信息"
     },
     "ai": {
       "suggestAssignee": "AI建议指派",
@@ -408,7 +414,9 @@
       "noDiff": "当前记录没有可展示的文本 diff。",
       "noBefore": "当前记录没有保存变更前的文本内容。",
       "noAfter": "当前记录没有保存变更后的文本内容。",
-      "noTextContent": "这条记录没有可展示的文本内容，通常是二进制文件、不可读文件，或那次会话没有保留文本快照。"
+      "noTextContent": "这条记录没有可展示的文本内容，通常是二进制文件、不可读文件，或那次会话没有保留文本快照。",
+      "cannotLocateLine": "无法定位到指定行",
+      "unifiedDiffOnly": "当前仅有 unified diff，无法按行定位"
     }
   },
   "primaryActionBar": {

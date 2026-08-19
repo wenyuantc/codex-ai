@@ -1,5 +1,7 @@
 use super::*;
 use crate::claude::{start_claude_with_manager, ClaudeManager};
+use crate::codex::{extract_review_findings, extract_review_report, extract_review_verdict};
+use crate::db::models::ReviewFinding;
 use crate::grok::{start_grok_with_manager, GrokManager};
 
 pub(crate) fn truncate_review_text(value: &str, limit: usize) -> (String, bool) {
@@ -399,6 +401,7 @@ pub(crate) fn build_task_review_prompt(
 - 审核范围仅限下方提供的任务信息和当前工作区改动\n\
 - 最终结构化判定必须且只能输出在 {verdict_start_tag} 和 {verdict_end_tag} 之间，内容必须是 JSON，对应字段：passed(boolean)、needs_human(boolean)、blocking_issue_count(number)、summary(string)\n\
 - 最终人类可读报告必须且只能输出在 {start_tag} 和 {end_tag} 之间\n\
+- 最终逐条问题必须且只能输出在 {findings_start_tag} 和 {findings_end_tag} 之间，内容必须是 JSON 数组，元素字段：file(string, 相对仓库根路径)、line(number, 修改后文件 1-based 行号)、severity(\"blocker\"|\"warning\"|\"info\")、message(string)；没有行级问题则输出 []\n\
 - 报告必须使用中文 Markdown，包含以下小节：## 结论、## 阻断问题、## 风险提醒、## 改进建议、## 验证缺口\n\
 - 如果没有阻断问题，明确写“无阻断问题”\n\
 - 如果 diff 信息被截断，要把这件事写进“验证缺口”\n\n\
@@ -414,6 +417,8 @@ pub(crate) fn build_task_review_prompt(
         verdict_end_tag = REVIEW_VERDICT_END_TAG,
         start_tag = REVIEW_REPORT_START_TAG,
         end_tag = REVIEW_REPORT_END_TAG,
+        findings_start_tag = REVIEW_FINDINGS_START_TAG,
+        findings_end_tag = REVIEW_FINDINGS_END_TAG,
         title = task.title.trim(),
         status = task.status.trim(),
         priority = task.priority.trim(),
@@ -442,6 +447,102 @@ pub(crate) fn parse_review_verdict_json(value: &str) -> Result<ReviewVerdict, St
     }
 
     Ok(verdict)
+}
+
+fn review_finding_line(value: &serde_json::Value) -> Option<i64> {
+    let parsed = if let Some(number) = value.as_i64() {
+        number
+    } else if let Some(number) = value.as_u64() {
+        i64::try_from(number).ok()?
+    } else if let Some(number) = value.as_f64() {
+        if !number.is_finite() || number.fract() != 0.0 {
+            return None;
+        }
+        number as i64
+    } else if let Some(raw) = value.as_str() {
+        raw.trim().parse::<i64>().ok()?
+    } else {
+        return None;
+    };
+
+    (parsed > 0).then_some(parsed)
+}
+
+fn review_finding_severity(value: Option<&serde_json::Value>) -> String {
+    let normalized = value
+        .and_then(|item| item.as_str())
+        .map(str::trim)
+        .filter(|item| !item.is_empty())
+        .unwrap_or("info")
+        .to_ascii_lowercase();
+
+    match normalized.as_str() {
+        "blocker" | "warning" | "info" => normalized,
+        _ => "info".to_string(),
+    }
+}
+
+pub(crate) fn parse_review_findings_json(value: &str) -> Result<Vec<ReviewFinding>, String> {
+    let parsed = serde_json::from_str::<serde_json::Value>(value)
+        .map_err(|error| format!("Failed to parse review findings JSON: {}", error))?;
+    let Some(items) = parsed.as_array() else {
+        return Err("Review findings JSON must be an array".to_string());
+    };
+
+    let mut findings = Vec::new();
+    for item in items {
+        let Some(object) = item.as_object() else {
+            continue;
+        };
+        let file = object
+            .get("file")
+            .and_then(|item| item.as_str())
+            .map(str::trim)
+            .filter(|item| !item.is_empty());
+        let message = object
+            .get("message")
+            .and_then(|item| item.as_str())
+            .map(str::trim)
+            .filter(|item| !item.is_empty());
+        let (Some(file), Some(message)) = (file, message) else {
+            continue;
+        };
+
+        findings.push(ReviewFinding {
+            file: file.to_string(),
+            line: object.get("line").and_then(review_finding_line),
+            severity: review_finding_severity(object.get("severity")),
+            message: message.to_string(),
+        });
+    }
+
+    Ok(findings)
+}
+
+pub(crate) async fn persist_review_session_events(
+    pool: &SqlitePool,
+    session_id: &str,
+    raw: &str,
+) -> Result<(), String> {
+    if let Some(verdict_raw) = extract_review_verdict(raw) {
+        if parse_review_verdict_json(&verdict_raw).is_ok() {
+            insert_codex_session_event(pool, session_id, "review_verdict", Some(&verdict_raw))
+                .await?;
+        }
+    }
+
+    if let Some(report) = extract_review_report(raw) {
+        insert_codex_session_event(pool, session_id, "review_report", Some(&report)).await?;
+    }
+
+    if let Some(findings_raw) = extract_review_findings(raw) {
+        if parse_review_findings_json(&findings_raw).is_ok() {
+            insert_codex_session_event(pool, session_id, "review_findings", Some(&findings_raw))
+                .await?;
+        }
+    }
+
+    Ok(())
 }
 
 fn task_attachments_root_dir<R: Runtime>(app: &AppHandle<R>) -> Result<PathBuf, String> {
@@ -1162,4 +1263,73 @@ pub async fn start_task_code_review(
     task_id: String,
 ) -> Result<(), String> {
     start_task_code_review_internal(app, state.inner().clone(), &task_id).await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{parse_review_findings_json, ReviewFinding};
+
+    #[test]
+    fn parse_review_findings_accepts_valid_array() {
+        let findings = parse_review_findings_json(
+            r#"[{"file":"src/lib.rs","line":12,"severity":"blocker","message":"空指针"}]"#,
+        )
+        .expect("parse valid findings");
+
+        assert_eq!(
+            findings,
+            vec![ReviewFinding {
+                file: "src/lib.rs".to_string(),
+                line: Some(12),
+                severity: "blocker".to_string(),
+                message: "空指针".to_string(),
+            }]
+        );
+    }
+
+    #[test]
+    fn parse_review_findings_accepts_empty_array() {
+        let findings = parse_review_findings_json("[]").expect("parse empty findings");
+        assert!(findings.is_empty());
+    }
+
+    #[test]
+    fn parse_review_findings_rejects_non_json_and_non_array() {
+        assert!(parse_review_findings_json("not-json").is_err());
+        assert!(parse_review_findings_json(r#"{"file":"a.rs"}"#).is_err());
+    }
+
+    #[test]
+    fn parse_review_findings_skips_items_missing_file_or_message() {
+        let findings = parse_review_findings_json(
+            r#"[
+              {"file":"","message":"缺文件"},
+              {"file":"src/a.rs","message":"  "},
+              {"message":"只有说明"},
+              {"file":"src/b.rs","line":0,"severity":"WARNING","message":"保留"}
+            ]"#,
+        )
+        .expect("parse mixed findings");
+
+        assert_eq!(
+            findings,
+            vec![ReviewFinding {
+                file: "src/b.rs".to_string(),
+                line: None,
+                severity: "warning".to_string(),
+                message: "保留".to_string(),
+            }]
+        );
+    }
+
+    #[test]
+    fn parse_review_findings_unknown_severity_becomes_info() {
+        let findings = parse_review_findings_json(
+            r#"[{"file":"src/a.rs","line":"3","severity":"critical","message":"未知级别"}]"#,
+        )
+        .expect("parse unknown severity");
+
+        assert_eq!(findings[0].severity, "info");
+        assert_eq!(findings[0].line, Some(3));
+    }
 }

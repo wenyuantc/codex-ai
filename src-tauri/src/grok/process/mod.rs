@@ -267,14 +267,6 @@ fn format_grok_session_prompt_log(
     )
 }
 
-pub(crate) fn extract_review_report(raw: &str) -> Option<String> {
-    crate::codex::extract_review_report(raw)
-}
-
-pub(crate) fn extract_review_verdict(raw: &str) -> Option<String> {
-    crate::codex::extract_review_verdict(raw)
-}
-
 async fn emit_session_terminal_line<R: Runtime>(
     app: &AppHandle<R>,
     pool: &SqlitePool,

@@ -18,12 +18,14 @@ use crate::app::{
     fetch_ssh_config_record_by_id, insert_activity_log, insert_codex_session_event,
     insert_codex_session_event_with_id, insert_codex_session_record, inspect_remote_codex_runtime,
     inspect_remote_opencode_runtime, normalize_runtime_path_string, now_sqlite,
-    parse_review_verdict_json, path_to_runtime_string, remote_sdk_bridge_path,
+    path_to_runtime_string, persist_review_session_events, remote_sdk_bridge_path,
     remote_shell_path_expression, replace_codex_session_file_changes,
     should_await_session_followups, sqlite_pool, sync_task_image_attachments_to_remote,
     update_codex_session_record, validate_runtime_working_dir, ARTIFACT_CAPTURE_MODE_LOCAL_FULL,
     ARTIFACT_CAPTURE_MODE_SSH_FULL, ARTIFACT_CAPTURE_MODE_SSH_GIT_STATUS,
     ARTIFACT_CAPTURE_MODE_SSH_NONE, EXECUTION_TARGET_LOCAL, EXECUTION_TARGET_SSH,
+    REVIEW_FINDINGS_END_TAG, REVIEW_FINDINGS_START_TAG, REVIEW_REPORT_END_TAG,
+    REVIEW_REPORT_START_TAG, REVIEW_VERDICT_END_TAG, REVIEW_VERDICT_START_TAG,
 };
 use crate::codex::{
     ensure_sdk_runtime_layout, inspect_sdk_runtime, load_codex_settings,
@@ -79,10 +81,6 @@ const SUPPORTED_REASONING_EFFORTS: &[&str] = &["low", "medium", "high", "xhigh",
 const SESSION_ID_PREFIX: &str = "session id:";
 const SDK_FILE_CHANGE_EVENT_PREFIX: &str = "[CODEX_FILE_CHANGE]";
 const SDK_USAGE_EVENT_PREFIX: &str = "[CODEX_USAGE]";
-const REVIEW_VERDICT_START_TAG: &str = "<review_verdict>";
-const REVIEW_VERDICT_END_TAG: &str = "</review_verdict>";
-const REVIEW_REPORT_START_TAG: &str = "<review_report>";
-const REVIEW_REPORT_END_TAG: &str = "</review_report>";
 const STOP_WAIT_POLL_MS: u64 = 50;
 const STOP_WAIT_MAX_ATTEMPTS: usize = 600;
 const FILE_CHANGE_TEXT_SNAPSHOT_BYTE_LIMIT: u64 = 256 * 1024;
@@ -389,7 +387,7 @@ fn upsert_sdk_file_change_event(store: &SdkFileChangeStore, event: SdkFileChange
     }
 }
 
-fn extract_tagged_block(raw: &str, start_tag: &str, end_tag: &str) -> Option<String> {
+pub(crate) fn extract_tagged_block(raw: &str, start_tag: &str, end_tag: &str) -> Option<String> {
     let escaped_end_tag = end_tag
         .strip_prefix("</")
         .map(|value| format!("<\\/{}", value));
@@ -449,6 +447,10 @@ pub(crate) fn extract_review_report(raw: &str) -> Option<String> {
 
 pub(crate) fn extract_review_verdict(raw: &str) -> Option<String> {
     extract_tagged_block(raw, REVIEW_VERDICT_START_TAG, REVIEW_VERDICT_END_TAG)
+}
+
+pub(crate) fn extract_review_findings(raw: &str) -> Option<String> {
+    extract_tagged_block(raw, REVIEW_FINDINGS_START_TAG, REVIEW_FINDINGS_END_TAG)
 }
 
 fn compose_codex_prompt(task_description: &str, system_prompt: Option<&str>) -> String {

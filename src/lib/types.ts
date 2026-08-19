@@ -300,10 +300,21 @@ export interface CodexSessionFileChange {
   created_at: string;
 }
 
+export type ReviewFindingSeverity = "blocker" | "warning" | "info";
+
+export interface ReviewFinding {
+  file: string;
+  line: number | null;
+  severity: ReviewFindingSeverity | string;
+  message: string;
+}
+
 export interface TaskLatestReview {
   session: CodexSessionRecord;
   report: string | null;
   reviewer_name: string | null;
+  findings: ReviewFinding[];
+  has_findings_event: boolean;
 }
 
 export interface TaskExecutionChangeHistoryItem {

@@ -142,7 +142,7 @@ fn review_prompt_uses_explicit_remote_working_dir_for_ssh_projects() {
         project_type: PROJECT_TYPE_SSH.to_string(),
         ssh_config_id: Some("ssh-1".to_string()),
         remote_repo_path: Some("/srv/demo".to_string()),
-            test_command: None,
+        test_command: None,
         deleted_at: None,
         created_at: "2026-04-16 10:00:00".to_string(),
         updated_at: "2026-04-16 10:00:00".to_string(),
@@ -154,6 +154,8 @@ fn review_prompt_uses_explicit_remote_working_dir_for_ssh_projects() {
     assert!(prompt.contains("仓库路径：/srv/demo"));
     assert!(prompt.contains("执行目标：SSH 远程工作区"));
     assert!(!prompt.contains("仓库路径：（未配置）"));
+    assert!(prompt.contains("<review_findings>"));
+    assert!(prompt.contains("</review_findings>"));
 }
 
 #[test]
@@ -197,7 +199,7 @@ fn review_prompt_marks_local_projects_as_local_workspace() {
         project_type: PROJECT_TYPE_LOCAL.to_string(),
         ssh_config_id: None,
         remote_repo_path: None,
-            test_command: None,
+        test_command: None,
         deleted_at: None,
         created_at: "2026-04-16 10:00:00".to_string(),
         updated_at: "2026-04-16 10:00:00".to_string(),
@@ -207,6 +209,16 @@ fn review_prompt_marks_local_projects_as_local_workspace() {
         build_task_review_prompt(&task, &project, "/tmp/demo", "## Git 状态\n M src/main.rs");
 
     assert!(prompt.contains("执行目标：本地工作区"));
+    assert!(prompt.contains("<review_findings>"));
+    assert!(prompt.contains("</review_findings>"));
+}
+
+#[test]
+fn default_review_prompt_template_requires_findings_block() {
+    let template = crate::codex::find_default_ai_prompt_template("review")
+        .expect("default review template");
+    assert!(template.scene_requirement.contains("<review_findings>"));
+    assert!(template.scene_requirement.contains("</review_findings>"));
 }
 
 #[test]
@@ -406,4 +418,205 @@ fn rewrite_file_change_diff_labels_keeps_dev_null_unprefixed() {
     assert!(rewritten.contains("+++ b/src/new.ts"));
     assert!(!rewritten.contains("a//dev/null"));
     assert!(!rewritten.contains("b//dev/null"));
+}
+
+#[test]
+fn persist_review_session_events_skips_malformed_findings() {
+    tauri::async_runtime::block_on(async {
+        let pool = setup_test_pool().await;
+        insert_session(&pool, "review-malformed", None, "review").await;
+
+        persist_review_session_events(
+            &pool,
+            "review-malformed",
+            concat!(
+                r#"<review_verdict>{"passed":true,"needs_human":false,"blocking_issue_count":0,"summary":"通过"}</review_verdict>"#,
+                "\n<review_report>## 结论\n通过</review_report>\n",
+                "<review_findings>not-json</review_findings>",
+            ),
+        )
+        .await
+        .expect("persist review events");
+
+        let findings_count = sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(*) FROM codex_session_events WHERE session_id = $1 AND event_type = 'review_findings'",
+        )
+        .bind("review-malformed")
+        .fetch_one(&pool)
+        .await
+        .expect("count findings events");
+        let verdict_count = sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(*) FROM codex_session_events WHERE session_id = $1 AND event_type = 'review_verdict'",
+        )
+        .bind("review-malformed")
+        .fetch_one(&pool)
+        .await
+        .expect("count verdict events");
+
+        assert_eq!(findings_count, 0);
+        assert_eq!(verdict_count, 1);
+        pool.close().await;
+    });
+}
+
+#[test]
+fn persist_review_session_events_writes_valid_findings() {
+    tauri::async_runtime::block_on(async {
+        let pool = setup_test_pool().await;
+        insert_session(&pool, "review-valid", None, "review").await;
+
+        persist_review_session_events(
+            &pool,
+            "review-valid",
+            r#"<review_findings>[{"file":"src/main.rs","line":8,"severity":"warning","message":"未处理 Result"}]</review_findings>"#,
+        )
+        .await
+        .expect("persist findings");
+
+        let message = sqlx::query_scalar::<_, Option<String>>(
+            "SELECT message FROM codex_session_events WHERE session_id = $1 AND event_type = 'review_findings' ORDER BY created_at DESC LIMIT 1",
+        )
+        .bind("review-valid")
+        .fetch_optional(&pool)
+        .await
+        .expect("fetch findings event")
+        .flatten()
+        .expect("findings event message");
+
+        assert!(message.contains("src/main.rs"));
+        pool.close().await;
+    });
+}
+
+#[test]
+fn latest_review_returns_parsed_findings() {
+    tauri::async_runtime::block_on(async {
+        let pool = setup_test_pool().await;
+        insert_project(&pool, "proj-review-findings").await;
+        sqlx::query(
+            r#"
+            INSERT INTO tasks (
+                id, title, status, priority, project_id, use_worktree, created_at, updated_at
+            ) VALUES (
+                'task-review-findings', 'Review findings', 'review', 'medium', 'proj-review-findings', 0,
+                '2026-04-16 10:00:00', '2026-04-16 10:00:00'
+            )
+            "#,
+        )
+        .execute(&pool)
+        .await
+        .expect("insert task");
+        sqlx::query(
+            r#"
+            INSERT INTO codex_sessions (
+                id, task_id, session_kind, status, started_at, created_at
+            ) VALUES (
+                'review-latest', 'task-review-findings', 'review', 'exited',
+                '2026-04-16 10:00:00', '2026-04-16 10:00:00'
+            )
+            "#,
+        )
+        .execute(&pool)
+        .await
+        .expect("insert review session");
+
+        persist_review_session_events(
+            &pool,
+            "review-latest",
+            r#"<review_findings>[{"file":"src/app.rs","line":21,"severity":"blocker","message":"逻辑错误"}]</review_findings>"#,
+        )
+        .await
+        .expect("persist findings");
+
+        let latest = fetch_task_latest_review(&pool, "task-review-findings")
+            .await
+            .expect("fetch latest review")
+            .expect("latest review exists");
+
+        assert!(latest.has_findings_event);
+        assert_eq!(latest.findings.len(), 1);
+        assert_eq!(latest.findings[0].file, "src/app.rs");
+        assert_eq!(latest.findings[0].line, Some(21));
+        assert_eq!(latest.findings[0].severity, "blocker");
+        pool.close().await;
+    });
+}
+
+#[test]
+fn latest_review_treats_malformed_findings_event_as_empty() {
+    tauri::async_runtime::block_on(async {
+        let pool = setup_test_pool().await;
+        insert_project(&pool, "proj-review-bad-findings").await;
+        sqlx::query(
+            r#"
+            INSERT INTO tasks (
+                id, title, status, priority, project_id, use_worktree, created_at, updated_at
+            ) VALUES (
+                'task-review-bad-findings', 'Review findings', 'review', 'medium', 'proj-review-bad-findings', 0,
+                '2026-04-16 10:00:00', '2026-04-16 10:00:00'
+            )
+            "#,
+        )
+        .execute(&pool)
+        .await
+        .expect("insert task");
+        sqlx::query(
+            r#"
+            INSERT INTO codex_sessions (
+                id, task_id, session_kind, status, started_at, created_at
+            ) VALUES (
+                'review-bad-findings', 'task-review-bad-findings', 'review', 'exited',
+                '2026-04-16 10:00:00', '2026-04-16 10:00:00'
+            )
+            "#,
+        )
+        .execute(&pool)
+        .await
+        .expect("insert review session");
+        sqlx::query(
+            r#"
+            INSERT INTO codex_session_events (id, session_id, event_type, message, created_at)
+            VALUES ('evt-bad-findings', 'review-bad-findings', 'review_findings', 'not-json', '2026-04-16 10:00:01')
+            "#,
+        )
+        .execute(&pool)
+        .await
+        .expect("insert malformed findings event");
+
+        let latest = fetch_task_latest_review(&pool, "task-review-bad-findings")
+            .await
+            .expect("fetch latest review")
+            .expect("latest review exists");
+
+        assert!(!latest.has_findings_event);
+        assert!(latest.findings.is_empty());
+        pool.close().await;
+    });
+}
+
+#[test]
+fn persist_review_session_events_writes_empty_findings_array() {
+    tauri::async_runtime::block_on(async {
+        let pool = setup_test_pool().await;
+        insert_session(&pool, "review-empty-findings", None, "review").await;
+
+        persist_review_session_events(
+            &pool,
+            "review-empty-findings",
+            "<review_findings>[]</review_findings>",
+        )
+        .await
+        .expect("persist empty findings");
+
+        let findings_count = sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(*) FROM codex_session_events WHERE session_id = $1 AND event_type = 'review_findings'",
+        )
+        .bind("review-empty-findings")
+        .fetch_one(&pool)
+        .await
+        .expect("count findings events");
+
+        assert_eq!(findings_count, 1);
+        pool.close().await;
+    });
 }

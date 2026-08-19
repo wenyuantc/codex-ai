@@ -19,7 +19,7 @@
 ## N-P2 · 复用与审查深度
 
 - [x] **任务模板（B2）**：看板「模板」+ 右键存为模板；`{{ident}}` 批量套用（≤100）；标签按名 find-or-create，子任务标题复制为待办
-- [ ] **审查行级定位（C1）**：`app/review.rs` 只解析整体 verdict + 阻塞数 + 摘要，无行级定位；用户得自己翻 diff 找问题在哪。已有 `codex_session_file_change_details` + Monaco 可锚定
+- [x] **审查行级定位（C1）**：`<review_findings>` 落库；任务详情列表点击打开 Monaco Diff 并跳到修改后一侧对应行；畸形输出降级为原报告
 
 ## N-P3 · 技术债
 

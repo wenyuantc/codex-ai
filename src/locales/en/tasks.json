@@ -359,7 +359,13 @@
       "unknownReviewer": "Unknown reviewer",
       "fileChangesTitle": "Codex changed-file review",
       "fileChangesDesc": "Aggregates Codex file-change records by execution session; click a file to view its diff and snapshot.",
-      "fileChangesEmpty": "No Codex file-change records available for review yet."
+      "fileChangesEmpty": "No Codex file-change records available for review yet.",
+      "findingsTitle": "Line-level findings",
+      "findingsEmpty": "No line-level issues",
+      "findingsCannotLocate": "Could not locate this file in the execution change history",
+      "severityBlocker": "Blocker",
+      "severityWarning": "Warning",
+      "severityInfo": "Info"
     },
     "ai": {
       "suggestAssignee": "AI suggest assignee",
@@ -408,7 +414,9 @@
       "noDiff": "No text diff available for this record.",
       "noBefore": "No before-change text was saved for this record.",
       "noAfter": "No after-change text was saved for this record.",
-      "noTextContent": "No displayable text for this record—usually binary/unreadable, or the session did not keep a text snapshot."
+      "noTextContent": "No displayable text for this record—usually binary/unreadable, or the session did not keep a text snapshot.",
+      "cannotLocateLine": "Could not locate the specified line",
+      "unifiedDiffOnly": "Only a unified diff is available; the line was not located"
     }
   },
   "primaryActionBar": {

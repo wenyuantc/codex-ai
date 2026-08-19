@@ -1,12 +1,16 @@
+import { useEffect, useState } from "react";
 import { Copy, FileText, Loader2, Play, ScrollText, Wrench } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import type {
   CodexSessionFileChange,
+  ReviewFinding,
   TaskExecutionChangeHistoryItem,
   TaskLatestReview,
 } from "@/lib/types";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { matchReviewFindingToChange } from "@/lib/reviewFindings";
 import { CodexTerminal } from "@/components/codex/CodexTerminal";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useSessionLogAwaitFollowups } from "@/hooks/useSessionLogAwaitFollowups";
@@ -38,7 +42,10 @@ interface TaskReviewPanelProps {
   executionChangeHistoryLoading: boolean;
   executionChangeHistoryError: string | null;
   onRefreshHistory: () => void;
-  onOpenChangeDetail: (change: CodexSessionFileChange) => void;
+  onOpenChangeDetail: (
+    change: CodexSessionFileChange,
+    options?: { line?: number | null; message?: string },
+  ) => void;
 }
 
 export function TaskReviewPanel({
@@ -66,6 +73,11 @@ export function TaskReviewPanel({
   onOpenChangeDetail,
 }: TaskReviewPanelProps) {
   const { t } = useTranslation("tasks");
+  const [findingLocateError, setFindingLocateError] = useState<string | null>(null);
+  const latestReviewSessionId = latestReview?.session.id;
+  useEffect(() => {
+    setFindingLocateError(null);
+  }, [latestReviewSessionId]);
   const employees = useEmployeeStore((s) => s.employees);
   const employeeRuntime = useEmployeeStore((s) => s.employeeRuntime);
   const reviewer = employees.find((item) => item.id === reviewerId);
@@ -224,6 +236,49 @@ export function TaskReviewPanel({
         }
       >
         <div className="space-y-2">
+          {latestReview?.has_findings_event && (
+            <div className="space-y-2">
+              <p className="text-xs font-medium text-muted-foreground">
+                {t("detail.review.findingsTitle")}
+              </p>
+              {findingLocateError && (
+                <div className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-800">
+                  {findingLocateError}
+                </div>
+              )}
+              {latestReview.findings.length === 0 ? (
+                <div className="rounded-md border border-dashed border-border/60 bg-background/70 px-3 py-3 text-xs text-muted-foreground">
+                  {t("detail.review.findingsEmpty")}
+                </div>
+              ) : (
+                <div className="space-y-1.5">
+                  {latestReview.findings.map((finding, index) => (
+                    <ReviewFindingRow
+                      key={`${finding.file}:${finding.line ?? "none"}:${index}`}
+                      finding={finding}
+                      disabled={executionChangeHistoryLoading}
+                      onOpen={() => {
+                        if (executionChangeHistoryLoading) {
+                          return;
+                        }
+                        const change = matchReviewFindingToChange(finding, executionChangeHistory);
+                        if (!change) {
+                          setFindingLocateError(t("detail.review.findingsCannotLocate"));
+                          return;
+                        }
+                        setFindingLocateError(null);
+                        onOpenChangeDetail(change, {
+                          line: finding.line,
+                          message: finding.message,
+                        });
+                      }}
+                    />
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
           {latestReview?.report ? (
             <ScrollArea className="h-72 overflow-hidden rounded-md border border-border/60 bg-background/80">
               <div className="whitespace-pre-wrap p-3 text-xs text-foreground">
@@ -256,5 +311,58 @@ export function TaskReviewPanel({
         onOpenChangeDetail={onOpenChangeDetail}
       />
     </div>
+  );
+}
+
+function reviewFindingSeverityLabel(severity: string, t: (key: string) => string) {
+  switch (severity) {
+    case "blocker":
+      return t("detail.review.severityBlocker");
+    case "warning":
+      return t("detail.review.severityWarning");
+    default:
+      return t("detail.review.severityInfo");
+  }
+}
+
+function ReviewFindingRow({
+  finding,
+  onOpen,
+  disabled = false,
+}: {
+  finding: ReviewFinding;
+  onOpen: () => void;
+  disabled?: boolean;
+}) {
+  const { t } = useTranslation("tasks");
+  const location =
+    finding.line && finding.line > 0 ? `${finding.file}:${finding.line}` : finding.file;
+
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      disabled={disabled}
+      className="flex w-full items-start gap-2 rounded-md border border-border/60 bg-background/80 px-3 py-2 text-left hover:border-primary/40 hover:bg-muted/40 disabled:pointer-events-none disabled:opacity-60"
+    >
+      <Badge
+        variant={finding.severity === "blocker" ? "destructive" : "outline"}
+        className={
+          finding.severity === "warning"
+            ? "border-amber-500/40 bg-amber-500/10 text-amber-800"
+            : finding.severity === "info"
+              ? "text-muted-foreground"
+              : undefined
+        }
+      >
+        {reviewFindingSeverityLabel(finding.severity, t)}
+      </Badge>
+      <span className="min-w-0 flex-1">
+        <span className="block break-all font-mono text-[11px] text-muted-foreground">
+          {location}
+        </span>
+        <span className="mt-0.5 block text-xs text-foreground">{finding.message}</span>
+      </span>
+    </button>
   );
 }

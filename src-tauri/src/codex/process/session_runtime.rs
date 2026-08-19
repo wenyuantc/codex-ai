@@ -468,27 +468,8 @@ fn spawn_exit_watcher(
                 .as_ref()
                 .map(|captured| captured.lock().unwrap().join("\n"))
                 .unwrap_or_default();
-            if let Some(verdict_raw) = extract_review_verdict(&raw_output) {
-                if parse_review_verdict_json(&verdict_raw).is_ok() {
-                    let _ = insert_codex_session_event(
-                        &pool,
-                        &session_record_id,
-                        "review_verdict",
-                        Some(&verdict_raw),
-                    )
-                    .await;
-                }
-            }
+            let _ = persist_review_session_events(&pool, &session_record_id, &raw_output).await;
             let report = extract_review_report(&raw_output);
-            if let Some(report) = report.as_ref() {
-                let _ = insert_codex_session_event(
-                    &pool,
-                    &session_record_id,
-                    "review_report",
-                    Some(report),
-                )
-                .await;
-            }
             if let Some(task_id) = task_id.as_deref() {
                 let detail = match report.as_ref() {
                     Some(report) => {
