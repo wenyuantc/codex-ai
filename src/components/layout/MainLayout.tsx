@@ -16,6 +16,7 @@ export function MainLayout() {
   const navigate = useNavigate();
   const initCodexListeners = useEmployeeStore((s) => s.initCodexListeners);
   const initCodexSessionListeners = useTaskStore((s) => s.initCodexSessionListeners);
+  const initRunQueueListener = useTaskStore((s) => s.initRunQueueListener);
   const environmentMode = useProjectStore((state) => state.environmentMode);
   const selectedSshConfigId = useProjectStore((state) => state.selectedSshConfigId);
   const initNotificationListeners = useNotificationStore(
@@ -33,6 +34,11 @@ export function MainLayout() {
     const cleanup = initCodexSessionListeners();
     return cleanup;
   }, [initCodexSessionListeners]);
+
+  useEffect(() => {
+    const cleanup = initRunQueueListener();
+    return cleanup;
+  }, [initRunQueueListener]);
 
   useEffect(() => {
     const cleanup = initNotificationListeners();

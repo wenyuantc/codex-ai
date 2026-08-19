@@ -65,6 +65,7 @@ import {
   GitBranch,
   GripVertical,
   Link2,
+  ListX,
   Loader2,
   MessageSquarePlus,
   Network,
@@ -226,6 +227,10 @@ function TaskCardComponent({
   const employees = useEmployeeStore((s) => s.employees);
   const employeeRuntime = useEmployeeStore((s) => s.employeeRuntime);
   const allTasks = useTaskStore((s) => s.tasks);
+  const queuedItem = useTaskStore(
+    (s) => s.runQueue.find((item) => item.task_id === task.id) ?? null,
+  );
+  const cancelQueuedRun = useTaskStore((s) => s.cancelQueuedRun);
   const project = projects.find((p) => p.id === task.project_id);
   const projectName = project?.name;
   const projectRepoPath = getProjectWorkingDir(project);
@@ -422,6 +427,7 @@ function TaskCardComponent({
           ? incompleteDependencyTitles.join("、")
           : `${incompleteDependencyTitles.slice(0, 2).join("、")} 等`,
     sshReviewEvidenceLimited,
+    queued: Boolean(queuedItem),
   });
   // Show primary bar for stop/review/locked always; for run respect hideRunAction (completed column).
   const shouldShowPrimaryCta =
@@ -737,6 +743,16 @@ function TaskCardComponent({
         return;
       default:
         return;
+    }
+  };
+
+  const handleCancelQueuedRun = async (e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    setContextMenu(null);
+    try {
+      await cancelQueuedRun(task.id);
+    } catch (error) {
+      console.error("Failed to cancel queued task run:", error);
     }
   };
 
@@ -1315,6 +1331,15 @@ function TaskCardComponent({
                   status: getAcceptanceStatusLabel(task.last_acceptance_status),
                 })}
               </span>
+              {queuedItem && (
+                <span
+                  className="inline-flex items-center gap-1 rounded-full bg-amber-500/10 px-2 py-0.5 text-[11px] text-amber-800 dark:text-amber-100"
+                  title={formatDate(queuedItem.enqueued_at)}
+                >
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                  {t("card.queuedBadge", { position: queuedItem.position })}
+                </span>
+              )}
               {isWorktreeModeEnabled && (
                 <span
                   className="inline-flex items-center gap-1 rounded-full bg-sky-500/10 px-2 py-0.5 text-[11px] text-sky-700 dark:text-sky-200"
@@ -1550,6 +1575,17 @@ function TaskCardComponent({
               onMouseDown={(e) => e.stopPropagation()}
               onClick={(e) => e.stopPropagation()}
             >
+              {queuedItem && (
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => void handleCancelQueuedRun()}
+                  className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-left hover:bg-accent hover:text-accent-foreground"
+                >
+                  <ListX className="h-4 w-4" />
+                  {t("card.cancelQueue")}
+                </button>
+              )}
               {shouldShowPrimaryMenuAction && (
                 <button
                   type="button"
@@ -1567,7 +1603,9 @@ function TaskCardComponent({
                 >
                   {primaryCta.kind === "stop" ? (
                     <Square className="h-4 w-4" />
-                  ) : primaryCta.kind === "starting" || primaryCta.kind === "running_locked" ? (
+                  ) : primaryCta.kind === "starting" ||
+                    primaryCta.kind === "running_locked" ||
+                    primaryCta.kind === "queued" ? (
                     <Loader2 className="h-4 w-4 animate-spin" />
                   ) : primaryCta.kind === "review" ? (
                     <ScrollText className="h-4 w-4" />

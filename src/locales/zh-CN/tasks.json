@@ -352,6 +352,8 @@
       "createFixTask": "新建修复任务",
       "noAssigneeTitle": "原任务未指派开发负责人",
       "createFixTitle": "手动修复会新建一个修复任务并立即运行",
+      "fixCreatedStarted": "已创建修复任务“{{title}}”，并开始运行。",
+      "fixCreatedQueued": "已创建修复任务“{{title}}”，并加入运行队列（第 {{position}} 位）。",
       "noStructuredReport": "最近一次审核尚未产出结构化报告。",
       "noResult": "还没有代码审核结果。",
       "unknownReviewer": "未知审查员",
@@ -422,7 +424,9 @@
     "acceptanceStatusTitle": "最近一次测试验收状态",
     "enableAutoQc": "开启自动质控",
     "disableAutoQc": "关闭自动质控",
-    "preparingCommit": "准备提交中"
+    "preparingCommit": "准备提交中",
+    "queuedBadge": "排队中(第 {{position}} 位)",
+    "cancelQueue": "取消排队"
   },
   "elapsed": {
     "completed": "完成：{{date}} · 耗时：{{duration}}",
@@ -469,6 +473,10 @@
     },
     "archived": {
       "reason": "任务已归档"
+    },
+    "queued": {
+      "label": "排队中",
+      "reason": "已在运行队列中，等待并发空位"
     },
     "run": {
       "label": "运行",

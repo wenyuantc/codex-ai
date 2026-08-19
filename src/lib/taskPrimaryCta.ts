@@ -9,6 +9,7 @@ export type TaskPrimaryCtaKind =
   | "stop"
   | "running_locked"
   | "starting"
+  | "queued"
   | "review"
   | "blocked"
   | "commit"
@@ -58,6 +59,8 @@ export interface ResolveTaskPrimaryCtaInput {
    * When true and status is review (idle), disable starting review from CTA.
    */
   sshReviewEvidenceLimited?: boolean;
+  /** Task is waiting in the global run queue. */
+  queued?: boolean;
 }
 
 const FIX_AUTOMATION_STATUSES = new Set([
@@ -94,7 +97,7 @@ function lockedExecutionLabel(
 /**
  * Resolve the unique primary CTA for a task.
  * Priority (first match):
- * stop → running_locked → starting → review → blocked → commit → acceptance → run → none
+ * stop → running_locked → starting → queued → review → blocked → commit → acceptance → run → none
  *
  * Note: when a background plan/start is busy, it is preferred over generic
  * running_locked so labels stay accurate (matches TaskCard historical UX).
@@ -117,6 +120,7 @@ export function resolveTaskPrimaryCta(input: ResolveTaskPrimaryCtaInput): TaskPr
     hasIncompleteDependencies = false,
     incompleteDependencySummary = null,
     sshReviewEvidenceLimited = false,
+    queued = false,
   } = input;
 
   const backgroundBusy = backgroundPlanning || backgroundStarting;
@@ -161,6 +165,16 @@ export function resolveTaskPrimaryCta(input: ResolveTaskPrimaryCtaInput): TaskPr
   }
 
   // 3. Background (if not folded into executionActive) — already handled above
+
+  if (queued) {
+    return {
+      kind: "queued",
+      label: ct("queued.label"),
+      disabled: true,
+      reason: ct("queued.reason"),
+      tone: "muted",
+    };
+  }
 
   // 4. Review
   if (reviewActive || status === "review") {

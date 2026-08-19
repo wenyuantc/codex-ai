@@ -176,6 +176,7 @@ export function SettingsPage() {
 
   const [themeMode, setThemeMode] = useState<ThemeMode>(getThemePreference);
   const [locale, setLocale] = useState<AppLocale>(getLocalePreference);
+  const [maxConcurrentSessions, setMaxConcurrentSessions] = useState(3);
   const [codexHealth, setCodexHealth] = useState<CodexHealthCheck | RemoteCodexHealthCheck | null>(
     null,
   );
@@ -359,11 +360,32 @@ export function SettingsPage() {
     }
   }
 
+  async function loadLocalConcurrencyLimit() {
+    try {
+      const localSettings = await getCodexSettings();
+      setMaxConcurrentSessions(localSettings.max_concurrent_sessions ?? 3);
+    } catch (error) {
+      console.error("Failed to load local concurrency limit:", error);
+    }
+  }
+
+  async function persistMaxConcurrentSessions(value: number) {
+    const normalized = Number.isFinite(value) ? Math.min(64, Math.max(0, Math.trunc(value))) : 3;
+    setMaxConcurrentSessions(normalized);
+    try {
+      await updateCodexSettings({ max_concurrent_sessions: normalized });
+    } catch (error) {
+      console.error("Failed to save local concurrency limit:", error);
+      await loadLocalConcurrencyLimit();
+    }
+  }
+
   async function loadRuntimeState() {
     setHealthLoading(true);
     setSdkActionError(null);
 
     try {
+      await loadLocalConcurrencyLimit();
       if (isRemoteMode) {
         if (!selectedSshConfigId) {
           setCodexHealth(null);
@@ -384,6 +406,7 @@ export function SettingsPage() {
       const [health, settings] = await Promise.all([healthCheck(), getCodexSettings()]);
       setCodexHealth(health);
       applySettingsToFormState(settings);
+      setMaxConcurrentSessions(settings.max_concurrent_sessions ?? 3);
     } catch (error) {
       console.error("Failed to load codex settings state:", error);
       setCodexHealth(null);
@@ -690,7 +713,13 @@ export function SettingsPage() {
       const nextSettings =
         isRemoteMode && selectedSshConfigId
           ? await updateRemoteCodexSettings(selectedSshConfigId, updates)
-          : await updateCodexSettings(updates);
+          : await updateCodexSettings({
+              ...updates,
+              max_concurrent_sessions: maxConcurrentSessions,
+            });
+      if (isRemoteMode) {
+        await persistMaxConcurrentSessions(maxConcurrentSessions);
+      }
       setCodexSettings(nextSettings);
       setSdkActionMessage(
         isRemoteMode
@@ -1185,6 +1214,9 @@ export function SettingsPage() {
             onThemeModeChange={setThemeMode}
             locale={locale}
             onLocaleChange={setLocale}
+            maxConcurrentSessions={maxConcurrentSessions}
+            onMaxConcurrentSessionsChange={setMaxConcurrentSessions}
+            onMaxConcurrentSessionsCommit={(value) => void persistMaxConcurrentSessions(value)}
             onTaskSdkEnabledChange={setTaskSdkEnabled}
             onOneShotSdkEnabledChange={setOneShotSdkEnabled}
             onOneShotPreferredProviderChange={(provider) => {

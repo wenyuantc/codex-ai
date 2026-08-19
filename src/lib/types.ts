@@ -767,6 +767,19 @@ export interface CodexSettings {
   git_preferences: GitPreferences;
   node_path_override: string | null;
   sdk_install_dir: string;
+  /** 0 = unlimited. Gate reads local settings only. */
+  max_concurrent_sessions: number;
+}
+
+export type StartSessionOutcome = { status: "started" } | { status: "queued"; position: number };
+
+export interface TaskRunQueueItem {
+  id: number;
+  task_id: string;
+  provider: string;
+  employee_id: string;
+  enqueued_at: string;
+  position: number;
 }
 
 export type RemoteCodexSettings = CodexSettings;

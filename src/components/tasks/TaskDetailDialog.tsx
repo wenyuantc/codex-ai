@@ -18,7 +18,6 @@ import {
   getTaskCommitActionState,
   getTaskCommitOverview,
   listTaskPipelineSteps,
-  prepareTaskGitExecution,
   getCodexSessionFileChangeDetail,
   getTaskExecutionChangeHistory,
   getTaskLatestReview,
@@ -54,10 +53,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { buildTaskExecutionInput } from "@/lib/taskPrompt";
 import { dedupePaths, isTauriRuntime, normalizeDialogSelection } from "@/lib/taskAttachments";
-import { onTaskAutomationStateChanged, startCodex } from "@/lib/codex";
-import { startClaude } from "@/lib/claude";
-import { startGrok } from "@/lib/grok";
-import { startOpenCode } from "@/lib/opencode";
+import { onTaskAutomationStateChanged } from "@/lib/codex";
+import { startTaskRunSession } from "@/lib/taskRunSession";
 import { getProjectWorkingDir } from "@/lib/projects";
 import { countStageableGitFiles } from "@/lib/gitWorkingTree";
 import { resolveTaskPrimaryCta } from "@/lib/taskPrimaryCta";
@@ -117,9 +114,11 @@ export function TaskDetailDialog({
     deleteTaskAttachment,
     addSubtasks,
     createTask,
-    startTaskTimer,
   } = useTaskStore();
   const persistedAutomationState = useTaskStore((state) => state.automationStates[task.id]);
+  const queuedItem = useTaskStore(
+    (state) => state.runQueue.find((item) => item.task_id === task.id) ?? null,
+  );
   const {
     employees,
     employeeRuntime,
@@ -373,6 +372,7 @@ export function TaskDetailDialog({
         : incompleteDependencyTitles.length <= 2
           ? incompleteDependencyTitles.join("、")
           : `${incompleteDependencyTitles.slice(0, 2).join("、")} 等`,
+    queued: Boolean(queuedItem),
   });
   const primaryActionLoading =
     executionActions.loading !== null ||
@@ -1135,7 +1135,7 @@ export function TaskDetailDialog({
   };
 
   const handleRunCodex = async () => {
-    if (isRunning || isReviewRunning) {
+    if (isRunning || isReviewRunning || queuedItem) {
       return;
     }
     if (coordinatorId) {
@@ -1425,58 +1425,28 @@ export function TaskDetailDialog({
         assignee_id: assigneeId,
       });
 
-      await updateEmployeeStatus(assigneeId, "busy");
-      await useTaskStore.getState().updateTaskStatus(createdTask.id, "in_progress");
-      clearTaskCodexOutput(createdTask.id, "execution");
       const executionInput = buildTaskExecutionInput({
         title: createdTask.title,
         description: createdTask.description,
       });
-      let workingDir = projectRepoPath ?? undefined;
-      let taskGitContextId: string | undefined;
-
-      if (createdTask.use_worktree) {
-        const prepared = await prepareTaskGitExecution(createdTask.id);
-        workingDir = prepared.working_dir;
-        taskGitContextId = prepared.task_git_context_id;
-      }
-
-      if (!workingDir) {
-        throw new Error("当前项目缺少可用工作目录，无法启动修复任务。");
-      }
-
-      const startOptions = {
-        model: assignee?.model,
-        reasoningEffort: assignee?.reasoning_effort,
-        systemPrompt: assignee?.system_prompt,
-        workingDir,
-        taskId: createdTask.id,
-        taskGitContextId,
-        imagePaths: executionInput.imagePaths,
-      };
-
-      if (assignee?.ai_provider === "claude") {
-        await startClaude(assigneeId, executionInput.prompt, startOptions);
-      } else if (assignee?.ai_provider === "opencode") {
-        await startOpenCode({
-          employeeId: assigneeId,
-          taskDescription: executionInput.prompt,
-          model: assignee.model,
-          workingDir,
-          taskId: createdTask.id,
-          taskGitContextId,
-          imagePaths: executionInput.imagePaths,
-        });
-      } else if (assignee?.ai_provider === "grok") {
-        await startGrok(assigneeId, executionInput.prompt, startOptions);
-      } else {
-        await startCodex(assigneeId, executionInput.prompt, startOptions);
-      }
-      await startTaskTimer(createdTask.id);
-      await refreshEmployeeRuntimeStatus(assigneeId);
+      const outcome = await startTaskRunSession({
+        task: createdTask,
+        assigneeId,
+        assignee,
+        projectRepoPath,
+        executionInput,
+        clearTaskOutput: true,
+      });
 
       setReviewFixDialogOpen(false);
-      setReviewNotice(`已创建修复任务“${createdTask.title}”，并开始运行。`);
+      setReviewNotice(
+        outcome.status === "queued"
+          ? t("detail.review.fixCreatedQueued", {
+              title: createdTask.title,
+              position: outcome.position,
+            })
+          : t("detail.review.fixCreatedStarted", { title: createdTask.title }),
+      );
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       setReviewError(message);
@@ -1512,7 +1482,10 @@ export function TaskDetailDialog({
           },
         }
       : null,
-    primaryCta.kind !== "run" && Boolean(assigneeId) && !hasActiveSession
+    primaryCta.kind !== "run" &&
+    primaryCta.kind !== "queued" &&
+    Boolean(assigneeId) &&
+    !hasActiveSession
       ? {
           key: "run",
           label: t("detail.secondary.run"),
@@ -1674,6 +1647,8 @@ export function TaskDetailDialog({
                     executionChangeHistory={executionChangeHistory}
                     executionChangeHistoryLoading={executionChangeHistoryLoading}
                     executionChangeHistoryError={executionChangeHistoryError}
+                    queued={Boolean(queuedItem)}
+                    queuedPosition={queuedItem?.position}
                     onRun={() => void handleRunCodex()}
                     onStop={() => void handleStopCodex()}
                     onClearOutput={() => clearTaskCodexOutput(task.id)}

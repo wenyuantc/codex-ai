@@ -21,6 +21,8 @@ interface TaskExecutionPanelProps {
   executionChangeHistory: TaskExecutionChangeHistoryItem[];
   executionChangeHistoryLoading: boolean;
   executionChangeHistoryError: string | null;
+  queued?: boolean;
+  queuedPosition?: number;
   onRun: () => void;
   onStop: () => void;
   onClearOutput: () => void;
@@ -40,6 +42,8 @@ export function TaskExecutionPanel({
   executionChangeHistory,
   executionChangeHistoryLoading,
   executionChangeHistoryError,
+  queued = false,
+  queuedPosition,
   onRun,
   onStop,
   onClearOutput,
@@ -76,6 +80,18 @@ export function TaskExecutionPanel({
             >
               <Loader2 className="animate-spin" />
               {t("detail.execution.running")}
+            </Button>
+          ) : queued ? (
+            <Button
+              size="sm"
+              disabled
+              className="bg-green-600 text-white opacity-60"
+              title={t("primaryCta.queued.reason")}
+            >
+              <Loader2 className="animate-spin" />
+              {queuedPosition
+                ? t("card.queuedBadge", { position: queuedPosition })
+                : t("primaryCta.queued.label")}
             </Button>
           ) : (
             <Button

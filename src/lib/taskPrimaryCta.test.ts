@@ -78,4 +78,51 @@ describe("resolveTaskPrimaryCta", () => {
     expect(cta.disabled).toBe(true);
     expect(cta.reason).toBe("请先指派员工");
   });
+
+  it("locks with 排队中 when the task is queued", () => {
+    const cta = resolveTaskPrimaryCta({
+      ...base,
+      queued: true,
+    });
+    expect(cta.kind).toBe("queued");
+    expect(cta.label).toBe("排队中");
+    expect(cta.disabled).toBe(true);
+  });
+
+  it("prefers stop over queued", () => {
+    const cta = resolveTaskPrimaryCta({
+      ...base,
+      canStopProcess: true,
+      queued: true,
+    });
+    expect(cta.kind).toBe("stop");
+  });
+
+  it("prefers starting over queued", () => {
+    const cta = resolveTaskPrimaryCta({
+      ...base,
+      backgroundStarting: true,
+      queued: true,
+    });
+    expect(cta.kind).toBe("starting");
+  });
+
+  it("prefers running_locked over queued", () => {
+    const cta = resolveTaskPrimaryCta({
+      ...base,
+      executionActive: true,
+      queued: true,
+    });
+    expect(cta.kind).toBe("running_locked");
+  });
+
+  it("prefers queued over ordinary run", () => {
+    const cta = resolveTaskPrimaryCta({
+      ...base,
+      queued: true,
+      assigneeBusyOnOtherTask: true,
+    });
+    expect(cta.kind).toBe("queued");
+    expect(cta.disabled).toBe(true);
+  });
 });

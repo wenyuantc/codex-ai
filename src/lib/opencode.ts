@@ -1,6 +1,8 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 
+import type { StartSessionOutcome } from "./types";
+
 // ---- Types ----
 
 export interface OpenCodeSettings {
@@ -145,8 +147,8 @@ export function startOpenCode(params: {
   taskGitContextId?: string;
   resumeSessionId?: string;
   imagePaths?: string[];
-}): Promise<void> {
-  return invoke<void>("start_opencode", params);
+}): Promise<StartSessionOutcome> {
+  return invoke<StartSessionOutcome>("start_opencode", params);
 }
 
 export function stopOpenCodeSession(sessionRecordId: string): Promise<void> {

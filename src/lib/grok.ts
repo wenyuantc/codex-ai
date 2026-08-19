@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import type { CodexSessionKind } from "./types";
+import type { CodexSessionKind, StartSessionOutcome } from "./types";
 
 export interface GrokOutput {
   employee_id: string;
@@ -46,8 +46,8 @@ export async function startGrok(
   employeeId: string,
   taskDescription: string,
   options: StartGrokOptions = {},
-): Promise<void> {
-  await invoke("start_grok", {
+): Promise<StartSessionOutcome> {
+  return invoke<StartSessionOutcome>("start_grok", {
     employeeId,
     taskDescription,
     model: options.model ?? null,

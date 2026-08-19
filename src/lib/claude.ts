@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import type { CodexSessionKind } from "./types";
+import type { CodexSessionKind, StartSessionOutcome } from "./types";
 
 export interface ClaudeOutput {
   employee_id: string;
@@ -46,8 +46,8 @@ export async function startClaude(
   employeeId: string,
   taskDescription: string,
   options: StartClaudeOptions = {},
-): Promise<void> {
-  await invoke("start_claude", {
+): Promise<StartSessionOutcome> {
+  return invoke<StartSessionOutcome>("start_claude", {
     employeeId,
     taskDescription,
     model: options.model ?? null,

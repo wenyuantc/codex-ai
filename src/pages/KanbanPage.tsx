@@ -21,27 +21,31 @@ import {
   getCodexSettings,
   listMilestones,
   listTags,
+  listTaskDependencies,
   listTaskTags,
 } from "@/lib/backend";
 import { filterKanbanTaskIds, type TaskTagMap } from "@/lib/kanbanFilters";
-import type { CodexSessionKind, Milestone, Tag } from "@/lib/types";
+import { getProjectWorkingDir } from "@/lib/projects";
+import { startTaskRunSession } from "@/lib/taskRunSession";
+import { buildTaskExecutionInput } from "@/lib/taskPrompt";
+import type { CodexSessionKind, Milestone, Tag, Task } from "@/lib/types";
 import { PRIORITIES, TASK_STATUSES } from "@/lib/types";
 import { getPriorityLabel, getStatusLabel } from "@/lib/utils";
 import { useTaskStore } from "@/stores/taskStore";
 import { useProjectStore } from "@/stores/projectStore";
 import { useEmployeeStore } from "@/stores/employeeStore";
-import { Archive, CheckSquare, Plus } from "lucide-react";
+import { Archive, CheckSquare, Play, Plus } from "lucide-react";
 const FILTER_ALL = "all";
 const FILTER_UNASSIGNED = "__unassigned__";
 
 export function KanbanPage() {
   const { t } = useTranslation("kanban");
   const [searchParams, setSearchParams] = useSearchParams();
-  const { fetchTasks, tasks } = useTaskStore();
+  const { fetchTasks, fetchAttachments, fetchSubtasks, tasks, runQueue } = useTaskStore();
   const currentProjectId = useProjectStore((state) => state.currentProject?.id);
   const projects = useProjectStore((state) => state.projects);
   const environmentMode = useProjectStore((state) => state.environmentMode);
-  const { employees, fetchEmployees } = useEmployeeStore();
+  const { employees, employeeRuntime, fetchEmployees } = useEmployeeStore();
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [showArchiveDialog, setShowArchiveDialog] = useState(false);
   const [pendingLogRequest, setPendingLogRequest] = useState<{
@@ -249,6 +253,111 @@ export function KanbanPage() {
     }
   };
 
+  const isTaskExecutionActive = (taskId: string) =>
+    Object.values(employeeRuntime).some((runtime) =>
+      runtime.sessions.some((session) => session.task_id === taskId),
+    );
+
+  const canBatchRunTask = (task: Task, incompleteDependencyIds: Set<string>) => {
+    if (!task.assignee_id || task.status === "archived") {
+      return false;
+    }
+    if (runQueue.some((item) => item.task_id === task.id)) {
+      return false;
+    }
+    if (isTaskExecutionActive(task.id)) {
+      return false;
+    }
+    if (incompleteDependencyIds.has(task.id)) {
+      return false;
+    }
+    return true;
+  };
+
+  const handleBatchRun = async () => {
+    if (selectedTaskIds.length === 0) {
+      setBatchMessage(t("batchRunNeedSelection"));
+      return;
+    }
+
+    setBatchLoading(true);
+    setBatchMessage(null);
+    let started = 0;
+    let queued = 0;
+    let skipped = 0;
+
+    try {
+      const selectedTasks = selectedTaskIds
+        .map((taskId) => tasks.find((task) => task.id === taskId))
+        .filter((task): task is Task => Boolean(task));
+      const incompleteDependencyIds = new Set<string>();
+
+      await Promise.all(
+        selectedTasks.map(async (task) => {
+          try {
+            const deps = await listTaskDependencies(task.id);
+            const incomplete = deps.some((dep) => {
+              const dependency = tasks.find((item) => item.id === dep.depends_on_task_id);
+              return !dependency || dependency.status !== "completed";
+            });
+            if (incomplete) {
+              incompleteDependencyIds.add(task.id);
+            }
+          } catch (error) {
+            console.error("Failed to load task dependencies for batch run:", task.id, error);
+            incompleteDependencyIds.add(task.id);
+          }
+        }),
+      );
+
+      for (const task of selectedTasks) {
+        if (!canBatchRunTask(task, incompleteDependencyIds)) {
+          skipped += 1;
+          continue;
+        }
+
+        const assignee = employees.find((employee) => employee.id === task.assignee_id);
+        const project = projects.find((item) => item.id === task.project_id);
+        if (!assignee) {
+          skipped += 1;
+          continue;
+        }
+
+        try {
+          await Promise.all([fetchSubtasks(task.id), fetchAttachments(task.id)]);
+          const executionInput = buildTaskExecutionInput({
+            title: task.title,
+            description: task.description,
+            subtasks: useTaskStore.getState().subtasks[task.id] ?? [],
+            attachments: useTaskStore.getState().attachments[task.id] ?? [],
+          });
+          const outcome = await startTaskRunSession({
+            task,
+            assigneeId: assignee.id,
+            assignee,
+            projectRepoPath: getProjectWorkingDir(project),
+            executionInput,
+            clearTaskOutput: true,
+          });
+          if (outcome.status === "queued") {
+            queued += 1;
+          } else {
+            started += 1;
+          }
+        } catch (error) {
+          console.error("Failed to start task during batch run:", task.id, error);
+          skipped += 1;
+        }
+      }
+
+      setBatchMessage(t("batchRunSummary", { started, queued, skipped }));
+    } catch (error) {
+      setBatchMessage(error instanceof Error ? error.message : String(error));
+    } finally {
+      setBatchLoading(false);
+    }
+  };
+
   return (
     <div className="h-full flex flex-col">
       <div className="mb-4 space-y-3">
@@ -440,6 +549,15 @@ export function KanbanPage() {
           </Button>
           <Button size="sm" disabled={batchLoading} onClick={() => void handleBatchUpdate()}>
             {t("batchUpdate", { count: selectedTaskIds.length })}
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={batchLoading || selectedTaskIds.length === 0}
+            onClick={() => void handleBatchRun()}
+          >
+            <Play className="h-4 w-4" />
+            {t("batchRun")}
           </Button>
           {batchMessage && <span className="text-xs text-muted-foreground">{batchMessage}</span>}
         </div>

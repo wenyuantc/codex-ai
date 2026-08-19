@@ -62,6 +62,9 @@ interface RuntimeSettingsTabProps {
   onThemeModeChange: (mode: ThemeMode) => void;
   locale: AppLocale;
   onLocaleChange: (locale: AppLocale) => void;
+  maxConcurrentSessions: number;
+  onMaxConcurrentSessionsChange: (value: number) => void;
+  onMaxConcurrentSessionsCommit: (value: number) => void;
   onTaskSdkEnabledChange: (value: boolean) => void;
   onOneShotSdkEnabledChange: (value: boolean) => void;
   onOneShotPreferredProviderChange: (value: AiProvider) => void;
@@ -188,6 +191,9 @@ export function RuntimeSettingsTab({
   onThemeModeChange,
   locale,
   onLocaleChange,
+  maxConcurrentSessions,
+  onMaxConcurrentSessionsChange,
+  onMaxConcurrentSessionsCommit,
   onTaskSdkEnabledChange,
   onOneShotSdkEnabledChange,
   onOneShotPreferredProviderChange,
@@ -439,6 +445,39 @@ export function RuntimeSettingsTab({
                 {t(option.labelKey)}
               </button>
             ))}
+          </div>
+        </div>
+
+        <div className="border-t border-border pt-4">
+          <h3 className="mb-1 text-sm font-medium">{t("settings:concurrency.title")}</h3>
+          <p className="mb-3 text-xs text-muted-foreground">
+            {t("settings:concurrency.description")}
+          </p>
+          <div className="max-w-xs space-y-2">
+            <label htmlFor="max-concurrent-sessions" className="text-sm font-medium">
+              {t("settings:concurrency.label")}
+            </label>
+            <Input
+              id="max-concurrent-sessions"
+              type="number"
+              min={0}
+              max={64}
+              step={1}
+              value={maxConcurrentSessions}
+              onChange={(event) => {
+                const parsed = Number.parseInt(event.target.value, 10);
+                onMaxConcurrentSessionsChange(
+                  Number.isNaN(parsed) ? 0 : Math.min(64, Math.max(0, parsed)),
+                );
+              }}
+              onBlur={(event) => {
+                const parsed = Number.parseInt(event.target.value, 10);
+                onMaxConcurrentSessionsCommit(
+                  Number.isNaN(parsed) ? 0 : Math.min(64, Math.max(0, parsed)),
+                );
+              }}
+            />
+            <p className="text-xs text-muted-foreground">{t("settings:concurrency.hint")}</p>
           </div>
         </div>
       </div>

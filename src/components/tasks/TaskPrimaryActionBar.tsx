@@ -53,7 +53,7 @@ function primaryButtonVariant(
 }
 
 function PrimaryIcon({ kind, loading }: { kind: TaskPrimaryCta["kind"]; loading?: boolean }) {
-  if (loading || kind === "starting" || kind === "running_locked") {
+  if (loading || kind === "starting" || kind === "running_locked" || kind === "queued") {
     return <Loader2 className="h-4 w-4 animate-spin" />;
   }
   switch (kind) {

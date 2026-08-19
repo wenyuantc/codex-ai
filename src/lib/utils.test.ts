@@ -10,6 +10,10 @@ describe("getActivityActionLabel", () => {
     expect(getActivityActionLabel("ssh_config_created")).toBe("新增SSH配置");
     expect(getActivityActionLabel("remote_opencode_validated")).toBe("远程校验 OpenCode");
     expect(getActivityActionLabel("session_events_purged")).toBe("清理会话事件");
+    expect(getActivityActionLabel("task_run_queued")).toBe("任务加入运行队列");
+    expect(getActivityActionLabel("task_run_dequeued")).toBe("排队任务开始执行");
+    expect(getActivityActionLabel("task_run_queue_cancelled")).toBe("取消运行排队");
+    expect(getActivityActionLabel("task_run_dequeue_failed")).toBe("排队任务启动失败");
   });
 
   it("falls back to the raw key for unmapped actions", () => {

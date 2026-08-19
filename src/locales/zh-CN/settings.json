@@ -20,6 +20,12 @@
     "zhCN": "简体中文",
     "en": "English"
   },
+  "concurrency": {
+    "title": "同时运行上限",
+    "description": "限制本机同时运行的任务执行会话数。0 表示不限制。本地与 SSH 项目共用此上限。",
+    "label": "最大并发会话数",
+    "hint": "0 = 不限制"
+  },
   "page": {
     "title": "系统设置",
     "description": "当前处于 {{mode}}，Codex 运行配置与 SSH 配置分开保存。",

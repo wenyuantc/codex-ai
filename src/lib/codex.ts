@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import type { CodexSessionKind, TaskAutomationPhase } from "./types";
+import type { CodexSessionKind, StartSessionOutcome, TaskAutomationPhase } from "./types";
 
 export interface CodexOutput {
   employee_id: string;
@@ -77,8 +77,8 @@ export async function startCodex(
   employeeId: string,
   taskDescription: string,
   options: StartCodexOptions = {},
-): Promise<void> {
-  await invoke("start_codex", {
+): Promise<StartSessionOutcome> {
+  return invoke<StartSessionOutcome>("start_codex", {
     employeeId,
     taskDescription,
     model: options.model ?? null,

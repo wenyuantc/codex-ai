@@ -20,6 +20,12 @@
     "zhCN": "简体中文",
     "en": "English"
   },
+  "concurrency": {
+    "title": "Concurrent run limit",
+    "description": "Limit how many task execution sessions can run on this machine at once. 0 means unlimited. Local and SSH projects share this cap.",
+    "label": "Max concurrent sessions",
+    "hint": "0 = unlimited"
+  },
   "page": {
     "title": "System Settings",
     "description": "Currently in {{mode}}. Codex runtime settings and SSH settings are stored separately.",

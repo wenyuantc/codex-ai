@@ -2,12 +2,13 @@ import { useEffect, useMemo, useState } from "react";
 import { Loader2, Play, Search, Square } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
-import { prepareTaskGitExecution, startTaskCodeReview } from "@/lib/backend";
-import { startCodex, stopCodexSession } from "@/lib/codex";
-import { startClaude, stopClaudeSession } from "@/lib/claude";
-import { startGrok, stopGrokSession } from "@/lib/grok";
-import { startOpenCode, stopOpenCodeSession } from "@/lib/opencode";
+import { startTaskCodeReview } from "@/lib/backend";
+import { stopCodexSession } from "@/lib/codex";
+import { stopClaudeSession } from "@/lib/claude";
+import { stopGrokSession } from "@/lib/grok";
+import { stopOpenCodeSession } from "@/lib/opencode";
 import { getProjectWorkingDir } from "@/lib/projects";
+import { startTaskRunSession } from "@/lib/taskRunSession";
 import { buildTaskExecutionInput } from "@/lib/taskPrompt";
 import type { AiProvider, Task } from "@/lib/types";
 import { cn, getPriorityLabel, getStatusLabel } from "@/lib/utils";
@@ -47,6 +48,7 @@ export function CodexControls({
   aiProvider = "codex",
 }: CodexControlsProps) {
   const { t } = useTranslation(["tasks", "common", "employees"]);
+  const employees = useEmployeeStore((state) => state.employees);
   const employeeRuntime = useEmployeeStore((state) => state.employeeRuntime[employeeId]);
   const allEmployeeRuntime = useEmployeeStore((state) => state.employeeRuntime);
   const updateEmployeeStatus = useEmployeeStore((state) => state.updateEmployeeStatus);
@@ -60,8 +62,6 @@ export function CodexControls({
   const fetchAttachments = useTaskStore((state) => state.fetchAttachments);
   const fetchSubtasks = useTaskStore((state) => state.fetchSubtasks);
   const updateTask = useTaskStore((state) => state.updateTask);
-  const updateTaskStatus = useTaskStore((state) => state.updateTaskStatus);
-  const startTaskTimer = useTaskStore((state) => state.startTaskTimer);
   const projects = useProjectStore((state) => state.projects);
   const currentProjectId = useProjectStore((state) => state.currentProject?.id);
   const fetchProjects = useProjectStore((state) => state.fetchProjects);
@@ -188,9 +188,6 @@ export function CodexControls({
         await updateTask(selectedTask.id, { assignee_id: employeeId });
       }
 
-      await updateEmployeeStatus(employeeId, "busy");
-      await updateTaskStatus(selectedTask.id, "in_progress");
-      clearTaskCodexOutput(selectedTask.id);
       await Promise.all([fetchSubtasks(selectedTask.id), fetchAttachments(selectedTask.id)]);
 
       const executionInput = buildTaskExecutionInput({
@@ -199,57 +196,32 @@ export function CodexControls({
         subtasks: useTaskStore.getState().subtasks[selectedTask.id] ?? [],
         attachments: useTaskStore.getState().attachments[selectedTask.id] ?? [],
       });
-      let workingDir = getProjectRepoPath(selectedTask);
-      let taskGitContextId: string | undefined;
+      const storedAssignee = employees.find((employee) => employee.id === employeeId);
 
-      if (selectedTask.use_worktree) {
-        const prepared = await prepareTaskGitExecution(selectedTask.id);
-        workingDir = prepared.working_dir;
-        taskGitContextId = prepared.task_git_context_id;
-      }
-
-      if (aiProvider === "claude") {
-        await startClaude(employeeId, executionInput.prompt, {
+      await startTaskRunSession({
+        task: {
+          ...selectedTask,
+          assignee_id: selectedTask.assignee_id ?? employeeId,
+        },
+        assigneeId: employeeId,
+        assignee: {
+          id: employeeId,
+          name: storedAssignee?.name ?? "",
+          role: storedAssignee?.role ?? "",
           model,
-          reasoningEffort,
-          systemPrompt,
-          workingDir,
-          taskId: selectedTask.id,
-          taskGitContextId,
-          imagePaths: executionInput.imagePaths,
-        });
-      } else if (aiProvider === "opencode") {
-        await startOpenCode({
-          employeeId,
-          taskDescription: executionInput.prompt,
-          model,
-          workingDir,
-          taskId: selectedTask.id,
-          taskGitContextId,
-          imagePaths: executionInput.imagePaths,
-        });
-      } else if (aiProvider === "grok") {
-        await startGrok(employeeId, executionInput.prompt, {
-          model,
-          reasoningEffort,
-          systemPrompt,
-          workingDir,
-          taskId: selectedTask.id,
-          taskGitContextId,
-          imagePaths: executionInput.imagePaths,
-        });
-      } else {
-        await startCodex(employeeId, executionInput.prompt, {
-          model,
-          reasoningEffort,
-          systemPrompt,
-          workingDir,
-          taskId: selectedTask.id,
-          taskGitContextId,
-          imagePaths: executionInput.imagePaths,
-        });
-      }
-      await startTaskTimer(selectedTask.id);
+          reasoning_effort: reasoningEffort,
+          status: storedAssignee?.status ?? "offline",
+          specialization: storedAssignee?.specialization ?? null,
+          system_prompt: systemPrompt ?? storedAssignee?.system_prompt ?? null,
+          project_id: storedAssignee?.project_id ?? null,
+          ai_provider: aiProvider,
+          created_at: storedAssignee?.created_at ?? "",
+          updated_at: storedAssignee?.updated_at ?? "",
+        },
+        projectRepoPath: getProjectRepoPath(selectedTask),
+        executionInput,
+        clearTaskOutput: true,
+      });
       await refreshEmployeeRuntimeStatus(employeeId);
       setShowTaskDialog(false);
     } catch (error) {

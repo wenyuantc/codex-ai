@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { normalizeProject } from "./projects";
 import type {
   ActivityLog,
@@ -16,6 +17,7 @@ import type {
   CodexHealthCheck,
   CodexSdkInstallResult,
   CodexSettings,
+  TaskRunQueueItem,
   EmployeeRuntimeStatus,
   CodexRuntimeStatus,
   CodexSessionLogLine,
@@ -172,6 +174,7 @@ export interface UpdateCodexSettingsInput {
   default_test_command?: string | null;
   git_preferences?: Partial<CodexSettings["git_preferences"]>;
   node_path_override?: string | null;
+  max_concurrent_sessions?: number;
 }
 
 export interface CreateProjectInput {
@@ -1307,6 +1310,20 @@ export async function restartTaskAutomation(taskId: string): Promise<void> {
 
 export async function getCodexSettings(): Promise<CodexSettings> {
   return invoke("get_codex_settings");
+}
+
+export async function listTaskRunQueue(): Promise<TaskRunQueueItem[]> {
+  return invoke("list_task_run_queue");
+}
+
+export async function cancelQueuedTaskRun(taskId: string): Promise<boolean> {
+  return invoke("cancel_queued_task_run", { taskId });
+}
+
+export function onTaskRunQueueChanged(callback: () => void): Promise<() => void> {
+  return listen("task-run-queue-changed", () => {
+    callback();
+  });
 }
 
 export interface AiPromptTemplate {

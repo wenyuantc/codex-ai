@@ -352,6 +352,8 @@
       "createFixTask": "Create fix task",
       "noAssigneeTitle": "Original task has no assignee",
       "createFixTitle": "Manual fix creates a new fix task and runs it immediately",
+      "fixCreatedStarted": "Created fix task “{{title}}” and started it.",
+      "fixCreatedQueued": "Created fix task “{{title}}” and queued it (#{{position}}).",
       "noStructuredReport": "Latest review has no structured report yet.",
       "noResult": "No code review result yet.",
       "unknownReviewer": "Unknown reviewer",
@@ -422,7 +424,9 @@
     "acceptanceStatusTitle": "Latest test acceptance status",
     "enableAutoQc": "Enable Auto QC",
     "disableAutoQc": "Disable Auto QC",
-    "preparingCommit": "Preparing commit…"
+    "preparingCommit": "Preparing commit…",
+    "queuedBadge": "Queued (#{{position}})",
+    "cancelQueue": "Cancel queue"
   },
   "elapsed": {
     "completed": "Done: {{date}} · Elapsed: {{duration}}",
@@ -469,6 +473,10 @@
     },
     "archived": {
       "reason": "Task is archived"
+    },
+    "queued": {
+      "label": "Queued",
+      "reason": "Waiting in the run queue for a free session slot"
     },
     "run": {
       "label": "Run",

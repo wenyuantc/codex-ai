@@ -3,6 +3,7 @@ import type {
   CodexSessionKind,
   Task,
   TaskAttachment,
+  TaskRunQueueItem,
   Subtask,
   Comment,
   TaskStatus,
@@ -31,6 +32,9 @@ import {
   listTaskComments as listTaskCommentsCommand,
   listTaskSubtasks as listTaskSubtasksCommand,
   listTasks as listTasksCommand,
+  listTaskRunQueue as listTaskRunQueueCommand,
+  cancelQueuedTaskRun as cancelQueuedTaskRunCommand,
+  onTaskRunQueueChanged,
   listTrashedTasks as listTrashedTasksCommand,
   getTaskAutomationState as getTaskAutomationStateCommand,
   restartTaskAutomation as restartTaskAutomationCommand,
@@ -53,6 +57,7 @@ interface TaskStore {
   subtasks: Record<string, Subtask[]>;
   comments: Record<string, Comment[]>;
   automationStates: Record<string, TaskAutomationState | null>;
+  runQueue: TaskRunQueueItem[];
   activeProjectId?: string;
   loading: boolean;
   fetchTasks: (projectId?: string) => Promise<void>;
@@ -130,16 +135,29 @@ interface TaskStore {
     sessionKind: CodexSessionKind,
   ) => Promise<void>;
   initCodexSessionListeners: () => () => void;
+  fetchRunQueue: () => Promise<void>;
+  cancelQueuedRun: (taskId: string) => Promise<void>;
+  initRunQueueListener: () => () => void;
 }
 
 let codexSessionListenerRefCount = 0;
 let codexSessionListenersInitPromise: Promise<void> | null = null;
 let codexSessionListenersCleanup: (() => void) | null = null;
 
+let runQueueListenerRefCount = 0;
+let runQueueListenersInitPromise: Promise<void> | null = null;
+let runQueueListenersCleanup: (() => void) | null = null;
+
 function releaseCodexSessionListeners() {
   codexSessionListenersCleanup?.();
   codexSessionListenersCleanup = null;
   codexSessionListenersInitPromise = null;
+}
+
+function releaseRunQueueListeners() {
+  runQueueListenersCleanup?.();
+  runQueueListenersCleanup = null;
+  runQueueListenersInitPromise = null;
 }
 
 /**
@@ -159,6 +177,7 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
   subtasks: {},
   comments: {},
   automationStates: {},
+  runQueue: [],
   trashedTasks: [],
   activeProjectId: undefined,
   loading: false,
@@ -439,6 +458,61 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
     set((state) => ({
       tasks: state.tasks.map((t) => (t.id === taskId ? { ...t, status: newStatus } : t)),
     }));
+  },
+
+  fetchRunQueue: async () => {
+    try {
+      const runQueue = await listTaskRunQueueCommand();
+      set({ runQueue });
+    } catch (error) {
+      console.error("Failed to fetch task run queue:", error);
+    }
+  },
+
+  cancelQueuedRun: async (taskId) => {
+    await cancelQueuedTaskRunCommand(taskId);
+    await get().fetchRunQueue();
+  },
+
+  initRunQueueListener: () => {
+    runQueueListenerRefCount += 1;
+
+    if (!runQueueListenersInitPromise && !runQueueListenersCleanup) {
+      const refreshAfterQueueChange = () => {
+        void get().fetchRunQueue();
+        // Drain writes in_progress / timer in Rust; refresh so cards leave the old column.
+        void get().fetchTasks(get().activeProjectId);
+      };
+      refreshAfterQueueChange();
+      runQueueListenersInitPromise = onTaskRunQueueChanged(() => {
+        refreshAfterQueueChange();
+      })
+        .then((unlisten) => {
+          runQueueListenersCleanup = unlisten;
+          runQueueListenersInitPromise = null;
+
+          if (runQueueListenerRefCount === 0) {
+            releaseRunQueueListeners();
+          }
+        })
+        .catch((error) => {
+          console.error("Failed to initialize run queue listener:", error);
+          runQueueListenersInitPromise = null;
+          runQueueListenersCleanup = null;
+        });
+    }
+
+    let released = false;
+
+    return () => {
+      if (released) return;
+      released = true;
+      runQueueListenerRefCount = Math.max(0, runQueueListenerRefCount - 1);
+
+      if (runQueueListenerRefCount === 0 && runQueueListenersCleanup) {
+        releaseRunQueueListeners();
+      }
+    };
   },
 
   initCodexSessionListeners: () => {

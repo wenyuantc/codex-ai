@@ -55,6 +55,7 @@ export function renderTaskCardPrimaryCtaIcon({
       );
     case "starting":
     case "running_locked":
+    case "queued":
       return <Loader2 className="h-3 w-3 animate-spin" />;
     case "review":
       return reviewLoading || reviewRunning ? (
