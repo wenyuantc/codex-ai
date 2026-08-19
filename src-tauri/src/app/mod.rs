@@ -61,6 +61,7 @@ pub(crate) mod session_events_retention;
 pub(crate) mod sessions;
 pub(crate) mod shared;
 pub(crate) mod tasks;
+pub(crate) mod templates;
 
 #[allow(unused_imports)]
 pub(crate) use database::{
@@ -145,8 +146,8 @@ pub(crate) use tasks::{
     record_completion_metric, resolve_await_session_followups,
     resolve_project_task_default_settings, should_await_session_followups,
     should_clear_task_completed_at, start_task_timer_internal, stop_task_timer_internal,
-    tasks_json_payload_is_field_safe, validate_coordinator_for_project,
-    validate_reviewer_for_project, validate_task_archival_guard,
+    tasks_json_payload_is_field_safe, validate_assignee_for_project,
+    validate_coordinator_for_project, validate_reviewer_for_project, validate_task_archival_guard,
     validate_task_automation_mode_change, validate_tasks_json_task, TasksJsonEnvelope,
     TasksJsonSource, TasksJsonSubtask, TasksJsonTask, TASKS_JSON_FORMAT, TASKS_JSON_VERSION,
 };

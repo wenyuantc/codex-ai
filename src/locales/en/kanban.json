@@ -2,6 +2,7 @@
   "title": "Kanban",
   "emptyColumn": "No tasks",
   "createTask": "New task",
+  "templates": "Templates",
   "filters": "Filters",
   "overdue": "Overdue",
   "emptySshProjects": "No projects in the current SSH view. Create an SSH project first.",

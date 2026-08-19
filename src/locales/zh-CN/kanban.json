@@ -2,6 +2,7 @@
   "title": "看板管理",
   "emptyColumn": "暂无任务",
   "createTask": "新建任务",
+  "templates": "模板",
   "filters": "筛选",
   "overdue": "已逾期",
   "emptySshProjects": "当前 SSH 视图还没有项目，请先到项目管理创建 SSH 项目。",

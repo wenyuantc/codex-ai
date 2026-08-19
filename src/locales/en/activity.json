@@ -1,6 +1,9 @@
 {
   "actions": {
     "task_created": "Created task",
+    "task_template_created": "Created task template",
+    "task_template_applied": "Applied task template",
+    "task_template_deleted": "Deleted task template",
     "task_status_changed": "Task status changed",
     "task_deleted": "Deleted task",
     "task_due_date_set": "Set task due date",

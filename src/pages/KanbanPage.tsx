@@ -7,6 +7,7 @@ import { Link, useSearchParams } from "react-router-dom";
 import { KanbanBoard } from "@/components/tasks/KanbanBoard";
 import { ArchiveManagementDialog } from "@/components/tasks/ArchiveManagementDialog";
 import { CreateTaskDialog } from "@/components/tasks/CreateTaskDialog";
+import { TaskTemplateManagerDialog } from "@/components/tasks/TaskTemplateManagerDialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -34,7 +35,7 @@ import { getPriorityLabel, getStatusLabel } from "@/lib/utils";
 import { useTaskStore } from "@/stores/taskStore";
 import { useProjectStore } from "@/stores/projectStore";
 import { useEmployeeStore } from "@/stores/employeeStore";
-import { Archive, CheckSquare, Play, Plus } from "lucide-react";
+import { Archive, CheckSquare, LayoutTemplate, Play, Plus } from "lucide-react";
 const FILTER_ALL = "all";
 const FILTER_UNASSIGNED = "__unassigned__";
 
@@ -47,6 +48,7 @@ export function KanbanPage() {
   const environmentMode = useProjectStore((state) => state.environmentMode);
   const { employees, employeeRuntime, fetchEmployees } = useEmployeeStore();
   const [showCreateDialog, setShowCreateDialog] = useState(false);
+  const [showTemplateDialog, setShowTemplateDialog] = useState(false);
   const [showArchiveDialog, setShowArchiveDialog] = useState(false);
   const [pendingLogRequest, setPendingLogRequest] = useState<{
     taskId: string;
@@ -70,6 +72,7 @@ export function KanbanPage() {
   const [taskTagMap, setTaskTagMap] = useState<TaskTagMap>(() => new Map());
   /** Bumped after create/tag edits so filter map does not go stale. */
   const [taskTagMapVersion, setTaskTagMapVersion] = useState(0);
+  const [deliveryRefreshKey, setDeliveryRefreshKey] = useState(0);
   const [selectedTaskIds, setSelectedTaskIds] = useState<string[]>([]);
   const [batchStatus, setBatchStatus] = useState<string>("");
   const [batchMessage, setBatchMessage] = useState<string | null>(null);
@@ -167,7 +170,7 @@ export function KanbanPage() {
     return () => {
       cancelled = true;
     };
-  }, [currentProjectId, visibleProjectIdsKey, projects]);
+  }, [currentProjectId, visibleProjectIdsKey, projects, deliveryRefreshKey]);
 
   // Board-level task → tags map to power tag filter and avoid per-card N+1 for tags.
   useEffect(() => {
@@ -382,6 +385,10 @@ export function KanbanPage() {
               <Kbd variant="primary" size="xs" className="ml-1.5">
                 N
               </Kbd>
+            </Button>
+            <Button variant="outline" onClick={() => setShowTemplateDialog(true)}>
+              <LayoutTemplate className="h-4 w-4" />
+              {t("templates")}
             </Button>
             <Button variant="outline" onClick={() => setShowArchiveDialog(true)}>
               <Archive className="h-4 w-4" />
@@ -632,6 +639,18 @@ export function KanbanPage() {
           onCreated={() => {
             // Create+setTaskTags races with the initial tag-map load for the new id.
             refreshTaskTagMap();
+          }}
+        />
+      )}
+      {showTemplateDialog && (
+        <TaskTemplateManagerDialog
+          open={showTemplateDialog}
+          projectId={currentProjectId}
+          onOpenChange={setShowTemplateDialog}
+          onApplied={() => {
+            void fetchTasks(currentProjectId);
+            refreshTaskTagMap();
+            setDeliveryRefreshKey((version) => version + 1);
           }}
         />
       )}

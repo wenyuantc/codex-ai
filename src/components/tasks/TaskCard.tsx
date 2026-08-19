@@ -57,6 +57,7 @@ import { buildTaskExecutionInput } from "@/lib/taskPrompt";
 import {
   AlertTriangle,
   Archive,
+  BookmarkPlus,
   Calendar,
   CircleCheckBig,
   Bot,
@@ -78,6 +79,7 @@ import {
 import { ContinueConversationDialog } from "./ContinueConversationDialog";
 import { TaskDetailDialog } from "./TaskDetailDialog";
 import { DeleteTaskDialog } from "./DeleteTaskDialog";
+import { SaveTaskAsTemplateDialog } from "./SaveTaskAsTemplateDialog";
 import { DeleteTaskWorktreeDialog } from "./DeleteTaskWorktreeDialog";
 import { TaskGitCommitDialog } from "./TaskGitCommitDialog";
 import { CoordinatorPlanDialog } from "./CoordinatorPlanDialog";
@@ -187,6 +189,7 @@ function TaskCardComponent({
   const [showDetail, setShowDetail] = useState(false);
   const [showContinueDialog, setShowContinueDialog] = useState(false);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const [showSaveTemplateDialog, setShowSaveTemplateDialog] = useState(false);
   const [showDeleteWorktreeDialog, setShowDeleteWorktreeDialog] = useState(false);
   const [showGitActionDialog, setShowGitActionDialog] = useState(false);
   const [showCommitDialog, setShowCommitDialog] = useState(false);
@@ -1693,6 +1696,18 @@ function TaskCardComponent({
               <button
                 type="button"
                 role="menuitem"
+                onClick={() => {
+                  setContextMenu(null);
+                  setShowSaveTemplateDialog(true);
+                }}
+                className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-left hover:bg-accent hover:text-accent-foreground"
+              >
+                <BookmarkPlus className="h-4 w-4" />
+                {t("card.saveAsTemplate")}
+              </button>
+              <button
+                type="button"
+                role="menuitem"
                 onClick={() => void handleArchiveTask()}
                 disabled={!canArchiveTask || isActionLoading}
                 title={
@@ -1850,6 +1865,13 @@ function TaskCardComponent({
           </>,
           document.body,
         )}
+      {!isOverlay && (
+        <SaveTaskAsTemplateDialog
+          open={showSaveTemplateDialog}
+          task={task}
+          onOpenChange={setShowSaveTemplateDialog}
+        />
+      )}
       {!isOverlay && showContinueDialog && (
         <ContinueConversationDialog
           open={showContinueDialog}

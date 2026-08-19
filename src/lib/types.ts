@@ -171,6 +171,59 @@ export interface Subtask {
   updated_at: string;
 }
 
+export interface TaskTemplateSubtaskSpec {
+  title: string;
+  sort_order: number;
+}
+
+export interface TaskTemplate {
+  id: string;
+  name: string;
+  description: string | null;
+  project_id: string | null;
+  title_template: string;
+  description_template: string | null;
+  priority: string;
+  use_worktree: boolean;
+  tags: string[];
+  subtasks: TaskTemplateSubtaskSpec[];
+  created_at: string;
+  updated_at: string;
+  deleted_at: string | null;
+}
+
+export interface CreateTaskTemplateInput {
+  name: string;
+  description?: string | null;
+  project_id?: string | null;
+  title_template: string;
+  description_template?: string | null;
+  priority?: string;
+  use_worktree?: boolean;
+  tags?: string[];
+  subtasks?: TaskTemplateSubtaskSpec[];
+}
+
+export interface UpdateTaskTemplateInput {
+  name?: string;
+  description?: string | null;
+  project_id?: string | null;
+  title_template?: string;
+  description_template?: string | null;
+  priority?: string;
+  use_worktree?: boolean;
+  tags?: string[];
+  subtasks?: TaskTemplateSubtaskSpec[];
+}
+
+export interface ApplyTaskTemplateInput {
+  template_id: string;
+  project_id: string;
+  variable_sets?: Record<string, string>[];
+  assignee_id?: string | null;
+  reviewer_id?: string | null;
+}
+
 export interface Comment {
   id: string;
   task_id: string;

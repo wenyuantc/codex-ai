@@ -1146,6 +1146,29 @@ pub fn get_all_migrations() -> Vec<Migration> {
             "#,
             kind: tauri_plugin_sql::MigrationKind::Up,
         },
+        Migration {
+            version: 47,
+            description: "task templates for reusable task creation",
+            sql: r#"
+                CREATE TABLE task_templates (
+                    id TEXT PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    description TEXT,
+                    project_id TEXT REFERENCES projects(id),
+                    title_template TEXT NOT NULL,
+                    description_template TEXT,
+                    priority TEXT NOT NULL DEFAULT 'medium',
+                    use_worktree INTEGER NOT NULL DEFAULT 0,
+                    tags_json TEXT NOT NULL DEFAULT '[]',
+                    subtasks_json TEXT NOT NULL DEFAULT '[]',
+                    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+                    deleted_at TEXT
+                );
+                CREATE INDEX idx_task_templates_project ON task_templates(project_id, deleted_at);
+            "#,
+            kind: tauri_plugin_sql::MigrationKind::Up,
+        },
     ]
 }
 
@@ -1187,7 +1210,7 @@ mod tests {
 
     #[test]
     fn latest_migration_version_includes_session_events_retention_index() {
-        assert_eq!(latest_migration_version(), 46);
+        assert_eq!(latest_migration_version(), 47);
     }
 
     #[test]
@@ -1208,6 +1231,34 @@ mod tests {
             assert_eq!(
                 columns,
                 vec!["enqueued_at", "payload", "provider", "status", "task_id"]
+            );
+        });
+    }
+
+    #[test]
+    fn migration_47_creates_task_templates() {
+        tauri::async_runtime::block_on(async {
+            let pool = setup_test_pool_through(47).await;
+
+            let columns: Vec<String> = sqlx::query(
+                "SELECT name FROM pragma_table_info('task_templates') WHERE name IN ('id', 'title_template', 'tags_json', 'subtasks_json', 'deleted_at') ORDER BY name",
+            )
+            .fetch_all(&pool)
+            .await
+            .expect("read task_templates columns")
+            .into_iter()
+            .map(|row| row.get::<String, _>("name"))
+            .collect();
+
+            assert_eq!(
+                columns,
+                vec![
+                    "deleted_at",
+                    "id",
+                    "subtasks_json",
+                    "tags_json",
+                    "title_template"
+                ]
             );
         });
     }

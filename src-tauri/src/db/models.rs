@@ -918,6 +918,70 @@ pub struct SetTaskTagsPayload {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TaskTemplateSubtaskSpec {
+    pub title: String,
+    pub sort_order: i32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TaskTemplate {
+    pub id: String,
+    pub name: String,
+    pub description: Option<String>,
+    pub project_id: Option<String>,
+    pub title_template: String,
+    pub description_template: Option<String>,
+    pub priority: String,
+    pub use_worktree: bool,
+    pub tags: Vec<String>,
+    pub subtasks: Vec<TaskTemplateSubtaskSpec>,
+    pub created_at: String,
+    pub updated_at: String,
+    pub deleted_at: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CreateTaskTemplate {
+    pub name: String,
+    pub description: Option<String>,
+    pub project_id: Option<String>,
+    pub title_template: String,
+    pub description_template: Option<String>,
+    pub priority: Option<String>,
+    pub use_worktree: Option<bool>,
+    #[serde(default)]
+    pub tags: Vec<String>,
+    #[serde(default)]
+    pub subtasks: Vec<TaskTemplateSubtaskSpec>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UpdateTaskTemplate {
+    pub name: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_explicit_nullable")]
+    pub description: Option<Option<String>>,
+    #[serde(default, deserialize_with = "deserialize_explicit_nullable")]
+    pub project_id: Option<Option<String>>,
+    pub title_template: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_explicit_nullable")]
+    pub description_template: Option<Option<String>>,
+    pub priority: Option<String>,
+    pub use_worktree: Option<bool>,
+    pub tags: Option<Vec<String>>,
+    pub subtasks: Option<Vec<TaskTemplateSubtaskSpec>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ApplyTaskTemplatePayload {
+    pub template_id: String,
+    pub project_id: String,
+    #[serde(default)]
+    pub variable_sets: Vec<HashMap<String, String>>,
+    pub assignee_id: Option<String>,
+    pub reviewer_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AddTaskDependencyPayload {
     pub task_id: String,
     pub depends_on_task_id: String,

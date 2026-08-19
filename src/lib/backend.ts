@@ -64,6 +64,10 @@ import type {
   TaskLatestReview,
   Milestone,
   Tag,
+  TaskTemplate,
+  CreateTaskTemplateInput,
+  UpdateTaskTemplateInput,
+  ApplyTaskTemplateInput,
 } from "./types";
 
 type RawHealthCheck = CodexHealthCheck & {
@@ -1507,6 +1511,36 @@ export async function updateEmployeeStatus(id: string, status: string): Promise<
 
 export async function createTask(input: CreateTaskInput): Promise<Task> {
   return invoke("create_task", { payload: input });
+}
+
+export async function listTaskTemplates(projectId?: string | null): Promise<TaskTemplate[]> {
+  return invoke("list_task_templates", { projectId: projectId ?? null });
+}
+
+export async function createTaskTemplate(input: CreateTaskTemplateInput): Promise<TaskTemplate> {
+  return invoke("create_task_template", { payload: input });
+}
+
+export async function updateTaskTemplate(
+  id: string,
+  updates: UpdateTaskTemplateInput,
+): Promise<TaskTemplate> {
+  return invoke("update_task_template", { id, updates });
+}
+
+export async function deleteTaskTemplate(id: string): Promise<void> {
+  return invoke("delete_task_template", { id });
+}
+
+export async function createTaskTemplateFromTask(
+  taskId: string,
+  name?: string | null,
+): Promise<TaskTemplate> {
+  return invoke("create_task_template_from_task", { taskId, name: name ?? null });
+}
+
+export async function applyTaskTemplate(input: ApplyTaskTemplateInput): Promise<Task[]> {
+  return invoke("apply_task_template", { payload: input });
 }
 
 export async function addTaskAttachments(

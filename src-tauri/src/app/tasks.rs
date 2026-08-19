@@ -90,7 +90,7 @@ pub(crate) async fn fetch_task_subtasks(
     .map_err(|error| format!("Failed to fetch subtasks: {}", error))
 }
 
-async fn validate_assignee_for_project(
+pub(crate) async fn validate_assignee_for_project(
     pool: &SqlitePool,
     assignee_id: Option<&str>,
     _project_id: &str,

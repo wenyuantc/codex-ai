@@ -6,6 +6,9 @@ describe("getActivityActionLabel", () => {
   it("maps known backend action keys to Chinese labels", () => {
     // Sampled across eras/domains: task lifecycle, automation, SSH, remote engine runtime.
     expect(getActivityActionLabel("task_created")).toBe("创建任务");
+    expect(getActivityActionLabel("task_template_created")).toBe("创建任务模板");
+    expect(getActivityActionLabel("task_template_applied")).toBe("套用任务模板");
+    expect(getActivityActionLabel("task_template_deleted")).toBe("删除任务模板");
     expect(getActivityActionLabel("task_automation_completed")).toBe("自动质控闭环完成");
     expect(getActivityActionLabel("ssh_config_created")).toBe("新增SSH配置");
     expect(getActivityActionLabel("remote_opencode_validated")).toBe("远程校验 OpenCode");
