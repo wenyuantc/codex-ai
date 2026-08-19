@@ -156,6 +156,7 @@
     "task_mcp_binding_updated": "Updated task MCP binding",
     "notification_created": "Created notification",
     "notification_resolved": "Notification resolved",
-    "session_events_purged": "Purged session events"
+    "session_events_purged": "Purged session events",
+    "app_update_installed": "App updated"
   }
 }

@@ -16,11 +16,13 @@ describe("i18n locale preference", () => {
     await changeAppLocale("zh-CN");
     expect(getCurrentAppLocale()).toBe("zh-CN");
     expect(getActivityActionLabel("task_created")).toBe("创建任务");
+    expect(getActivityActionLabel("app_update_installed")).toBe("应用已更新");
     expect(getStatusLabel("todo")).toBe("待办");
 
     await changeAppLocale("en");
     expect(getCurrentAppLocale()).toBe("en");
     expect(getActivityActionLabel("task_created")).toBe("Created task");
+    expect(getActivityActionLabel("app_update_installed")).toBe("App updated");
     expect(getStatusLabel("todo")).toBe("To do");
     expect(i18n.t("nav:dashboard")).toBe("Dashboard");
 

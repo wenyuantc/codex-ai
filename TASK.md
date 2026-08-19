@@ -13,7 +13,7 @@
 ## N-P1 · 低成本高频
 
 - [ ] **会话日志复制/导出（A2）**：`CodexTerminal.tsx` 有虚拟化/过滤/清空/输入条，但无复制无导出，跑挂了只能截图
-- [ ] **应用自动更新（D1）**：`Cargo.toml` 无 `tauri-plugin-updater`；CI 已在 tag 打好三平台包，但用户永远不知道有新版。发版链路最后一公里
+- [x] **应用自动更新（D1）**：`Cargo.toml` 无 `tauri-plugin-updater`；CI 已在 tag 打好三平台包，但用户永远不知道有新版。发版链路最后一公里
 - [x] **文档校准（D2）**：README 引擎矩阵与 `app/database.rs` 真源矛盾（Claude/OpenCode 的 send_input 与 restart 都写错）、表数/迁移数/命令数/测试数四项失真、`app/session_events_retention.rs` 整个模块未被任何文档记录 —— 2026-08-11 已修正
 
 ## N-P2 · 复用与审查深度

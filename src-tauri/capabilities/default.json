@@ -10,6 +10,8 @@
     "sql:default",
     "dialog:default",
     "notification:default",
+    "updater:default",
+    "process:allow-restart",
     {
       "identifier": "shell:allow-spawn",
       "allow": [

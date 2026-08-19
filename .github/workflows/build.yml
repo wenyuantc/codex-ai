@@ -19,22 +19,32 @@ jobs:
         include:
           - os: windows-latest
             platform_name: Windows
-            build_script: npm run tauri:windows:msi
-            artifact_name: windows-msi
-            artifact_path: src-tauri/target/release/bundle/msi/*.msi
+            build_script: npm run tauri:windows
+            artifact_name: windows-bundles
+            artifact_path: |
+              src-tauri/target/release/bundle/msi/*.msi
+              src-tauri/target/release/bundle/msi/*.msi.sig
+              src-tauri/target/release/bundle/nsis/*.exe
+              src-tauri/target/release/bundle/nsis/*.exe.sig
+              src-tauri/target/release/bundle/nsis/*.nsis.zip
+              src-tauri/target/release/bundle/nsis/*.nsis.zip.sig
           - os: ubuntu-24.04
             platform_name: Linux
             build_script: npm run tauri:linux
             artifact_name: linux-bundles
             artifact_path: |
               src-tauri/target/release/bundle/appimage/*.AppImage
+              src-tauri/target/release/bundle/appimage/*.AppImage.sig
               src-tauri/target/release/bundle/deb/*.deb
               src-tauri/target/release/bundle/rpm/*.rpm
           - os: macos-latest
             platform_name: macOS
             build_script: npm run tauri:dmg:no-sign
             artifact_name: macos-dmg
-            artifact_path: src-tauri/target/release/bundle/dmg/*.dmg
+            artifact_path: |
+              src-tauri/target/release/bundle/dmg/*.dmg
+              src-tauri/target/release/bundle/macos/*.app.tar.gz
+              src-tauri/target/release/bundle/macos/*.app.tar.gz.sig
 
     runs-on: ${{ matrix.os }}
 
@@ -70,13 +80,61 @@ jobs:
         with:
           workspaces: ./src-tauri -> target
 
+      - name: 校验更新签名密钥
+        shell: bash
+        env:
+          HAS_SIGNING_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY != '' }}
+        run: |
+          set -euo pipefail
+          if [ "${HAS_SIGNING_KEY}" != "true" ] && [ "${{ github.event_name }}" = "push" ]; then
+            echo "Tag 发版必须配置 GitHub secret TAURI_SIGNING_PRIVATE_KEY"
+            exit 1
+          fi
+
       - name: 安装前端与 Tauri 依赖
         # 安装前端与 Tauri 依赖。
         run: npm install
 
       - name: 构建 ${{ matrix.platform_name }} 安装包
         # 复用 package.json 里的脚本，确保和本地打包命令保持一致。
-        run: ${{ matrix.build_script }}
+        # workflow_dispatch 且未配置签名密钥时关闭 updater 产物，行为与只打安装包一致。
+        shell: bash
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          DISABLE_UPDATER_ARTIFACTS: ${{ github.event_name == 'workflow_dispatch' && secrets.TAURI_SIGNING_PRIVATE_KEY == '' }}
+        run: |
+          set -euo pipefail
+          # `npm run script -- --config ...` 追加到 tauri build。空 extra[@] 在 macOS bash 3.2 + set -u 下会炸。
+          if [ "${DISABLE_UPDATER_ARTIFACTS}" = "true" ]; then
+            ${{ matrix.build_script }} -- --config '{"bundle":{"createUpdaterArtifacts":false}}'
+          else
+            ${{ matrix.build_script }}
+          fi
+
+      # --no-sign 会跳过 updater 签名；有私钥时给 .app.tar.gz 补 .sig。
+      - name: 签名 macOS 更新包
+        if: runner.os == 'macOS'
+        shell: bash
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [ -z "${TAURI_SIGNING_PRIVATE_KEY}" ]; then
+            echo "未配置 TAURI_SIGNING_PRIVATE_KEY，跳过 updater 签名"
+            exit 0
+          fi
+          found=0
+          for artifact in src-tauri/target/release/bundle/macos/*.app.tar.gz; do
+            if [ -f "${artifact}" ]; then
+              found=1
+              npm run tauri -- signer sign "${artifact}"
+            fi
+          done
+          if [ "${found}" -eq 0 ]; then
+            echo "没有 .app.tar.gz，跳过 updater 签名"
+          fi
 
       - name: 上传 ${{ matrix.platform_name }} 安装包
         uses: actions/upload-artifact@v4
@@ -96,11 +154,28 @@ jobs:
       contents: write
 
     steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 安装 Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
       - name: 下载全部构建产物
         uses: actions/download-artifact@v4
         with:
           # 按 artifact 名称分子目录，避免跨平台文件名冲突
           path: release-assets
+
+      - name: 生成 latest.json
+        env:
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          LATEST_JSON_INPUT: release-assets
+          LATEST_JSON_OUTPUT: latest.json
+          LATEST_JSON_VERSION: ${{ github.ref_name }}
+          LATEST_JSON_NOTES: ${{ github.ref_name }}
+        run: node scripts/build-latest-json.mjs
 
       - name: 列出待发布文件
         run: |
@@ -126,6 +201,7 @@ jobs:
           }
 
           WINDOWS_ASSETS="$(list_assets '*.msi')"
+          WINDOWS_NSIS="$(list_assets '*setup.exe')"
           MACOS_ASSETS="$(list_assets '*.dmg')"
           LINUX_APPIMAGE="$(list_assets '*.AppImage')"
           LINUX_DEB="$(list_assets '*.deb')"
@@ -139,8 +215,9 @@ jobs:
             echo "### 下载安装包"
             echo
             echo "#### Windows"
-            if [ -n "${WINDOWS_ASSETS}" ]; then
-              echo "${WINDOWS_ASSETS}"
+            if [ -n "${WINDOWS_ASSETS}${WINDOWS_NSIS}" ]; then
+              [ -n "${WINDOWS_ASSETS}" ] && echo "${WINDOWS_ASSETS}"
+              [ -n "${WINDOWS_NSIS}" ] && echo "${WINDOWS_NSIS}"
             else
               echo "- （本次无 Windows 安装包）"
             fi
@@ -191,10 +268,7 @@ jobs:
           generate_release_notes: true
           fail_on_unmatched_files: true
           files: |
-            release-assets/**/*.msi
-            release-assets/**/*.AppImage
-            release-assets/**/*.deb
-            release-assets/**/*.rpm
-            release-assets/**/*.dmg
+            release-assets/**/*
+            latest.json
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

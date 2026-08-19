@@ -156,6 +156,7 @@
     "task_mcp_binding_updated": "更新任务 MCP 绑定",
     "notification_created": "创建通知提醒",
     "notification_resolved": "通知已恢复",
-    "session_events_purged": "清理会话事件"
+    "session_events_purged": "清理会话事件",
+    "app_update_installed": "应用已更新"
   }
 }

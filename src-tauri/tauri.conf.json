@@ -34,10 +34,17 @@
   "plugins": {
     "sql": {
       "preload": ["sqlite:codex-ai.db"]
+    },
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDVDRERGMjlDRUE2QzhFM0MKUldROGptenFuUExkWEI1UWkrb2NtZ1haY2tVTzBkOEJOZm52SWtHMzBOeWc0V1FFZE56em54bmwK",
+      "endpoints": [
+        "https://github.com/wenyuantc/codex-ai/releases/latest/download/latest.json"
+      ]
     }
   },
   "bundle": {
     "active": true,
+    "createUpdaterArtifacts": true,
     "targets": "all",
     "icon": [
       "icons/32x32.png",

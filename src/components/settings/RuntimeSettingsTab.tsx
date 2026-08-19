@@ -38,6 +38,8 @@ import { mapRuntimeStatusMessage } from "@/lib/i18n/mapRuntimeStatusMessage";
 import { type ThemeMode } from "@/lib/theme";
 import { formatDate } from "@/lib/utils";
 
+import { AboutUpdateSection } from "./AboutUpdateSection";
+
 interface RuntimeSettingsTabProps {
   codexHealth: CodexHealthCheck | RemoteCodexHealthCheck | null;
   codexSettings: CodexSettings | null;
@@ -404,6 +406,7 @@ export function RuntimeSettingsTab({
 
   return (
     <div className="space-y-6">
+      <AboutUpdateSection />
       <div className="space-y-4 rounded-lg border border-border bg-card p-4">
         <div>
           <h3 className="mb-1 text-sm font-medium">{t("settings:theme.title")}</h3>

@@ -145,7 +145,7 @@
 
 ### 设置页（6 个标签页）
 
-**界面与运行**：主题切换（亮色/暗色）、Codex/Claude/Grok/OpenCode 引擎配置与健康检查、模型选择、推理强度、Node 路径覆盖
+**界面与运行**：当前版本与检查更新、主题切换（亮色/暗色）、Codex/Claude/Grok/OpenCode 引擎配置与健康检查、模型选择、推理强度、Node 路径覆盖
 
 **Git 与自动质控**：任务自动化开关、最大修复轮次、失败策略、Worktree 模式、AI 提交信息格式与模型配置
 
@@ -229,6 +229,21 @@ cargo test --manifest-path src-tauri/Cargo.toml               # Rust 测试（36
 cargo test --manifest-path src-tauri/Cargo.toml <test_name>   # 运行单个测试
 ```
 
+## 发布与自动更新
+
+tag `v*` 会构建三端安装包并创建/更新 GitHub Release。已安装的桌面端可在 **设置 → 界面与运行** 检查更新、确认后下载安装并重启。
+
+发版签名需要在仓库 GitHub Secrets 中配置（私钥不要提交到 git）：
+
+| Secret | 说明 |
+| --- | --- |
+| `TAURI_SIGNING_PRIVATE_KEY` | **tag 发版必需**。`tauri signer generate` 得到的私钥内容。 |
+| `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` | 可选。生成密钥时设置了密码才需要。 |
+
+公钥写在 `src-tauri/tauri.conf.json` 的 `plugins.updater.pubkey`。`workflow_dispatch` 且未配置私钥时仍只打安装包，不生成 updater 产物。
+
+本地 `npm run tauri:windows` / `npm run tauri:linux` 也会走 `createUpdaterArtifacts: true`，没有 `TAURI_SIGNING_PRIVATE_KEY` 会失败。`npm run tauri:dmg:no-sign` 带 `--no-sign`，会跳过 Apple 代码签名和 updater 签名；tag 发版 CI 会在打出 `darwin-aarch64` 的 `.app.tar.gz` 后单独补签。
+
 ## 技术栈
 
 - **前端**：React 19 + TypeScript + Vite + TailwindCSS 4 + shadcn/ui + Monaco Editor
@@ -236,7 +251,7 @@ cargo test --manifest-path src-tauri/Cargo.toml <test_name>   # 运行单个测�
 - **后端**：Rust 2021 + Tokio async + SQLx 0.8（编译期查询检查）+ Tauri 2
 - **数据库**：SQLite
 - **AI 引擎**：Codex CLI (OpenAI)、Claude CLI (Anthropic)、Grok CLI (xAI)、OpenCode (开源)
-- **桌面能力**：系统托盘、桌面通知、窗口状态持久化、路由持久化
+- **桌面能力**：系统托盘、桌面通知、应用内检查更新、窗口状态持久化、路由持久化
 
 ## 运行时校验
 

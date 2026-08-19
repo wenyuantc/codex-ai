@@ -34,3 +34,5 @@ keyring = { version = "3", features = [
   "sync-secret-service",
   "crypto-rust",
 ] }
+tauri-plugin-updater = "2"
+tauri-plugin-process = "2"
