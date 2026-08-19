@@ -1,6 +1,6 @@
 # Backend Testing
 
-> Rust tests are the only automated suite in this repository.
+> Rust tests are the primary automated suite. Frontend has a small Vitest net for exported pure functions (`npm run test:ci`).
 
 ---
 
@@ -65,7 +65,7 @@ From pool tests:
 | Migration | Ensure migrator still builds; add focused SQL test if constraint is subtle |
 | Task/session invariant | Extend `app/tests/*` |
 | Engine parsing/lifecycle pure logic | `#[cfg(test)]` in that module |
-| Pure UI wiring | manual smoke (`npm run tauri:dev`) — no frontend runner yet |
+| Pure UI wiring | Vitest for exported helpers; desktop smoke via `npm run tauri:dev` |
 
 ## Anti-Patterns
 
@@ -81,3 +81,4 @@ From pool tests:
 - [ ] SSH/local implications considered
 - [ ] Activity action added (and frontend label if user-visible)
 - [ ] `cargo test --manifest-path src-tauri/Cargo.toml` passes for touched logic
+- [ ] After a wave that adds commands, migrations, tables, or tests: **recount** `CLAUDE.md` / `README.md` numbers from source (`generate_handler!`, `get_all_migrations()`, `cargo test -- --list`, `npm run test:ci`). Do not increment last week's figure.
