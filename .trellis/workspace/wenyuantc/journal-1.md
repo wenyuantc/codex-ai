@@ -226,3 +226,41 @@ i18next zh-CN/en framework, main-path extraction, activity single-source, leftov
 ### Next Steps
 
 - 补齐 B1 设置页、看板排队徽标与批量运行 UI
+
+
+## Session 9: B1 看板与设置对接运行队列
+
+**Date**: 2026-08-19
+**Task**: B1 看板与设置对接运行队列
+**Branch**: `main`
+
+### Summary
+
+把已落地的并发闸门接到设置页、任务卡片和批量运行；排队不再误标进行中；写入 run-queue 契约并归档 B1。
+
+### Main Changes
+
+- 四引擎 start 返回 started|queued，startTaskRunSession 先 invoke 再写副作用
+- 设置页本地并发上限；看板排队徽标、取消排队、批量运行汇总
+- taskStore 监听队列事件并刷新任务列表；活动日志中英文案
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `d9327cc` | (see git log) |
+| `e1c20cb` | (see git log) |
+| `1f5a28f` | (see git log) |
+
+### Testing
+
+- [OK] npm run test:ci / format:check / build 通过
+- [OK] cargo test run_queue 与 clippy -D warnings 通过
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- B2 任务模板（父任务下一波未完成项）
