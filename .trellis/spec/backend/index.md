@@ -39,6 +39,7 @@
 | [AI Engines](./ai-engines.md) | Codex/Claude/OpenCode/Grok process lifecycle and per-engine contracts |
 | [Run Queue](./run-queue.md) | Global concurrency gate, `StartSessionOutcome`, `task_run_queue` |
 | [Task Templates](./task-templates.md) | v47 `task_templates`, `{{ident}}` apply, batch create without attachments |
+| [Review Findings](./review-findings.md) | `<review_findings>` event, `get_task_latest_review.findings`, Monaco line reveal |
 | [SSH Remote](./ssh-remote.md) | `build_ssh_command` multiplexing, askpass env, quit cleanup, remote SDK runtimes |
 | [Testing](./testing.md) | Integration/unit test patterns |
 | [Dashboard Report](./dashboard-report.md) | `get_dashboard_report_summary` R1 trend/milestone + token usage contract |

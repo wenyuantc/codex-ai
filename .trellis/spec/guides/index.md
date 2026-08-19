@@ -32,6 +32,7 @@ Most regressions in this repo come from boundary mistakes, not syntax:
 - [ ] Engine event shape change
 - [ ] `start_*` return value or run-queue / concurrency cap
 - [ ] Task template apply (batch create + tags/subtasks, no `create_task` attachments)
+- [ ] Review findings (`<review_findings>` / latest-review payload / Monaco reveal)
 
 → Read [Cross-Layer Thinking Guide](./cross-layer-thinking-guide.md)
 

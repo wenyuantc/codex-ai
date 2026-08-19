@@ -51,6 +51,7 @@ If any step is “unknown”, stop and find the existing closest flow (`create_t
 | Execution start outcome | `started` vs `queued`; side effects only after `started` | [run-queue.md](../backend/run-queue.md), `startTaskRunSession` |
 | Concurrency cap | local `max_concurrent_sessions` only (0 = unlimited) | `CodexSettings`, not remote settings |
 | Task templates | validate all `{{ident}}` sets then one tx; tags by name; no `create_task` attachments | [task-templates.md](../backend/task-templates.md) |
+| Review findings | third `<review_findings>` tag → session event → `get_task_latest_review.findings`; click must forward `{line,message}` | [review-findings.md](../backend/review-findings.md) |
 | Employee membership | only `employees.project_id` | employees commands + CLAUDE/README |
 | Schema | migration version bump | `db/migrations.rs` |
 | Permissions | frontend cannot SQL-read or SQL-write | `capabilities/default.json`, `database.ts` (hard-fail stub) |

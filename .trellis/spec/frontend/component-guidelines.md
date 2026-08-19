@@ -102,3 +102,4 @@ Reference implementations:
 - Hand-formatting timestamps with `new Date(...).toLocaleString` instead of `formatDate`.
 - Rebuilding Select/Dialog primitives instead of using `src/components/ui`.
 - Giant inline forms that reimplement store mutation logic already on the store.
+- Wrapping `onOpenChangeDetail` as `(change) => handler(change)` and dropping the optional `{line, message}` — review findings then open the file but never reveal/highlight. Forward `options` through. See [review-findings.md](../backend/review-findings.md).
