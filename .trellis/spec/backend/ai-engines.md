@@ -22,6 +22,7 @@ Rules:
 - Codex extras (`provider`, execution-change baseline, sdk file-change store) live in `CodexProcessExtra` on `ManagedProcess::extra`.
 - OpenCode keeps `sdk_server` on `OpenCodeManager` (not in the generic process table).
 - `start_*` / `stop_*` remain engine-specific Tauri commands; do not introduce a single `dyn AiEngine::start` dispatcher unless product scope expands.
+- Task-execution `start_*` returns tagged `StartSessionOutcome` (`started` \| `queued`). Gate/queue rules live in [run-queue.md](./run-queue.md), not in four engine copies.
 
 ## Engine Modules
 

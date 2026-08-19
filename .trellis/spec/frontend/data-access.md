@@ -42,6 +42,7 @@ Patterns:
 | Activity | `listActivityLogs` |
 | Dashboard | `getDashboardStats`, `getDashboardReportSummary` |
 | Notifications | `listNotifications` |
+| Run queue | `listTaskRunQueue`, `cancelQueuedTaskRun`, `onTaskRunQueueChanged` |
 
 `listTasks` rules:
 - With `projectId` (or non-empty `projectIds`): full active list for that filter (no forced LIMIT)
@@ -87,6 +88,10 @@ Besides `backend.ts`, engine-specific helpers live in:
 - `src/lib/opencode.ts` — includes remote runtime wrappers (`validateRemoteOpenCodeHealth`, `installRemoteOpenCodeSdk`)
 - `src/lib/grok.ts`
 - `src/lib/ai.ts` — higher-level AI helpers
+
+`start_*` (task execution) returns `{ status: "started" } | { status: "queued"; position: number }`. The shared kernel is `startTaskRunSession` in `src/lib/taskRunSession.ts`: invoke first; queued skips busy / `in_progress` / timer. Do not invent a fifth `startAi` dispatcher.
+
+`max_concurrent_sessions` is a **local** `CodexSettings` field. Persist with `updateCodexSettings` even when Settings is in SSH view. Do not send it through `updateRemoteCodexSettings`.
 
 Use these for event subscription and engine-facing UX; keep DB mutations on command wrappers.
 

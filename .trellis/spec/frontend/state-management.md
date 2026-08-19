@@ -73,6 +73,7 @@ For imperative work inside effects/event handlers, `useXStore.getState()` is acc
 - Also refresh on `task-automation-state-changed` (automation phase + often task `status`). Exit events alone race automation write-back; the emit is the post-commit signal.
 - Do **not** optimistically force `task.status` from `session_kind` (e.g. execution → `in_progress`, review → `review`). Session id fields may update locally; status is owned by backend commands / automation and must come from `fetchTasks` / `updateTaskStatus` / returned task rows.
 - After manual **stop**, refresh `employeeRuntime` **and** `automationStates` (and tasks if status/timer fields change). Cards treat active automation phases (`waiting_execution`, `launching_fix`, …) as “running”; a stale phase shows permanent Loader UI even when the process is gone.
+- `task-run-queue-changed`: `taskStore.initRunQueueListener` in `MainLayout` (same ref-count cleanup as session listeners). Handler must `fetchRunQueue` **and** `fetchTasks`. Drain starts the next session in Rust (`in_progress` + timer); refreshing only the queue leaves cards on the old kanban column. Do not derive `task.status` from a queue row.
 
 ## LocalStorage Persistence
 
