@@ -1,1 +1,8 @@
-{"_example": "Fill with {\"file\": \"<path>\", \"reason\": \"<why>\"}. Put spec/research files only — no code paths. Run `python3 .trellis/scripts/get_context.py --mode packages` to list available specs. Delete this line once real entries are added."}
+{"file": ".trellis/spec/backend/index.md", "reason": "No frontend SQLite; activity via existing log_activity; no new business command or migration."}
+{"file": ".trellis/spec/backend/error-handling.md", "reason": "User-facing updater failures must be explicit Chinese/i18n strings, never panic or silent catch."}
+{"file": ".trellis/spec/backend/command-guidelines.md", "reason": "Reuse log_activity payload rules; do not invent a parallel update command."}
+{"file": ".trellis/spec/frontend/index.md", "reason": "IPC wrappers, i18n, formatDate, activity:actions.* for the new app_update_installed key."}
+{"file": ".trellis/spec/frontend/component-guidelines.md", "reason": "Named export in settings domain; reuse Button/card; do not grow RuntimeSettingsTab props."}
+{"file": ".trellis/spec/frontend/data-access.md", "reason": "Components must not invoke(); plugin APIs live in src/lib/appUpdate.ts; activity still via backend.ts."}
+{"file": ".trellis/spec/frontend/i18n.md", "reason": "settings + activity namespaces, both zh-CN and en."}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "Settings UI → plugin check/install → GitHub latest.json → activity log must stay one local-app path."}

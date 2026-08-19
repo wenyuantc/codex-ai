@@ -1,1 +1,6 @@
-{"_example": "Fill with {\"file\": \"<path>\", \"reason\": \"<why>\"}. Put spec/research files only — no code paths. Run `python3 .trellis/scripts/get_context.py --mode packages` to list available specs. Delete this line once real entries are added."}
+{"file": ".trellis/spec/backend/index.md", "reason": "Verify no new table/command, activity key only on successful install, SSH path unchanged."}
+{"file": ".trellis/spec/backend/error-handling.md", "reason": "Check mapped errors for offline / unsigned / dev mode; no unwrap in plugin registration."}
+{"file": ".trellis/spec/frontend/data-access.md", "reason": "No invoke in AboutUpdateSection; updater calls wrapped; logActivity uses backend.ts."}
+{"file": ".trellis/spec/frontend/i18n.md", "reason": "Both locales for settings about/update and activity.actions.app_update_installed."}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "Gate: test:ci, format:check, build; clippy after adding plugins."}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "Trace check → latest.json → download → log → relaunch; CI artifacts must match platform keys."}
