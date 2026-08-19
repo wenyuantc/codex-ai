@@ -19,6 +19,7 @@ src-tauri/
     │   ├── database.rs         # health, backup/restore, dashboard, capabilities
     │   ├── projects.rs
     │   ├── tasks.rs
+    │   ├── templates.rs        # task templates CRUD + batch apply
     │   ├── delivery.rs         # milestones/tags/dependencies
     │   ├── employees.rs
     │   ├── sessions.rs         # sessions, search, activity log
@@ -67,6 +68,7 @@ src-tauri/
 | Concern | Owner module |
 |---------|--------------|
 | CRUD for projects/tasks/employees | `app/projects.rs`, `app/tasks.rs`, `app/employees.rs` |
+| Task templates (batch create) | `app/templates.rs` (see [task-templates.md](./task-templates.md)) |
 | Delivery fields (due/tags/deps/milestones) | `app/delivery.rs` |
 | Session list/resume/log/search/activity | `app/sessions.rs` |
 | SSH config + remote command execution | `app/remote.rs` (single `build_ssh_command`; ControlMaster cleanup on tray quit) |

@@ -68,12 +68,12 @@ React (UI) → Tauri IPC commands → Rust service layer → SQLite
 
 - Rust 2021, Tokio async, SQLx 0.8 (compile-time checked queries)
 - Entry: `lib.rs` → `pub fn run()` registers plugins, the four engine managers, tray, and window restoration
-- **218 Tauri commands**, all registered in the single `invoke_handler!` list in `lib.rs`. Full breakdown:
+- **227 Tauri commands**, all registered in the single `invoke_handler!` list in `lib.rs`. Full breakdown:
   - `git_workflow/` (49), `codex/` (30), `app/tasks.rs` (24), `app/remote.rs` (13), `task_automation` (12), `opencode/` (12), `app/delivery.rs` (12), `claude/` (11), `grok/` (10)
-  - `app/sessions.rs` (9), `app/database.rs` (9), `app/projects.rs` (8), `app/employees.rs` (8), `app/session_events_retention.rs` (4), `notifications` (3), `app/review.rs` (3), `tray` (1)
-- `app/` submodules: `projects`, `employees`, `tasks`, `delivery`, `sessions`, `review`, `remote`, `database`, `session_events_retention`, `session_events_policy`, `shared`
+  - `app/sessions.rs` (10), `app/database.rs` (9), `app/projects.rs` (8), `app/employees.rs` (8), `app/templates.rs` (6), `app/session_events_retention.rs` (4), `notifications` (3), `app/review.rs` (3), `run_queue` (2), `tray` (1)
+- `app/` submodules: `projects`, `employees`, `tasks`, `templates`, `delivery`, `sessions`, `review`, `remote`, `database`, `session_events_retention`, `session_events_policy`, `shared`
 - `app/session_events_retention.rs` — `codex_session_events` retention policy (purge rows older than N days, VACUUM, stats). Wired into the Settings 数据库维护 tab.
-- `db/migrations.rs` — versioned DDL, **44 migrations** inline (versions must stay contiguous 1..N; enforced by `migration_versions_are_contiguous`)
+- `db/migrations.rs` — versioned DDL, **47 migrations** inline (versions must stay contiguous 1..N; enforced by `migration_versions_are_contiguous`)
 - `db/models.rs` — SQLx `query_as!` type definitions for all tables
 - `task_automation` — review/fix state machine root (`task_automation.rs` + domain slices under `task_automation/`; `prompt.rs` is a real submodule, other slices use `include!`)
 - `git_workflow/` — Git UX commands split by domain (`types`, `runtime`, `worktree`, `context`, `project_ops`, `branch`, `pending_action`, `tests`); composed via `include!` for stable `crate::git_workflow::*` paths
@@ -99,12 +99,12 @@ Capability matrix is the single UI truth source. `restart_*` = stop live process
 
 ### Database
 
-SQLite at `$APPCONFIG/codex-ai.db`, 24 tables:
+SQLite at `$APPCONFIG/codex-ai.db`, 26 tables:
 
 - Core: `projects`, `employees`, `tasks`, `subtasks`, `comments`, `activity_logs`, `employee_metrics`
 - Delivery: `milestones`, `tags`, `task_tags`, `task_dependencies`, `task_attachments`
 - Sessions: `codex_sessions`, `codex_session_events`, `codex_session_file_changes`, `codex_session_file_change_details`
-- Ops: `notifications`, `ssh_configs`, `task_automation_state`, `task_git_contexts`, `task_pipeline_steps`, `task_acceptance_runs`
+- Ops: `notifications`, `ssh_configs`, `task_automation_state`, `task_git_contexts`, `task_pipeline_steps`, `task_acceptance_runs`, `task_run_queue`, `task_templates`
 - Legacy, not a read/write source: `project_employees`, `codex_sessions_new`
 
 **Constraints**:

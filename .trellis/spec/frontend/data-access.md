@@ -39,6 +39,7 @@ Patterns:
 | Projects | `listProjects`, `listTrashedProjects` |
 | Employees | `listEmployees`, `listEmployeeMetrics` |
 | Tasks | `listTasks`, `listTaskAttachments`, `listTaskSubtasks`, `listTaskComments`, `listTrashedTasks` |
+| Task templates | `listTaskTemplates`, `createTaskTemplate`, `updateTaskTemplate`, `deleteTaskTemplate`, `createTaskTemplateFromTask`, `applyTaskTemplate` |
 | Activity | `listActivityLogs` |
 | Dashboard | `getDashboardStats`, `getDashboardReportSummary` |
 | Notifications | `listNotifications` |

@@ -50,6 +50,7 @@ If any step is “unknown”, stop and find the existing closest flow (`create_t
 | AI provider | `ai_provider` union + start/stop/label/one-shot branches for **every** engine | `types.ts` `AiProvider`, engine `src/lib/*.ts`, `task_automation`, settings normalize |
 | Execution start outcome | `started` vs `queued`; side effects only after `started` | [run-queue.md](../backend/run-queue.md), `startTaskRunSession` |
 | Concurrency cap | local `max_concurrent_sessions` only (0 = unlimited) | `CodexSettings`, not remote settings |
+| Task templates | validate all `{{ident}}` sets then one tx; tags by name; no `create_task` attachments | [task-templates.md](../backend/task-templates.md) |
 | Employee membership | only `employees.project_id` | employees commands + CLAUDE/README |
 | Schema | migration version bump | `db/migrations.rs` |
 | Permissions | frontend cannot SQL-read or SQL-write | `capabilities/default.json`, `database.ts` (hard-fail stub) |

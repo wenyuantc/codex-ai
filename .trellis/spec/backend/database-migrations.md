@@ -63,6 +63,8 @@ Version 41 adds `idx_codex_session_events_created_at` for session-events retenti
 
 Version 45 adds nullable token columns on `codex_sessions`: `input_tokens`, `output_tokens`, `total_tokens`, `reasoning_tokens` (all `INTEGER`, no default). **NULL means unknown** — never backfill 0. `SELECT *` / `CodexSessionRecord` / explicit INSERT fixtures must stay in sync; omitting the columns on INSERT is correct (they stay NULL until the first usage event).
 
+Version 47 adds `task_templates` (soft-delete, optional `project_id`, `tags_json` names + `subtasks_json`). Apply is a separate transaction in `app/templates.rs` — see [task-templates.md](./task-templates.md).
+
 ## Scenario: Session token columns (v45)
 
 ### 1. Scope / Trigger
