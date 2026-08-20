@@ -3,7 +3,7 @@
   "name": "product-gap-wave",
   "title": "2026-08-11 产品缺口下一波:可度量+可批量",
   "description": "",
-  "status": "in_progress",
+  "status": "completed",
   "dev_type": null,
   "scope": null,
   "package": null,
@@ -11,7 +11,7 @@
   "creator": "wenyuantc",
   "assignee": "wenyuantc",
   "createdAt": "2026-08-12",
-  "completedAt": null,
+  "completedAt": "2026-08-20",
   "branch": null,
   "base_branch": "main",
   "worktree_path": null,
@@ -28,6 +28,6 @@
   ],
   "parent": null,
   "relatedFiles": [],
-  "notes": "",
+  "notes": "2026-08-20: 6/6 children archived; parent wrap-up. Next wave is 08-20-product-trust-ops (trust/ops, not new capabilities).",
   "meta": {}
 }

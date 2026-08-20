@@ -63,7 +63,7 @@
 - [x] 全量门禁:clippy / cargo test / npm run lint / format:check / test:ci / build
 - [x] TASK.md 勾选;CLAUDE.md 计数校准(迁移数 44→47、命令数、测试数);README 引擎/表数如受影响
 - [x] Trellis:spec 更新(如有沉淀)、子任务已归档
-- [ ] journal 记录（`/trellis-finish-work`）
+- [x] journal 记录（2026-08-20 归档父任务；journal 由本波规划会话补记）
 
 ## 回滚点
 
