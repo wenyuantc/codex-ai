@@ -7,6 +7,7 @@ import { Link, useSearchParams } from "react-router-dom";
 import { KanbanBoard } from "@/components/tasks/KanbanBoard";
 import { ArchiveManagementDialog } from "@/components/tasks/ArchiveManagementDialog";
 import { CreateTaskDialog } from "@/components/tasks/CreateTaskDialog";
+import { TaskRunQueueDialog } from "@/components/tasks/TaskRunQueueDialog";
 import { TaskTemplateManagerDialog } from "@/components/tasks/TaskTemplateManagerDialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -41,7 +42,8 @@ import { getPriorityLabel, getStatusLabel } from "@/lib/utils";
 import { useTaskStore } from "@/stores/taskStore";
 import { useProjectStore } from "@/stores/projectStore";
 import { useEmployeeStore } from "@/stores/employeeStore";
-import { Archive, CheckSquare, LayoutTemplate, Play, Plus } from "lucide-react";
+import { getBatchRunSkipReason, type BatchRunSkipReason } from "@/lib/batchRunSkip";
+import { Archive, CheckSquare, LayoutTemplate, ListOrdered, Play, Plus } from "lucide-react";
 const FILTER_ALL = "all";
 const FILTER_UNASSIGNED = "__unassigned__";
 
@@ -56,6 +58,10 @@ export function KanbanPage() {
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [showTemplateDialog, setShowTemplateDialog] = useState(false);
   const [showArchiveDialog, setShowArchiveDialog] = useState(false);
+  const [showQueueDialog, setShowQueueDialog] = useState(false);
+  const [batchSkipDetails, setBatchSkipDetails] = useState<
+    Array<{ title: string; reason: BatchRunSkipReason }>
+  >([]);
   const [pendingLogRequest, setPendingLogRequest] = useState<{
     taskId: string;
     sessionKind?: CodexSessionKind;
@@ -262,26 +268,22 @@ export function KanbanPage() {
     }
   };
 
-  const isTaskExecutionActive = (taskId: string) =>
-    Object.values(employeeRuntime).some((runtime) =>
-      runtime.sessions.some((session) => session.task_id === taskId),
-    );
+  const queuedTaskIds = new Set(runQueue.map((item) => item.task_id));
+  const runningTaskIds = new Set(
+    Object.values(employeeRuntime).flatMap((runtime) =>
+      runtime.sessions
+        .filter((session) => session.task_id)
+        .map((session) => session.task_id as string),
+    ),
+  );
 
-  const canBatchRunTask = (task: Task, incompleteDependencyIds: Set<string>) => {
-    if (!task.assignee_id || task.status === "archived") {
-      return false;
-    }
-    if (runQueue.some((item) => item.task_id === task.id)) {
-      return false;
-    }
-    if (isTaskExecutionActive(task.id)) {
-      return false;
-    }
-    if (incompleteDependencyIds.has(task.id)) {
-      return false;
-    }
-    return true;
-  };
+  const canBatchRunTask = (task: Task, incompleteDependencyIds: Set<string>) =>
+    getBatchRunSkipReason({
+      task,
+      queuedTaskIds,
+      runningTaskIds,
+      incompleteDependencyIds,
+    }) === null;
 
   const handleBatchRun = async () => {
     if (selectedTaskIds.length === 0) {
@@ -291,9 +293,11 @@ export function KanbanPage() {
 
     setBatchLoading(true);
     setBatchMessage(null);
+    setBatchSkipDetails([]);
     let started = 0;
     let queued = 0;
     let skipped = 0;
+    const skipDetails: Array<{ title: string; reason: BatchRunSkipReason }> = [];
 
     try {
       const selectedTasks = selectedTaskIds
@@ -370,8 +374,15 @@ export function KanbanPage() {
       }
 
       for (const task of selectedTasks) {
-        if (!canBatchRunTask(task, incompleteDependencyIds)) {
+        const skipReason = getBatchRunSkipReason({
+          task,
+          queuedTaskIds,
+          runningTaskIds,
+          incompleteDependencyIds,
+        });
+        if (skipReason) {
           skipped += 1;
+          skipDetails.push({ title: task.title, reason: skipReason });
           continue;
         }
 
@@ -379,6 +390,7 @@ export function KanbanPage() {
         const project = projects.find((item) => item.id === task.project_id);
         if (!assignee) {
           skipped += 1;
+          skipDetails.push({ title: task.title, reason: "no_assignee" });
           continue;
         }
 
@@ -407,9 +419,11 @@ export function KanbanPage() {
         } catch (error) {
           console.error("Failed to start task during batch run:", task.id, error);
           skipped += 1;
+          skipDetails.push({ title: task.title, reason: "start_failed" });
         }
       }
 
+      setBatchSkipDetails(skipDetails);
       setBatchMessage(t("batchRunSummary", { started, queued, skipped }));
     } catch (error) {
       setBatchMessage(error instanceof Error ? error.message : String(error));
@@ -446,6 +460,15 @@ export function KanbanPage() {
             <Button variant="outline" onClick={() => setShowTemplateDialog(true)}>
               <LayoutTemplate className="h-4 w-4" />
               {t("templates")}
+            </Button>
+            <Button variant="outline" onClick={() => setShowQueueDialog(true)}>
+              <ListOrdered className="h-4 w-4" />
+              {t("runQueue")}
+              {runQueue.length > 0 ? (
+                <span className="ml-1 rounded-full bg-primary/15 px-1.5 text-[11px]">
+                  {runQueue.length}
+                </span>
+              ) : null}
             </Button>
             <Button variant="outline" onClick={() => setShowArchiveDialog(true)}>
               <Archive className="h-4 w-4" />
@@ -624,6 +647,18 @@ export function KanbanPage() {
             {t("batchRun")}
           </Button>
           {batchMessage && <span className="text-xs text-muted-foreground">{batchMessage}</span>}
+          {batchSkipDetails.length > 0 ? (
+            <ul className="basis-full list-disc pl-5 text-xs text-muted-foreground">
+              {batchSkipDetails.map((item, index) => (
+                <li key={`${item.title}-${item.reason}-${index}`}>
+                  {t("batchSkipItem", {
+                    title: item.title,
+                    reason: t(`batchSkip.${item.reason}`),
+                  })}
+                </li>
+              ))}
+            </ul>
+          ) : null}
         </div>
       </div>
       <div className="flex-1 overflow-hidden">
@@ -718,6 +753,7 @@ export function KanbanPage() {
           defaultProjectId={currentProjectId}
         />
       )}
+      <TaskRunQueueDialog open={showQueueDialog} onOpenChange={setShowQueueDialog} />
     </div>
   );
 }
