@@ -392,3 +392,46 @@ i18next zh-CN/en framework, main-path extraction, activity single-source, leftov
 ### Next Steps
 
 - 用户批准后按 A1→A2→B1… 一次 start 一个子任务实现
+
+
+## Session 14: 落地 08-20 产品下一波：可信+可运营+好找
+
+**Date**: 2026-08-20
+**Task**: 落地 08-20 产品下一波：可信+可运营+好找
+**Branch**: `main`
+
+### Summary
+
+按 A1→C2 实现并归档 8 项：员工空闲语义、图片附件运行前确认、看板队列与批量跳过原因、会话 token、启动检查更新、四引擎引导、右键/搜索 i18n、空闲计时器隐藏。
+
+### Main Changes
+
+- 员工空闲不再叫离线；运行前诚实提示会被跳过的图片
+- 看板运行队列列表+批量跳过原因；会话列表展示 token
+- 启动静默检查更新横幅；引导按四引擎健康检查
+- 看板右键与全局搜索 i18n；空闲任务隐藏假计时器
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `dc98b23` | (see git log) |
+| `b50ba28` | (see git log) |
+| `3ab9c3f` | (see git log) |
+| `11a07e7` | (see git log) |
+| `d90947a` | (see git log) |
+| `cb0dc25` | (see git log) |
+| `fc105b2` | (see git log) |
+| `f7d6631` | (see git log) |
+
+### Testing
+
+- [OK] npm run format:check；npm run test:ci 101 passed；npm run build 通过
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 打包后冒烟：员工空闲文案、带图运行确认、看板队列、会话 token、启动更新横幅
