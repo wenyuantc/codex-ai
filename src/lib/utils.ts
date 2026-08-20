@@ -112,6 +112,21 @@ export function getStatusLabel(status: string): string {
   return i18n.t(`common:status.${status}`, { defaultValue: status });
 }
 
+/** Runtime heartbeat: busy/online mean a session is running; offline is idle. */
+export function isEmployeeRunningStatus(status: string): boolean {
+  return status === "busy" || status === "online";
+}
+
+export function matchesEmployeeRuntimeFilter(status: string, filter: string): boolean {
+  if (filter === "all") {
+    return true;
+  }
+  if (filter === "busy") {
+    return isEmployeeRunningStatus(status);
+  }
+  return status === filter;
+}
+
 export function getActivityActionLabel(action: string): string {
   if (!action) {
     return action;

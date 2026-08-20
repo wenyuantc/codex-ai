@@ -29,9 +29,9 @@
     "review": "In review",
     "completed": "Completed",
     "blocked": "Blocked",
-    "online": "Online",
-    "busy": "Busy",
-    "offline": "Offline",
+    "online": "Running",
+    "busy": "Running",
+    "offline": "Idle",
     "error": "Error",
     "active": "Active",
     "archived": "Archived"

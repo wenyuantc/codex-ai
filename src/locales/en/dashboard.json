@@ -11,7 +11,7 @@
   "stats": {
     "activeProjects": "Active projects",
     "totalTasks": "Total tasks",
-    "onlineEmployees": "Online employees",
+    "onlineEmployees": "Running employees",
     "completionRate": "Completion",
     "unreadNotifications": "Unread notifications",
     "highSeverityAlerts": "High-severity alerts",

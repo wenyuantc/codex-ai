@@ -696,10 +696,10 @@ fn search_status_label(status: &str) -> &str {
         "review" => "审核中",
         "completed" => "已完成",
         "blocked" => "已阻塞",
-        "online" => "在线",
-        "busy" => "忙碌",
-        "offline" => "离线",
-        "error" => "错误",
+        "online" => "运行中",
+        "busy" => "运行中",
+        "offline" => "空闲",
+        "error" => "异常",
         "active" => "活跃",
         "archived" => "已归档",
         "pending" => "待启动",
@@ -1479,7 +1479,15 @@ pub async fn get_task_token_usage<R: Runtime>(
 
 #[cfg(test)]
 mod tests {
-    use super::format_session_log_line;
+    use super::{format_session_log_line, search_status_label};
+
+    #[test]
+    fn employee_runtime_status_labels_are_idle_running_error() {
+        assert_eq!(search_status_label("offline"), "空闲");
+        assert_eq!(search_status_label("busy"), "运行中");
+        assert_eq!(search_status_label("online"), "运行中");
+        assert_eq!(search_status_label("error"), "异常");
+    }
 
     #[test]
     fn hides_review_structured_events_from_terminal() {

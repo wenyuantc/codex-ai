@@ -1,6 +1,12 @@
 import { describe, it, expect } from "vitest";
 
-import { formatDuration, getActivityActionLabel, isTaskOverdue } from "@/lib/utils";
+import {
+  formatDuration,
+  getActivityActionLabel,
+  isEmployeeRunningStatus,
+  isTaskOverdue,
+  matchesEmployeeRuntimeFilter,
+} from "@/lib/utils";
 
 describe("getActivityActionLabel", () => {
   it("maps known backend action keys to Chinese labels", () => {
@@ -54,6 +60,24 @@ describe("isTaskOverdue", () => {
 
   it("accepts a datetime due_date and compares only the date part", () => {
     expect(isTaskOverdue({ due_date: "2026-08-05 23:59:59", status: "todo" }, today)).toBe(true);
+  });
+});
+
+describe("employee runtime status", () => {
+  it("treats busy and leftover online as running, offline as idle", () => {
+    expect(isEmployeeRunningStatus("busy")).toBe(true);
+    expect(isEmployeeRunningStatus("online")).toBe(true);
+    expect(isEmployeeRunningStatus("offline")).toBe(false);
+    expect(isEmployeeRunningStatus("error")).toBe(false);
+  });
+
+  it("matches the running filter without treating idle as running", () => {
+    expect(matchesEmployeeRuntimeFilter("offline", "all")).toBe(true);
+    expect(matchesEmployeeRuntimeFilter("online", "busy")).toBe(true);
+    expect(matchesEmployeeRuntimeFilter("busy", "busy")).toBe(true);
+    expect(matchesEmployeeRuntimeFilter("offline", "busy")).toBe(false);
+    expect(matchesEmployeeRuntimeFilter("offline", "offline")).toBe(true);
+    expect(matchesEmployeeRuntimeFilter("error", "error")).toBe(true);
   });
 });
 

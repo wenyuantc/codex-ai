@@ -11,7 +11,7 @@
   "stats": {
     "activeProjects": "活跃项目",
     "totalTasks": "总任务数",
-    "onlineEmployees": "在线员工",
+    "onlineEmployees": "运行中员工",
     "completionRate": "完成率",
     "unreadNotifications": "未读通知",
     "highSeverityAlerts": "高优先级告警",

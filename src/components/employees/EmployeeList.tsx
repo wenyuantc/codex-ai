@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useEmployeeStore } from "@/stores/employeeStore";
 import { useTaskStore } from "@/stores/taskStore";
+import { matchesEmployeeRuntimeFilter } from "@/lib/utils";
 import { EmployeeCard } from "./EmployeeCard";
 
 const ACTIVE_TASK_STATUSES = new Set(["in_progress", "review"]);
@@ -38,7 +39,9 @@ export function EmployeeList({
   const filtered =
     filter === "all"
       ? projectEmployees
-      : projectEmployees.filter((employee) => employee.status === filter);
+      : projectEmployees.filter((employee) =>
+          matchesEmployeeRuntimeFilter(employee.status, filter),
+        );
 
   const taskCountByEmployeeId = useMemo(() => {
     const counts = new Map<string, number>();
@@ -89,7 +92,7 @@ export function EmployeeList({
     <div className="space-y-3">
       {/* Filter */}
       <div className="flex items-center gap-2">
-        {["all", "online", "busy", "offline", "error"].map((f) => (
+        {["all", "busy", "offline", "error"].map((f) => (
           <button
             key={f}
             onClick={() => setFilter(f)}
