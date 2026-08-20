@@ -391,6 +391,10 @@ export interface CodexSessionListItem {
   ssh_config_id: string | null;
   target_host_label: string | null;
   artifact_capture_mode: ArtifactCaptureMode;
+  input_tokens: number | null;
+  output_tokens: number | null;
+  total_tokens: number | null;
+  reasoning_tokens: number | null;
   resume_status: CodexSessionResumeStatus;
   resume_message: string | null;
   can_resume: boolean;

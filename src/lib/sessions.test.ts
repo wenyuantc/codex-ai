@@ -4,6 +4,7 @@ import {
   aiProviderBadgeVariant,
   formatAiProviderLabel,
   formatSessionStatus,
+  formatSessionTokenUsage,
   getStoredSessionsViewMode,
   matchesSessionIdentifier,
   normalizeSearchText,
@@ -83,6 +84,20 @@ describe("aiProviderBadgeVariant", () => {
     expect(aiProviderBadgeVariant("claude")).toBe("secondary");
     expect(aiProviderBadgeVariant("opencode")).toBe("outline");
     expect(aiProviderBadgeVariant("grok")).toBe("outline");
+  });
+});
+
+describe("formatSessionTokenUsage", () => {
+  it("shows unknown when total tokens are missing instead of pretending 0", () => {
+    expect(formatSessionTokenUsage({ total_tokens: null })).toBe("未知");
+    expect(formatSessionTokenUsage({})).toBe("未知");
+  });
+
+  it("formats a known total and optional input/output split", () => {
+    expect(formatSessionTokenUsage({ total_tokens: 950 })).toBe("950");
+    expect(
+      formatSessionTokenUsage({ total_tokens: 12340, input_tokens: 8000, output_tokens: 4340 }),
+    ).toBe("12K · 入 8.0K / 出 4.3K");
   });
 });
 

@@ -16,6 +16,7 @@ import {
   formatResumeStatus,
   formatSessionKind,
   formatSessionStatus,
+  formatSessionTokenUsage,
   sessionStatusBadgeVariant,
 } from "@/lib/sessions";
 import type { CodexSessionListItem } from "@/lib/types";
@@ -86,6 +87,8 @@ export function SessionCard({
         <span>{formatResumeStatus(session.resume_status)}</span>
         <span aria-hidden>·</span>
         <span>{formatDate(session.last_updated_at)}</span>
+        <span aria-hidden>·</span>
+        <span title={t("colTokens")}>{formatSessionTokenUsage(session)}</span>
       </div>
 
       <div className="truncate text-xs text-muted-foreground">

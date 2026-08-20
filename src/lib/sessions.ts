@@ -1,3 +1,4 @@
+import { formatTokenCount } from "@/lib/dashboardReport";
 import i18n from "@/lib/i18n";
 import type { AiProvider, CodexSessionListItem, CodexSessionResumeStatus } from "@/lib/types";
 import { AI_PROVIDER_OPTIONS } from "@/lib/types";
@@ -35,6 +36,30 @@ export function matchesSessionIdentifier(session: CodexSessionListItem, query: s
   return [session.session_id, session.session_record_id, session.cli_session_id].some(
     (value) => normalizeSearchText(value) === normalizedQuery,
   );
+}
+
+export function formatSessionTokenUsage(session: {
+  total_tokens?: number | null;
+  input_tokens?: number | null;
+  output_tokens?: number | null;
+}): string {
+  if (session.total_tokens == null || !Number.isFinite(session.total_tokens)) {
+    return i18n.t("sessions:tokenUnknown");
+  }
+  const total = formatTokenCount(session.total_tokens);
+  if (
+    session.input_tokens != null &&
+    session.output_tokens != null &&
+    Number.isFinite(session.input_tokens) &&
+    Number.isFinite(session.output_tokens)
+  ) {
+    return i18n.t("sessions:tokenBreakdown", {
+      total,
+      input: formatTokenCount(session.input_tokens),
+      output: formatTokenCount(session.output_tokens),
+    });
+  }
+  return i18n.t("sessions:tokenTotal", { total });
 }
 
 export function formatAiProviderLabel(provider: AiProvider) {

@@ -41,6 +41,7 @@ import {
   formatResumeStatus,
   formatSessionKind,
   formatSessionStatus,
+  formatSessionTokenUsage,
   getStoredSessionsViewMode,
   matchesSessionIdentifier,
   normalizeSearchText,
@@ -747,6 +748,7 @@ export function SessionsPage() {
                         <th className="px-4 py-3 font-medium">{t("colStatus")}</th>
                         <th className="px-4 py-3 font-medium">{t("colProvider")}</th>
                         <th className="px-4 py-3 font-medium">{t("colUpdated")}</th>
+                        <th className="px-4 py-3 font-medium">{t("colTokens")}</th>
                         <th className="px-4 py-3 font-medium">{t("colTask")}</th>
                         <th className="px-4 py-3 font-medium">{t("colEmployee")}</th>
                         <th className="px-4 py-3 font-medium">{t("colActions")}</th>
@@ -820,6 +822,9 @@ export function SessionsPage() {
                           </td>
                           <td className="whitespace-nowrap px-4 py-3 text-xs text-muted-foreground">
                             {formatDate(session.last_updated_at)}
+                          </td>
+                          <td className="whitespace-nowrap px-4 py-3 text-xs text-muted-foreground">
+                            {formatSessionTokenUsage(session)}
                           </td>
                           <td className="px-4 py-3">
                             <div className="space-y-1 text-xs">

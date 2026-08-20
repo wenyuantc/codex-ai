@@ -1192,6 +1192,10 @@ async fn query_codex_session_list<R: Runtime>(
             s.ssh_config_id AS ssh_config_id,
             s.target_host_label AS target_host_label,
             s.artifact_capture_mode AS artifact_capture_mode,
+            s.input_tokens AS input_tokens,
+            s.output_tokens AS output_tokens,
+            s.total_tokens AS total_tokens,
+            s.reasoning_tokens AS reasoning_tokens,
             '' AS resume_status,
             NULL AS resume_message,
             0 AS can_resume

@@ -22,9 +22,9 @@ token 已落库，任务详情和仪表盘能看。会话管理页看不到，�
 
 ## Acceptance Criteria
 
-- [ ] `/sessions` 两种视图能看到 token 或「未知」
-- [ ] 与任务详情同一会话数字一致（同源字段）
-- [ ] i18n zh-CN + en；`formatDate` 不受影响
+- [x] `/sessions` 两种视图能看到 token 或「未知」
+- [x] 与任务详情同一会话数字一致（同源字段）
+- [x] i18n zh-CN + en；`formatDate` 不受影响
 
 ## Out of Scope
 
