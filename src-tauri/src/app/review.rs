@@ -459,10 +459,9 @@ fn review_finding_line(value: &serde_json::Value) -> Option<i64> {
             return None;
         }
         number as i64
-    } else if let Some(raw) = value.as_str() {
-        raw.trim().parse::<i64>().ok()?
     } else {
-        return None;
+        let raw = value.as_str()?;
+        raw.trim().parse::<i64>().ok()?
     };
 
     (parsed > 0).then_some(parsed)
