@@ -17,6 +17,16 @@
   "startReview": "Start review",
   "startTask": "Start task",
   "unnamedProject": "Unnamed project",
+  "imageSkip": {
+    "title": "Images will not be sent to the AI",
+    "ssh_grok": "Grok over SSH will skip these {{count}} image(s) to avoid oversized command lines. You can still run; the model will not see the images.",
+    "ssh_claude": "Claude over SSH uses the CLI and will skip these {{count}} image(s). You can still run; the model will not see the images.",
+    "claude_cli": "Claude is using the CLI and will skip these {{count}} local image(s). You can still run; the model will not see the images.",
+    "ssh_no_task": "This remote run has no task context, so {{count}} image(s) cannot be synced and will be skipped.",
+    "batch_mixed": "{{count}} image(s) in the selected tasks will not be sent (SSH or Claude CLI limits). You can still run.",
+    "continue": "Run anyway",
+    "cancel": "Cancel"
+  },
   "createDialog": {
     "title": "New task",
     "fields": {
@@ -52,7 +62,7 @@
     "worktreeLoadingHint": "Loading default settings for this project…",
     "worktreeHint": "Uses the project working directory by default; enabling prepares a dedicated worktree for this task.",
     "defaultAutomationReviewerHint": "“Default auto QC for new tasks” is on; a reviewer is required when creating a task.",
-    "attachmentsHint": "Copied into the app-managed directory on create; images are attached automatically when running Codex later; other files are kept as task attachments.",
+    "attachmentsHint": "Copied into the app-managed directory on create. Local Codex/OpenCode/Grok and Claude SDK attach images; Grok/Claude over SSH and Claude CLI skip images. Other files stay as task attachments.",
     "addAttachment": "Add attachment",
     "selectAttachmentTitle": "Select attachments",
     "attachmentDesktopOnlyTooltip": "Attachments can only be uploaded in the desktop app",

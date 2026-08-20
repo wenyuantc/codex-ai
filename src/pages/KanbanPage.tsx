@@ -19,6 +19,7 @@ import {
 } from "@/components/ui/select";
 import {
   batchUpdateTasks,
+  checkClaudeSdkHealth,
   getCodexSettings,
   listMilestones,
   listTags,
@@ -27,6 +28,11 @@ import {
 } from "@/lib/backend";
 import { filterKanbanTaskIds, type TaskTagMap } from "@/lib/kanbanFilters";
 import { getProjectWorkingDir } from "@/lib/projects";
+import {
+  confirmImageAttachmentSkip,
+  resolveImageAttachmentSkip,
+  type ImageSkipReason,
+} from "@/lib/imageAttachmentSkip";
 import { startTaskRunSession } from "@/lib/taskRunSession";
 import { buildTaskExecutionInput } from "@/lib/taskPrompt";
 import type { CodexSessionKind, Milestone, Tag, Task } from "@/lib/types";
@@ -313,6 +319,56 @@ export function KanbanPage() {
         }),
       );
 
+      let claudeEffectiveProvider: string | null = null;
+      const skipReasons = new Set<ImageSkipReason>();
+      let skippedImageCount = 0;
+      for (const task of selectedTasks) {
+        if (!canBatchRunTask(task, incompleteDependencyIds) || !task.assignee_id) {
+          continue;
+        }
+        const assignee = employees.find((employee) => employee.id === task.assignee_id);
+        const project = projects.find((item) => item.id === task.project_id);
+        if (!assignee) {
+          continue;
+        }
+        await fetchAttachments(task.id);
+        const previewInput = buildTaskExecutionInput({
+          title: task.title,
+          description: task.description,
+          subtasks: useTaskStore.getState().subtasks[task.id] ?? [],
+          attachments: useTaskStore.getState().attachments[task.id] ?? [],
+        });
+        if (
+          assignee.ai_provider === "claude" &&
+          project?.project_type !== "ssh" &&
+          claudeEffectiveProvider === null
+        ) {
+          try {
+            claudeEffectiveProvider = (await checkClaudeSdkHealth()).effective_provider;
+          } catch {
+            claudeEffectiveProvider = "cli";
+          }
+        }
+        const skipReason = resolveImageAttachmentSkip({
+          imageCount: previewInput.imagePaths.length,
+          provider: assignee.ai_provider,
+          projectType: project?.project_type,
+          claudeEffectiveProvider,
+          hasTaskId: true,
+        });
+        if (skipReason) {
+          skipReasons.add(skipReason);
+          skippedImageCount += previewInput.imagePaths.length;
+        }
+      }
+      if (skipReasons.size > 0) {
+        const reason = skipReasons.size === 1 ? [...skipReasons][0] : "batch_mixed";
+        const confirmed = await confirmImageAttachmentSkip(reason, skippedImageCount);
+        if (!confirmed) {
+          return;
+        }
+      }
+
       for (const task of selectedTasks) {
         if (!canBatchRunTask(task, incompleteDependencyIds)) {
           skipped += 1;
@@ -341,6 +397,7 @@ export function KanbanPage() {
             projectRepoPath: getProjectWorkingDir(project),
             executionInput,
             clearTaskOutput: true,
+            imageSkipConfirmed: true,
           });
           if (outcome.status === "queued") {
             queued += 1;

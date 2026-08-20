@@ -2,6 +2,7 @@ import { Outlet, useNavigate } from "react-router-dom";
 import { Sidebar } from "./Sidebar";
 import { Header } from "./Header";
 import { SshTrustBanner } from "./SshTrustBanner";
+import { ImageSkipConfirmDialog } from "@/components/tasks/ImageSkipConfirmDialog";
 import { useEmployeeStore } from "@/stores/employeeStore";
 import { useProjectStore } from "@/stores/projectStore";
 import { useNotificationStore } from "@/stores/notificationStore";
@@ -87,6 +88,7 @@ export function MainLayout() {
           <Outlet />
         </main>
       </div>
+      <ImageSkipConfirmDialog />
     </div>
   );
 }

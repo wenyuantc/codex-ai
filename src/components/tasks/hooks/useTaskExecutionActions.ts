@@ -4,6 +4,7 @@ import { stopCodexSession } from "@/lib/codex";
 import { stopClaudeSession } from "@/lib/claude";
 import { stopGrokSession } from "@/lib/grok";
 import { stopOpenCodeSession } from "@/lib/opencode";
+import { isImageSkipCancelled } from "@/lib/imageAttachmentSkip";
 import { reportTaskRunSessionError, startTaskRunSession } from "@/lib/taskRunSession";
 import type { Employee, ProjectType, Task } from "@/lib/types";
 import { buildTaskLogKey, useEmployeeStore } from "@/stores/employeeStore";
@@ -100,6 +101,9 @@ export function useTaskExecutionActions({
       });
       onStarted?.(action);
     } catch (error) {
+      if (isImageSkipCancelled(error)) {
+        return;
+      }
       await handleExecutionError(error, action);
     } finally {
       setLoading(null);

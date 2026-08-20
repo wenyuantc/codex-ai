@@ -1,6 +1,7 @@
 import { aiGenerateCoordinatorTaskPlan, addTaskDependency, setTaskTags } from "@/lib/backend";
 import { getProjectWorkingDir } from "@/lib/projects";
 import { buildTaskExecutionInput } from "@/lib/taskPrompt";
+import { isImageSkipCancelled } from "@/lib/imageAttachmentSkip";
 import { reportTaskRunSessionError, startTaskRunSession } from "@/lib/taskRunSession";
 import type { Employee, Project, Task } from "@/lib/types";
 import { useTaskBackgroundRunStore } from "@/stores/taskBackgroundRunStore";
@@ -144,6 +145,10 @@ export async function continueCreatedTaskRun(
     progress.clear(taskId);
     return { task, planContent };
   } catch (error) {
+    if (isImageSkipCancelled(error)) {
+      progress.clear(taskId);
+      return { task, planContent };
+    }
     const message = error instanceof Error ? error.message : String(error);
     // Only report run-session style errors when we already entered starting;
     // plan failures still get a log line + badge.

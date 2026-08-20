@@ -2,9 +2,15 @@ import { startCodex } from "@/lib/codex";
 import { startClaude } from "@/lib/claude";
 import { startGrok } from "@/lib/grok";
 import { startOpenCode } from "@/lib/opencode";
-import { prepareTaskGitExecution } from "@/lib/backend";
+import { checkClaudeSdkHealth, prepareTaskGitExecution } from "@/lib/backend";
+import {
+  confirmImageAttachmentSkip,
+  ImageSkipCancelledError,
+  resolveImageAttachmentSkip,
+} from "@/lib/imageAttachmentSkip";
 import type { Employee, StartSessionOutcome, Task } from "@/lib/types";
 import { useEmployeeStore } from "@/stores/employeeStore";
+import { useProjectStore } from "@/stores/projectStore";
 import { useTaskStore } from "@/stores/taskStore";
 
 export interface PreparedTaskRunInput {
@@ -28,6 +34,7 @@ export interface StartTaskRunSessionParams {
   projectRepoPath?: string | null;
   executionInput: PreparedTaskRunInput;
   clearTaskOutput?: boolean;
+  imageSkipConfirmed?: boolean;
 }
 
 /**
@@ -41,6 +48,7 @@ export async function startTaskRunSession({
   projectRepoPath,
   executionInput,
   clearTaskOutput = false,
+  imageSkipConfirmed = false,
 }: StartTaskRunSessionParams): Promise<StartSessionOutcome> {
   if (!assigneeId) {
     throw new Error("请先指定执行员工，再执行任务。");
@@ -74,6 +82,37 @@ export async function startTaskRunSession({
 
   if (!workingDir) {
     throw new Error("当前项目缺少可用工作目录，无法启动任务执行。");
+  }
+
+  if (!imageSkipConfirmed && executionInput.imagePaths.length > 0) {
+    const project = useProjectStore
+      .getState()
+      .allProjects.find((item) => item.id === task.project_id);
+    const projectType = project?.project_type ?? "local";
+    let claudeEffectiveProvider: string | null = null;
+    if (assignee?.ai_provider === "claude" && projectType !== "ssh") {
+      try {
+        claudeEffectiveProvider = (await checkClaudeSdkHealth()).effective_provider;
+      } catch {
+        claudeEffectiveProvider = "cli";
+      }
+    }
+    const skipReason = resolveImageAttachmentSkip({
+      imageCount: executionInput.imagePaths.length,
+      provider: assignee?.ai_provider ?? "codex",
+      projectType,
+      claudeEffectiveProvider,
+      hasTaskId: Boolean(task.id),
+    });
+    if (skipReason) {
+      const confirmed = await confirmImageAttachmentSkip(
+        skipReason,
+        executionInput.imagePaths.length,
+      );
+      if (!confirmed) {
+        throw new ImageSkipCancelledError();
+      }
+    }
   }
 
   const startOptions = {

@@ -24,10 +24,10 @@
 
 ## Acceptance Criteria
 
-- [ ] SSH 项目 + 图片附件：运行前看到「图片不会传给远程」类文案
-- [ ] Claude CLI 员工 + 图片：本地运行前也能看到跳过说明
-- [ ] Codex/OpenCode 本地 SDK 路径不误报「会跳过」（按其真实行为）
-- [ ] 文案 zh-CN + en；终端 WARN 可保留作补充
+- [x] SSH 项目 + 图片附件：运行前看到「图片不会传给远程」类文案
+- [x] Claude CLI 员工 + 图片：本地运行前也能看到跳过说明
+- [x] Codex/OpenCode 本地 SDK 路径不误报「会跳过」（按其真实行为）
+- [x] 文案 zh-CN + en；终端 WARN 可保留作补充
 
 ## Out of Scope
 

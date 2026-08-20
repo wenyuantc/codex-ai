@@ -17,6 +17,16 @@
   "startReview": "启动审核",
   "startTask": "启动任务",
   "unnamedProject": "未命名项目",
+  "imageSkip": {
+    "title": "图片不会发给 AI",
+    "ssh_grok": "Grok 远程运行不会附带这 {{count}} 张图片（避免命令行过长）。仍可继续运行，只是模型看不到图。",
+    "ssh_claude": "Claude 远程运行走 CLI，不会附带这 {{count}} 张图片。仍可继续运行，只是模型看不到图。",
+    "claude_cli": "当前 Claude 使用 CLI，不会附带这 {{count}} 张本地图片。仍可继续运行，只是模型看不到图。",
+    "ssh_no_task": "这次远程运行没有任务上下文，无法同步图片，将跳过 {{count}} 张。",
+    "batch_mixed": "选中任务里有 {{count}} 张图片在本次运行中不会发给 AI（SSH 或 Claude CLI 限制）。仍可继续运行。",
+    "continue": "仍要运行",
+    "cancel": "取消"
+  },
   "createDialog": {
     "title": "新建任务",
     "fields": {
@@ -52,7 +62,7 @@
     "worktreeLoadingHint": "正在加载当前项目的默认设置…",
     "worktreeHint": "默认直接使用项目工作目录；开启后会为该任务准备独立 worktree。",
     "defaultAutomationReviewerHint": "当前已开启“新建任务默认自动质控”，新建任务时需要指定审查员。",
-    "attachmentsHint": "创建任务时会复制到应用托管目录；图片会在后续运行 Codex 时自动附带，其他文件会作为任务附件保留。",
+    "attachmentsHint": "创建任务时会复制到应用托管目录。本地 Codex/OpenCode/Grok 与 Claude SDK 会附带图片；Grok/Claude 远程以及 Claude CLI 会跳过图片。其他文件只作为任务附件保留。",
     "addAttachment": "添加附件",
     "selectAttachmentTitle": "选择附件",
     "attachmentDesktopOnlyTooltip": "仅桌面端支持上传附件",

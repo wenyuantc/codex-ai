@@ -8,6 +8,7 @@ import { stopClaudeSession } from "@/lib/claude";
 import { stopGrokSession } from "@/lib/grok";
 import { stopOpenCodeSession } from "@/lib/opencode";
 import { getProjectWorkingDir } from "@/lib/projects";
+import { isImageSkipCancelled } from "@/lib/imageAttachmentSkip";
 import { startTaskRunSession } from "@/lib/taskRunSession";
 import { buildTaskExecutionInput } from "@/lib/taskPrompt";
 import type { AiProvider, Task } from "@/lib/types";
@@ -225,6 +226,9 @@ export function CodexControls({
       await refreshEmployeeRuntimeStatus(employeeId);
       setShowTaskDialog(false);
     } catch (error) {
+      if (isImageSkipCancelled(error)) {
+        return;
+      }
       const message = error instanceof Error ? error.message : String(error);
       console.error("Failed to start task:", error);
       if (reviewerReassigned) {

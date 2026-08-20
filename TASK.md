@@ -9,7 +9,7 @@
 ## T-P0 · 可信
 
 - [x] **员工状态语义纠偏（A1）**：`employees.status` 是运行时心跳，空闲写成 `offline`（`employeeStore.ts:117`）。仪表盘「在线员工」只计 `online/busy`（`database.rs:1625`），全员空闲时读成全不在线。文案改为空闲/运行中/异常。**禁止**按 offline 拦截启动（会卡死空闲员工）。原「暂时不处理·离线禁跑」关闭，不提升为拦截。
-- [ ] **图片附件诚实提示（A2）**：SSH 下 Codex/Grok/OpenCode 跳过本地图片只刷 WARN（`session_launch.rs:688` 等）；Claude CLI **本地也跳过**（`claude/process/mod.rs:1240`）。运行前 UI 警告，不实现传图。
+- [x] **图片附件诚实提示（A2）**：SSH 下 Codex/Grok/OpenCode 跳过本地图片只刷 WARN（`session_launch.rs:688` 等）；Claude CLI **本地也跳过**（`claude/process/mod.rs:1240`）。运行前 UI 警告，不实现传图。
 
 ## T-P1 · 可运营
 
