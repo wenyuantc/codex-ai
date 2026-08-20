@@ -30,6 +30,7 @@ No new `#[tauri::command]`. Install success logs via existing `logActivity({ act
 - Endpoint: `https://github.com/wenyuantc/codex-ai/releases/latest/download/latest.json`
 - `plugins.updater.pubkey` is the minisign public key **string** (not a path). Private key is only `TAURI_SIGNING_PRIVATE_KEY` (+ optional password) in GitHub secrets / local env.
 - `latest.json` platforms we actually build: `darwin-aarch64` (`.app.tar.gz` + `.sig`), `linux-x86_64` (`.AppImage` + `.sig`), `windows-x86_64` (`.nsis.zip` or `-setup.exe` + `.sig`).
+- GitHub Release replaces spaces in uploaded asset names with `.`. `build-latest-json.mjs` must emit download URLs with that sanitized name (`Codex.AI.System.app.tar.gz`), not `%20`. Local bundle filenames may still contain spaces.
 - macOS updater artifacts require `--bundles app` (or `app,dmg`). `--bundles dmg` alone does **not** emit `.app.tar.gz`.
 - `tauri build --no-sign` also skips updater signatures. Tag CI must `tauri signer sign *.app.tar.gz` after the unsigned macOS build when the private key is present.
 - Tag push without `TAURI_SIGNING_PRIVATE_KEY` fails. `workflow_dispatch` without the secret passes `--config '{"bundle":{"createUpdaterArtifacts":false}}'` and still ships installers.
@@ -53,13 +54,14 @@ No new `#[tauri::command]`. Install success logs via existing `logActivity({ act
 
 - **Good**: signed tag Release has `latest.json` + matching platform url/sig; installed app checks, downloads with progress, logs activity, relaunches on confirm.
 - **Base**: already latest; card shows 当前已是最新版本, no log.
-- **Bad**: `--bundles dmg` only (no darwin updater). `--no-sign` without a later `signer sign` (latest.json drops macOS). Empty `extra[@]` under macOS bash 3.2 + `set -u`. Component `invoke` / import of `@tauri-apps/plugin-updater`. Startup auto-check.
+- **Bad**: `--bundles dmg` only (no darwin updater). `--no-sign` without a later `signer sign` (latest.json drops macOS). Empty `extra[@]` under macOS bash 3.2 + `set -u`. Component `invoke` / import of `@tauri-apps/plugin-updater`. Startup auto-check. `latest.json` urls with `Codex%20AI%20System` while GitHub assets are `Codex.AI.System` (download 404).
 
 ## 6. Tests Required
 
 - `mapUpdaterError`: network, already latest, signature, dev mode, cancel, unknown
 - `updaterErrorI18nKey` points at `settings:about.errors.*`
 - `getActivityActionLabel("app_update_installed")` zh-CN + en
+- `build-latest-json.mjs`: spaces in local artifact names become `.` in platform urls; names without spaces stay unchanged
 - Do not add a fake plugin e2e in Vitest. Real download is a signed installed build only.
 
 ## 7. Wrong vs Correct

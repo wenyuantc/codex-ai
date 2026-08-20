@@ -126,6 +126,11 @@ function hasSuffix(filePath, suffix) {
   return path.basename(filePath).toLowerCase().endsWith(suffix.toLowerCase());
 }
 
+function githubReleaseAssetName(filename) {
+  // GitHub Release 会把上传资源名里的空格替换成 `.`，下载 URL 必须用替换后的名字。
+  return filename.replaceAll(" ", ".");
+}
+
 function pickPlatform(files, ...matchers) {
   for (const matcher of matchers) {
     const artifact = files.find((filePath) => matcher(filePath) && !hasSuffix(filePath, ".sig"));
@@ -142,7 +147,7 @@ function pickPlatform(files, ...matchers) {
     }
     return {
       signature,
-      url: `${assetBaseUrl}/${encodeURIComponent(path.basename(artifact))}`,
+      url: `${assetBaseUrl}/${encodeURIComponent(githubReleaseAssetName(path.basename(artifact)))}`,
     };
   }
   return null;
