@@ -23,10 +23,10 @@
 
 ## Acceptance Criteria
 
-- [ ] 新建待办任务侧栏不再出现无法操作的「未开始」计时器
-- [ ] 运行中或已有耗时的任务仍能看到耗时（`formatDate` / duration）
-- [ ] 不破坏完成任务时已有的 `time_spent_seconds` 回写
-- [ ] i18n zh-CN + en
+- [x] 新建待办任务侧栏不再出现无法操作的「未开始」计时器
+- [x] 运行中或已有耗时的任务仍能看到耗时（`formatDate` / duration）
+- [x] 不破坏完成任务时已有的 `time_spent_seconds` 回写
+- [x] i18n zh-CN + en
 
 ## Out of Scope
 

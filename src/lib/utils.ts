@@ -77,6 +77,18 @@ export function formatDuration(totalSeconds: number | null | undefined): string 
   return i18n.t("common:seconds", { count: seconds });
 }
 
+export function shouldShowTaskTimer(task: {
+  time_started_at?: string | null;
+  time_spent_seconds?: number | null;
+  completed_at?: string | null;
+}): boolean {
+  return (
+    Boolean(task.time_started_at) ||
+    Math.max(0, Number(task.time_spent_seconds ?? 0)) > 0 ||
+    Boolean(task.completed_at)
+  );
+}
+
 export function getTaskElapsedSeconds(
   task: Pick<Task, "time_started_at" | "time_spent_seconds">,
   nowMs = Date.now(),

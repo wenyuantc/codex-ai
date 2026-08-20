@@ -6,6 +6,7 @@ import {
   isEmployeeRunningStatus,
   isTaskOverdue,
   matchesEmployeeRuntimeFilter,
+  shouldShowTaskTimer,
 } from "@/lib/utils";
 
 describe("getActivityActionLabel", () => {
@@ -78,6 +79,21 @@ describe("employee runtime status", () => {
     expect(matchesEmployeeRuntimeFilter("offline", "busy")).toBe(false);
     expect(matchesEmployeeRuntimeFilter("offline", "offline")).toBe(true);
     expect(matchesEmployeeRuntimeFilter("error", "error")).toBe(true);
+  });
+});
+
+describe("shouldShowTaskTimer", () => {
+  it("hides the idle timer until a run has started, spent time, or completed", () => {
+    expect(
+      shouldShowTaskTimer({
+        time_started_at: null,
+        time_spent_seconds: 0,
+        completed_at: null,
+      }),
+    ).toBe(false);
+    expect(shouldShowTaskTimer({ time_started_at: "2026-08-20T01:00:00Z" })).toBe(true);
+    expect(shouldShowTaskTimer({ time_spent_seconds: 12 })).toBe(true);
+    expect(shouldShowTaskTimer({ completed_at: "2026-08-20T02:00:00Z" })).toBe(true);
   });
 });
 

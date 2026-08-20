@@ -10,6 +10,7 @@ import {
   getPriorityLabel,
   getStatusLabel,
   getTaskElapsedSeconds,
+  shouldShowTaskTimer,
 } from "@/lib/utils";
 import { useSharedNow } from "@/hooks/useSharedNow";
 import { Button } from "@/components/ui/button";
@@ -135,6 +136,11 @@ export function TaskPropertiesSidebar({
       : timeSpentSeconds > 0
         ? t("detail.sidebar.timerPaused")
         : t("detail.sidebar.timerNotStarted");
+  const showTimer = shouldShowTaskTimer({
+    time_started_at: timeStartedAt,
+    time_spent_seconds: timeSpentSeconds,
+    completed_at: completedAt,
+  });
 
   return (
     <div className="flex flex-col gap-4 p-4">
@@ -289,34 +295,42 @@ export function TaskPropertiesSidebar({
         />
       </SidebarGroup>
 
-      <div className="border-t border-border/60" />
+      {showTimer ? (
+        <>
+          <div className="border-t border-border/60" />
 
-      <SidebarGroup label={t("detail.sidebar.elapsed")}>
-        <div className="space-y-1.5 text-xs">
-          <div className="flex items-center justify-between gap-2">
-            <span className="text-muted-foreground">{t("detail.sidebar.totalElapsed")}</span>
-            <span className="font-medium text-foreground">{formatDuration(elapsedSeconds)}</span>
-          </div>
-          <div className="flex items-center justify-between gap-2">
-            <span className="text-muted-foreground">{t("detail.sidebar.timerStatus")}</span>
-            <span className="font-medium text-foreground">{timerStatus}</span>
-          </div>
-          <div className="flex items-center justify-between gap-2">
-            <span className="text-muted-foreground">{t("detail.sidebar.timerStartedAt")}</span>
-            <span className="font-medium text-foreground">
-              {timeStartedAt ? formatDate(timeStartedAt) : t("detail.sidebar.timerNotStarted")}
-            </span>
-          </div>
-          <div className="flex items-center justify-between gap-2">
-            <span className="text-muted-foreground">{t("detail.sidebar.completedAt")}</span>
-            <span className="font-medium text-foreground">
-              {completedAt ? formatDate(completedAt) : t("detail.sidebar.notCompleted")}
-            </span>
-          </div>
-        </div>
-      </SidebarGroup>
+          <SidebarGroup label={t("detail.sidebar.elapsed")}>
+            <div className="space-y-1.5 text-xs">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-muted-foreground">{t("detail.sidebar.totalElapsed")}</span>
+                <span className="font-medium text-foreground">
+                  {formatDuration(elapsedSeconds)}
+                </span>
+              </div>
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-muted-foreground">{t("detail.sidebar.timerStatus")}</span>
+                <span className="font-medium text-foreground">{timerStatus}</span>
+              </div>
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-muted-foreground">{t("detail.sidebar.timerStartedAt")}</span>
+                <span className="font-medium text-foreground">
+                  {timeStartedAt ? formatDate(timeStartedAt) : t("detail.sidebar.timerNotStarted")}
+                </span>
+              </div>
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-muted-foreground">{t("detail.sidebar.completedAt")}</span>
+                <span className="font-medium text-foreground">
+                  {completedAt ? formatDate(completedAt) : t("detail.sidebar.notCompleted")}
+                </span>
+              </div>
+            </div>
+          </SidebarGroup>
 
-      <div className="border-t border-border/60" />
+          <div className="border-t border-border/60" />
+        </>
+      ) : (
+        <div className="border-t border-border/60" />
+      )}
 
       <Button
         type="button"
