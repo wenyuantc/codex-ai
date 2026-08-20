@@ -17,5 +17,6 @@
   "noResults": "没有找到匹配的对象",
   "itemCount": "{{count}} 条",
   "viewAll": "查看全部",
-  "searchFailed": "全局搜索失败"
+  "searchFailed": "全局搜索失败",
+  "navigatedDetails": "{{type}}：{{title}}"
 }

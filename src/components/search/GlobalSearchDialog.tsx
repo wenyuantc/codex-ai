@@ -11,6 +11,7 @@ import { useTranslation } from "react-i18next";
 import { GLOBAL_SHORTCUTS, shortcutDisplay, shortcutKeys } from "@/lib/shortcuts";
 import { Bot, FolderKanban, Loader2, Search, TerminalSquare, UserRound } from "lucide-react";
 
+import i18n from "@/lib/i18n";
 import { logActivity, searchGlobal } from "@/lib/backend";
 import type { GlobalSearchItem, GlobalSearchItemType, GlobalSearchResponse } from "@/lib/types";
 import { useProjectStore } from "@/stores/projectStore";
@@ -23,13 +24,6 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 const TYPE_ORDER: GlobalSearchItemType[] = ["project", "task", "employee", "session"];
 const SEARCH_DEBOUNCE_MS = 180;
 
-const TYPE_LABELS: Record<GlobalSearchItemType, string> = {
-  project: "项目",
-  task: "任务",
-  employee: "员工",
-  session: "会话",
-};
-
 const TYPE_ICONS: Record<GlobalSearchItemType, typeof FolderKanban> = {
   project: FolderKanban,
   task: Bot,
@@ -38,7 +32,10 @@ const TYPE_ICONS: Record<GlobalSearchItemType, typeof FolderKanban> = {
 };
 
 function buildNavigationLogDetails(item: GlobalSearchItem) {
-  return `${TYPE_LABELS[item.item_type]}：${item.title}`;
+  return i18n.t("search:navigatedDetails", {
+    type: i18n.t(`search:type.${item.item_type}`),
+    title: item.title,
+  });
 }
 
 async function recordGlobalSearchNavigation(item: GlobalSearchItem) {

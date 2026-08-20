@@ -21,9 +21,9 @@
 
 ## Acceptance Criteria
 
-- [ ] 界面切 en 后，看板右键与 ⌘K 类型筛选不再出现这批中文
-- [ ] zh-CN 体验与现网一致
-- [ ] `npm run build` + `test:ci` 通过
+- [x] 界面切 en 后，看板右键与 ⌘K 类型筛选不再出现这批中文
+- [x] zh-CN 体验与现网一致
+- [x] `npm run build` + `test:ci` 通过
 
 ## Out of Scope
 

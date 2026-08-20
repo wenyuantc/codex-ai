@@ -1574,7 +1574,7 @@ function TaskCardComponent({
               className="fixed z-50 w-48 rounded-lg border border-border bg-popover p-1 shadow-lg"
               style={{ left: contextMenu.x, top: contextMenu.y }}
               role="menu"
-              aria-label={`${task.title} 操作菜单`}
+              aria-label={t("card.actionsAria", { title: task.title })}
               onMouseDown={(e) => e.stopPropagation()}
               onClick={(e) => e.stopPropagation()}
             >
@@ -1598,8 +1598,8 @@ function TaskCardComponent({
                   title={
                     primaryCta.kind === "review"
                       ? task.reviewer_id
-                        ? `由 ${reviewer?.name ?? "审查员"} 发起代码审核`
-                        : "请先指定审查员"
+                        ? t("card.reviewBy", { name: reviewer?.name ?? t("card.reviewerFallback") })
+                        : t("card.needReviewer")
                       : (primaryCta.reason ?? primaryCta.label)
                   }
                   className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-left hover:bg-accent hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-50"
@@ -1636,15 +1636,15 @@ function TaskCardComponent({
                     disabled={!canMarkCompleted || isActionLoading}
                     title={
                       task.status === "completed"
-                        ? "任务已完成"
+                        ? t("card.alreadyCompleted")
                         : task.status === "archived"
-                          ? "已归档任务不能标记为已完成"
-                          : "将任务标记为已完成，自动移动到已完成列"
+                          ? t("card.archivedCannotComplete")
+                          : t("card.markCompletedTitle")
                     }
                     className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-left text-emerald-600 hover:bg-emerald-500/10 disabled:pointer-events-none disabled:opacity-50"
                   >
                     <CircleCheckBig className="h-4 w-4" />
-                    标记已完成
+                    {t("card.markCompleted")}
                   </button>
                 </>
               )}
@@ -1659,7 +1659,7 @@ function TaskCardComponent({
                     className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-left hover:bg-accent hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-50"
                   >
                     <MessageSquarePlus className="h-4 w-4" />
-                    继续对话
+                    {t("card.continueConversation")}
                   </button>
                 </>
               )}
@@ -1674,7 +1674,7 @@ function TaskCardComponent({
                   className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-left hover:bg-accent hover:text-accent-foreground"
                 >
                   <Network className="h-4 w-4" />
-                  协调员计划
+                  {t("card.coordinatorPlan")}
                 </button>
               )}
               {canGenerateTesterAcceptance && primaryCta.kind !== "acceptance" && (
@@ -1690,7 +1690,9 @@ function TaskCardComponent({
                   ) : (
                     <ClipboardCheck className="h-4 w-4" />
                   )}
-                  {testerAcceptanceLoading ? "生成中…" : "生成验收清单"}
+                  {testerAcceptanceLoading
+                    ? t("card.generatingAcceptance")
+                    : t("card.generateAcceptance")}
                 </button>
               )}
               <button
@@ -1710,15 +1712,11 @@ function TaskCardComponent({
                 role="menuitem"
                 onClick={() => void handleArchiveTask()}
                 disabled={!canArchiveTask || isActionLoading}
-                title={
-                  hasActiveSession
-                    ? "运行中的任务不能归档，请先停止相关会话"
-                    : "将任务移出主看板并保留记录"
-                }
+                title={hasActiveSession ? t("card.archiveRunningTitle") : t("card.archiveTitle")}
                 className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-left hover:bg-accent hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-50"
               >
                 <Archive className="h-4 w-4" />
-                归档
+                {t("card.archive")}
               </button>
               {canTriggerMergeAction && (
                 <button
@@ -1729,7 +1727,7 @@ function TaskCardComponent({
                   className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-left hover:bg-accent hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-50"
                 >
                   <GitBranch className="h-4 w-4" />
-                  合并到目标分支
+                  {t("card.mergeToTarget")}
                 </button>
               )}
               {canCommitTaskCode && primaryCta.kind !== "commit" && (
@@ -1757,8 +1755,8 @@ function TaskCardComponent({
                   title={
                     commitActionState?.warnings?.[0] ||
                     (commitActionState?.mode === "project_repo"
-                      ? "将 AI 提交项目主仓库当前工作区改动"
-                      : "AI 生成提交说明并提交；如有冲突将自动尝试解决")
+                      ? t("card.aiCommitRepo")
+                      : t("card.aiCommitWorktree"))
                   }
                   className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-left hover:bg-accent hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-50"
                 >
@@ -1767,7 +1765,7 @@ function TaskCardComponent({
                   ) : (
                     <Bot className="h-4 w-4" />
                   )}
-                  {aiCommitting ? "AI 提交中" : "AI 提交"}
+                  {aiCommitting ? t("card.aiCommitting") : t("card.aiCommit")}
                 </button>
               )}
               {commitActionState?.has_unmerged && (
@@ -1776,7 +1774,7 @@ function TaskCardComponent({
                   role="menuitem"
                   onClick={() => void handleAiResolveConflicts()}
                   disabled={resolvingConflicts || isActionLoading || hasActiveSession}
-                  title="使用 AI 尝试解决当前未合并冲突"
+                  title={t("card.aiResolveTitle")}
                   className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-left hover:bg-accent hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-50"
                 >
                   {resolvingConflicts ? (
@@ -1784,7 +1782,7 @@ function TaskCardComponent({
                   ) : (
                     <AlertTriangle className="h-4 w-4" />
                   )}
-                  {resolvingConflicts ? "解冲突中…" : "AI 解冲突"}
+                  {resolvingConflicts ? t("card.resolvingConflicts") : t("card.aiResolve")}
                 </button>
               )}
               {aiCommitEntry?.phase === "error" && aiCommitEntry.error && (
@@ -1801,7 +1799,7 @@ function TaskCardComponent({
                   className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-left text-destructive hover:bg-destructive/10 disabled:pointer-events-none disabled:opacity-50"
                 >
                   <Trash2 className="h-4 w-4" />
-                  删除 Worktree
+                  {t("card.deleteWorktree")}
                 </button>
               )}
               {hasPreLogActions && <div className="my-1 h-px bg-border" />}
@@ -1832,11 +1830,13 @@ function TaskCardComponent({
                   ) : (
                     <RotateCcw className="h-4 w-4" />
                   )}
-                  重启自动化
+                  {t("card.restartAutomation")}
                 </button>
               )}
               <div className="px-2 pb-1 text-[11px] text-muted-foreground">
-                当前：{getTaskAutomationStatusLabel(automationState.status)}
+                {t("card.automationCurrent", {
+                  status: getTaskAutomationStatusLabel(automationState.status),
+                })}
               </div>
               <div className="my-1 h-px bg-border" />
               <button
@@ -1847,7 +1847,7 @@ function TaskCardComponent({
                 className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-left hover:bg-accent hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-50"
               >
                 <ScrollText className="h-4 w-4" />
-                查看终端日志
+                {t("card.viewLog")}
               </button>
               <div className="my-1 h-px bg-border" />
               <button
@@ -1855,11 +1855,11 @@ function TaskCardComponent({
                 role="menuitem"
                 onClick={openDeleteDialog}
                 disabled={hasActiveSession || deleting}
-                title={hasActiveSession ? "任务有进行中的执行或审核，请先停止" : "删除任务"}
+                title={hasActiveSession ? t("card.deleteRunningTitle") : t("card.deleteTitle")}
                 className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-left text-destructive hover:bg-destructive/10 disabled:pointer-events-none disabled:opacity-50"
               >
                 <Trash2 className="h-4 w-4" />
-                删除
+                {t("card.delete")}
               </button>
             </div>
           </>,

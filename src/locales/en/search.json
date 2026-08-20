@@ -17,5 +17,6 @@
   "noResults": "No matching items found",
   "itemCount": "{{count}} items",
   "viewAll": "View all",
-  "searchFailed": "Global search failed"
+  "searchFailed": "Global search failed",
+  "navigatedDetails": "{{type}}: {{title}}"
 }
