@@ -5,7 +5,12 @@ import { CheckCircle2, Circle, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { healthCheck } from "@/lib/backend";
+import {
+  isAnyEngineReady,
+  probeEngineReadiness,
+  readyEngineIds,
+  type EngineReadyFlags,
+} from "@/lib/engineHealth";
 import { useEmployeeStore } from "@/stores/employeeStore";
 import { useProjectStore } from "@/stores/projectStore";
 import { useTaskStore } from "@/stores/taskStore";
@@ -41,6 +46,7 @@ export function OnboardingChecklist() {
   const { t } = useTranslation("dashboard");
   const navigate = useNavigate();
   const environmentMode = useProjectStore((state) => state.environmentMode);
+  const selectedSshConfigId = useProjectStore((state) => state.selectedSshConfigId);
   const projects = useProjectStore((state) => state.projects);
   const sshConfigs = useProjectStore((state) => state.sshConfigs);
   const currentProjectId = useProjectStore((state) => state.currentProject?.id);
@@ -50,19 +56,19 @@ export function OnboardingChecklist() {
   const fetchEmployees = useEmployeeStore((state) => state.fetchEmployees);
 
   const [dismissed, setDismissed] = useState(readDismissed);
-  const [sdkReady, setSdkReady] = useState<boolean | null>(null);
+  const [engineFlags, setEngineFlags] = useState<EngineReadyFlags | null>(null);
+  const sdkReady = engineFlags ? isAnyEngineReady(engineFlags) : null;
+  const sshConfigId = selectedSshConfigId ?? sshConfigs[0]?.id ?? null;
 
   const refreshHealth = useCallback(() => {
-    void healthCheck()
-      .then((health) => {
-        setSdkReady(Boolean(health.sdk_installed || health.codex_available));
-      })
-      .catch(() => setSdkReady(false));
-  }, []);
+    void probeEngineReadiness({ environmentMode, sshConfigId })
+      .then(setEngineFlags)
+      .catch(() => setEngineFlags({ codex: false, claude: false, grok: false, opencode: false }));
+  }, [environmentMode, sshConfigId]);
 
   useEffect(() => {
     refreshHealth();
-  }, [refreshHealth, environmentMode]);
+  }, [refreshHealth]);
 
   useEffect(() => {
     void fetchEmployees();
@@ -82,7 +88,16 @@ export function OnboardingChecklist() {
       {
         id: "sdk",
         title: t("onboarding.checkSdkTitle"),
-        description: t("onboarding.checkSdkDescription"),
+        description:
+          sdkReady && engineFlags
+            ? t("onboarding.checkSdkDescriptionReady", {
+                engines: readyEngineIds(engineFlags)
+                  .map((id) => t(`onboarding.engine.${id}`))
+                  .join(t("onboarding.engineSeparator")),
+              })
+            : environmentMode === "ssh"
+              ? t("onboarding.checkSdkDescriptionSsh")
+              : t("onboarding.checkSdkDescription"),
         done: sdkReady === true,
         actionLabel: t("onboarding.checkSdkAction"),
         onAction: () => navigate("/settings?section=sdk"),
@@ -131,7 +146,17 @@ export function OnboardingChecklist() {
     );
 
     return list;
-  }, [environmentMode, hasEmployee, hasProject, hasSshConfig, hasTask, navigate, sdkReady, t]);
+  }, [
+    engineFlags,
+    environmentMode,
+    hasEmployee,
+    hasProject,
+    hasSshConfig,
+    hasTask,
+    navigate,
+    sdkReady,
+    t,
+  ]);
 
   const allDone = steps.every((step) => step.done);
   const completedCount = steps.filter((step) => step.done).length;

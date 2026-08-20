@@ -80,7 +80,16 @@
     "doneTitle": "Initial setup complete",
     "doneDescription": "Keep creating tasks on the board, or enable tester automation and auto QC in Settings.",
     "checkSdkTitle": "Check AI SDK / CLI",
-    "checkSdkDescription": "Confirm Codex (or another engine) is available before running tasks.",
+    "checkSdkDescription": "At least one engine must be available (Codex / Claude / Grok / OpenCode) before running tasks.",
+    "checkSdkDescriptionSsh": "SSH mode checks remote Codex / Grok / OpenCode. Claude has no remote health check, so a local Claude install does not count as remote-ready.",
+    "checkSdkDescriptionReady": "Ready: {{engines}}",
+    "engineSeparator": ", ",
+    "engine": {
+      "codex": "Codex",
+      "claude": "Claude",
+      "grok": "Grok",
+      "opencode": "OpenCode"
+    },
     "checkSdkAction": "Open runtime settings",
     "sshTitle": "Configure SSH host",
     "sshDescription": "SSH mode needs at least one usable remote host.",

@@ -80,7 +80,16 @@
     "doneTitle": "首次设置已完成",
     "doneDescription": "可以在看板继续创建任务，或在设置中开启测试员自动化与自动质控。",
     "checkSdkTitle": "检查 AI SDK / CLI",
-    "checkSdkDescription": "确认 Codex（或其他引擎）可用，才能运行任务。",
+    "checkSdkDescription": "至少需要一个引擎可用（Codex / Claude / Grok / OpenCode）才能运行任务。",
+    "checkSdkDescriptionSsh": "SSH 模式下检查远程主机的 Codex / Grok / OpenCode。Claude 远程没有独立健康检查，不把本机 Claude 算作远程就绪。",
+    "checkSdkDescriptionReady": "已就绪：{{engines}}",
+    "engineSeparator": "、",
+    "engine": {
+      "codex": "Codex",
+      "claude": "Claude",
+      "grok": "Grok",
+      "opencode": "OpenCode"
+    },
     "checkSdkAction": "打开运行时设置",
     "sshTitle": "配置 SSH 主机",
     "sshDescription": "SSH 模式下需要至少一台可用远程主机。",

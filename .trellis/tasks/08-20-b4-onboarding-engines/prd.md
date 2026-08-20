@@ -22,10 +22,10 @@
 
 ## Acceptance Criteria
 
-- [ ] 只装 Claude/Grok/OpenCode 之一时，引导不因 Codex 缺失而永远红
-- [ ] 四引擎都没有可用 CLI/SDK 时该步仍为未完成
-- [ ] SSH 模式不把本地 Codex 假当成远程就绪
-- [ ] i18n zh-CN + en
+- [x] 只装 Claude/Grok/OpenCode 之一时，引导不因 Codex 缺失而永远红
+- [x] 四引擎都没有可用 CLI/SDK 时该步仍为未完成
+- [x] SSH 模式不把本地 Codex 假当成远程就绪
+- [x] i18n zh-CN + en
 
 ## Out of Scope
 
