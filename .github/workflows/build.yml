@@ -47,16 +47,37 @@ jobs:
               src-tauri/target/release/bundle/macos/*.app.tar.gz.sig
 
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
 
     steps:
       - name: 检出代码
         uses: actions/checkout@v4
 
+      - name: 校验更新签名密钥
+        shell: bash
+        env:
+          HAS_SIGNING_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY != '' }}
+        run: |
+          set -euo pipefail
+          if [ "${HAS_SIGNING_KEY}" != "true" ] && [ "${{ github.event_name }}" = "push" ]; then
+            echo "::error::Tag 发版必须配置 GitHub secret TAURI_SIGNING_PRIVATE_KEY"
+            echo "本机配对私钥存在时可执行："
+            echo "  gh secret set TAURI_SIGNING_PRIVATE_KEY < ~/.tauri/codex-ai-updater.key"
+            exit 1
+          fi
+
       - name: 安装 Linux 系统依赖
         if: runner.os == 'Linux'
         run: |
-          sudo apt-get update
-          sudo apt-get install -y \
+          set -euo pipefail
+          sudo DEBIAN_FRONTEND=noninteractive apt-get \
+            -o Acquire::Retries=5 \
+            -o Dpkg::Use-Pty=0 \
+            update
+          sudo DEBIAN_FRONTEND=noninteractive apt-get \
+            -o Acquire::Retries=5 \
+            -o Dpkg::Use-Pty=0 \
+            install -y \
             libwebkit2gtk-4.1-dev \
             build-essential \
             curl \
@@ -79,17 +100,6 @@ jobs:
         uses: swatinem/rust-cache@v2
         with:
           workspaces: ./src-tauri -> target
-
-      - name: 校验更新签名密钥
-        shell: bash
-        env:
-          HAS_SIGNING_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY != '' }}
-        run: |
-          set -euo pipefail
-          if [ "${HAS_SIGNING_KEY}" != "true" ] && [ "${{ github.event_name }}" = "push" ]; then
-            echo "Tag 发版必须配置 GitHub secret TAURI_SIGNING_PRIVATE_KEY"
-            exit 1
-          fi
 
       - name: 安装前端与 Tauri 依赖
         # 安装前端与 Tauri 依赖。
@@ -150,6 +160,7 @@ jobs:
     needs: build-installers
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     permissions:
       contents: write
 
