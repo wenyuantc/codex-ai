@@ -365,3 +365,30 @@ i18next zh-CN/en framework, main-path extraction, activity single-source, leftov
 
 - 把 ~/.tauri/codex-ai-updater.key 配进 GitHub secret TAURI_SIGNING_PRIVATE_KEY
 - 父任务 08-12-product-gap-wave 收尾：全量门禁、文档计数、归档父任务
+
+
+## Session 13: 产品下一波规划：可信+可运营+好找
+
+**Date**: 2026-08-20
+**Task**: 产品下一波规划：可信+可运营+好找
+**Branch**: `main`
+
+### Summary
+
+以产品经理视角实读代码，归档 08-12-product-gap-wave，创建 08-20-product-trust-ops 及 8 个子任务 PRD，写入 analysis/09 与 TASK.md。本回合不实现业务代码。
+
+### Main Changes
+
+- 归档上一波父任务并建立 8 项产品优化 backlog
+
+### Git Commits
+
+(No commits - planning session)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 用户批准后按 A1→A2→B1… 一次 start 一个子任务实现
