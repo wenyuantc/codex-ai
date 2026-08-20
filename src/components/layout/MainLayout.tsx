@@ -2,6 +2,7 @@ import { Outlet, useNavigate } from "react-router-dom";
 import { Sidebar } from "./Sidebar";
 import { Header } from "./Header";
 import { SshTrustBanner } from "./SshTrustBanner";
+import { StartupUpdateBanner } from "./StartupUpdateBanner";
 import { ImageSkipConfirmDialog } from "@/components/tasks/ImageSkipConfirmDialog";
 import { useEmployeeStore } from "@/stores/employeeStore";
 import { useProjectStore } from "@/stores/projectStore";
@@ -83,6 +84,7 @@ export function MainLayout() {
       <Sidebar />
       <div className="flex flex-col flex-1 overflow-hidden bg-background">
         <Header />
+        <StartupUpdateBanner />
         {environmentMode === "ssh" && <SshTrustBanner />}
         <main className="flex-1 overflow-auto bg-background p-6">
           <Outlet />

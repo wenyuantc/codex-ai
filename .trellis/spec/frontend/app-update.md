@@ -36,6 +36,7 @@ No new `#[tauri::command]`. Install success logs via existing `logActivity({ act
 - Tag push without `TAURI_SIGNING_PRIVATE_KEY` fails. `workflow_dispatch` without the secret passes `--config '{"bundle":{"createUpdaterArtifacts":false}}'` and still ships installers.
 - Dev / non-Tauri (`import.meta.env.DEV` or `!isTauri()`): `checkForAppUpdate` throws a development-mode error; do not call the plugin.
 - UI: Settings → 界面与运行 → `AboutUpdateSection`. Check is manual. Install is a second click. Relaunch is a third click after success. `pubDate` uses `formatDate()`.
+- Startup: packaged Tauri app silently calls `checkForAppUpdateOnStartup()` once. If a new version exists and was not dismissed (`codex-ai:dismissed-update-version`), show `StartupUpdateBanner`. Never auto-download/install. Dev/browser returns null with no throw.
 
 ## 4. Validation & Error Matrix
 
@@ -54,10 +55,11 @@ No new `#[tauri::command]`. Install success logs via existing `logActivity({ act
 
 - **Good**: signed tag Release has `latest.json` + matching platform url/sig; installed app checks, downloads with progress, logs activity, relaunches on confirm.
 - **Base**: already latest; card shows 当前已是最新版本, no log.
-- **Bad**: `--bundles dmg` only (no darwin updater). `--no-sign` without a later `signer sign` (latest.json drops macOS). Empty `extra[@]` under macOS bash 3.2 + `set -u`. Component `invoke` / import of `@tauri-apps/plugin-updater`. Startup auto-check. `latest.json` urls with `Codex%20AI%20System` while GitHub assets are `Codex.AI.System` (download 404).
+- **Bad**: `--bundles dmg` only (no darwin updater). `--no-sign` without a later `signer sign` (latest.json drops macOS). Empty `extra[@]` under macOS bash 3.2 + `set -u`. Component `invoke` / import of `@tauri-apps/plugin-updater`. Silent auto-install on startup. `latest.json` urls with `Codex%20AI%20System` while GitHub assets are `Codex.AI.System` (download 404).
 
 ## 6. Tests Required
 
+- `shouldPromptStartupUpdate` / dismissed version key
 - `mapUpdaterError`: network, already latest, signature, dev mode, cancel, unknown
 - `updaterErrorI18nKey` points at `settings:about.errors.*`
 - `getActivityActionLabel("app_update_installed")` zh-CN + en
@@ -70,9 +72,10 @@ No new `#[tauri::command]`. Install success logs via existing `logActivity({ act
 ```ts
 import { check } from "@tauri-apps/plugin-updater"; // in a React component
 await check(); // inside SettingsPage useEffect on mount
+await downloadAndInstallUpdate(info); // on startup with no confirm
 ```
 
 macOS CI: `tauri build --bundles dmg --no-sign` and assume `.app.tar.gz.sig` exists.
 
 #### Correct
-Wrap plugins in `appUpdate.ts`. Manual check button. macOS CI: `--bundles app,dmg --no-sign`, then `tauri signer sign` on `*.app.tar.gz` when the private key exists.
+Wrap plugins in `appUpdate.ts`. Manual check button plus silent startup check that only shows a banner. macOS CI: `--bundles app,dmg --no-sign`, then `tauri signer sign` on `*.app.tar.gz` when the private key exists.
