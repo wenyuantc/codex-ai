@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 16
+- **Total Sessions**: 17
 - **Last Active**: 2026-08-21
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~495 | Active |
+| `journal-1.md` | ~530 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 17 | 2026-08-21 | 对话管理补齐执行/审核/编排类型 | `bc8433b` | `main` |
 | 16 | 2026-08-21 | 执行链路与对话管理展示用量 | `b4002a6` | `main` |
 | 15 | 2026-08-21 | 内置 Agent 引擎接入 | `433f788`, `ba19873` | `main` |
 | 14 | 2026-08-20 | 落地 08-20 产品下一波：可信+可运营+好找 | `dc98b23`, `b50ba28`, `3ab9c3f`, `11a07e7`, `d90947a`, `cb0dc25`, `fc105b2`, `f7d6631` | `main` |

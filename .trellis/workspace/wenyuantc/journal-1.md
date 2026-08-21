@@ -493,3 +493,38 @@ i18next zh-CN/en framework, main-path extraction, activity single-source, leftov
 ### Status
 
 [OK] **Completed**
+
+
+## Session 17: 对话管理补齐执行/审核/编排类型
+
+**Date**: 2026-08-21
+**Task**: 对话管理补齐执行/审核/编排类型
+**Branch**: `main`
+
+### Summary
+
+为会话增加 session_origin，对话管理、筛选和会话链能区分执行、审核与编排；不扩展 session_kind。
+
+### Main Changes
+
+- migration 51 新增 codex_sessions.session_origin，并从 task_pipeline_steps.session_id 回填
+- 编排启动绑定 session 后打标 pipeline；列表/搜索/员工进行中会话带出 origin
+- 对话管理类型 Badge 与筛选；会话链编排优先于修复启发式
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `bc8433b` | (see git log) |
+
+### Testing
+
+- [OK] clippy -D warnings、npm run format:check、npm run test:ci、npm run build、cargo test session_origin 均通过
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 重启桌面应用跑 migration 51，在对话管理核对三种类型筛选
