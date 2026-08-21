@@ -1335,6 +1335,21 @@ export function formatEmployeeAiProviderLabel(
   }
 }
 
+export function formatEmployeeRuntimeLabel(
+  employee?: Pick<Employee, "ai_provider" | "model" | "reasoning_effort"> | null,
+): string {
+  const provider = formatEmployeeAiProviderLabel(employee?.ai_provider);
+  const model = employee?.model?.trim() || "默认模型";
+  const effort = employee?.reasoning_effort?.trim() || "默认推理等级";
+  return `${provider} / ${model} / ${effort}`;
+}
+
+export function formatPlanUsageLogLine(usageLine: string | null | undefined): string | null {
+  const rest = usageLine?.trim().replace(/^\[用量\]\s*/, "");
+  if (!rest) return null;
+  return `[计划] 用量：${rest}`;
+}
+
 export interface ClaudeSettings {
   sdk_enabled: boolean;
   default_model: string;

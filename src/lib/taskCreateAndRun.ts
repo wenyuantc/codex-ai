@@ -51,7 +51,7 @@ export async function generateAndPersistCoordinatorPlan(params: {
     priority: params.task.priority,
     working_dir: params.workingDir,
   });
-  const trimmedPlan = plan.trim();
+  const trimmedPlan = plan.markdown.trim();
   if (!trimmedPlan) {
     throw new Error("协调员未返回可用计划。");
   }

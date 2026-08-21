@@ -541,7 +541,8 @@ async fn ai_resolve_conflicts_in_dir<R: Runtime>(
             .await
             .map_err(|error| {
                 format!("AI 解冲突失败（{relative_path}）：{error}")
-            })?;
+            })?
+            .text;
 
             let resolved = strip_code_fence(&raw);
             if content_still_has_conflict_markers(&resolved) {

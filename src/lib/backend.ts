@@ -328,6 +328,11 @@ export interface GenerateCoordinatorTaskPlanInput {
   working_dir?: string | null;
 }
 
+export interface CoordinatorTaskPlanResult {
+  markdown: string;
+  usage_line: string | null;
+}
+
 export interface GenerateTesterAcceptanceInput {
   task_id: string;
   tester_id?: string | null;
@@ -1708,8 +1713,20 @@ export async function startTaskTimer(taskId: string): Promise<Task> {
 
 export async function aiGenerateCoordinatorTaskPlan(
   input: GenerateCoordinatorTaskPlanInput,
-): Promise<string> {
-  return invoke("ai_generate_coordinator_task_plan", { payload: input });
+): Promise<CoordinatorTaskPlanResult> {
+  const raw = await invoke<CoordinatorTaskPlanResult | string>(
+    "ai_generate_coordinator_task_plan",
+    {
+      payload: input,
+    },
+  );
+  if (typeof raw === "string") {
+    return { markdown: raw, usage_line: null };
+  }
+  return {
+    markdown: raw.markdown ?? "",
+    usage_line: raw.usage_line ?? null,
+  };
 }
 
 export async function listTaskPipelineSteps(taskId: string): Promise<TaskPipelineStep[]> {

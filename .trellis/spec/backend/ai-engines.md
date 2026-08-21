@@ -129,6 +129,7 @@ Frontend wrappers: `send*` / `finish*` in `src/lib/{codex,claude,opencode,grok,n
 - Native `parse_max_output_token_limit` + `chat()` one-shot retry when gateway rejects oversized `max_tokens`
 - Native execution Git snapshot: capture only for `session_kind=execution`; review does not; persist uses Cli/`git_fallback` like Grok
 - `normalize_one_shot_provider_for_target("native")` stays `"native"`; native one-shot without `employee_id` errors in Chinese (no Codex fallback)
+- Native session startup banner includes channel/protocol/model/effort; coordinator plan runtime label uses `内置 Agent` not `native`
 
 ### 7. Wrong vs Correct
 #### Wrong
@@ -248,11 +249,11 @@ When adding another **CLI** engine, prefer **Claude/Grok process shape** over Co
 | System prompt | `Message::system` = identity.md + env + optional git + **全局提示词模板** `native_agent_global` (`ai-prompt-templates.json`) + project `AGENTS.md`/`Agents.md`/`CLAUDE.md` + employee `system_prompt`. Task text stays in the user message. SSH reads project files via `SshToolRuntime`. Do **not** load `.zcli/AGENTS.md` |
 | Compact | After tool-result truncation, if chars ≥ 85% of `context_char_limit`, summarize older user-turns locally and keep the latest turn; log `[工具] 已压缩上下文` |
 | Images | First user message may include local files as base64. Native never uses remote image paths. Frontend does **not** skip `native` in `resolveImageAttachmentSkip`. |
-| One-shot | Employee-scoped (`ai_generate_coordinator_task_plan`, `ai_generate_tester_acceptance`): `run_native_one_shot` → channel HTTP `chat()`, **no tools**, no `NativeAgentManager` session, no Codex SDK/exec. Local images only. SSH: HTTP still on this machine. Settings one-shot dropdown stays CLI-only. |
+| One-shot | Employee-scoped (`ai_generate_coordinator_task_plan`, `ai_generate_tester_acceptance`): `run_native_one_shot` → channel HTTP `chat()`, **no tools**, no `NativeAgentManager` session, no Codex SDK/exec. Return text + optional `[用量]` line. Coordinator plan UI shows `内置 Agent / {model} / {effort}` then `[计划] 用量：…`. Local images only. SSH: HTTP still on this machine. Settings one-shot dropdown stays CLI-only. |
 | SSH tools | Loop stays local. File/shell via `SshToolRuntime` + `build_ssh_command` / `execute_ssh_command_with_input`. Workspace prefix is the remote cwd |
 | Commands | `start_native_session` `stop_native_session` `stop_native` `restart_native_session` `resume_native_session` `send_native_input` `finish_native_input` |
 | Internal start | Automation / run-queue drain call `start_native_with_manager` (bypasses gate). Restart-safe stop: `stop_native_for_automation_restart` |
-| Events | `native-stdout`, `native-session`, `native-exit` (no stderr event). Stdout lines: `[USER_INPUT]`, Claude/Grok-compatible tool tags (`[读取]`/`[写入]`/`[编辑]`/`[命令]`/`[工具]`/`[工具结果]`/`[思考]`/`[待办]`), assistant text, `[ERROR]`. `native-exit.line` is **null** (do not duplicate `[ERROR]` into the log). Tool-loop cap from `native-settings.json` `max_turns` (default **40**, **0** = unlimited, last turn sends no tools and asks for a final answer instead of failing the session). |
+| Events | `native-stdout`, `native-session`, `native-exit` (no stderr event). First stdout line: `[内置 Agent] 启动会话 渠道=… 协议=… model=… effort=… thinking=on\|off` (Grok-style banner). Then `[USER_INPUT]`, Claude/Grok-compatible tool tags (`[读取]`/`[写入]`/`[编辑]`/`[命令]`/`[工具]`/`[工具结果]`/`[思考]`/`[待办]`), `[用量]`, assistant text, `[ERROR]`. `native-exit.line` is **null** (do not duplicate `[ERROR]` into the log). Tool-loop cap from `native-settings.json` `max_turns` (default **40**, **0** = unlimited, last turn sends no tools and asks for a final answer instead of failing the session). |
 | Settings | Local file `app_config_dir/native-settings.json`. Commands `get_native_settings` / `update_native_settings`. Not per-SSH-profile: the loop always runs on this machine. Activity key `native_settings_updated`. |
 | Frontend | Channel CRUD in `src/lib/backend.ts`; session IPC in `src/lib/native.ts`; start/stop via `aiEngine.ts` |
 | Settings UI | `AiChannelsSettingsTab`; employee dialogs bind enabled channels + `models` from `models_json` |

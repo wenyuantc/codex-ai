@@ -171,6 +171,30 @@ struct NativeRunSettings {
     thinking_enabled: bool,
     context_tokens: Option<u32>,
     employee_system_prompt: Option<String>,
+    protocol: String,
+    channel_name: String,
+}
+
+fn native_startup_banner(
+    channel_name: &str,
+    protocol: &str,
+    model: &str,
+    effort: Option<&str>,
+    thinking_enabled: bool,
+) -> String {
+    let effort = effort
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("默认");
+    let thinking = if thinking_enabled { "on" } else { "off" };
+    format!(
+        "[内置 Agent] 启动会话 渠道={channel_name} 协议={protocol} model={model} effort={effort} thinking={thinking}"
+    )
+}
+
+pub struct NativeOneShotResult {
+    pub text: String,
+    pub usage_line: Option<String>,
 }
 
 fn resolve_run_model_config(
@@ -240,6 +264,8 @@ async fn load_native_client(
         thinking_enabled,
         context_tokens: model_config.context_tokens,
         employee_system_prompt: None,
+        protocol: channel.protocol.clone(),
+        channel_name: channel.name.clone(),
     })
 }
 
@@ -261,7 +287,7 @@ pub async fn run_native_one_shot<R: Runtime>(
     image_paths: Option<Vec<String>>,
     model_override: Option<String>,
     reasoning_effort_override: Option<String>,
-) -> Result<String, String> {
+) -> Result<NativeOneShotResult, String> {
     let pool = sqlite_pool(app).await?;
     let mut employee = fetch_employee_by_id(&pool, employee_id).await?;
     if let Some(model) = model_override
@@ -291,7 +317,7 @@ pub async fn run_native_one_shot<R: Runtime>(
     } else {
         crate::native::model::types::Message::user_with_images(prompt, loaded.images)
     };
-    let (message, _usage) = run
+    let (message, usage) = run
         .client
         .chat(crate::native::model::client::ChatRequest {
             messages: &[user],
@@ -303,7 +329,11 @@ pub async fn run_native_one_shot<R: Runtime>(
         })
         .await
         .map_err(|error| format!("内置 Agent 一次性调用失败：{error}"))?;
-    native_one_shot_text(&message.content)
+    Ok(NativeOneShotResult {
+        text: native_one_shot_text(&message.content)?,
+        usage_line: crate::native::model::usage_to_delta(usage)
+            .and_then(|delta| delta.format_terminal_line()),
+    })
 }
 
 #[tauri::command]
@@ -611,6 +641,21 @@ async fn run_native_loop(
     runner.on_event = Some(event_tx);
     let (usage_tx, mut usage_rx) = mpsc::unbounded_channel();
     runner.on_usage = Some(usage_tx);
+    emit_native_line(
+        &app,
+        &session_record_id,
+        &employee_id,
+        task_id.as_deref(),
+        &kind,
+        native_startup_banner(
+            &run.channel_name,
+            &run.protocol,
+            &run.model,
+            run.effort.as_deref(),
+            run.thinking_enabled,
+        ),
+    )
+    .await;
     let emit_app = app.clone();
     let emit_session = session_record_id.clone();
     let emit_employee = employee_id.clone();
@@ -975,6 +1020,18 @@ mod tests {
         assert_eq!(
             super::native_one_shot_text("   ").unwrap_err(),
             "内置 Agent 未返回可用内容"
+        );
+    }
+
+    #[test]
+    fn native_startup_banner_includes_model_and_channel() {
+        assert_eq!(
+            super::native_startup_banner("CRS", "codex", "gpt-5.6-luna", Some("high"), true),
+            "[内置 Agent] 启动会话 渠道=CRS 协议=codex model=gpt-5.6-luna effort=high thinking=on"
+        );
+        assert_eq!(
+            super::native_startup_banner("DeepSeek", "openai", "deepseek-v4-flash", None, false),
+            "[内置 Agent] 启动会话 渠道=DeepSeek 协议=openai model=deepseek-v4-flash effort=默认 thinking=off"
         );
     }
 }

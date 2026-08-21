@@ -76,6 +76,20 @@ fn normalize_one_shot_provider_for_target(value: Option<&str>, _execution_target
     }
 }
 
+pub(crate) struct AiCommandResult {
+    pub text: String,
+    pub usage_line: Option<String>,
+}
+
+impl AiCommandResult {
+    fn text_only(text: String) -> Self {
+        Self {
+            text,
+            usage_line: None,
+        }
+    }
+}
+
 fn resolve_native_one_shot_employee_id(
     provider_override: Option<&str>,
     employee_id: Option<&str>,
@@ -890,11 +904,11 @@ pub(crate) async fn run_ai_command<R: Runtime>(
     model_override: Option<String>,
     reasoning_effort_override: Option<String>,
     employee_id: Option<String>,
-) -> Result<String, String> {
+) -> Result<AiCommandResult, String> {
     if let Some(employee_id) =
         resolve_native_one_shot_employee_id(provider_override.as_deref(), employee_id.as_deref())?
     {
-        return crate::native::run_native_one_shot(
+        let shot = crate::native::run_native_one_shot(
             app,
             &employee_id,
             prompt,
@@ -902,7 +916,11 @@ pub(crate) async fn run_ai_command<R: Runtime>(
             model_override,
             reasoning_effort_override,
         )
-        .await;
+        .await?;
+        return Ok(AiCommandResult {
+            text: shot.text,
+            usage_line: shot.usage_line,
+        });
     }
 
     let execution_context = match task_id
@@ -1004,7 +1022,7 @@ pub(crate) async fn run_ai_command<R: Runtime>(
                 )
                 .await
                 {
-                    Ok(result) => return Ok(result),
+                    Ok(result) => return Ok(AiCommandResult::text_only(result)),
                     Err(error) => {
                         eprintln!("[claude-sdk] 调用失败，回退到 Claude CLI: {error}");
                         sdk_error = Some(error);
@@ -1132,7 +1150,7 @@ pub(crate) async fn run_ai_command<R: Runtime>(
                             )
                             .await
                             {
-                                Ok(result) => return Ok(result),
+                                Ok(result) => return Ok(AiCommandResult::text_only(result)),
                                 Err(error) => {
                                     eprintln!(
                                         "[codex-sdk] 远程 SDK 调用失败，回退到 remote codex exec: {error}"
@@ -1183,7 +1201,7 @@ pub(crate) async fn run_ai_command<R: Runtime>(
                     )
                     .await
                     {
-                        Ok(result) => return Ok(result),
+                        Ok(result) => return Ok(AiCommandResult::text_only(result)),
                         Err(error) => {
                             eprintln!("[codex-sdk] 调用失败，回退到 codex exec: {error}");
                             sdk_error = Some(error);
@@ -1211,6 +1229,7 @@ pub(crate) async fn run_ai_command<R: Runtime>(
             }
         }
     }
+    .map(AiCommandResult::text_only)
 }
 
 #[cfg(test)]

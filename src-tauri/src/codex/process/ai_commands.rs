@@ -1,4 +1,4 @@
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Runtime};
 
 use super::{
@@ -273,6 +273,12 @@ async fn resolve_tester_for_acceptance(
     Ok(tester)
 }
 
+#[derive(Debug, Clone, Serialize)]
+pub struct CoordinatorTaskPlanResult {
+    pub markdown: String,
+    pub usage_line: Option<String>,
+}
+
 #[derive(Debug, Clone, Deserialize)]
 pub struct GenerateCoordinatorTaskPlanPayload {
     pub task_id: String,
@@ -455,7 +461,7 @@ pub(crate) async fn generate_commit_message_for_project<R: Runtime>(
         None,
     )
     .await?;
-    let normalized = normalize_generated_commit_message(&raw)?;
+    let normalized = normalize_generated_commit_message(&raw.text)?;
     let validation_error = match validate_generated_commit_message(
         &normalized,
         &settings.git_preferences.ai_commit_message_length,
@@ -491,7 +497,7 @@ pub(crate) async fn generate_commit_message_for_project<R: Runtime>(
         None,
     )
     .await?;
-    let retried = normalize_generated_commit_message(&retried_raw)?;
+    let retried = normalize_generated_commit_message(&retried_raw.text)?;
     match validate_generated_commit_message(
         &retried,
         &settings.git_preferences.ai_commit_message_length,
@@ -551,6 +557,7 @@ pub async fn ai_suggest_assignee(
         None,
     )
     .await
+    .map(|result| result.text)
 }
 
 #[tauri::command]
@@ -578,6 +585,7 @@ pub async fn ai_analyze_complexity(
         None,
     )
     .await
+    .map(|result| result.text)
 }
 
 #[tauri::command]
@@ -607,6 +615,7 @@ pub async fn ai_generate_comment(
         None,
     )
     .await
+    .map(|result| result.text)
 }
 
 #[tauri::command]
@@ -645,6 +654,7 @@ pub async fn ai_generate_plan(
         None,
     )
     .await
+    .map(|result| result.text)
 }
 
 #[derive(Debug, Deserialize)]
@@ -798,7 +808,7 @@ async fn replace_task_pipeline_steps_from_plan(
 pub async fn ai_generate_coordinator_task_plan(
     app: AppHandle,
     payload: GenerateCoordinatorTaskPlanPayload,
-) -> Result<String, String> {
+) -> Result<CoordinatorTaskPlanResult, String> {
     let pool = sqlite_pool(&app).await?;
     let task = fetch_task_by_id(&pool, &payload.task_id).await?;
     let coordinator_id = payload.coordinator_id.trim();
@@ -911,7 +921,7 @@ pub async fn ai_generate_coordinator_task_plan(
     )
     .await?;
 
-    let (markdown, steps) = parse_coordinator_structured_plan(&result)?;
+    let (markdown, steps) = parse_coordinator_structured_plan(&result.text)?;
     let step_count =
         replace_task_pipeline_steps_from_plan(&pool, &task.id, &steps, &valid_employee_ids).await?;
 
@@ -950,7 +960,10 @@ pub async fn ai_generate_coordinator_task_plan(
     )
     .await?;
 
-    Ok(markdown)
+    Ok(CoordinatorTaskPlanResult {
+        markdown,
+        usage_line: result.usage_line,
+    })
 }
 
 #[tauri::command]
@@ -998,7 +1011,7 @@ pub async fn ai_generate_tester_acceptance(
     )
     .await?;
 
-    let comment_content = format_tester_acceptance_comment(&result);
+    let comment_content = format_tester_acceptance_comment(&result.text);
     if comment_content.trim() == "[验收清单]" {
         return Err("测试员未返回可用的验收清单".to_string());
     }
@@ -1020,7 +1033,7 @@ pub async fn ai_generate_tester_acceptance(
         "UPDATE tasks SET acceptance_checklist = $2, updated_at = $3 WHERE id = $1 AND deleted_at IS NULL",
     )
     .bind(&task.id)
-    .bind(&result)
+    .bind(&result.text)
     .bind(now_sqlite())
     .execute(&pool)
     .await
@@ -1139,6 +1152,7 @@ pub async fn ai_optimize_prompt(
         None,
     )
     .await?;
+    let result = result.text;
 
     let scene_label = scene_template
         .map(|template| template.label.as_str())
@@ -1230,7 +1244,7 @@ pub async fn ai_split_subtasks(
         None,
     )
     .await?;
-    parse_ai_subtasks_response(&raw)
+    parse_ai_subtasks_response(&raw.text)
 }
 
 #[cfg(test)]

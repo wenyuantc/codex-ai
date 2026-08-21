@@ -14,6 +14,7 @@ import type {
   TaskGitContext,
   TaskPipelineStep,
 } from "@/lib/types";
+import { formatEmployeeRuntimeLabel, formatPlanUsageLogLine } from "@/lib/types";
 import {
   abortTaskPipeline,
   aiCommitTaskChanges,
@@ -266,12 +267,7 @@ function TaskCardComponent({
     setCoordinatorPlanLogs((current) => [...current.slice(-199), line]);
   };
 
-  const getCoordinatorPlanRuntimeLabel = () => {
-    const provider = coordinator?.ai_provider ?? "codex";
-    const model = coordinator?.model?.trim() || "默认模型";
-    const reasoningEffort = coordinator?.reasoning_effort?.trim() || "默认推理等级";
-    return `${provider} / ${model} / ${reasoningEffort}`;
-  };
+  const getCoordinatorPlanRuntimeLabel = () => formatEmployeeRuntimeLabel(coordinator);
 
   const executionActions = useTaskExecutionActions({
     task,
@@ -918,13 +914,17 @@ function TaskCardComponent({
         priority: task.priority,
         working_dir: projectRepoPath ?? null,
       });
-      const trimmedPlan = plan.trim();
+      const trimmedPlan = plan.markdown.trim();
       if (!trimmedPlan) {
         appendCoordinatorPlanLog("[WARN] 协调员返回了空计划。");
         setCoordinatorPlanError("协调员未返回可用计划。");
         return;
       }
       setCoordinatorPlanDraft(trimmedPlan);
+      const usageLog = formatPlanUsageLogLine(plan.usage_line);
+      if (usageLog) {
+        appendCoordinatorPlanLog(usageLog);
+      }
       appendCoordinatorPlanLog(`[计划] 已收到协调员计划，共 ${trimmedPlan.length} 字。`);
       appendCoordinatorPlanLog("[计划] 结构化工作包已落库，可在本弹窗「按计划编排」。");
       await refreshPipelineSteps();
