@@ -435,3 +435,40 @@ i18next zh-CN/en framework, main-path extraction, activity single-source, leftov
 ### Next Steps
 
 - 打包后冒烟：员工空闲文案、带图运行确认、看板队列、会话 token、启动更新横幅
+
+
+## Session 15: 内置 Agent 引擎接入
+
+**Date**: 2026-08-21
+**Task**: 内置 Agent 引擎接入
+**Branch**: `main`
+
+### Summary
+
+落地第五引擎 native（内置 Agent）：渠道 API、三协议客户端、工具循环、SSH、图片、全局提示词模板、项目 AGENTS.md、上下文压缩与 Web 工具；会话日志补模型与用量。
+
+### Main Changes
+
+- 新增 native 进程内 Agent 与 ai_channels 渠道配置
+- 任务/编排/审查/运行队列接入 native，会话日志输出工具过程
+- 支持本地图片、全局提示词模板、AGENTS.md/CLAUDE.md、压缩、WebFetch/WebSearch
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `433f788` | (see git log) |
+| `ba19873` | (see git log) |
+
+### Testing
+
+- [OK] cargo test --lib native:: ；clippy -D warnings ；npm run test:ci ；npm run format:check
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 桌面端 tauri:dev 冒烟：本地与 SSH 任务、带图、Web 工具
+- 未提交的 08-21-chain-token-usage 链路用量 UI 另开会话继续
