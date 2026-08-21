@@ -799,6 +799,7 @@ async fn handle_pipeline_execution_exit(
     }
 
     // Pipeline finished successfully (auto last step, or manual last step).
+    // Orchestration is a closed loop: complete the task. Auto QC stays on 立即执行.
     set_pipeline_state(
         pool,
         &task.id,
@@ -819,57 +820,8 @@ async fn handle_pipeline_execution_exit(
         Some(task.project_id.as_str()),
     )
     .await?;
+    update_task_status_internal(app, pool, task, "completed").await?;
     emit_task_automation_state_changed(app, task, PHASE_IDLE);
-
-    if task_automation_enabled(task) {
-        let refreshed = fetch_task_automation_state_record(pool, &task.id).await?;
-        reserve_pending_action(
-            pool,
-            &task.id,
-            Some(&facts.session_id),
-            PHASE_LAUNCHING_REVIEW,
-            Some(PENDING_ACTION_START_REVIEW),
-            None,
-            0,
-            None,
-            refreshed
-                .as_ref()
-                .and_then(|item| item.last_verdict_json.as_deref()),
-        )
-        .await?;
-        // Keep pipeline_active false after reserve (reserve doesn't clear it if not in SQL).
-        sqlx::query(
-            r#"
-            UPDATE task_automation_state
-            SET pipeline_active = 0
-            WHERE task_id = $1
-            "#,
-        )
-        .bind(&task.id)
-        .execute(pool)
-        .await
-        .map_err(|error| format!("Failed to clear pipeline_active after pipeline: {}", error))?;
-
-        let reserved_state = fetch_task_automation_state_record(pool, &task.id)
-            .await?
-            .ok_or_else(|| "自动质控状态写入后丢失，无法发起审核".to_string())?;
-        let review_launched = retry_pending_review(app, pool, &task.id, &reserved_state).await?;
-        if review_launched {
-            insert_activity_log(
-                pool,
-                "task_automation_review_started",
-                "编排完成，已自动发起代码审核",
-                facts.employee_id.as_deref(),
-                Some(task.id.as_str()),
-                Some(task.project_id.as_str()),
-            )
-            .await?;
-        }
-        return Ok(());
-    }
-
-    // No automation: leave task in_progress / idle automation (align with manual completion path).
-    stop_task_timer_internal(pool, &task.id, "编排完成").await?;
     Ok(())
 }
 
@@ -1545,6 +1497,21 @@ mod pipeline_unit_tests {
         assert!(is_pipeline_phase(PHASE_PIPELINE_MANUAL_WAITING_STEP));
         assert!(is_manual_oneshot_phase(PHASE_PIPELINE_MANUAL_WAITING_STEP));
         assert!(!is_manual_oneshot_phase(PHASE_PIPELINE_WAITING_STEP));
+        assert!(!is_pipeline_phase("waiting_review"));
+    }
+
+    #[test]
+    fn pipeline_success_does_not_hand_off_to_review() {
+        // Last-step success must not auto-advance, and review phases are not pipeline phases.
+        assert!(!should_auto_advance_pipeline(
+            PHASE_PIPELINE_WAITING_STEP,
+            true
+        ));
+        assert!(!should_auto_advance_pipeline(
+            PHASE_PIPELINE_MANUAL_WAITING_STEP,
+            true
+        ));
+        assert!(!is_pipeline_phase("launching_review"));
         assert!(!is_pipeline_phase("waiting_review"));
     }
 

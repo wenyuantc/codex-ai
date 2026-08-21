@@ -275,7 +275,8 @@ pub async fn handle_session_exit(app: &AppHandle, session_record_id: &str) -> Re
         }
     }
 
-    // Coordinator pipeline takes precedence over review_fix_loop for mid-pipeline executions.
+    // Coordinator pipeline takes precedence over review_fix_loop while orchestration
+    // is mid-flight. Last-step success completes the task and does not start review.
     if facts.session_kind == "execution"
         && state_pipeline_active(state_record.as_ref())
         && state_record
