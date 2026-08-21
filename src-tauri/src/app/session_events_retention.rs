@@ -149,15 +149,8 @@ pub async fn purge_session_events<R: Runtime>(
         "deleted={}, retention_days={}",
         deleted, policy.retention_days
     );
-    if let Err(error) = insert_activity_log(
-        &pool,
-        "session_events_purged",
-        &details,
-        None,
-        None,
-        None,
-    )
-    .await
+    if let Err(error) =
+        insert_activity_log(&pool, "session_events_purged", &details, None, None, None).await
     {
         eprintln!("[db] 写入会话事件清理活动日志失败: {error}");
     }
@@ -320,9 +313,7 @@ mod tests {
             )
             .await;
 
-            let stats = fetch_session_events_stats(&pool, 30)
-                .await
-                .expect("stats");
+            let stats = fetch_session_events_stats(&pool, 30).await.expect("stats");
             assert_eq!(stats.total_events, 2);
             assert_eq!(stats.expired_events, 1);
             assert!(stats.oldest_created_at.is_some());

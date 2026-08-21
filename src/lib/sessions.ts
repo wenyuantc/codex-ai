@@ -77,6 +77,8 @@ export function aiProviderBadgeVariant(provider: AiProvider): "default" | "secon
       return "outline";
     case "grok":
       return "outline";
+    case "native":
+      return "secondary";
     default:
       return "outline";
   }

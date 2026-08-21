@@ -18,10 +18,13 @@ async function setAwaitFollowups(
       await setOpenCodeAwaitFollowups(employeeId, enabled);
       return;
     case "grok":
+    case "native":
       return;
     case "codex":
-    default:
       await setCodexAwaitFollowups(employeeId, enabled);
+      return;
+    default:
+      throw new Error(`未知 AI 引擎：${provider}`);
   }
 }
 
@@ -34,10 +37,13 @@ async function endInteractiveSession(provider: string, employeeId: string): Prom
       await finishOpenCodeInput(employeeId);
       return;
     case "grok":
+    case "native":
       return;
     case "codex":
-    default:
       await finishCodexInput(employeeId);
+      return;
+    default:
+      throw new Error(`未知 AI 引擎：${provider}`);
   }
 }
 
@@ -59,7 +65,7 @@ export function useSessionLogAwaitFollowups(
     if (!open || !id || !providerKey || !live) {
       return;
     }
-    if (providerKey === "grok") {
+    if (providerKey === "grok" || providerKey === "native") {
       return;
     }
     const caps = getCachedAiProviderCapabilities();

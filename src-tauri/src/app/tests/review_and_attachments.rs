@@ -215,8 +215,8 @@ fn review_prompt_marks_local_projects_as_local_workspace() {
 
 #[test]
 fn default_review_prompt_template_requires_findings_block() {
-    let template = crate::codex::find_default_ai_prompt_template("review")
-        .expect("default review template");
+    let template =
+        crate::codex::find_default_ai_prompt_template("review").expect("default review template");
     assert!(template.scene_requirement.contains("<review_findings>"));
     assert!(template.scene_requirement.contains("</review_findings>"));
 }
@@ -590,6 +590,68 @@ fn latest_review_treats_malformed_findings_event_as_empty() {
 
         assert!(!latest.has_findings_event);
         assert!(latest.findings.is_empty());
+        pool.close().await;
+    });
+}
+
+#[test]
+fn persist_review_session_events_from_session_logs_extracts_native_stdout() {
+    tauri::async_runtime::block_on(async {
+        let pool = setup_test_pool().await;
+        insert_session(&pool, "review-native-stdout", None, "review").await;
+        sqlx::query(
+            r#"
+            INSERT INTO codex_session_events (id, session_id, event_type, message, created_at)
+            VALUES ($1, 'review-native-stdout', 'stdout', $2, $3)
+            "#,
+        )
+        .bind("evt-prompt")
+        .bind("[USER_INPUT] 最终判定必须输出在 <review_verdict> 和 </review_verdict> 之间")
+        .bind("2026-08-21 06:00:00")
+        .execute(&pool)
+        .await
+        .expect("insert prompt stdout");
+        sqlx::query(
+            r#"
+            INSERT INTO codex_session_events (id, session_id, event_type, message, created_at)
+            VALUES ($1, 'review-native-stdout', 'stdout', $2, $3)
+            "#,
+        )
+        .bind("evt-answer")
+        .bind(concat!(
+            "我已完成本次只读审查。\n",
+            r#"<review_verdict>{"passed":false,"needs_human":true,"blocking_issue_count":1,"summary":"混入无关改动"}</review_verdict>"#,
+            "\n<review_report>## 结论\n不通过。</review_report>\n",
+            r#"<review_findings>[{"file":"src/a.rs","line":4,"severity":"blocker","message":"阻断"}]</review_findings>"#,
+        ))
+        .bind("2026-08-21 06:00:01")
+        .execute(&pool)
+        .await
+        .expect("insert review stdout");
+
+        persist_review_session_events_from_session_logs(&pool, "review-native-stdout")
+            .await
+            .expect("persist from stdout logs");
+
+        let verdict = sqlx::query_scalar::<_, Option<String>>(
+            "SELECT message FROM codex_session_events WHERE session_id = $1 AND event_type = 'review_verdict' LIMIT 1",
+        )
+        .bind("review-native-stdout")
+        .fetch_optional(&pool)
+        .await
+        .expect("fetch verdict")
+        .flatten()
+        .expect("verdict event");
+        let findings_count = sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(*) FROM codex_session_events WHERE session_id = $1 AND event_type = 'review_findings'",
+        )
+        .bind("review-native-stdout")
+        .fetch_one(&pool)
+        .await
+        .expect("count findings");
+
+        assert!(verdict.contains("\"passed\":false"));
+        assert_eq!(findings_count, 1);
         pool.close().await;
     });
 }

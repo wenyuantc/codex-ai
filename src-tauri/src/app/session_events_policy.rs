@@ -43,8 +43,8 @@ pub fn policy_file_path<R: Runtime>(app: &AppHandle<R>) -> Result<PathBuf, Strin
 }
 
 fn parse_policy_from_raw(raw: &str) -> Result<SessionEventsPolicy, String> {
-    let parsed: RawSessionEventsPolicy = serde_json::from_str(raw)
-        .map_err(|error| format!("解析会话事件保留策略失败: {error}"))?;
+    let parsed: RawSessionEventsPolicy =
+        serde_json::from_str(raw).map_err(|error| format!("解析会话事件保留策略失败: {error}"))?;
     Ok(SessionEventsPolicy {
         retention_days: normalize_retention_days(
             parsed.retention_days.unwrap_or(DEFAULT_RETENTION_DAYS),
@@ -60,8 +60,8 @@ pub fn load_policy_from_path(path: &Path) -> Result<SessionEventsPolicy, String>
         });
     }
 
-    let raw = fs::read_to_string(path)
-        .map_err(|error| format!("读取会话事件保留策略失败: {error}"))?;
+    let raw =
+        fs::read_to_string(path).map_err(|error| format!("读取会话事件保留策略失败: {error}"))?;
     parse_policy_from_raw(&raw)
 }
 
@@ -147,9 +147,7 @@ mod tests {
         fs::create_dir_all(&dir).expect("create temp dir");
         let path = policy_file_path_for_dir(&dir);
 
-        let saved = SessionEventsPolicy {
-            retention_days: 60,
-        };
+        let saved = SessionEventsPolicy { retention_days: 60 };
         save_policy_to_path(&path, &saved).expect("save policy");
         let loaded = load_policy_from_path(&path).expect("load policy");
         assert_eq!(loaded.retention_days, 60);
@@ -169,13 +167,8 @@ mod tests {
         fs::create_dir_all(&dir).expect("create temp dir");
         let path = policy_file_path_for_dir(&dir);
 
-        save_policy_to_path(
-            &path,
-            &SessionEventsPolicy {
-                retention_days: 0,
-            },
-        )
-        .expect("save policy");
+        save_policy_to_path(&path, &SessionEventsPolicy { retention_days: 0 })
+            .expect("save policy");
         let loaded = load_policy_from_path(&path).expect("load policy");
         assert_eq!(loaded.retention_days, DEFAULT_RETENTION_DAYS);
 

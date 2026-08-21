@@ -126,7 +126,12 @@ async fn count_running_sessions(app: &AppHandle) -> usize {
         let guard = manager.lock().await;
         guard.get_processes().len()
     };
-    codex + claude + grok + opencode
+    let native = {
+        let manager = app.state::<Arc<tokio::sync::Mutex<crate::native::NativeAgentManager>>>();
+        let guard = manager.lock().await;
+        guard.len()
+    };
+    codex + claude + grok + opencode + native
 }
 
 fn gate_state(app: &AppHandle) -> Arc<RunQueueGate> {
@@ -332,6 +337,28 @@ async fn replay_task_run(
                 run.task_git_context_id.clone(),
                 None,
                 run.image_paths.clone(),
+            )
+            .await
+        }
+        "native" => {
+            let manager = app
+                .state::<Arc<tokio::sync::Mutex<crate::native::NativeAgentManager>>>()
+                .inner()
+                .clone();
+            crate::native::start_native_with_manager(
+                app.clone(),
+                manager,
+                run.employee_id.clone(),
+                run.task_description.clone(),
+                run.model.clone(),
+                run.reasoning_effort.clone(),
+                run.system_prompt.clone(),
+                run.working_dir.clone(),
+                Some(task_id.to_string()),
+                run.task_git_context_id.clone(),
+                None,
+                run.image_paths.clone(),
+                Some("execution".to_string()),
             )
             .await
         }

@@ -289,7 +289,9 @@ fn dashboard_report_token_usage_groups_by_provider_and_omits_unknown_sessions() 
         assert_eq!(summary.token_usage.output_tokens, 25);
         assert_eq!(summary.token_usage.total_tokens, 115);
         assert_eq!(summary.token_usage.reasoning_tokens, 2);
+        assert_eq!(summary.token_usage.cached_tokens, 0);
         assert_eq!(summary.token_usage.sessions_with_usage, 2);
+        assert_eq!(summary.token_usage.sessions_with_cache, 0);
         assert_eq!(summary.token_usage.session_count, 3);
         assert_eq!(summary.token_usage_series.len(), 7);
         assert_eq!(

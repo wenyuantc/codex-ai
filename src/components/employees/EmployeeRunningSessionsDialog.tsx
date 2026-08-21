@@ -10,7 +10,11 @@ import {
 } from "@/components/ui/dialog";
 import { useSessionLogAwaitFollowups } from "@/hooks/useSessionLogAwaitFollowups";
 import { getCodexSessionLogLines } from "@/lib/backend";
-import type { Employee, EmployeeRunningSession } from "@/lib/types";
+import {
+  formatEmployeeAiProviderLabel,
+  type Employee,
+  type EmployeeRunningSession,
+} from "@/lib/types";
 import { formatDate } from "@/lib/utils";
 import { useEmployeeStore } from "@/stores/employeeStore";
 
@@ -26,13 +30,7 @@ function formatSessionKind(sessionKind: EmployeeRunningSession["session_kind"]) 
 }
 
 function formatAiProvider(provider: EmployeeRunningSession["ai_provider"]) {
-  return provider === "claude"
-    ? "Claude"
-    : provider === "opencode"
-      ? "OpenCode"
-      : provider === "grok"
-        ? "Grok"
-        : "Codex";
+  return formatEmployeeAiProviderLabel(provider);
 }
 
 export function EmployeeRunningSessionsDialog({

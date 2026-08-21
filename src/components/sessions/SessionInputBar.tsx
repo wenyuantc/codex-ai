@@ -10,6 +10,7 @@ import {
 import { finishClaudeInput, sendClaudeInput } from "@/lib/claude";
 import { finishCodexInput, sendCodexInput } from "@/lib/codex";
 import { sendGrokInput } from "@/lib/grok";
+import { finishNativeInput, sendNativeInput } from "@/lib/native";
 import { finishOpenCodeInput, sendOpenCodeInput } from "@/lib/opencode";
 import type { AiProvider } from "@/lib/types";
 import { useAiProviderCapabilities } from "@/hooks/useAiProviderCapabilities";
@@ -39,9 +40,14 @@ async function dispatchSendInput(
     case "grok":
       await sendGrokInput(employeeId, input);
       return;
+    case "native":
+      await sendNativeInput(employeeId, input);
+      return;
     case "codex":
-    default:
       await sendCodexInput(employeeId, input);
+      return;
+    default:
+      throw new Error(`未知 AI 引擎：${provider}`);
   }
 }
 
@@ -87,9 +93,14 @@ export function SessionInputBar({
         return;
       case "grok":
         throw new Error(t("inputFinishUnsupported"));
+      case "native":
+        await finishNativeInput(id);
+        return;
       case "codex":
-      default:
         await finishCodexInput(id);
+        return;
+      default:
+        throw new Error(`未知 AI 引擎：${providerKey}`);
     }
   };
 

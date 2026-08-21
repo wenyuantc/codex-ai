@@ -3,10 +3,7 @@ import { Loader2, Play, Search, Square } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { startTaskCodeReview } from "@/lib/backend";
-import { stopCodexSession } from "@/lib/codex";
-import { stopClaudeSession } from "@/lib/claude";
-import { stopGrokSession } from "@/lib/grok";
-import { stopOpenCodeSession } from "@/lib/opencode";
+import { stopSessionByProvider } from "@/lib/aiEngine";
 import { getProjectWorkingDir } from "@/lib/projects";
 import { isImageSkipCancelled } from "@/lib/imageAttachmentSkip";
 import { startTaskRunSession } from "@/lib/taskRunSession";
@@ -216,6 +213,7 @@ export function CodexControls({
           system_prompt: systemPrompt ?? storedAssignee?.system_prompt ?? null,
           project_id: storedAssignee?.project_id ?? null,
           ai_provider: aiProvider,
+          ai_channel_id: storedAssignee?.ai_channel_id ?? null,
           created_at: storedAssignee?.created_at ?? "",
           updated_at: storedAssignee?.updated_at ?? "",
         },
@@ -256,18 +254,9 @@ export function CodexControls({
     setActionLoading("stop");
     try {
       await Promise.all(
-        runningSessions.map((session) => {
-          if (session.ai_provider === "claude") {
-            return stopClaudeSession(session.session_record_id);
-          }
-          if (session.ai_provider === "opencode") {
-            return stopOpenCodeSession(session.session_record_id);
-          }
-          if (session.ai_provider === "grok") {
-            return stopGrokSession(session.session_record_id);
-          }
-          return stopCodexSession(session.session_record_id);
-        }),
+        runningSessions.map((session) =>
+          stopSessionByProvider(session.ai_provider, session.session_record_id),
+        ),
       );
       const runtime = await refreshEmployeeRuntimeStatus(employeeId);
       if (!runtime?.running) {

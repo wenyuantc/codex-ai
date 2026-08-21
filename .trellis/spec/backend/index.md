@@ -14,7 +14,7 @@
 | IPC | `#[tauri::command]` functions registered in `src-tauri/src/lib.rs` |
 | Models | `src-tauri/src/db/models.rs` |
 | Migrations | Inline versioned list in `src-tauri/src/db/migrations.rs` |
-| AI engines | `codex/`, `claude/`, `opencode/`, `grok/` managers + process submodules |
+| AI engines | `codex/`, `claude/`, `opencode/`, `grok/` process managers + `native/` in-process agent |
 | Git | `git_workflow/` (domain slices) + `git_runtime.rs` |
 | Automation | `task_automation` (+ `prompt` submodule and domain slices) |
 
@@ -36,7 +36,7 @@
 | [Command Guidelines](./command-guidelines.md) | Tauri command shape, validation, transactions |
 | [Database & Migrations](./database-migrations.md) | Models, SQL style, migration rules |
 | [Error Handling](./error-handling.md) | `Result<T, String>`, notifications, cleanup |
-| [AI Engines](./ai-engines.md) | Codex/Claude/OpenCode/Grok process lifecycle and per-engine contracts |
+| [AI Engines](./ai-engines.md) | Codex/Claude/OpenCode/Grok process lifecycle + native in-process agent contracts |
 | [Run Queue](./run-queue.md) | Global concurrency gate, `StartSessionOutcome`, `task_run_queue` |
 | [Task Templates](./task-templates.md) | v47 `task_templates`, `{{ident}}` apply, batch create without attachments |
 | [Review Findings](./review-findings.md) | `<review_findings>` event, `get_task_latest_review.findings`, Monaco line reveal |

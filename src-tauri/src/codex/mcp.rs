@@ -110,7 +110,9 @@ fn write_document(path: &PathBuf, document: &McpServersDocument) -> Result<(), S
     fs::write(path, json).map_err(|error| format!("写入 MCP 配置失败: {error}"))
 }
 
-pub async fn load_mcp_document<R: Runtime>(app: &AppHandle<R>) -> Result<McpServersDocument, String> {
+pub async fn load_mcp_document<R: Runtime>(
+    app: &AppHandle<R>,
+) -> Result<McpServersDocument, String> {
     let path = mcp_servers_file_path(app)?;
     load_document_from_disk(&path)
 }
@@ -138,7 +140,10 @@ pub fn resolve_effective_mcp_servers(
         .map(|server| (server.id.as_str(), server))
         .collect();
 
-    match binding_json.map(str::trim).filter(|value| !value.is_empty()) {
+    match binding_json
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
         None => {
             let servers: Vec<McpServerConfig> = document
                 .servers
@@ -390,7 +395,9 @@ pub async fn update_mcp_servers<R: Runtime>(
 }
 
 #[tauri::command]
-pub async fn reset_mcp_servers<R: Runtime>(app: AppHandle<R>) -> Result<McpServersDocument, String> {
+pub async fn reset_mcp_servers<R: Runtime>(
+    app: AppHandle<R>,
+) -> Result<McpServersDocument, String> {
     let document = default_mcp_servers();
     let path = mcp_servers_file_path(&app)?;
     write_document(&path, &document)?;
@@ -686,7 +693,9 @@ mod tests {
         }];
         append_mcp_config_args(&mut args, &servers);
         assert!(!args.contains(&"--ignore-user-config".to_string()));
-        assert!(args.iter().any(|arg| arg.contains("mcp_servers.a.command=")));
+        assert!(args
+            .iter()
+            .any(|arg| arg.contains("mcp_servers.a.command=")));
         assert!(args.iter().any(|arg| arg.contains("mcp_servers.a.args=")));
         assert!(args
             .iter()

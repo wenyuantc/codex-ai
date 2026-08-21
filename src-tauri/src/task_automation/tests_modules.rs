@@ -366,11 +366,13 @@ mod automation_guard_tests {
     use sqlx::SqlitePool;
 
     use super::{
-        fetch_pending_automation_task_ids, record_automation_completed_without_auto_commit,
-        resolve_restart_target, should_auto_commit_task_worktree, validate_task_automation_restart,
-        AutomationRestartTarget, AUTOMATION_MODE_REVIEW_FIX_LOOP_V1, PHASE_BLOCKED,
-        PHASE_COMMITTING_CODE, PHASE_COMMIT_FAILED, PHASE_COMPLETED, PHASE_MANUAL_CONTROL,
-        PHASE_REVIEW_LAUNCH_FAILED, WORKTREE_DISABLED_AUTO_COMMIT_SKIPPED_MESSAGE,
+        fetch_pending_automation_task_ids, fetch_session_exit_facts,
+        record_automation_completed_without_auto_commit, recover_fix_verdict_json_for_task,
+        resolve_restart_target, should_auto_commit_task_worktree,
+        validate_task_automation_restart, AutomationRestartTarget,
+        AUTOMATION_MODE_REVIEW_FIX_LOOP_V1, PHASE_BLOCKED, PHASE_COMMITTING_CODE,
+        PHASE_COMMIT_FAILED, PHASE_COMPLETED, PHASE_MANUAL_CONTROL, PHASE_REVIEW_LAUNCH_FAILED,
+        WORKTREE_DISABLED_AUTO_COMMIT_SKIPPED_MESSAGE,
     };
     use crate::app::{build_current_migrator, TASK_STATUS_ARCHIVED};
     use crate::db::models::{Task, TaskAutomationStateRecord};
@@ -893,6 +895,151 @@ mod automation_guard_tests {
                 .await
                 .expect("resolve manual control execution target");
             assert_eq!(target, Some(AutomationRestartTarget::Fix));
+
+            pool.close().await;
+        });
+    }
+
+    #[test]
+    fn review_exit_facts_recover_verdict_from_stdout_when_event_missing() {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("build tokio runtime");
+
+        runtime.block_on(async {
+            let pool = setup_test_pool().await;
+            let task = build_task("task-native-review", "review");
+            insert_project(&pool).await;
+            insert_task(&pool, &task).await;
+            insert_session(&pool, "session-native-review", &task.id, "review").await;
+            insert_session_event(
+                &pool,
+                "evt-native-prompt",
+                "session-native-review",
+                "stdout",
+                "[USER_INPUT] 最终判定必须输出在 <review_verdict> 和 </review_verdict> 之间",
+            )
+            .await;
+            insert_session_event(
+                &pool,
+                "evt-native-answer",
+                "session-native-review",
+                "stdout",
+                concat!(
+                    "我已完成本次只读审查。\n",
+                    r#"<review_verdict>{"passed":false,"needs_human":true,"blocking_issue_count":1,"summary":"混入无关改动"}</review_verdict>"#,
+                ),
+            )
+            .await;
+
+            let facts = fetch_session_exit_facts(&pool, "session-native-review")
+                .await
+                .expect("fetch exit facts")
+                .expect("facts present");
+            let verdict = facts.review_verdict.expect("recovered verdict");
+            assert!(!verdict.passed);
+            assert!(verdict.needs_human);
+            assert_eq!(verdict.blocking_issue_count, 1);
+            assert_eq!(verdict.summary, "混入无关改动");
+
+            pool.close().await;
+        });
+    }
+
+    #[test]
+    fn review_exit_facts_prefer_stored_verdict_event_over_stdout() {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("build tokio runtime");
+
+        runtime.block_on(async {
+            let pool = setup_test_pool().await;
+            let task = build_task("task-stored-review", "review");
+            insert_project(&pool).await;
+            insert_task(&pool, &task).await;
+            insert_session(&pool, "session-stored-review", &task.id, "review").await;
+            insert_session_event(
+                &pool,
+                "evt-stdout",
+                "session-stored-review",
+                "stdout",
+                r#"<review_verdict>{"passed":false,"needs_human":true,"blocking_issue_count":9,"summary":"stdout 旧结论"}</review_verdict>"#,
+            )
+            .await;
+            insert_session_event(
+                &pool,
+                "evt-verdict",
+                "session-stored-review",
+                "review_verdict",
+                r#"{"passed":true,"needs_human":false,"blocking_issue_count":0,"summary":"事件结论优先"}"#,
+            )
+            .await;
+
+            let facts = fetch_session_exit_facts(&pool, "session-stored-review")
+                .await
+                .expect("fetch exit facts")
+                .expect("facts present");
+            let verdict = facts.review_verdict.expect("stored verdict");
+            assert!(verdict.passed);
+            assert_eq!(verdict.summary, "事件结论优先");
+
+            pool.close().await;
+        });
+    }
+
+    #[test]
+    fn fix_restart_recovers_verdict_from_latest_review_when_consumed_is_execution() {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("build tokio runtime");
+
+        runtime.block_on(async {
+            let pool = setup_test_pool().await;
+            let task = build_task("task-fix-recover", "in_progress");
+            insert_project(&pool).await;
+            insert_task(&pool, &task).await;
+            insert_session(&pool, "session-review-ok", &task.id, "review").await;
+            insert_session(&pool, "session-fix-failed", &task.id, "execution").await;
+            insert_session_event(
+                &pool,
+                "evt-review-stdout",
+                "session-review-ok",
+                "stdout",
+                r#"<review_verdict>{"passed":false,"needs_human":true,"blocking_issue_count":1,"summary":"混入无关改动"}</review_verdict>"#,
+            )
+            .await;
+            insert_session_event(
+                &pool,
+                "evt-fix-error",
+                "session-fix-failed",
+                "stdout",
+                "[ERROR] 模型请求失败（HTTP 400）: max_tokens is too large: 384000",
+            )
+            .await;
+
+            let state = TaskAutomationStateRecord {
+                task_id: task.id.clone(),
+                phase: PHASE_MANUAL_CONTROL.to_string(),
+                round_count: 0,
+                consumed_session_id: Some("session-fix-failed".to_string()),
+                last_trigger_session_id: Some("session-fix-failed".to_string()),
+                pending_action: None,
+                pending_round_count: None,
+                last_error: Some("自动修复执行异常失败，需人工接管".to_string()),
+                last_verdict_json: None,
+                pipeline_active: false,
+                pipeline_step_index: None,
+                updated_at: "2026-08-21 06:32:10".to_string(),
+            };
+
+            let recovered = recover_fix_verdict_json_for_task(&pool, &task.id, &state)
+                .await
+                .expect("recover verdict")
+                .expect("verdict from latest review");
+            assert!(recovered.contains("混入无关改动"));
 
             pool.close().await;
         });

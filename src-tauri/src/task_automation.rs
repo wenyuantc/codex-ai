@@ -21,20 +21,20 @@ use crate::codex::{
 };
 use crate::db::models::{
     AbortTaskPipelinePayload, CodexSessionRecord, Project, ResumeTaskPipelinePayload,
-    ReviewVerdict, RunTaskAcceptancePayload, RunTaskPipelineStepManualPayload,
-    StartTaskPipelinePayload, Subtask, Task, TaskAcceptanceRun, TaskAttachment,
-    TaskAutomationStateRecord, TaskPipelineStep, RetryTaskPipelineStepPayload,
+    RetryTaskPipelineStepPayload, ReviewVerdict, RunTaskAcceptancePayload,
+    RunTaskPipelineStepManualPayload, StartTaskPipelinePayload, Subtask, Task, TaskAcceptanceRun,
+    TaskAttachment, TaskAutomationStateRecord, TaskPipelineStep,
     UpdateTaskAcceptanceChecklistPayload, UpdateTaskPipelineStepPayload,
 };
 use crate::git_workflow::{
     auto_commit_task_worktree, mark_task_git_context_session_finished, TaskGitAutoCommitOutcome,
 };
 use crate::grok::{start_grok_with_manager, stop_grok_for_automation_restart, GrokManager};
+use crate::native::stop_native_for_automation_restart;
 use crate::notifications::{build_task_status_notification, publish_one_time_notification};
 use crate::opencode::{
     start_opencode_with_manager, stop_opencode_for_automation_restart, OpenCodeManager,
 };
-
 
 // File-split for navigation; items remain in this module namespace via include!.
 include!("task_automation/state.rs");

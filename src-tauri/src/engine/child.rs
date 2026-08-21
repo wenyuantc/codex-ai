@@ -1,5 +1,5 @@
 use tokio::io::AsyncWriteExt;
-use tokio::process::{Child, ChildStdin, ChildStderr, ChildStdout};
+use tokio::process::{Child, ChildStderr, ChildStdin, ChildStdout};
 
 use super::stdin::{
     encode_await_followups_control, encode_session_followup_input, write_stdin_bytes,

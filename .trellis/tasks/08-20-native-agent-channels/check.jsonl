@@ -1,0 +1,5 @@
+{"_example": "Fill with {\"file\": \"<path>\", \"reason\": \"<why>\"}. Put spec/research files only — no code paths. Run `python3 .trellis/scripts/get_context.py --mode packages` to list available specs. Delete this line once real entries are added."}
+{"file": ".trellis/spec/backend/database-migrations.md", "reason": "v48 contiguous migration and FromRow DTO rules"}
+{"file": ".trellis/spec/backend/command-guidelines.md", "reason": "Tauri command shape Result T String validation"}
+{"file": ".trellis/spec/frontend/data-access.md", "reason": "No SQLite from UI; backend.ts wrappers"}
+{"file": ".trellis/spec/frontend/i18n.md", "reason": "activity keys zh-CN and en"}

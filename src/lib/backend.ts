@@ -3,6 +3,10 @@ import { listen } from "@tauri-apps/api/event";
 import { normalizeProject } from "./projects";
 import type {
   ActivityLog,
+  AiChannel,
+  AiChannelModel,
+  AiChannelProtocol,
+  ModelCatalogEntry,
   AiProvider,
   AppNotification,
   ArtifactCaptureMode,
@@ -235,6 +239,7 @@ export interface CreateEmployeeInput {
   system_prompt?: string | null;
   project_id?: string | null;
   ai_provider?: AiProvider;
+  ai_channel_id?: string | null;
 }
 
 export interface UpdateEmployeeInput {
@@ -246,6 +251,7 @@ export interface UpdateEmployeeInput {
   system_prompt?: string | null;
   project_id?: string | null;
   ai_provider?: AiProvider;
+  ai_channel_id?: string | null;
   status?: string;
 }
 
@@ -445,6 +451,79 @@ export async function getAiProviderCapabilities(): Promise<AiProviderCapabilitie
   return invoke("get_ai_provider_capabilities");
 }
 
+export interface CreateAiChannelInput {
+  name: string;
+  protocol: AiChannelProtocol;
+  base_url: string;
+  api_key?: string | null;
+  extra_headers_json?: string | null;
+  models?: AiChannelModel[];
+  enabled?: boolean;
+}
+
+export interface UpdateAiChannelInput {
+  name?: string;
+  protocol?: AiChannelProtocol;
+  base_url?: string;
+  api_key?: string | null;
+  extra_headers_json?: string | null;
+  models?: AiChannelModel[];
+  enabled?: boolean;
+}
+
+export interface TestAiChannelInput {
+  id?: string | null;
+  protocol?: AiChannelProtocol;
+  base_url?: string;
+  api_key?: string | null;
+  extra_headers_json?: string | null;
+  model?: string | null;
+}
+
+export interface TestAiChannelResult {
+  ok: boolean;
+  status: number | null;
+  message: string;
+}
+
+export async function listAiChannels(): Promise<AiChannel[]> {
+  return invoke("list_ai_channels");
+}
+
+export async function createAiChannel(payload: CreateAiChannelInput): Promise<AiChannel> {
+  return invoke("create_ai_channel", { payload });
+}
+
+export async function updateAiChannel(
+  id: string,
+  updates: UpdateAiChannelInput,
+): Promise<AiChannel> {
+  return invoke("update_ai_channel", { id, updates });
+}
+
+export async function deleteAiChannel(id: string): Promise<void> {
+  return invoke("delete_ai_channel", { id });
+}
+
+export async function testAiChannel(payload: TestAiChannelInput): Promise<TestAiChannelResult> {
+  return invoke("test_ai_channel", { payload });
+}
+
+export interface ListAiChannelModelsResult {
+  models: string[];
+  message: string;
+}
+
+export async function listAiChannelModels(
+  payload: TestAiChannelInput,
+): Promise<ListAiChannelModelsResult> {
+  return invoke("list_ai_channel_models", { payload });
+}
+
+export async function listModelCatalog(): Promise<ModelCatalogEntry[]> {
+  return invoke("list_model_catalog");
+}
+
 export interface DashboardTrendPoint {
   label: string;
   count: number;
@@ -505,7 +584,9 @@ export interface TokenUsageSummary {
   output_tokens: number;
   total_tokens: number;
   reasoning_tokens: number;
+  cached_tokens: number;
   sessions_with_usage: number;
+  sessions_with_cache: number;
   session_count: number;
 }
 

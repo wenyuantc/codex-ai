@@ -349,6 +349,27 @@ async fn start_automation_fix_round(
             Some("execution".to_string()),
         )
         .await
+    } else if assignee.ai_provider == "native" {
+        let manager = app
+            .state::<Arc<tokio::sync::Mutex<crate::native::NativeAgentManager>>>()
+            .inner()
+            .clone();
+        crate::native::start_native_with_manager(
+            app.clone(),
+            manager,
+            assignee.id.clone(),
+            execution_input.prompt,
+            Some(assignee.model.clone()),
+            Some(assignee.reasoning_effort.clone()),
+            assignee.system_prompt.clone(),
+            Some(execution_context.working_dir),
+            Some(task.id.clone()),
+            execution_context.task_git_context_id,
+            None,
+            Some(execution_input.image_paths),
+            Some("execution".to_string()),
+        )
+        .await
     } else {
         let manager = app.state::<Arc<Mutex<CodexManager>>>().inner().clone();
         start_codex_with_manager(

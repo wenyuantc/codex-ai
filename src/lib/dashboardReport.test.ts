@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   formatTokenCount,
   normalizeTrendRange,
+  resolveCacheRateDisplay,
   shortTrendPointLabel,
   trendRangeChartTitle,
 } from "@/lib/dashboardReport";
@@ -41,5 +42,52 @@ describe("formatTokenCount", () => {
     expect(formatTokenCount(4_560_000)).toBe("4.6M");
     expect(formatTokenCount(12_000_000)).toBe("12M");
     expect(formatTokenCount(Number.NaN)).toBe("0");
+  });
+});
+
+describe("resolveCacheRateDisplay", () => {
+  it("keeps unknown when no session reported cache", () => {
+    expect(resolveCacheRateDisplay(null)).toEqual({ kind: "unknown" });
+    expect(
+      resolveCacheRateDisplay({
+        cached_tokens: 0,
+        input_tokens: 100,
+        sessions_with_cache: 0,
+      }),
+    ).toEqual({ kind: "unknown" });
+  });
+
+  it("formats zero and normal rates, and uses input+cached when cache exceeds input", () => {
+    expect(
+      resolveCacheRateDisplay({
+        cached_tokens: 0,
+        input_tokens: 100,
+        sessions_with_cache: 1,
+      }),
+    ).toEqual({ kind: "rate", text: "0.0%" });
+    expect(
+      resolveCacheRateDisplay({
+        cached_tokens: 25,
+        input_tokens: 100,
+        sessions_with_cache: 1,
+      }),
+    ).toEqual({ kind: "rate", text: "25.0%" });
+    expect(
+      resolveCacheRateDisplay({
+        cached_tokens: 200,
+        input_tokens: 50,
+        sessions_with_cache: 1,
+      }),
+    ).toEqual({ kind: "rate", text: "80.0%" });
+  });
+
+  it("shows an empty placeholder when cache is known but input is zero", () => {
+    expect(
+      resolveCacheRateDisplay({
+        cached_tokens: 0,
+        input_tokens: 0,
+        sessions_with_cache: 1,
+      }),
+    ).toEqual({ kind: "empty" });
   });
 });

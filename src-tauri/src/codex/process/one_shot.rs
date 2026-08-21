@@ -70,9 +70,23 @@ fn normalize_one_shot_provider_for_target(value: Option<&str>, _execution_target
         Some("claude") => "claude".to_string(),
         Some("grok") => "grok".to_string(),
         Some("opencode") => "opencode".to_string(),
+        Some("native") => "native".to_string(),
         Some("codex") => "codex".to_string(),
         _ => "codex".to_string(),
     }
+}
+
+fn resolve_native_one_shot_employee_id(
+    provider_override: Option<&str>,
+    employee_id: Option<&str>,
+) -> Result<Option<String>, String> {
+    if provider_override.map(str::trim) != Some("native") {
+        return Ok(None);
+    }
+    let Some(employee_id) = employee_id.map(str::trim).filter(|value| !value.is_empty()) else {
+        return Err("内置 Agent 一次性调用需要绑定员工，不能回退到 Codex SDK".to_string());
+    };
+    Ok(Some(employee_id.to_string()))
 }
 
 async fn run_ai_command_via_exec(
@@ -556,8 +570,7 @@ async fn run_grok_one_shot_via_remote_cli<R: Runtime>(
         ),
         None,
     );
-    let output =
-        crate::app::execute_ssh_command(app, &ssh_config, &remote_command, true).await?;
+    let output = crate::app::execute_ssh_command(app, &ssh_config, &remote_command, true).await?;
 
     if output.status.success() {
         Ok(crate::grok::aggregate_grok_one_shot_output(
@@ -751,22 +764,19 @@ async fn run_opencode_one_shot_via_remote_sdk<R: Runtime>(
     let ssh_config = fetch_ssh_config_record_by_id(&pool, ssh_config_id).await?;
     let install_dir = default_remote_opencode_sdk_install_dir(ssh_config_id);
 
-    let mut runtime =
-        inspect_remote_opencode_runtime(app, &ssh_config, &install_dir, None).await?;
+    let mut runtime = inspect_remote_opencode_runtime(app, &ssh_config, &install_dir, None).await?;
     if !runtime.available {
         if runtime.node_available && !runtime.sdk_installed {
             crate::app::remote::install_remote_opencode_sdk(app.clone(), ssh_config_id.to_string())
                 .await?;
-            runtime =
-                inspect_remote_opencode_runtime(app, &ssh_config, &install_dir, None).await?;
+            runtime = inspect_remote_opencode_runtime(app, &ssh_config, &install_dir, None).await?;
         }
         if !runtime.available {
             return Err(runtime.message);
         }
     }
 
-    let install_dir =
-        ensure_remote_opencode_sdk_runtime_layout(app, ssh_config_id).await?;
+    let install_dir = ensure_remote_opencode_sdk_runtime_layout(app, ssh_config_id).await?;
 
     let runtime_config_backup =
         if let Some(run_cwd) = working_dir.map(str::trim).filter(|value| !value.is_empty()) {
@@ -879,7 +889,22 @@ pub(crate) async fn run_ai_command<R: Runtime>(
     provider_override: Option<String>,
     model_override: Option<String>,
     reasoning_effort_override: Option<String>,
+    employee_id: Option<String>,
 ) -> Result<String, String> {
+    if let Some(employee_id) =
+        resolve_native_one_shot_employee_id(provider_override.as_deref(), employee_id.as_deref())?
+    {
+        return crate::native::run_native_one_shot(
+            app,
+            &employee_id,
+            prompt,
+            image_paths,
+            model_override,
+            reasoning_effort_override,
+        )
+        .await;
+    }
+
     let execution_context = match task_id
         .as_deref()
         .map(str::trim)
@@ -1138,6 +1163,7 @@ pub(crate) async fn run_ai_command<R: Runtime>(
             )
             .await
         }
+        (_, "native") => Err("内置 Agent 一次性调用需要绑定员工，不能回退到 Codex SDK".to_string()),
         _ => {
             let mut sdk_error = None;
             if one_shot_sdk_enabled {
@@ -1184,5 +1210,52 @@ pub(crate) async fn run_ai_command<R: Runtime>(
                 },
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{normalize_one_shot_provider_for_target, resolve_native_one_shot_employee_id};
+
+    #[test]
+    fn one_shot_provider_keeps_native_instead_of_remapping_to_codex() {
+        assert_eq!(
+            normalize_one_shot_provider_for_target(Some("native"), "local"),
+            "native"
+        );
+        assert_eq!(
+            normalize_one_shot_provider_for_target(Some("native"), "ssh"),
+            "native"
+        );
+        assert_eq!(
+            normalize_one_shot_provider_for_target(Some("unknown"), "local"),
+            "codex"
+        );
+        assert_eq!(
+            normalize_one_shot_provider_for_target(None, "local"),
+            "codex"
+        );
+    }
+
+    #[test]
+    fn native_one_shot_requires_employee_and_does_not_fall_back_to_codex() {
+        assert_eq!(
+            resolve_native_one_shot_employee_id(Some("claude"), None).unwrap(),
+            None
+        );
+        assert_eq!(
+            resolve_native_one_shot_employee_id(Some("native"), Some(" emp-1 "))
+                .unwrap()
+                .as_deref(),
+            Some("emp-1")
+        );
+        assert_eq!(
+            resolve_native_one_shot_employee_id(Some("native"), None).unwrap_err(),
+            "内置 Agent 一次性调用需要绑定员工，不能回退到 Codex SDK"
+        );
+        assert_eq!(
+            resolve_native_one_shot_employee_id(Some("native"), Some("  ")).unwrap_err(),
+            "内置 Agent 一次性调用需要绑定员工，不能回退到 Codex SDK"
+        );
     }
 }

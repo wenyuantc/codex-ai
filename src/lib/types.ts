@@ -67,6 +67,43 @@ export interface Employee {
   system_prompt: string | null;
   project_id: string | null;
   ai_provider: AiProvider;
+  ai_channel_id: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export type AiChannelProtocol = "openai" | "anthropic" | "codex";
+
+export interface AiChannelModel {
+  id: string;
+  context_tokens: number | null;
+  max_output_tokens: number | null;
+  thinking_enabled: boolean | null;
+  thinking_level: string | null;
+  thinking_levels: string[] | null;
+}
+
+export interface ModelCatalogEntry {
+  id: string;
+  aliases: string[];
+  vendor: string;
+  label: string;
+  context_tokens: number;
+  max_output_tokens: number;
+  thinking: boolean;
+  thinking_levels: string[];
+}
+
+export interface AiChannel {
+  id: string;
+  name: string;
+  protocol: AiChannelProtocol;
+  base_url: string;
+  extra_headers_json: string | null;
+  models: AiChannelModel[];
+  enabled: boolean;
+  api_key: string | null;
+  api_key_configured: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -283,6 +320,7 @@ export interface CodexSessionRecord {
   output_tokens: number | null;
   total_tokens: number | null;
   reasoning_tokens: number | null;
+  cached_tokens: number | null;
   execution_target: EnvironmentMode;
   ssh_config_id: string | null;
   target_host_label: string | null;
@@ -395,6 +433,7 @@ export interface CodexSessionListItem {
   output_tokens: number | null;
   total_tokens: number | null;
   reasoning_tokens: number | null;
+  cached_tokens: number | null;
   resume_status: CodexSessionResumeStatus;
   resume_message: string | null;
   can_resume: boolean;
@@ -909,7 +948,7 @@ export type CodexModelId =
   | "gpt-5.1-codex-mini";
 export type ReasoningEffort = "low" | "medium" | "high" | "xhigh" | "max";
 
-export type AiProvider = "codex" | "claude" | "opencode" | "grok";
+export type AiProvider = "codex" | "claude" | "opencode" | "grok" | "native";
 export type ClaudeModelId = "opus" | "opus[1m]" | "sonnet" | "sonnet[1m]" | "haiku";
 export type GrokModelId = "grok-4.5" | string;
 export type ModelId = CodexModelId | ClaudeModelId | GrokModelId | string;
@@ -1118,7 +1157,13 @@ export const AI_PROVIDER_OPTIONS: { value: AiProvider; label: string }[] = [
   { value: "claude", label: "Claude (Anthropic)" },
   { value: "opencode", label: "OpenCode (开源)" },
   { value: "grok", label: "Grok" },
+  { value: "native", label: "内置 Agent" },
 ];
+
+/** Git 一次性提交 / 运行时 one-shot 仍走外部 CLI，不含内置 Agent。 */
+export const CLI_AI_PROVIDER_OPTIONS = AI_PROVIDER_OPTIONS.filter(
+  (option) => option.value !== "native",
+);
 
 export const CLAUDE_MODEL_OPTIONS: { value: ClaudeModelId; label: string }[] = [
   { value: "opus", label: "Claude Opus" },
@@ -1179,7 +1224,7 @@ export function normalizeReasoningEffortForProvider(
       : "high";
   }
 
-  if (provider === "grok") {
+  if (provider === "grok" || provider === "native") {
     return value && isSupportedGrokReasoningEffort(value)
       ? value
       : getDefaultReasoningEffortForProvider(provider);
@@ -1202,6 +1247,11 @@ export function normalizeModelForProvider(
 
   if (provider === "grok") {
     return normalizeGrokModel(value);
+  }
+
+  if (provider === "native") {
+    const normalized = value?.trim();
+    return normalized && normalized.length > 0 ? normalized : "default";
   }
 
   return normalizeCodexModel(value);
@@ -1243,6 +1293,7 @@ export function getModelOptionsForProvider(provider: AiProvider) {
   if (provider === "claude") return CLAUDE_MODEL_OPTIONS;
   if (provider === "opencode") return [];
   if (provider === "grok") return GROK_MODEL_OPTIONS;
+  if (provider === "native") return [];
   return CODEX_MODEL_OPTIONS;
 }
 
@@ -1250,6 +1301,7 @@ export function getDefaultModelForProvider(provider: AiProvider): ModelId {
   if (provider === "claude") return "sonnet";
   if (provider === "opencode") return "openai/gpt-4o";
   if (provider === "grok") return "grok-4.5";
+  if (provider === "native") return "default";
   return "gpt-5.4";
 }
 
@@ -1257,7 +1309,30 @@ export function normalizeAiProvider(value: string | null | undefined): AiProvide
   if (value === "claude") return "claude";
   if (value === "opencode") return "opencode";
   if (value === "grok") return "grok";
+  if (value === "native") return "native";
   return "codex";
+}
+
+export function normalizeCliAiProvider(value: string | null | undefined): AiProvider {
+  const provider = normalizeAiProvider(value);
+  return provider === "native" ? "codex" : provider;
+}
+
+export function formatEmployeeAiProviderLabel(
+  provider: AiProvider | string | null | undefined,
+): string {
+  switch (normalizeAiProvider(provider)) {
+    case "claude":
+      return "Claude";
+    case "opencode":
+      return "OpenCode";
+    case "grok":
+      return "Grok";
+    case "native":
+      return "内置 Agent";
+    default:
+      return "Codex";
+  }
 }
 
 export interface ClaudeSettings {

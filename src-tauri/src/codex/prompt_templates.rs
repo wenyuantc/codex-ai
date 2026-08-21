@@ -123,6 +123,17 @@ pub fn default_ai_prompt_templates() -> AiPromptTemplatesDocument {
 - 如果描述信息有限，也基于现有信息给出合理拆分".to_string(),
             },
             AiPromptTemplate {
+                scene: "native_agent_global".to_string(),
+                label: "内置 Agent 全局提示词".to_string(),
+                output_goal: "你是 Codex AI 的内置编程 Agent，负责在当前工作区以高质量、可落地的方式完成软件开发任务。".to_string(),
+                scene_requirement: "- 先明确目标与边界，信息不足时给出合理假设并继续推进，同时标明假设\n\
+- 最小必要改动：只改完成任务所需部分，避免无关重构\n\
+- 先读后改：改文件前先用 Read 查看现有内容；不要编造未提供的文件、接口或验证结果\n\
+- 优先使用 Read/Glob/Grep/WebFetch/WebSearch，而不是用 Bash 代替文件与检索工具\n\
+- 涉及删除、覆盖、推送、生产变更或密钥时先说明风险\n\
+- 用简洁中文说明做了什么、如何验证；未实际验证时明确标注「未验证」".to_string(),
+            },
+            AiPromptTemplate {
                 scene: "tester_acceptance".to_string(),
                 label: "测试员验收".to_string(),
                 output_goal: "你是资深测试工程师。请基于给定任务信息输出一份中文验收/测试清单，供测试员执行验收。".to_string(),
@@ -173,7 +184,10 @@ fn validate_templates(templates: &[AiPromptTemplate]) -> Result<(), String> {
     }
 
     for key in allowed {
-        if !templates.iter().any(|template| template.scene.trim() == key) {
+        if !templates
+            .iter()
+            .any(|template| template.scene.trim() == key)
+        {
             return Err(format!("缺少提示词模板场景: {key}"));
         }
     }
@@ -220,8 +234,8 @@ fn read_stored_document<R: Runtime>(
         return Ok(None);
     }
 
-    let raw = fs::read_to_string(&path)
-        .map_err(|error| format!("读取 AI 提示词模板失败: {error}"))?;
+    let raw =
+        fs::read_to_string(&path).map_err(|error| format!("读取 AI 提示词模板失败: {error}"))?;
     if raw.trim().is_empty() {
         return Ok(None);
     }
@@ -237,8 +251,7 @@ fn write_document<R: Runtime>(
 ) -> Result<(), String> {
     let path = prompt_templates_file_path(app)?;
     if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)
-            .map_err(|error| format!("创建配置目录失败: {error}"))?;
+        fs::create_dir_all(parent).map_err(|error| format!("创建配置目录失败: {error}"))?;
     }
 
     let raw = serde_json::to_string_pretty(document)

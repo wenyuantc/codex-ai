@@ -1307,6 +1307,7 @@ mod tests {
         assert_eq!(usage.output_tokens, Some(45));
         assert_eq!(usage.reasoning_tokens, Some(12));
         assert_eq!(usage.total_tokens, Some(857));
+        assert_eq!(usage.cached_tokens, None);
     }
 
     #[test]

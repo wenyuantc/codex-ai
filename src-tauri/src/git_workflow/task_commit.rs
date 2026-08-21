@@ -536,6 +536,7 @@ async fn ai_resolve_conflicts_in_dir<R: Runtime>(
                 None,
                 None,
                 None,
+                None,
             )
             .await
             .map_err(|error| {

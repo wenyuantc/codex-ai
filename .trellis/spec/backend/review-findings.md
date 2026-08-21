@@ -28,7 +28,8 @@ async fn get_task_latest_review(app, task_id) -> Result<Option<TaskLatestReview>
 ## 3. Contracts
 
 - Prompt (`build_task_review_prompt` + default `prompt_templates` scene=`review`) requires a third tagged JSON array. `file` is repo-relative; `line` is **new-file 1-based**; `severity` is `blocker|warning|info`; no issues → `[]`.
-- Persist is shared: Codex / Claude / Grok Review session-end call `persist_review_session_events`. OpenCode has no Review kind — do not invent one here.
+- Persist is shared: Codex / Claude / Grok Review session-end call `persist_review_session_events` with captured stream text. Native Review session-end calls `persist_review_session_events_from_session_logs` (stdout/stderr already in `codex_session_events`) **before** `handle_session_exit`. OpenCode has no Review kind — do not invent one here.
+- Automation `fetch_session_exit_facts` must recover `<review_verdict>` from stdout/stderr when the dedicated `review_verdict` event is missing. Missing recovery treats a valid native/log-only review as “结构化输出无效” and hands Auto QC to manual.
 - Write verdict / report / findings independently, only when that block parses. Missing or malformed findings → no `review_findings` event (command still Ok).
 - `get_task_latest_review` reads the latest review session’s latest findings event. Parse failure → `has_findings_event=false`, `findings=[]`.
 - `format_session_log_line` returns `None` for `review_report` / `review_verdict` / `review_findings`.
@@ -59,13 +60,15 @@ async fn get_task_latest_review(app, task_id) -> Result<Option<TaskLatestReview>
 - extract: tagged array, `[]`, escaped `<\/review_findings>`, no tags → None
 - parse: valid, empty, non-array, skip incomplete items, unknown severity → info
 - persist: malformed writes no findings event; `[]` writes event; `get_task_latest_review` returns findings / degrades
+- persist from native-style stdout logs (prompt mentions tags + final tagged JSON) writes `review_verdict` / `review_findings`
+- session exit facts recover verdict from stdout when the dedicated event is missing; stored `review_verdict` event wins over stdout
 - prompt tests assert the findings tags
 - frontend: `matchReviewFindingToChange` newest session, `previous_path`, suffix, miss → null
 
 ## 7. Wrong vs Correct
 
 #### Wrong
-Duplicate verdict/report/findings inserts in each engine `session_runtime`. Parse findings into `ReviewVerdict`. Match only the latest execution session. Call `revealLineInCenter` without passing `options` through the review-panel callback.
+Duplicate verdict/report/findings inserts in each engine `session_runtime`. Native Review exit skipping persist (stdout-only) so Auto QC treats a valid tagged answer as invalid. Parse findings into `ReviewVerdict`. Match only the latest execution session. Call `revealLineInCenter` without passing `options` through the review-panel callback.
 
 #### Correct
 One `persist_review_session_events`. Third tagged block, independent degrade. Match all execution history (newest first). Parent must forward `onOpenChangeDetail(change, options)` so Monaco can reveal the modified editor line.

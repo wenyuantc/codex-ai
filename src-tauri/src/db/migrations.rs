@@ -1169,6 +1169,43 @@ pub fn get_all_migrations() -> Vec<Migration> {
             "#,
             kind: tauri_plugin_sql::MigrationKind::Up,
         },
+        Migration {
+            version: 48,
+            description: "ai channels for native agent providers",
+            sql: r#"
+                CREATE TABLE ai_channels (
+                    id TEXT PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    protocol TEXT NOT NULL,
+                    base_url TEXT NOT NULL,
+                    api_key_ref TEXT,
+                    extra_headers_json TEXT,
+                    models_json TEXT NOT NULL DEFAULT '[]',
+                    enabled INTEGER NOT NULL DEFAULT 1,
+                    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+                );
+                CREATE INDEX idx_ai_channels_enabled ON ai_channels(enabled, name);
+                ALTER TABLE employees ADD COLUMN ai_channel_id TEXT REFERENCES ai_channels(id);
+            "#,
+            kind: tauri_plugin_sql::MigrationKind::Up,
+        },
+        Migration {
+            version: 49,
+            description: "codex session cached token usage column (nullable, unknown stays NULL)",
+            sql: r#"
+                ALTER TABLE codex_sessions ADD COLUMN cached_tokens INTEGER;
+            "#,
+            kind: tauri_plugin_sql::MigrationKind::Up,
+        },
+        Migration {
+            version: 50,
+            description: "store native channel api keys in sqlite instead of os keyring",
+            sql: r#"
+                ALTER TABLE ai_channels ADD COLUMN api_key TEXT;
+            "#,
+            kind: tauri_plugin_sql::MigrationKind::Up,
+        },
     ]
 }
 
@@ -1210,7 +1247,7 @@ mod tests {
 
     #[test]
     fn latest_migration_version_includes_session_events_retention_index() {
-        assert_eq!(latest_migration_version(), 47);
+        assert_eq!(latest_migration_version(), 50);
     }
 
     #[test]
@@ -1260,6 +1297,85 @@ mod tests {
                     "title_template"
                 ]
             );
+        });
+    }
+
+    #[test]
+    fn migration_48_creates_ai_channels() {
+        tauri::async_runtime::block_on(async {
+            let pool = setup_test_pool_through(48).await;
+
+            let channel_columns: Vec<String> = sqlx::query(
+                "SELECT name FROM pragma_table_info('ai_channels') WHERE name IN ('id', 'protocol', 'base_url', 'api_key_ref', 'models_json', 'enabled') ORDER BY name",
+            )
+            .fetch_all(&pool)
+            .await
+            .expect("read ai_channels columns")
+            .into_iter()
+            .map(|row| row.get::<String, _>("name"))
+            .collect();
+
+            assert_eq!(
+                channel_columns,
+                vec![
+                    "api_key_ref",
+                    "base_url",
+                    "enabled",
+                    "id",
+                    "models_json",
+                    "protocol"
+                ]
+            );
+
+            let employee_columns: Vec<String> = sqlx::query(
+                "SELECT name FROM pragma_table_info('employees') WHERE name = 'ai_channel_id'",
+            )
+            .fetch_all(&pool)
+            .await
+            .expect("read employees.ai_channel_id")
+            .into_iter()
+            .map(|row| row.get::<String, _>("name"))
+            .collect();
+
+            assert_eq!(employee_columns, vec!["ai_channel_id"]);
+        });
+    }
+
+    #[test]
+    fn migration_49_adds_cached_tokens_column() {
+        tauri::async_runtime::block_on(async {
+            let pool = setup_test_pool_through(49).await;
+
+            let columns: Vec<String> = sqlx::query(
+                "SELECT name FROM pragma_table_info('codex_sessions') WHERE name = 'cached_tokens'",
+            )
+            .fetch_all(&pool)
+            .await
+            .expect("read cached_tokens column")
+            .into_iter()
+            .map(|row| row.get::<String, _>("name"))
+            .collect();
+
+            assert_eq!(columns, vec!["cached_tokens"]);
+        });
+    }
+
+    #[test]
+    fn migration_50_adds_ai_channel_api_key_column() {
+        tauri::async_runtime::block_on(async {
+            let pool = setup_test_pool_through(50).await;
+
+            let columns: Vec<String> = sqlx::query(
+                "SELECT name FROM pragma_table_info('ai_channels') WHERE name = 'api_key'",
+            )
+            .fetch_all(&pool)
+            .await
+            .expect("read ai_channels.api_key")
+            .into_iter()
+            .map(|row| row.get::<String, _>("name"))
+            .collect();
+
+            assert_eq!(columns, vec!["api_key"]);
         });
     }
 

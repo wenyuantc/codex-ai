@@ -11,7 +11,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import {
-  AI_PROVIDER_OPTIONS,
+  CLI_AI_PROVIDER_OPTIONS,
   CODEX_MODEL_OPTIONS,
   CLAUDE_MODEL_OPTIONS,
   CLAUDE_THINKING_BUDGET_OPTIONS,
@@ -67,6 +67,9 @@ interface RuntimeSettingsTabProps {
   maxConcurrentSessions: number;
   onMaxConcurrentSessionsChange: (value: number) => void;
   onMaxConcurrentSessionsCommit: (value: number) => void;
+  nativeMaxTurns: number;
+  onNativeMaxTurnsChange: (value: number) => void;
+  onNativeMaxTurnsCommit: (value: number) => void;
   onTaskSdkEnabledChange: (value: boolean) => void;
   onOneShotSdkEnabledChange: (value: boolean) => void;
   onOneShotPreferredProviderChange: (value: AiProvider) => void;
@@ -196,6 +199,9 @@ export function RuntimeSettingsTab({
   maxConcurrentSessions,
   onMaxConcurrentSessionsChange,
   onMaxConcurrentSessionsCommit,
+  nativeMaxTurns,
+  onNativeMaxTurnsChange,
+  onNativeMaxTurnsCommit,
   onTaskSdkEnabledChange,
   onOneShotSdkEnabledChange,
   onOneShotPreferredProviderChange,
@@ -261,7 +267,7 @@ export function RuntimeSettingsTab({
   onGrokRefresh,
 }: RuntimeSettingsTabProps) {
   const { t } = useTranslation(["settings", "common"]);
-  const providerOptions = AI_PROVIDER_OPTIONS.map((option) => ({
+  const providerOptions = CLI_AI_PROVIDER_OPTIONS.map((option) => ({
     ...option,
     label: t(`runtime.options.providers.${option.value}`),
   }));
@@ -481,6 +487,39 @@ export function RuntimeSettingsTab({
               }}
             />
             <p className="text-xs text-muted-foreground">{t("settings:concurrency.hint")}</p>
+          </div>
+        </div>
+
+        <div className="border-t border-border pt-4">
+          <h3 className="mb-1 text-sm font-medium">{t("settings:nativeAgent.title")}</h3>
+          <p className="mb-3 text-xs text-muted-foreground">
+            {t("settings:nativeAgent.description")}
+          </p>
+          <div className="max-w-xs space-y-2">
+            <label htmlFor="native-max-turns" className="text-sm font-medium">
+              {t("settings:nativeAgent.label")}
+            </label>
+            <Input
+              id="native-max-turns"
+              type="number"
+              min={0}
+              max={500}
+              step={1}
+              value={nativeMaxTurns}
+              onChange={(event) => {
+                const parsed = Number.parseInt(event.target.value, 10);
+                onNativeMaxTurnsChange(
+                  Number.isNaN(parsed) ? 0 : Math.min(500, Math.max(0, parsed)),
+                );
+              }}
+              onBlur={(event) => {
+                const parsed = Number.parseInt(event.target.value, 10);
+                onNativeMaxTurnsCommit(
+                  Number.isNaN(parsed) ? 0 : Math.min(500, Math.max(0, parsed)),
+                );
+              }}
+            />
+            <p className="text-xs text-muted-foreground">{t("settings:nativeAgent.hint")}</p>
           </div>
         </div>
       </div>

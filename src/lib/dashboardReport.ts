@@ -54,3 +54,26 @@ export function formatTokenCount(value: number): string {
   }
   return `${value}`;
 }
+
+export type CacheRateDisplay =
+  { kind: "unknown" } | { kind: "empty" } | { kind: "rate"; text: string };
+
+/** Cache hit rate from task/session aggregates. Unknown stays unknown; never fake 0%. */
+export function resolveCacheRateDisplay(
+  input: {
+    cached_tokens: number;
+    input_tokens: number;
+    sessions_with_cache: number;
+  } | null,
+): CacheRateDisplay {
+  if (!input || input.sessions_with_cache <= 0) {
+    return { kind: "unknown" };
+  }
+  const cached = Math.max(0, input.cached_tokens);
+  const prompt = Math.max(0, input.input_tokens);
+  const denominator = cached > prompt ? prompt + cached : prompt;
+  if (denominator <= 0) {
+    return { kind: "empty" };
+  }
+  return { kind: "rate", text: `${((cached / denominator) * 100).toFixed(1)}%` };
+}

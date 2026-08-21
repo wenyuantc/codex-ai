@@ -60,12 +60,11 @@ fn import_tasks_json_create_new_roundtrip_with_deps() {
         .expect("list titles");
         assert_eq!(titles.len(), 2);
 
-        let tag_count: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM tags WHERE project_id = 'proj-import'",
-        )
-        .fetch_one(&pool)
-        .await
-        .expect("tag count");
+        let tag_count: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM tags WHERE project_id = 'proj-import'")
+                .fetch_one(&pool)
+                .await
+                .expect("tag count");
         assert_eq!(tag_count, 2);
 
         let dep_count: i64 = sqlx::query_scalar(
@@ -254,12 +253,11 @@ fn import_tasks_json_rejects_invalid_status_without_writes() {
         assert_eq!(result.failed, 1);
         assert!(!result.errors.is_empty());
 
-        let total: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM tasks WHERE project_id = 'proj-invalid'",
-        )
-        .fetch_one(&pool)
-        .await
-        .expect("count");
+        let total: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM tasks WHERE project_id = 'proj-invalid'")
+                .fetch_one(&pool)
+                .await
+                .expect("count");
         assert_eq!(total, 0);
 
         pool.close().await;

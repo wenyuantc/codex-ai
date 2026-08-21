@@ -18,9 +18,11 @@ import {
   normalizeAiProvider,
   getDefaultModelForProvider,
   getDefaultReasoningEffortForProvider,
+  type AiChannel,
   type AiProvider,
   type Employee,
 } from "@/lib/types";
+import { listAiChannels } from "@/lib/backend";
 import { useEmployeeStore } from "@/stores/employeeStore";
 import { useProjectStore } from "@/stores/projectStore";
 import { getOpenCodeModels, type OpenCodeModelInfo } from "@/lib/opencode";
@@ -36,6 +38,12 @@ import {
 } from "@/components/ui/select";
 import { EmployeeSystemPromptField } from "./EmployeeSystemPromptField";
 import { EMPLOYEE_ROLE_OPTIONS, EmployeeRoleHint } from "./employeeRoles";
+import {
+  NativeChannelFields,
+  resolveNativeThinking,
+  selectNativeChannel,
+  selectNativeModel,
+} from "./NativeChannelFields";
 import { selectOpenCodeModel, selectOpenCodeReasoningEffort } from "./openCodeModelSelection";
 
 const NO_PROJECT_VALUE = "__no_project__";
@@ -63,6 +71,10 @@ export function EditEmployeeDialog({ open, onOpenChange, employee }: EditEmploye
   const [opencodeModels, setOpenCodeModels] = useState<OpenCodeModelInfo[]>([]);
   const [opencodeModelsLoading, setOpenCodeModelsLoading] = useState(false);
   const [opencodeModelError, setOpenCodeModelError] = useState<string | null>(null);
+  const [nativeChannels, setNativeChannels] = useState<AiChannel[]>([]);
+  const [nativeChannelId, setNativeChannelId] = useState("");
+  const [nativeChannelsLoading, setNativeChannelsLoading] = useState(false);
+  const [nativeChannelError, setNativeChannelError] = useState<string | null>(null);
 
   const modelOptions =
     aiProvider === "claude"
@@ -72,14 +84,21 @@ export function EditEmployeeDialog({ open, onOpenChange, employee }: EditEmploye
         : aiProvider === "grok"
           ? GROK_MODEL_OPTIONS
           : CODEX_MODEL_OPTIONS;
+  const nativeThinking = resolveNativeThinking(
+    nativeChannels.find((channel) => channel.id === nativeChannelId),
+    model,
+  );
   const effortOptions =
     aiProvider === "claude"
       ? CLAUDE_THINKING_BUDGET_OPTIONS
       : aiProvider === "opencode"
         ? OPENCODE_EFFORT_OPTIONS
-        : aiProvider === "grok"
-          ? GROK_EFFORT_OPTIONS
-          : REASONING_EFFORT_OPTIONS;
+        : aiProvider === "native"
+          ? nativeThinking.levels.map((value) => ({ value, label: value }))
+          : aiProvider === "grok"
+            ? GROK_EFFORT_OPTIONS
+            : REASONING_EFFORT_OPTIONS;
+  const nativeSaveBlocked = aiProvider === "native" && !nativeChannelId;
 
   const selectedModelCapabilities =
     aiProvider === "opencode"
@@ -87,7 +106,9 @@ export function EditEmployeeDialog({ open, onOpenChange, employee }: EditEmploye
       : null;
 
   const modelSupportsReasoning =
-    selectedModelCapabilities === null || selectedModelCapabilities.reasoning;
+    aiProvider === "native"
+      ? nativeThinking.enabled
+      : selectedModelCapabilities === null || selectedModelCapabilities.reasoning;
 
   const fetchOpenCodeModels = async () => {
     setOpenCodeModelsLoading(true);
@@ -120,7 +141,7 @@ export function EditEmployeeDialog({ open, onOpenChange, employee }: EditEmploye
     setModel(
       provider === "claude"
         ? normalizeClaudeModel(employee.model)
-        : provider === "opencode"
+        : provider === "opencode" || provider === "native"
           ? employee.model
           : provider === "grok"
             ? normalizeGrokModel(employee.model)
@@ -131,13 +152,48 @@ export function EditEmployeeDialog({ open, onOpenChange, employee }: EditEmploye
     setSystemPrompt(employee.system_prompt ?? "");
     setProjectId(employee.project_id ?? "");
     setOpenCodeModels([]);
+    setNativeChannels([]);
+    setNativeChannelId(employee.ai_channel_id ?? "");
+    setNativeChannelError(null);
     setErrorMessage(null);
   }, [employee, fetchProjects, open]);
+
+  const fetchNativeChannels = async (preferredChannelId?: string) => {
+    setNativeChannelsLoading(true);
+    setNativeChannelError(null);
+    try {
+      const channels = (await listAiChannels()).filter((channel) => channel.enabled);
+      const nextChannelId = selectNativeChannel(channels, preferredChannelId ?? nativeChannelId);
+      const nextChannel = channels.find((channel) => channel.id === nextChannelId);
+      setNativeChannels(channels);
+      setNativeChannelId(nextChannelId);
+      setModel((current) => selectNativeModel(nextChannel, current));
+      const nextModel = selectNativeModel(nextChannel, model);
+      const thinking = resolveNativeThinking(nextChannel, nextModel);
+      setReasoningEffort((current) =>
+        thinking.enabled && thinking.levels.includes(current) ? current : thinking.defaultLevel,
+      );
+      if (channels.length === 0) {
+        setNativeChannelError(t("noEnabledChannelHint"));
+      }
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      setNativeChannelError(msg);
+      console.error("获取 AI 渠道列表失败:", msg);
+    } finally {
+      setNativeChannelsLoading(false);
+    }
+  };
 
   useEffect(() => {
     if (!open || aiProvider !== "opencode") return;
     void fetchOpenCodeModels();
   }, [aiProvider, open]);
+
+  useEffect(() => {
+    if (!open || aiProvider !== "native") return;
+    void fetchNativeChannels(employee?.ai_channel_id ?? undefined);
+  }, [aiProvider, employee?.ai_channel_id, open]);
 
   const handleProviderChange = (value: AiProvider | null) => {
     if (!value) return;
@@ -145,6 +201,19 @@ export function EditEmployeeDialog({ open, onOpenChange, employee }: EditEmploye
     setModel(getDefaultModelForProvider(value) as string);
     setReasoningEffort(getDefaultReasoningEffortForProvider(value));
     setOpenCodeModelError(null);
+    setNativeChannelError(null);
+    if (value !== "native") {
+      setNativeChannelId("");
+    }
+  };
+
+  const handleNativeChannelChange = (channelId: string) => {
+    const channel = nativeChannels.find((item) => item.id === channelId);
+    const nextModel = selectNativeModel(channel, "");
+    setNativeChannelId(channelId);
+    setModel(nextModel);
+    const thinking = resolveNativeThinking(channel, nextModel);
+    setReasoningEffort(thinking.enabled ? thinking.defaultLevel : reasoningEffort);
   };
 
   const handleModelChange = (value: string) => {
@@ -155,10 +224,17 @@ export function EditEmployeeDialog({ open, onOpenChange, employee }: EditEmploye
         selectOpenCodeReasoningEffort(opencodeModels, selectedModel, current),
       );
     }
+    if (aiProvider === "native") {
+      const channel = nativeChannels.find((item) => item.id === nativeChannelId);
+      const thinking = resolveNativeThinking(channel, selectedModel);
+      setReasoningEffort((current) =>
+        thinking.enabled && thinking.levels.includes(current) ? current : thinking.defaultLevel,
+      );
+    }
   };
 
   const handleSave = async () => {
-    if (!employee || !name.trim()) return;
+    if (!employee || !name.trim() || nativeSaveBlocked) return;
 
     setSaving(true);
     setErrorMessage(null);
@@ -172,6 +248,7 @@ export function EditEmployeeDialog({ open, onOpenChange, employee }: EditEmploye
         system_prompt: systemPrompt.trim() || null,
         project_id: projectId || null,
         ai_provider: aiProvider,
+        ai_channel_id: aiProvider === "native" ? nativeChannelId : null,
       });
       onOpenChange(false);
     } catch (error) {
@@ -259,97 +336,113 @@ export function EditEmployeeDialog({ open, onOpenChange, employee }: EditEmploye
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="text-xs font-medium text-muted-foreground">{t("model")}</label>
-              {modelOptions.length > 0 && aiProvider !== "opencode" ? (
-                <Select
-                  value={model}
-                  onValueChange={(value) => {
-                    if (value) handleModelChange(value);
-                  }}
-                >
-                  <SelectTrigger className="mt-1 bg-background">
-                    <SelectValue>
-                      {(value) =>
-                        typeof value === "string"
-                          ? (modelOptions.find((option) => option.value === value)?.label ?? value)
-                          : t("selectModel")
-                      }
-                    </SelectValue>
-                  </SelectTrigger>
-                  <SelectContent>
-                    {modelOptions.map((option) => (
-                      <SelectItem key={option.value} value={option.value}>
-                        {option.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              ) : aiProvider === "opencode" ? (
-                <div className="flex flex-col gap-1 mt-1">
-                  <div className="flex gap-2">
-                    <div className="flex-1">
-                      {opencodeModels.length > 0 ? (
-                        <Select
-                          value={model}
-                          onValueChange={(value) => {
-                            if (value) handleModelChange(value);
-                          }}
-                        >
-                          <SelectTrigger className="bg-background">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent className="max-h-72">
-                            {opencodeModels.map((m) => (
-                              <SelectItem key={m.value} value={m.value}>
-                                {`${m.label} · ${m.providerName}`}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      ) : (
-                        <Input
-                          value={model}
-                          onChange={(e) => handleModelChange(e.target.value)}
-                          placeholder={t("selectModel")}
-                        />
-                      )}
-                    </div>
-                    <button
-                      type="button"
-                      onClick={fetchOpenCodeModels}
-                      disabled={opencodeModelsLoading}
-                      className="px-2 py-1 border border-input rounded-md hover:bg-accent disabled:opacity-50"
-                      title={t("refreshModelsTitle")}
-                    >
-                      {opencodeModelsLoading ? (
-                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                      ) : (
-                        <RefreshCw className="h-3.5 w-3.5" />
-                      )}
-                    </button>
-                  </div>
-                  {opencodeModels.length > 0 && (
-                    <p className="text-[11px] text-muted-foreground">
-                      {t("opencodeLoaded", { count: opencodeModels.length })}
-                    </p>
-                  )}
-                  {opencodeModelError && (
-                    <p className="text-[11px] text-destructive">{opencodeModelError}</p>
-                  )}
-                </div>
-              ) : (
-                <Input
-                  value={model}
-                  onChange={(e) => handleModelChange(e.target.value)}
-                  placeholder={t("selectModel")}
-                  className="mt-1"
-                />
-              )}
-            </div>
+          {aiProvider === "native" ? (
+            <NativeChannelFields
+              channels={nativeChannels}
+              channelId={nativeChannelId}
+              model={model}
+              loading={nativeChannelsLoading}
+              error={nativeChannelError}
+              onChannelChange={handleNativeChannelChange}
+              onModelChange={handleModelChange}
+              onRefresh={() => void fetchNativeChannels(nativeChannelId)}
+            />
+          ) : null}
 
-            <div>
+          <div className="grid grid-cols-2 gap-3">
+            {aiProvider !== "native" ? (
+              <div>
+                <label className="text-xs font-medium text-muted-foreground">{t("model")}</label>
+                {modelOptions.length > 0 && aiProvider !== "opencode" ? (
+                  <Select
+                    value={model}
+                    onValueChange={(value) => {
+                      if (value) handleModelChange(value);
+                    }}
+                  >
+                    <SelectTrigger className="mt-1 bg-background">
+                      <SelectValue>
+                        {(value) =>
+                          typeof value === "string"
+                            ? (modelOptions.find((option) => option.value === value)?.label ??
+                              value)
+                            : t("selectModel")
+                        }
+                      </SelectValue>
+                    </SelectTrigger>
+                    <SelectContent>
+                      {modelOptions.map((option) => (
+                        <SelectItem key={option.value} value={option.value}>
+                          {option.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                ) : aiProvider === "opencode" ? (
+                  <div className="flex flex-col gap-1 mt-1">
+                    <div className="flex gap-2">
+                      <div className="flex-1">
+                        {opencodeModels.length > 0 ? (
+                          <Select
+                            value={model}
+                            onValueChange={(value) => {
+                              if (value) handleModelChange(value);
+                            }}
+                          >
+                            <SelectTrigger className="bg-background">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent className="max-h-72">
+                              {opencodeModels.map((m) => (
+                                <SelectItem key={m.value} value={m.value}>
+                                  {`${m.label} · ${m.providerName}`}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        ) : (
+                          <Input
+                            value={model}
+                            onChange={(e) => handleModelChange(e.target.value)}
+                            placeholder={t("selectModel")}
+                          />
+                        )}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={fetchOpenCodeModels}
+                        disabled={opencodeModelsLoading}
+                        className="px-2 py-1 border border-input rounded-md hover:bg-accent disabled:opacity-50"
+                        title={t("refreshModelsTitle")}
+                      >
+                        {opencodeModelsLoading ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          <RefreshCw className="h-3.5 w-3.5" />
+                        )}
+                      </button>
+                    </div>
+                    {opencodeModels.length > 0 && (
+                      <p className="text-[11px] text-muted-foreground">
+                        {t("opencodeLoaded", { count: opencodeModels.length })}
+                      </p>
+                    )}
+                    {opencodeModelError && (
+                      <p className="text-[11px] text-destructive">{opencodeModelError}</p>
+                    )}
+                  </div>
+                ) : (
+                  <Input
+                    value={model}
+                    onChange={(e) => handleModelChange(e.target.value)}
+                    placeholder={t("selectModel")}
+                    className="mt-1"
+                  />
+                )}
+              </div>
+            ) : null}
+
+            <div className={aiProvider === "native" ? "col-span-2" : undefined}>
               <label className="text-xs font-medium text-muted-foreground">
                 {t("reasoningEffort")}
               </label>
@@ -382,6 +475,16 @@ export function EditEmployeeDialog({ open, onOpenChange, employee }: EditEmploye
               {aiProvider === "opencode" && selectedModelCapabilities?.reasoning && (
                 <p className="text-[10px] text-muted-foreground mt-0.5">{t("reasoningHint")}</p>
               )}
+              {aiProvider === "native" && !nativeThinking.enabled ? (
+                <p className="text-[10px] text-muted-foreground mt-0.5">
+                  {t("nativeThinkingDisabled")}
+                </p>
+              ) : null}
+              {aiProvider === "native" && nativeThinking.enabled ? (
+                <p className="text-[10px] text-muted-foreground mt-0.5">
+                  {t("nativeThinkingFromChannel")}
+                </p>
+              ) : null}
             </div>
           </div>
 
@@ -454,7 +557,7 @@ export function EditEmployeeDialog({ open, onOpenChange, employee }: EditEmploye
             </button>
             <button
               onClick={handleSave}
-              disabled={!name.trim() || !employee || saving}
+              disabled={!name.trim() || !employee || nativeSaveBlocked || saving}
               className="px-3 py-1.5 text-sm bg-primary text-primary-foreground rounded-md hover:bg-primary/90 disabled:opacity-50"
             >
               {saving ? t("saving") : t("common:save")}

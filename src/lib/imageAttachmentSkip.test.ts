@@ -68,6 +68,24 @@ describe("resolveImageAttachmentSkip", () => {
     ).toBe("claude_cli");
   });
 
+  it("does not warn for built-in Agent images", () => {
+    expect(
+      resolveImageAttachmentSkip({
+        imageCount: 1,
+        provider: "native",
+        projectType: "local",
+      }),
+    ).toBeNull();
+    expect(
+      resolveImageAttachmentSkip({
+        imageCount: 2,
+        provider: "native",
+        projectType: "ssh",
+        hasTaskId: true,
+      }),
+    ).toBeNull();
+  });
+
   it("warns for SSH Codex without a task id", () => {
     expect(
       resolveImageAttachmentSkip({

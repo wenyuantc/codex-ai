@@ -2,7 +2,14 @@ import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { Trash2 } from "lucide-react";
 
-import type { Employee, Task, TaskStatus } from "@/lib/types";
+import type { TokenUsageSummary } from "@/lib/backend";
+import { formatTokenCount, resolveCacheRateDisplay } from "@/lib/dashboardReport";
+import {
+  formatEmployeeAiProviderLabel,
+  type Employee,
+  type Task,
+  type TaskStatus,
+} from "@/lib/types";
 import { ACTIVE_TASK_STATUSES, PRIORITIES } from "@/lib/types";
 import {
   formatDate,
@@ -26,16 +33,7 @@ import { TaskDeliverySection } from "./TaskDeliverySection";
 const UNASSIGNED_VALUE = "__unassigned__";
 
 function employeeProviderLabel(provider: string | null | undefined): string {
-  switch (provider) {
-    case "claude":
-      return "Claude";
-    case "opencode":
-      return "OpenCode";
-    case "grok":
-      return "Grok";
-    default:
-      return "Codex";
-  }
+  return formatEmployeeAiProviderLabel(provider);
 }
 
 function employeeDisplayName(employees: Employee[], id: string): string {
@@ -74,6 +72,7 @@ interface TaskPropertiesSidebarProps {
   timeStartedAt: string | null;
   timeSpentSeconds: number;
   completedAt: string | null;
+  tokenUsage: TokenUsageSummary | null;
   employees: Employee[];
   reviewerCandidates: Employee[];
   coordinatorCandidates: Employee[];
@@ -104,6 +103,7 @@ export function TaskPropertiesSidebar({
   timeStartedAt,
   timeSpentSeconds,
   completedAt,
+  tokenUsage,
   employees,
   reviewerCandidates,
   coordinatorCandidates,
@@ -141,6 +141,15 @@ export function TaskPropertiesSidebar({
     time_spent_seconds: timeSpentSeconds,
     completed_at: completedAt,
   });
+  const hasUsage = Boolean(tokenUsage && tokenUsage.sessions_with_usage > 0);
+  const cacheRate = resolveCacheRateDisplay(tokenUsage);
+  const cacheRateLabel =
+    cacheRate.kind === "rate"
+      ? cacheRate.text
+      : cacheRate.kind === "empty"
+        ? t("detail.sidebar.usageEmpty")
+        : t("common:unknown");
+  const usageValue = (value: number) => (hasUsage ? formatTokenCount(value) : t("common:unknown"));
 
   return (
     <div className="flex flex-col gap-4 p-4">
@@ -325,12 +334,39 @@ export function TaskPropertiesSidebar({
               </div>
             </div>
           </SidebarGroup>
-
-          <div className="border-t border-border/60" />
         </>
-      ) : (
-        <div className="border-t border-border/60" />
-      )}
+      ) : null}
+
+      <div className="border-t border-border/60" />
+
+      <SidebarGroup label={t("detail.sidebar.usage")}>
+        <div className="space-y-1.5 text-xs">
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-muted-foreground">{t("detail.sidebar.usageInput")}</span>
+            <span className="font-medium text-foreground">
+              {usageValue(tokenUsage?.input_tokens ?? 0)}
+            </span>
+          </div>
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-muted-foreground">{t("detail.sidebar.usageOutput")}</span>
+            <span className="font-medium text-foreground">
+              {usageValue(tokenUsage?.output_tokens ?? 0)}
+            </span>
+          </div>
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-muted-foreground">{t("detail.sidebar.usageTotal")}</span>
+            <span className="font-medium text-foreground">
+              {usageValue(tokenUsage?.total_tokens ?? 0)}
+            </span>
+          </div>
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-muted-foreground">{t("detail.sidebar.usageCacheRate")}</span>
+            <span className="font-medium text-foreground">{cacheRateLabel}</span>
+          </div>
+        </div>
+      </SidebarGroup>
+
+      <div className="border-t border-border/60" />
 
       <Button
         type="button"

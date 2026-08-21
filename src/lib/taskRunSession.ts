@@ -1,7 +1,4 @@
-import { startCodex } from "@/lib/codex";
-import { startClaude } from "@/lib/claude";
-import { startGrok } from "@/lib/grok";
-import { startOpenCode } from "@/lib/opencode";
+import { startByProvider } from "@/lib/aiEngine";
 import { checkClaudeSdkHealth, prepareTaskGitExecution } from "@/lib/backend";
 import {
   confirmImageAttachmentSkip,
@@ -126,33 +123,14 @@ export async function startTaskRunSession({
     imagePaths: executionInput.imagePaths,
   };
 
-  let outcome: StartSessionOutcome;
-  if (assignee?.ai_provider === "claude") {
-    outcome = asStartSessionOutcome(
-      await startClaude(assigneeId, executionInput.prompt, startOptions),
-    );
-  } else if (assignee?.ai_provider === "opencode") {
-    outcome = asStartSessionOutcome(
-      await startOpenCode({
-        employeeId: assigneeId,
-        taskDescription: executionInput.prompt,
-        model: assignee.model,
-        workingDir,
-        taskId: task.id,
-        taskGitContextId,
-        resumeSessionId: executionInput.resumeSessionId,
-        imagePaths: executionInput.imagePaths,
-      }),
-    );
-  } else if (assignee?.ai_provider === "grok") {
-    outcome = asStartSessionOutcome(
-      await startGrok(assigneeId, executionInput.prompt, startOptions),
-    );
-  } else {
-    outcome = asStartSessionOutcome(
-      await startCodex(assigneeId, executionInput.prompt, startOptions),
-    );
-  }
+  const outcome = asStartSessionOutcome(
+    await startByProvider(
+      assignee?.ai_provider ?? "codex",
+      assigneeId,
+      executionInput.prompt,
+      startOptions,
+    ),
+  );
 
   if (outcome.status === "queued") {
     await taskStore.fetchRunQueue();

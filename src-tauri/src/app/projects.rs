@@ -22,14 +22,19 @@ async fn validate_project_storage_fields(
 }
 
 pub(crate) async fn fetch_project_by_id(pool: &SqlitePool, id: &str) -> Result<Project, String> {
-    sqlx::query_as::<_, Project>("SELECT * FROM projects WHERE id = $1 AND deleted_at IS NULL LIMIT 1")
-        .bind(id)
-        .fetch_one(pool)
-        .await
-        .map_err(|error| format!("Project {} not found: {}", id, error))
+    sqlx::query_as::<_, Project>(
+        "SELECT * FROM projects WHERE id = $1 AND deleted_at IS NULL LIMIT 1",
+    )
+    .bind(id)
+    .fetch_one(pool)
+    .await
+    .map_err(|error| format!("Project {} not found: {}", id, error))
 }
 
-pub(crate) async fn fetch_any_project_by_id(pool: &SqlitePool, id: &str) -> Result<Project, String> {
+pub(crate) async fn fetch_any_project_by_id(
+    pool: &SqlitePool,
+    id: &str,
+) -> Result<Project, String> {
     sqlx::query_as::<_, Project>("SELECT * FROM projects WHERE id = $1 LIMIT 1")
         .bind(id)
         .fetch_one(pool)
@@ -41,18 +46,20 @@ pub(crate) async fn ensure_project_exists(
     pool: &SqlitePool,
     project_id: &str,
 ) -> Result<(), String> {
-    sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM projects WHERE id = $1 AND deleted_at IS NULL")
-        .bind(project_id)
-        .fetch_one(pool)
-        .await
-        .map_err(|error| format!("Failed to verify project: {}", error))
-        .and_then(|count| {
-            if count > 0 {
-                Ok(())
-            } else {
-                Err(format!("Project {} does not exist", project_id))
-            }
-        })
+    sqlx::query_scalar::<_, i64>(
+        "SELECT COUNT(*) FROM projects WHERE id = $1 AND deleted_at IS NULL",
+    )
+    .bind(project_id)
+    .fetch_one(pool)
+    .await
+    .map_err(|error| format!("Failed to verify project: {}", error))
+    .and_then(|count| {
+        if count > 0 {
+            Ok(())
+        } else {
+            Err(format!("Project {} does not exist", project_id))
+        }
+    })
 }
 
 #[tauri::command]
@@ -261,7 +268,10 @@ pub async fn delete_project<R: Runtime>(app: AppHandle<R>, id: String) -> Result
 }
 
 #[tauri::command]
-pub async fn permanently_delete_project<R: Runtime>(app: AppHandle<R>, id: String) -> Result<(), String> {
+pub async fn permanently_delete_project<R: Runtime>(
+    app: AppHandle<R>,
+    id: String,
+) -> Result<(), String> {
     let pool = sqlite_pool(&app).await?;
     let project = fetch_any_project_by_id(&pool, &id).await?;
     let mut tx = pool
@@ -413,7 +423,8 @@ pub async fn check_project_repo_health<R: Runtime>(
             key: "remote_git".into(),
             label: "远程 Git 预检".into(),
             passed: false,
-            detail: "SSH 仓库健康需连接远程主机验证；请在设置中测试 SSH，并在远程确认目录含 .git".into(),
+            detail: "SSH 仓库健康需连接远程主机验证；请在设置中测试 SSH，并在远程确认目录含 .git"
+                .into(),
         });
 
         let accessible = has_ssh && has_path;

@@ -4,6 +4,7 @@
     "git": "Git & Auto QC",
     "prompts": "Prompt templates",
     "mcp": "MCP",
+    "channels": "AI channels",
     "ssh": "SSH",
     "database": "Database"
   },
@@ -25,6 +26,12 @@
     "description": "Limit how many task execution sessions can run on this machine at once. 0 means unlimited. Local and SSH projects share this cap.",
     "label": "Max concurrent sessions",
     "hint": "0 = unlimited"
+  },
+  "nativeAgent": {
+    "title": "Built-in Agent tool turns",
+    "description": "Cap how many model-and-tool rounds run for one user message. 0 means unlimited. Local and SSH projects share this cap because the loop always runs on this machine.",
+    "label": "Max tool turns",
+    "hint": "0 = unlimited, default 40, max 500"
   },
   "about": {
     "title": "About & updates",
@@ -59,13 +66,14 @@
     "title": "System Settings",
     "description": "Currently in {{mode}}. Codex runtime settings and SSH settings are stored separately.",
     "engineCapabilities": {
-      "title": "Four-engine capability overview",
-      "description": "Codex, Claude, Grok, and OpenCode all support start, stop, restart, and resume. Restart means stopping the current run and starting again, not resuming an old CLI session. All four engines run in non-interactive batch mode and do not support sending input during a live session.",
+      "title": "Five-engine capability overview",
+      "description": "Codex, Claude, Grok, OpenCode, and the built-in Agent all support start, stop, restart, and resume. Restart means stopping the current run and starting again, not resuming an old CLI session. Built-in Agent free sessions support mid-session follow-ups.",
       "notes": {
         "codex": "Supports start/stop/resume/mid-session input (SDK channel keeps stdin; send_codex_input while running). Restart = stop current run then start again (not CLI resume of an old session). CLI batch channel has no stdin; send returns an explicit error.",
         "claude": "Supports start/stop/resume/mid-session input (SDK bridge keeps stdin). Restart = stop current run then start again (not CLI resume of an old session). CLI batch channel does not support mid-session input.",
         "opencode": "Supports start/stop/resume/mid-session input (SDK bridge keeps stdin; append prompts on the same OpenCode session). Restart = stop current run then start again (not CLI resume of an old session).",
-        "grok": "Supports start/stop/resume. Restart = stop current run then start again (not CLI resume of an old session). Grok is a headless CLI (-p + Stdio::null) with no writable mid-session stdin (B1 exemption)."
+        "grok": "Supports start/stop/resume. Restart = stop current run then start again (not CLI resume of an old session). Grok is a headless CLI (-p + Stdio::null) with no writable mid-session stdin (B1 exemption).",
+        "native": "Supports start/stop/resume/mid-session input (in-process follow-ups). Restart = stop current run then start again. Task sessions exit after one turn; free sessions accept follow-up input."
       }
     },
     "databaseDialogs": {
@@ -608,6 +616,7 @@
       "generate_commit": "Generate commit message",
       "suggest_assignee": "Suggest assignee",
       "generate_subtasks": "Split into subtasks",
+      "native_agent_global": "Built-in Agent global prompt",
       "tester_acceptance": "Tester acceptance"
     }
   },
@@ -732,7 +741,7 @@
       ],
       "excludesItems": [
         "Task attachment files: task-attachments/ under the app data directory (image/document binaries)",
-        "Sensitive secrets in the keyring such as SSH passwords/private-key passphrases",
+        "Sensitive secrets in the keyring such as SSH passwords/private-key passphrases and AI channel API keys",
         "ai-prompt-templates.json in the app config directory (AI prompt templates)",
         "mcp-servers.json in the app config directory (MCP server config)",
         "Local UI state such as window size"
@@ -768,6 +777,72 @@
       "purgeSuccess": "Removed {{deleted}} expired events (kept {{days}} days).",
       "purgeVacuumFailedWithError": "Events were removed, but VACUUM failed: {{error}}",
       "purgeVacuumFailed": "Events were removed, but VACUUM failed"
+    }
+  },
+  "channels": {
+    "title": "AI channels",
+    "description": "Configure model gateways for the built-in agent. API keys are stored with the channel config; click the eye icon to reveal them.",
+    "list": {
+      "loading": "Loading channels…",
+      "empty": "No channels yet. Create one to get started."
+    },
+    "actions": {
+      "new": "New channel",
+      "save": "Save",
+      "test": "Test",
+      "fetchModels": "Fetch models",
+      "addModel": "Add model",
+      "fillFromCatalog": "Fill from local metadata",
+      "delete": "Delete"
+    },
+    "fields": {
+      "name": "Name",
+      "protocol": "API request method",
+      "enabled": "Enabled",
+      "baseUrl": "Base URL, e.g. https://api.deepseek.com",
+      "apiKey": "API key",
+      "apiKeyConfigured": "Key configured. Leave blank to keep it.",
+      "showApiKey": "Show API key",
+      "hideApiKey": "Hide API key",
+      "models": "Models",
+      "modelId": "Model ID",
+      "modelsEmpty": "No models yet. Fetch from the gateway or add one manually.",
+      "modelsHint": "Fetch gateway models with the API key. Matching local metadata fills context, max output, and thinking; you can still edit them.",
+      "contextTokens": "Context (tokens)",
+      "maxOutputTokens": "Max output (tokens)",
+      "thinking": "Thinking",
+      "thinkingLevel": "Thinking level",
+      "extraHeaders": "Extra headers (JSON object, optional)"
+    },
+    "protocols": {
+      "openai": "OpenAI Chat Completions",
+      "anthropic": "Claude Messages",
+      "codex": "Codex Responses"
+    },
+    "status": {
+      "enabled": "Enabled",
+      "disabled": "Disabled",
+      "thinkingOn": "Thinking on",
+      "thinkingOff": "Thinking off"
+    },
+    "thinkingLevels": {
+      "minimal": "Minimal",
+      "low": "Low",
+      "medium": "Medium",
+      "high": "High",
+      "xhigh": "Very high",
+      "max": "Max"
+    },
+    "updatedAt": "Updated {{date}}",
+    "dialogs": {
+      "deleteTitle": "Delete channel",
+      "deleteConfirm": "Delete channel \"{{name}}\"? Employees bound to it will block deletion."
+    },
+    "messages": {
+      "created": "Channel created",
+      "updated": "Channel updated",
+      "deleted": "Channel deleted",
+      "modelsFetched": "Fetched {{count}} models. Save to keep them."
     }
   }
 }

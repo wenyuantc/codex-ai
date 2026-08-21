@@ -44,10 +44,12 @@ src/
 | Feature-only hook | `src/components/<domain>/hooks/useX.ts` |
 | Cross-page hook | `src/hooks/useX.ts` |
 | Shared type | `src/lib/types.ts` |
-| Tauri command wrapper | `src/lib/backend.ts` (CRUD/shared) or engine client `src/lib/codex.ts` / `claude.ts` / `opencode.ts` / `grok.ts` |
+| Tauri command wrapper | `src/lib/backend.ts` (CRUD/shared, including `listAiChannels`) or engine client `src/lib/codex.ts` / `claude.ts` / `opencode.ts` / `grok.ts` / `native.ts` |
+| Unified engine start/stop | `src/lib/aiEngine.ts` (`startByProvider` / `stopSessionByProvider` / `restartByProvider`) — unknown provider throws, never Codex |
+| Settings subsection | `src/components/settings/<Name>SettingsTab.tsx` (`AiChannelsSettingsTab` for native channels) |
 | Domain helper (non-UI) | `src/lib/<topic>.ts` (`projects.ts`, `taskPrompt.ts`, ...) |
 | Global cache / mutations orchestration | `src/stores/<domain>Store.ts` |
-| Settings subsection | `src/components/settings/<Name>SettingsTab.tsx` |
+
 
 ## Naming
 

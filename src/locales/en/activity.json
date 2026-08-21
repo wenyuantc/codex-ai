@@ -157,6 +157,12 @@
     "notification_created": "Created notification",
     "notification_resolved": "Notification resolved",
     "session_events_purged": "Purged session events",
-    "app_update_installed": "App updated"
+    "app_update_installed": "App updated",
+    "ai_channel_created": "Created AI channel",
+    "ai_channel_updated": "Updated AI channel",
+    "ai_channel_deleted": "Deleted AI channel",
+    "ai_channel_tested": "Tested AI channel",
+    "ai_channel_models_fetched": "Fetched AI channel models",
+    "native_settings_updated": "Updated built-in Agent settings"
   }
 }

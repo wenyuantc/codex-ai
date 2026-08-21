@@ -118,6 +118,7 @@ pub struct Employee {
     pub system_prompt: Option<String>,
     pub project_id: Option<String>,
     pub ai_provider: String,
+    pub ai_channel_id: Option<String>,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -278,6 +279,7 @@ pub struct CodexSessionRecord {
     pub output_tokens: Option<i64>,
     pub total_tokens: Option<i64>,
     pub reasoning_tokens: Option<i64>,
+    pub cached_tokens: Option<i64>,
     pub created_at: String,
 }
 
@@ -686,6 +688,7 @@ pub struct CodexSessionListItem {
     pub output_tokens: Option<i64>,
     pub total_tokens: Option<i64>,
     pub reasoning_tokens: Option<i64>,
+    pub cached_tokens: Option<i64>,
     pub resume_status: String,
     pub resume_message: Option<String>,
     pub can_resume: bool,
@@ -807,6 +810,7 @@ pub struct CreateEmployee {
     pub system_prompt: Option<String>,
     pub project_id: Option<String>,
     pub ai_provider: Option<String>,
+    pub ai_channel_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -823,6 +827,109 @@ pub struct UpdateEmployee {
     #[serde(default, deserialize_with = "deserialize_explicit_nullable")]
     pub project_id: Option<Option<String>>,
     pub ai_provider: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_explicit_nullable")]
+    pub ai_channel_id: Option<Option<String>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+pub struct AiChannelRecord {
+    pub id: String,
+    pub name: String,
+    pub protocol: String,
+    pub base_url: String,
+    pub api_key_ref: Option<String>,
+    pub api_key: Option<String>,
+    pub extra_headers_json: Option<String>,
+    pub models_json: String,
+    pub enabled: i64,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ChannelModelConfig {
+    pub id: String,
+    #[serde(default)]
+    pub context_tokens: Option<u32>,
+    #[serde(default)]
+    pub max_output_tokens: Option<u32>,
+    #[serde(default)]
+    pub thinking_enabled: Option<bool>,
+    #[serde(default)]
+    pub thinking_level: Option<String>,
+    #[serde(default)]
+    pub thinking_levels: Option<Vec<String>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AiChannel {
+    pub id: String,
+    pub name: String,
+    pub protocol: String,
+    pub base_url: String,
+    pub extra_headers_json: Option<String>,
+    pub models: Vec<ChannelModelConfig>,
+    pub enabled: bool,
+    pub api_key: Option<String>,
+    pub api_key_configured: bool,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CreateAiChannel {
+    pub name: String,
+    pub protocol: String,
+    pub base_url: String,
+    pub api_key: Option<String>,
+    pub extra_headers_json: Option<String>,
+    pub models: Option<Vec<ChannelModelConfig>>,
+    pub enabled: Option<bool>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UpdateAiChannel {
+    pub name: Option<String>,
+    pub protocol: Option<String>,
+    pub base_url: Option<String>,
+    pub api_key: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_explicit_nullable")]
+    pub extra_headers_json: Option<Option<String>>,
+    pub models: Option<Vec<ChannelModelConfig>>,
+    pub enabled: Option<bool>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TestAiChannelPayload {
+    pub id: Option<String>,
+    pub protocol: Option<String>,
+    pub base_url: Option<String>,
+    pub api_key: Option<String>,
+    pub extra_headers_json: Option<String>,
+    pub model: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TestAiChannelResult {
+    pub ok: bool,
+    pub status: Option<u16>,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ListAiChannelModelsResult {
+    pub models: Vec<String>,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NativeSettings {
+    pub max_turns: i32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UpdateNativeSettings {
+    pub max_turns: Option<i32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1212,7 +1319,9 @@ pub struct TokenUsageSummary {
     pub output_tokens: i64,
     pub total_tokens: i64,
     pub reasoning_tokens: i64,
+    pub cached_tokens: i64,
     pub sessions_with_usage: i64,
+    pub sessions_with_cache: i64,
     pub session_count: i64,
 }
 

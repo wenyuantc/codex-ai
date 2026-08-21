@@ -350,7 +350,7 @@ async fn handle_execution_exit(
             task,
             state_record,
             facts,
-            None,
+            state_record.and_then(|item| item.last_verdict_json.as_deref()),
             "自动修复执行异常失败，需人工接管",
         )
         .await;
@@ -605,19 +605,13 @@ async fn fetch_session_exit_facts(
     .map_err(|error| format!("Failed to fetch automation restart event: {}", error))?
         > 0;
 
-    let review_verdict = sqlx::query_scalar::<_, Option<String>>(
-        "SELECT message FROM codex_session_events WHERE session_id = $1 AND event_type = 'review_verdict' ORDER BY created_at DESC LIMIT 1",
-    )
-    .bind(&session_id)
-    .fetch_optional(pool)
-    .await
-    .map_err(|error| format!("Failed to fetch review verdict: {}", error))?
-    .flatten()
-    .as_deref()
-    .map(parse_review_verdict_json)
-    .transpose()
-    .ok()
-    .flatten();
+    let review_verdict = if session_kind == "review" {
+        recover_review_verdict_json_for_session(pool, &session_id)
+            .await?
+            .and_then(|json| parse_review_verdict_json(&json).ok())
+    } else {
+        None
+    };
 
     Ok(Some(SessionExitFacts {
         session_id,

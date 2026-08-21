@@ -1,0 +1,3 @@
+{"_example": "Fill with {\"file\": \"<path>\", \"reason\": \"<why>\"}. Put spec/research files only — no code paths. Run `python3 .trellis/scripts/get_context.py --mode packages` to list available specs. Delete this line once real entries are added."}
+{"file": ".trellis/spec/backend/ai-engines.md", "reason": "start stop resume send_input matrix and session events"}
+{"file": ".trellis/spec/backend/run-queue.md", "reason": "Native live sessions count toward concurrency cap"}

@@ -46,6 +46,7 @@ Patterns:
 | Dashboard | `getDashboardStats`, `getDashboardReportSummary` |
 | Notifications | `listNotifications` |
 | Run queue | `listTaskRunQueue`, `cancelQueuedTaskRun`, `onTaskRunQueueChanged` |
+| AI channels | `listAiChannels`, `createAiChannel`, `updateAiChannel`, `deleteAiChannel`, `testAiChannel`, `listAiChannelModels` in `backend.ts`. Native session start/stop/send live in `src/lib/native.ts` (same pattern as `grok.ts`), dispatched from `aiEngine.ts` |
 
 `listTasks` rules:
 - With `projectId` (or non-empty `projectIds`): full active list for that filter (no forced LIMIT)

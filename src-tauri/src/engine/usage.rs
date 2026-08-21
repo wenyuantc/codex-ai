@@ -12,6 +12,7 @@ pub struct UsageDelta {
     pub output_tokens: Option<u64>,
     pub total_tokens: Option<u64>,
     pub reasoning_tokens: Option<u64>,
+    pub cached_tokens: Option<u64>,
 }
 
 impl UsageDelta {
@@ -20,6 +21,7 @@ impl UsageDelta {
             && self.output_tokens.is_none()
             && self.total_tokens.is_none()
             && self.reasoning_tokens.is_none()
+            && self.cached_tokens.is_none()
     }
 
     /// 终端展示行，例如 `[用量] in=812 out=45 reason=12 total=857`。
@@ -38,6 +40,11 @@ impl UsageDelta {
         if let Some(value) = self.reasoning_tokens {
             if value > 0 {
                 parts.push(format!("reason={value}"));
+            }
+        }
+        if let Some(value) = self.cached_tokens {
+            if value > 0 {
+                parts.push(format!("cache={value}"));
             }
         }
         if let Some(value) = self.total_tokens {
@@ -104,12 +111,32 @@ pub fn parse_usage_value(value: &Value) -> Option<UsageDelta> {
             "reasoning",
         ],
     );
+    let cached = usage_u64(
+        usage,
+        &[
+            "cached_tokens",
+            "cachedTokens",
+            "prompt_cache_hit_tokens",
+            "cache_read_input_tokens",
+            "cache_read_tokens",
+        ],
+    )
+    .or_else(|| {
+        ["prompt_tokens_details", "input_tokens_details"]
+            .iter()
+            .find_map(|key| {
+                usage
+                    .get(*key)
+                    .and_then(|details| usage_u64(details, &["cached_tokens", "cachedTokens"]))
+            })
+    });
 
     let delta = UsageDelta {
         input_tokens: input,
         output_tokens: output,
         total_tokens: total,
         reasoning_tokens: reasoning,
+        cached_tokens: cached,
     };
 
     if delta.is_empty() {
@@ -140,6 +167,7 @@ mod tests {
         assert_eq!(delta.output_tokens, Some(45));
         assert_eq!(delta.total_tokens, Some(857));
         assert_eq!(delta.reasoning_tokens, Some(12));
+        assert_eq!(delta.cached_tokens, None);
     }
 
     #[test]
@@ -151,6 +179,7 @@ mod tests {
         assert_eq!(delta.output_tokens, Some(20));
         assert_eq!(delta.total_tokens, Some(30));
         assert_eq!(delta.reasoning_tokens, None);
+        assert_eq!(delta.cached_tokens, None);
     }
 
     #[test]
@@ -176,6 +205,7 @@ mod tests {
         assert_eq!(delta.output_tokens, Some(12));
         assert_eq!(delta.reasoning_tokens, Some(3));
         assert_eq!(delta.total_tokens, Some(52));
+        assert_eq!(delta.cached_tokens, None);
     }
 
     #[test]
@@ -185,10 +215,38 @@ mod tests {
             output_tokens: Some(50),
             total_tokens: Some(150),
             reasoning_tokens: Some(0),
+            cached_tokens: Some(0),
         };
         assert_eq!(
             delta.format_terminal_line().as_deref(),
             Some("[用量] in=100 out=50 total=150")
+        );
+    }
+
+    #[test]
+    fn parses_cache_hit_keys_and_nested_details() {
+        let grok = parse_usage_value(&json!({
+            "usage": {
+                "input_tokens": 812,
+                "output_tokens": 45,
+                "cache_read_input_tokens": 200,
+                "cache_creation_input_tokens": 50
+            }
+        }))
+        .expect("grok usage");
+        assert_eq!(grok.cached_tokens, Some(200));
+
+        let openai = parse_usage_value(&json!({
+            "prompt_tokens": 10,
+            "completion_tokens": 4,
+            "prompt_tokens_details": { "cached_tokens": 3 }
+        }))
+        .expect("openai usage");
+        assert_eq!(openai.input_tokens, Some(10));
+        assert_eq!(openai.cached_tokens, Some(3));
+        assert_eq!(
+            openai.format_terminal_line().as_deref(),
+            Some("[用量] in=10 out=4 cache=3 total=14")
         );
     }
 }

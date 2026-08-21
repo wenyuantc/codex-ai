@@ -9,6 +9,7 @@ import { McpSettingsTab } from "@/components/settings/McpSettingsTab";
 import { PromptSettingsTab } from "@/components/settings/PromptSettingsTab";
 import { RuntimeSettingsTab } from "@/components/settings/RuntimeSettingsTab";
 import { SshSettingsTab } from "@/components/settings/SshSettingsTab";
+import { AiChannelsSettingsTab } from "@/components/settings/AiChannelsSettingsTab";
 import { EngineCapabilityBadges } from "@/components/ai/EngineCapabilityBadges";
 import {
   EMPTY_SSH_CONFIG_FORM,
@@ -61,11 +62,12 @@ import {
   type OpenCodeModelInfo,
   type RemoteOpenCodeHealthCheck,
 } from "@/lib/opencode";
+import { getNativeSettings, updateNativeSettings } from "@/lib/native";
 import { changeAppLocale } from "@/lib/i18n";
 import { getLocalePreference, type AppLocale } from "@/lib/i18n/locale";
 import { getEnvironmentModeLabel } from "@/lib/projects";
 import {
-  normalizeAiProvider,
+  normalizeCliAiProvider,
   normalizeAiCommitMessageLength,
   normalizeClaudeModel,
   normalizeModelForProvider,
@@ -96,6 +98,7 @@ const SETTINGS_TAB_KEYS: Array<{ value: SettingsTabValue; labelKey: string }> = 
   { value: "git", labelKey: "settings:tabs.git" },
   { value: "prompts", labelKey: "settings:tabs.prompts" },
   { value: "mcp", labelKey: "settings:tabs.mcp" },
+  { value: "channels", labelKey: "settings:tabs.channels" },
   { value: "ssh", labelKey: "settings:tabs.ssh" },
   { value: "database", labelKey: "settings:tabs.database" },
 ];
@@ -177,6 +180,7 @@ export function SettingsPage() {
   const [themeMode, setThemeMode] = useState<ThemeMode>(getThemePreference);
   const [locale, setLocale] = useState<AppLocale>(getLocalePreference);
   const [maxConcurrentSessions, setMaxConcurrentSessions] = useState(3);
+  const [nativeMaxTurns, setNativeMaxTurns] = useState(40);
   const [codexHealth, setCodexHealth] = useState<CodexHealthCheck | RemoteCodexHealthCheck | null>(
     null,
   );
@@ -311,7 +315,7 @@ export function SettingsPage() {
 
   function applySettingsToFormState(settings: CodexSettings) {
     const gitPreferences = settings.git_preferences ?? DEFAULT_GIT_PREFERENCES;
-    const oneShotProvider = normalizeAiProvider(settings.one_shot_preferred_provider);
+    const oneShotProvider = normalizeCliAiProvider(settings.one_shot_preferred_provider);
 
     setCodexSettings(settings);
     setTaskSdkEnabled(settings.task_sdk_enabled);
@@ -338,14 +342,14 @@ export function SettingsPage() {
     setAiCommitModelSource(normalizeAiCommitModelSource(gitPreferences.ai_commit_model_source));
     setAiCommitModel(
       normalizeModelForProvider(
-        normalizeAiProvider(gitPreferences.ai_commit_preferred_provider),
+        normalizeCliAiProvider(gitPreferences.ai_commit_preferred_provider),
         gitPreferences.ai_commit_model,
       ),
     );
-    setGitAiProvider(normalizeAiProvider(gitPreferences.ai_commit_preferred_provider));
+    setGitAiProvider(normalizeCliAiProvider(gitPreferences.ai_commit_preferred_provider));
     setAiCommitReasoningEffort(
       normalizeReasoningEffortForProvider(
-        normalizeAiProvider(gitPreferences.ai_commit_preferred_provider),
+        normalizeCliAiProvider(gitPreferences.ai_commit_preferred_provider),
         gitPreferences.ai_commit_reasoning_effort,
       ),
     );
@@ -380,12 +384,34 @@ export function SettingsPage() {
     }
   }
 
+  async function loadNativeMaxTurns() {
+    try {
+      const settings = await getNativeSettings();
+      setNativeMaxTurns(settings.max_turns ?? 40);
+    } catch (error) {
+      console.error("Failed to load native agent max turns:", error);
+    }
+  }
+
+  async function persistNativeMaxTurns(value: number) {
+    const normalized = Number.isFinite(value) ? Math.min(500, Math.max(0, Math.trunc(value))) : 40;
+    setNativeMaxTurns(normalized);
+    try {
+      const next = await updateNativeSettings({ max_turns: normalized });
+      setNativeMaxTurns(next.max_turns);
+    } catch (error) {
+      console.error("Failed to save native agent max turns:", error);
+      await loadNativeMaxTurns();
+    }
+  }
+
   async function loadRuntimeState() {
     setHealthLoading(true);
     setSdkActionError(null);
 
     try {
       await loadLocalConcurrencyLimit();
+      await loadNativeMaxTurns();
       if (isRemoteMode) {
         if (!selectedSshConfigId) {
           setCodexHealth(null);
@@ -1217,6 +1243,9 @@ export function SettingsPage() {
             maxConcurrentSessions={maxConcurrentSessions}
             onMaxConcurrentSessionsChange={setMaxConcurrentSessions}
             onMaxConcurrentSessionsCommit={(value) => void persistMaxConcurrentSessions(value)}
+            nativeMaxTurns={nativeMaxTurns}
+            onNativeMaxTurnsChange={setNativeMaxTurns}
+            onNativeMaxTurnsCommit={(value) => void persistNativeMaxTurns(value)}
             onTaskSdkEnabledChange={setTaskSdkEnabled}
             onOneShotSdkEnabledChange={setOneShotSdkEnabled}
             onOneShotPreferredProviderChange={(provider) => {
@@ -1374,6 +1403,10 @@ export function SettingsPage() {
 
         <TabsContent value="mcp">
           <McpSettingsTab />
+        </TabsContent>
+
+        <TabsContent value="channels">
+          <AiChannelsSettingsTab />
         </TabsContent>
 
         <TabsContent value="database">

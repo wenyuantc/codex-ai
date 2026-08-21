@@ -272,8 +272,7 @@ fn ssh_mux_dir() -> PathBuf {
 /// Ensure the ControlPath directory exists (Unix short-connection path only).
 fn ensure_ssh_mux_dir() -> Result<PathBuf, String> {
     let base_dir = ssh_mux_dir();
-    fs::create_dir_all(&base_dir)
-        .map_err(|error| format!("创建 SSH 复用目录失败: {error}"))?;
+    fs::create_dir_all(&base_dir).map_err(|error| format!("创建 SSH 复用目录失败: {error}"))?;
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
@@ -370,10 +369,7 @@ pub(crate) fn cleanup_ssh_mux_masters() {
         // ssh -O exit usually removes the socket; delete any leftover as fallback.
         if path.exists() {
             if let Err(error) = fs::remove_file(&path) {
-                eprintln!(
-                    "清理 SSH 复用 socket 失败: {}: {error}",
-                    path.display()
-                );
+                eprintln!("清理 SSH 复用 socket 失败: {}: {error}", path.display());
             }
         }
     }
@@ -2042,9 +2038,13 @@ pub(crate) async fn ensure_remote_opencode_sdk_runtime_layout<R: Runtime>(
         remote_shell_path_expression(&install_dir),
         shell_escape_single_quoted(OPENCODE_SDK_RUNTIME_PACKAGE_JSON),
     );
-    let init_output =
-        execute_ssh_command(app, &ssh_config, &build_remote_shell_command(&init_script, None), true)
-            .await?;
+    let init_output = execute_ssh_command(
+        app,
+        &ssh_config,
+        &build_remote_shell_command(&init_script, None),
+        true,
+    )
+    .await?;
     if !init_output.status.success() {
         let stderr = String::from_utf8_lossy(&init_output.stderr)
             .trim()
@@ -2184,8 +2184,7 @@ pub async fn validate_remote_opencode_health<R: Runtime>(
     let pool = sqlite_pool(&app).await?;
     let ssh_config = fetch_ssh_config_record_by_id(&pool, &ssh_config_id).await?;
     let install_dir = default_remote_opencode_sdk_install_dir(&ssh_config_id);
-    let health =
-        inspect_remote_opencode_runtime(&app, &ssh_config, &install_dir, None).await?;
+    let health = inspect_remote_opencode_runtime(&app, &ssh_config, &install_dir, None).await?;
     let _ = insert_activity_log(
         &pool,
         "remote_opencode_validated",
@@ -2301,10 +2300,7 @@ mod tests {
     }
 
     fn assert_unix_long_args(args: &[String]) {
-        assert_eq!(
-            args,
-            &["-o".to_string(), "ControlMaster=no".to_string(),]
-        );
+        assert_eq!(args, &["-o".to_string(), "ControlMaster=no".to_string(),]);
     }
 
     fn assert_unix_short_args(args: &[String], mode: &str) {
@@ -2421,10 +2417,7 @@ mod tests {
     #[test]
     fn remote_opencode_install_dir_is_independent_of_codex() {
         let install_dir = default_remote_opencode_sdk_install_dir("ssh-1");
-        assert_eq!(
-            install_dir,
-            "~/.codex-ai/opencode-sdk-runtime/ssh-1"
-        );
+        assert_eq!(install_dir, "~/.codex-ai/opencode-sdk-runtime/ssh-1");
         assert!(!install_dir.contains("codex-sdk-runtime"));
         assert_eq!(
             remote_opencode_sdk_bridge_path(&install_dir),
@@ -2438,19 +2431,16 @@ mod tests {
             "~/.codex-ai/opencode-sdk-runtime/ssh-1",
             Some("~/.nvm/versions/node/v22.0.0/bin/node"),
         );
-        assert!(with_home.contains(
-            "install_dir=\"$HOME/.codex-ai/opencode-sdk-runtime/ssh-1\""
-        ));
+        assert!(with_home.contains("install_dir=\"$HOME/.codex-ai/opencode-sdk-runtime/ssh-1\""));
         assert!(with_home.contains(
             "bridge_path=\"$HOME/.codex-ai/opencode-sdk-runtime/ssh-1/opencode_sdk_bridge.mjs\""
         ));
         assert!(with_home.contains("cd \"$install_dir\" && exec node \"$bridge_path\""));
 
-        let with_spaces = build_remote_opencode_sdk_bridge_command(
-            "~/Open Code Runtime/ssh id",
-            None,
-        );
-        assert!(with_spaces.contains(remote_shell_path_expression("~/Open Code Runtime/ssh id").as_str()));
+        let with_spaces =
+            build_remote_opencode_sdk_bridge_command("~/Open Code Runtime/ssh id", None);
+        assert!(with_spaces
+            .contains(remote_shell_path_expression("~/Open Code Runtime/ssh id").as_str()));
         assert!(with_spaces.contains(
             remote_shell_path_expression("~/Open Code Runtime/ssh id/opencode_sdk_bridge.mjs")
                 .as_str()

@@ -6,6 +6,7 @@ fn normalize_employee_ai_provider(value: Option<&str>) -> String {
         Some("claude") => "claude".to_string(),
         Some("opencode") => "opencode".to_string(),
         Some("grok") => "grok".to_string(),
+        Some("native") => "native".to_string(),
         _ => "codex".to_string(),
     }
 }
@@ -13,17 +14,14 @@ fn normalize_employee_ai_provider(value: Option<&str>) -> String {
 /// 按 provider 归一化员工推理强度。Grok / OpenCode 仅 low|medium|high。
 fn normalize_employee_reasoning_effort(provider: &str, value: Option<&str>) -> String {
     match provider {
-        "grok" => crate::grok::normalize_grok_reasoning_effort(value),
+        "grok" | "native" => crate::grok::normalize_grok_reasoning_effort(value),
         "opencode" => match value.map(str::trim) {
             Some(value) if matches!(value, "low" | "medium" | "high") => value.to_string(),
             _ => "high".to_string(),
         },
         "claude" => match value.map(str::trim) {
             Some(value)
-                if matches!(
-                    value,
-                    "low" | "medium" | "high" | "xhigh" | "max" | "auto"
-                ) =>
+                if matches!(value, "low" | "medium" | "high" | "xhigh" | "max" | "auto") =>
             {
                 value.to_string()
             }
@@ -41,6 +39,11 @@ fn normalize_employee_reasoning_effort(provider: &str, value: Option<&str>) -> S
 fn normalize_employee_model(provider: &str, value: Option<&str>) -> String {
     match provider {
         "grok" => crate::grok::normalize_grok_model(value),
+        "native" => value
+            .map(str::trim)
+            .filter(|item| !item.is_empty())
+            .map(ToOwned::to_owned)
+            .unwrap_or_else(|| "default".to_string()),
         "claude" => crate::claude::normalize_claude_model(value),
         "opencode" => value
             .map(str::trim)
@@ -68,6 +71,25 @@ async fn list_live_grok_employee_processes(
     employee_id: &str,
 ) -> Vec<crate::grok::ManagedGrokProcess> {
     crate::grok::list_live_grok_employee_processes(state, employee_id).await
+}
+
+async fn resolve_employee_channel_id(
+    pool: &SqlitePool,
+    provider: &str,
+    channel_id: Option<&str>,
+) -> Result<Option<String>, String> {
+    if provider != "native" {
+        return Ok(None);
+    }
+    let channel_id = channel_id
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| "内置 Agent 员工必须选择已启用的渠道".to_string())?;
+    let record = crate::native::channels::fetch_channel_record(pool, channel_id).await?;
+    if record.enabled == 0 {
+        return Err(format!("渠道「{}」已停用，无法绑定", record.name));
+    }
+    Ok(Some(record.id))
 }
 
 pub(crate) async fn fetch_employee_by_id(pool: &SqlitePool, id: &str) -> Result<Employee, String> {
@@ -98,6 +120,7 @@ async fn build_employee_runtime_status<R: Runtime>(
     claude_manager_state: &Arc<tokio::sync::Mutex<ClaudeManager>>,
     opencode_manager_state: &Arc<tokio::sync::Mutex<opencode::OpenCodeManager>>,
     grok_manager_state: &Arc<tokio::sync::Mutex<crate::grok::GrokManager>>,
+    native_manager_state: &Arc<tokio::sync::Mutex<crate::native::NativeAgentManager>>,
     employee_id: &str,
 ) -> Result<EmployeeRuntimeStatus, String> {
     let live_codex_processes =
@@ -108,12 +131,15 @@ async fn build_employee_runtime_status<R: Runtime>(
         list_live_opencode_employee_processes(opencode_manager_state, employee_id).await;
     let live_grok_processes =
         list_live_grok_employee_processes(grok_manager_state, employee_id).await;
+    let live_native_processes =
+        crate::native::list_live_native_employee_processes(native_manager_state, employee_id).await;
     let pool = sqlite_pool(app).await?;
     let latest_session = fetch_latest_employee_session(app, employee_id).await?;
     let total = live_codex_processes.len()
         + live_claude_processes.len()
         + live_opencode_processes.len()
-        + live_grok_processes.len();
+        + live_grok_processes.len()
+        + live_native_processes.len();
     let mut sessions = Vec::with_capacity(total);
 
     for session_record_id in live_codex_processes
@@ -134,15 +160,22 @@ async fn build_employee_runtime_status<R: Runtime>(
                 .into_iter()
                 .map(|process| process.session_record_id),
         )
+        .chain(
+            live_native_processes
+                .into_iter()
+                .map(|process| process.session_record_id),
+        )
     {
         let session = fetch_codex_session_by_id(app, &session_record_id).await?;
         let task_title = if let Some(task_id) = session.task_id.as_deref() {
-            sqlx::query_scalar::<_, Option<String>>("SELECT title FROM tasks WHERE id = $1 AND deleted_at IS NULL LIMIT 1")
-                .bind(task_id)
-                .fetch_optional(&pool)
-                .await
-                .map_err(|error| format!("Failed to fetch task title: {}", error))?
-                .flatten()
+            sqlx::query_scalar::<_, Option<String>>(
+                "SELECT title FROM tasks WHERE id = $1 AND deleted_at IS NULL LIMIT 1",
+            )
+            .bind(task_id)
+            .fetch_optional(&pool)
+            .await
+            .map_err(|error| format!("Failed to fetch task title: {}", error))?
+            .flatten()
         } else {
             None
         };
@@ -180,6 +213,7 @@ pub async fn get_employee_runtime_status<R: Runtime>(
     claude_state: State<'_, Arc<tokio::sync::Mutex<ClaudeManager>>>,
     opencode_state: State<'_, Arc<tokio::sync::Mutex<opencode::OpenCodeManager>>>,
     grok_state: State<'_, Arc<tokio::sync::Mutex<crate::grok::GrokManager>>>,
+    native_state: State<'_, Arc<tokio::sync::Mutex<crate::native::NativeAgentManager>>>,
     employee_id: String,
 ) -> Result<EmployeeRuntimeStatus, String> {
     build_employee_runtime_status(
@@ -188,6 +222,7 @@ pub async fn get_employee_runtime_status<R: Runtime>(
         claude_state.inner(),
         opencode_state.inner(),
         grok_state.inner(),
+        native_state.inner(),
         &employee_id,
     )
     .await
@@ -200,6 +235,7 @@ pub async fn get_codex_session_status<R: Runtime>(
     claude_state: State<'_, Arc<tokio::sync::Mutex<ClaudeManager>>>,
     opencode_state: State<'_, Arc<tokio::sync::Mutex<opencode::OpenCodeManager>>>,
     grok_state: State<'_, Arc<tokio::sync::Mutex<crate::grok::GrokManager>>>,
+    native_state: State<'_, Arc<tokio::sync::Mutex<crate::native::NativeAgentManager>>>,
     employee_id: String,
 ) -> Result<CodexRuntimeStatus, String> {
     let runtime = build_employee_runtime_status(
@@ -208,6 +244,7 @@ pub async fn get_codex_session_status<R: Runtime>(
         claude_state.inner(),
         opencode_state.inner(),
         grok_state.inner(),
+        native_state.inner(),
         &employee_id,
     )
     .await?;
@@ -235,6 +272,12 @@ pub async fn create_employee<R: Runtime>(
     }
 
     let ai_provider = normalize_employee_ai_provider(payload.ai_provider.as_deref());
+    let ai_channel_id = resolve_employee_channel_id(
+        &pool,
+        ai_provider.as_str(),
+        payload.ai_channel_id.as_deref(),
+    )
+    .await?;
     let employee = Employee {
         id: new_id(),
         name: payload.name.trim().to_string(),
@@ -249,6 +292,7 @@ pub async fn create_employee<R: Runtime>(
         system_prompt: normalize_optional_text(payload.system_prompt.as_deref()),
         project_id,
         ai_provider,
+        ai_channel_id,
         created_at: now_sqlite(),
         updated_at: now_sqlite(),
     };
@@ -258,7 +302,7 @@ pub async fn create_employee<R: Runtime>(
     }
 
     sqlx::query(
-        "INSERT INTO employees (id, name, role, model, reasoning_effort, status, specialization, system_prompt, project_id, ai_provider, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)",
+        "INSERT INTO employees (id, name, role, model, reasoning_effort, status, specialization, system_prompt, project_id, ai_provider, ai_channel_id, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)",
     )
     .bind(&employee.id)
     .bind(&employee.name)
@@ -270,6 +314,7 @@ pub async fn create_employee<R: Runtime>(
     .bind(&employee.system_prompt)
     .bind(&employee.project_id)
     .bind(&employee.ai_provider)
+    .bind(&employee.ai_channel_id)
     .bind(&employee.created_at)
     .bind(&employee.updated_at)
     .execute(&pool)
@@ -377,11 +422,27 @@ pub async fn update_employee<R: Runtime>(
             );
         }
         if !model_updated {
-            separated.push("model = ").push_bind_unseparated(normalize_employee_model(
-                next_provider.as_str(),
-                Some(current.model.as_str()),
-            ));
+            separated
+                .push("model = ")
+                .push_bind_unseparated(normalize_employee_model(
+                    next_provider.as_str(),
+                    Some(current.model.as_str()),
+                ));
         }
+    }
+
+    let requested_channel = updates
+        .ai_channel_id
+        .as_ref()
+        .map(|value| value.as_deref())
+        .unwrap_or(current.ai_channel_id.as_deref());
+    if next_provider == "native" || updates.ai_channel_id.is_some() || provider_updated {
+        let channel_id =
+            resolve_employee_channel_id(&pool, next_provider.as_str(), requested_channel).await?;
+        separated
+            .push("ai_channel_id = ")
+            .push_bind_unseparated(channel_id);
+        touched = true;
     }
 
     if !touched {
@@ -405,6 +466,7 @@ pub async fn delete_employee<R: Runtime>(
     claude_state: State<'_, Arc<tokio::sync::Mutex<ClaudeManager>>>,
     opencode_state: State<'_, Arc<tokio::sync::Mutex<opencode::OpenCodeManager>>>,
     grok_state: State<'_, Arc<tokio::sync::Mutex<crate::grok::GrokManager>>>,
+    native_state: State<'_, Arc<tokio::sync::Mutex<crate::native::NativeAgentManager>>>,
     id: String,
 ) -> Result<(), String> {
     if !crate::codex::list_live_employee_processes(&app, state.inner(), &id)
@@ -430,6 +492,12 @@ pub async fn delete_employee<R: Runtime>(
         .is_empty()
     {
         return Err("员工仍有运行中的 Grok 会话，不能删除".to_string());
+    }
+    if !crate::native::list_live_native_employee_processes(native_state.inner(), &id)
+        .await
+        .is_empty()
+    {
+        return Err("员工仍有运行中的内置 Agent 会话，不能删除".to_string());
     }
 
     let pool = sqlite_pool(&app).await?;

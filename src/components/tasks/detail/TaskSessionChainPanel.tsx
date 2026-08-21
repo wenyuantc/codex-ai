@@ -8,10 +8,7 @@ import { SshArtifactLimitedNotice } from "@/components/sessions/SshArtifactLimit
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { listActivityLogs, listCodexSessions, prepareCodexSessionResume } from "@/lib/backend";
-import { startClaude, stopClaudeSession } from "@/lib/claude";
-import { startGrok, stopGrokSession } from "@/lib/grok";
-import { startCodex, stopCodexSession } from "@/lib/codex";
-import { startOpenCode, stopOpenCodeSession } from "@/lib/opencode";
+import { startByProvider, stopSessionByProvider } from "@/lib/aiEngine";
 import type {
   ActivityLog,
   AiProvider,
@@ -50,6 +47,8 @@ function aiProviderBadgeVariant(provider: AiProvider): "default" | "secondary" |
       return "outline";
     case "grok":
       return "outline";
+    case "native":
+      return "secondary";
     default:
       return "outline";
   }
@@ -295,23 +294,12 @@ export function TaskSessionChainPanel({ taskId, active = true }: TaskSessionChai
         sessionKind: preview.session_kind ?? undefined,
       };
 
-      if (preview.ai_provider === "claude") {
-        await startClaude(preview.employee_id, prompt, startOptions);
-      } else if (preview.ai_provider === "opencode") {
-        await startOpenCode({
-          employeeId: preview.employee_id,
-          taskDescription: prompt,
-          model: employee?.model,
-          workingDir: preview.working_dir ?? undefined,
-          taskId: preview.task_id ?? undefined,
-          taskGitContextId: preview.task_git_context_id ?? undefined,
-          resumeSessionId: preview.resolved_session_id,
-        });
-      } else if (preview.ai_provider === "grok") {
-        await startGrok(preview.employee_id, prompt, startOptions);
-      } else {
-        await startCodex(preview.employee_id, prompt, startOptions);
-      }
+      await startByProvider(
+        preview.ai_provider || "codex",
+        preview.employee_id,
+        prompt,
+        startOptions,
+      );
 
       await refreshEmployeeRuntimeStatus(preview.employee_id);
       setContinueDialogOpen(false);
@@ -337,16 +325,10 @@ export function TaskSessionChainPanel({ taskId, active = true }: TaskSessionChai
     setInfoMessage(null);
 
     try {
-      const provider = normalizeAiProvider(session.ai_provider);
-      if (provider === "claude") {
-        await stopClaudeSession(session.session_record_id);
-      } else if (provider === "opencode") {
-        await stopOpenCodeSession(session.session_record_id);
-      } else if (provider === "grok") {
-        await stopGrokSession(session.session_record_id);
-      } else {
-        await stopCodexSession(session.session_record_id);
-      }
+      await stopSessionByProvider(
+        normalizeAiProvider(session.ai_provider),
+        session.session_record_id,
+      );
 
       if (session.employee_id) {
         await refreshEmployeeRuntimeStatus(session.employee_id);

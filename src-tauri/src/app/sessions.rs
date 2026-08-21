@@ -260,6 +260,7 @@ pub(crate) async fn insert_codex_session_record<R: Runtime>(
         output_tokens: None,
         total_tokens: None,
         reasoning_tokens: None,
+        cached_tokens: None,
         created_at: now_sqlite(),
     };
 
@@ -361,7 +362,8 @@ pub(crate) async fn apply_codex_session_usage(
          input_tokens = CASE WHEN $2 IS NULL THEN input_tokens ELSE COALESCE(input_tokens, 0) + $2 END, \
          output_tokens = CASE WHEN $3 IS NULL THEN output_tokens ELSE COALESCE(output_tokens, 0) + $3 END, \
          total_tokens = CASE WHEN $4 IS NULL THEN total_tokens ELSE COALESCE(total_tokens, 0) + $4 END, \
-         reasoning_tokens = CASE WHEN $5 IS NULL THEN reasoning_tokens ELSE COALESCE(reasoning_tokens, 0) + $5 END \
+         reasoning_tokens = CASE WHEN $5 IS NULL THEN reasoning_tokens ELSE COALESCE(reasoning_tokens, 0) + $5 END, \
+         cached_tokens = CASE WHEN $6 IS NULL THEN cached_tokens ELSE COALESCE(cached_tokens, 0) + $6 END \
          WHERE id = $1",
     )
     .bind(session_record_id)
@@ -369,6 +371,7 @@ pub(crate) async fn apply_codex_session_usage(
     .bind(usage.output_tokens.map(|value| value as i64))
     .bind(usage.total_tokens.map(|value| value as i64))
     .bind(usage.reasoning_tokens.map(|value| value as i64))
+    .bind(usage.cached_tokens.map(|value| value as i64))
     .execute(pool)
     .await
     .map_err(|error| format!("Failed to apply session usage: {}", error))?;
@@ -462,6 +465,7 @@ async fn has_running_session_conflict<R: Runtime>(
     manager_state: &Arc<Mutex<CodexManager>>,
     claude_manager_state: &Arc<tokio::sync::Mutex<ClaudeManager>>,
     grok_manager_state: &Arc<tokio::sync::Mutex<crate::grok::GrokManager>>,
+    native_manager_state: &Arc<tokio::sync::Mutex<crate::native::NativeAgentManager>>,
     employee_id: Option<&str>,
     task_id: Option<&str>,
     session_kind: &str,
@@ -493,7 +497,16 @@ async fn has_running_session_conflict<R: Runtime>(
                 )
                 .is_some()
         };
-        return Ok(has_codex_conflict || has_claude_conflict || has_grok_conflict);
+        let has_native_conflict = {
+            let manager = native_manager_state.lock().await;
+            manager
+                .get_task_process_any(task_id, session_kind)
+                .is_some()
+        };
+        return Ok(has_codex_conflict
+            || has_claude_conflict
+            || has_grok_conflict
+            || has_native_conflict);
     }
 
     let Some(employee_id) = employee_id else {
@@ -512,8 +525,12 @@ async fn has_running_session_conflict<R: Runtime>(
         !crate::grok::list_live_grok_employee_processes(grok_manager_state, employee_id)
             .await
             .is_empty();
+    let has_native_processes =
+        !crate::native::list_live_native_employee_processes(native_manager_state, employee_id)
+            .await
+            .is_empty();
 
-    Ok(has_codex_processes || has_claude_processes || has_grok_processes)
+    Ok(has_codex_processes || has_claude_processes || has_grok_processes || has_native_processes)
 }
 
 fn format_session_log_line(event_type: &str, message: &str) -> Option<String> {
@@ -1196,6 +1213,7 @@ async fn query_codex_session_list<R: Runtime>(
             s.output_tokens AS output_tokens,
             s.total_tokens AS total_tokens,
             s.reasoning_tokens AS reasoning_tokens,
+            s.cached_tokens AS cached_tokens,
             '' AS resume_status,
             NULL AS resume_message,
             0 AS can_resume
@@ -1217,6 +1235,7 @@ pub async fn list_codex_sessions<R: Runtime>(
     state: State<'_, Arc<Mutex<CodexManager>>>,
     claude_state: State<'_, Arc<tokio::sync::Mutex<ClaudeManager>>>,
     grok_state: State<'_, Arc<tokio::sync::Mutex<crate::grok::GrokManager>>>,
+    native_state: State<'_, Arc<tokio::sync::Mutex<crate::native::NativeAgentManager>>>,
 ) -> Result<Vec<CodexSessionListItem>, String> {
     let mut items = query_codex_session_list(&app).await?;
     let employee_ids = items
@@ -1234,11 +1253,15 @@ pub async fn list_codex_sessions<R: Runtime>(
                 .await;
         let live_grok_processes =
             crate::grok::list_live_grok_employee_processes(grok_state.inner(), &employee_id).await;
+        let live_native_processes =
+            crate::native::list_live_native_employee_processes(native_state.inner(), &employee_id)
+                .await;
         running_by_employee.insert(
             employee_id.clone(),
             !live_processes.is_empty()
                 || !live_claude_processes.is_empty()
-                || !live_grok_processes.is_empty(),
+                || !live_grok_processes.is_empty()
+                || !live_native_processes.is_empty(),
         );
         for process in live_processes {
             if let Some(task_id) = process.task_id.as_deref() {
@@ -1257,6 +1280,14 @@ pub async fn list_codex_sessions<R: Runtime>(
             }
         }
         for process in live_grok_processes {
+            if let Some(task_id) = process.task_id.as_deref() {
+                running_by_task_session.insert(running_task_session_key(
+                    task_id,
+                    process.session_kind.as_str(),
+                ));
+            }
+        }
+        for process in live_native_processes {
             if let Some(task_id) = process.task_id.as_deref() {
                 running_by_task_session.insert(running_task_session_key(
                     task_id,
@@ -1302,6 +1333,7 @@ pub async fn prepare_codex_session_resume<R: Runtime>(
     state: State<'_, Arc<Mutex<CodexManager>>>,
     claude_state: State<'_, Arc<tokio::sync::Mutex<ClaudeManager>>>,
     grok_state: State<'_, Arc<tokio::sync::Mutex<crate::grok::GrokManager>>>,
+    native_state: State<'_, Arc<tokio::sync::Mutex<crate::native::NativeAgentManager>>>,
     session_id: String,
 ) -> Result<CodexSessionResumePreview, String> {
     let mut items = query_codex_session_list(&app).await?;
@@ -1341,6 +1373,7 @@ pub async fn prepare_codex_session_resume<R: Runtime>(
         state.inner(),
         claude_state.inner(),
         grok_state.inner(),
+        native_state.inner(),
         item.employee_id.as_deref(),
         item.task_id.as_deref(),
         &item.session_kind,
@@ -1459,10 +1492,12 @@ pub async fn get_task_token_usage<R: Runtime>(
     task_id: String,
 ) -> Result<crate::db::models::TokenUsageSummary, String> {
     let pool = sqlite_pool(&app).await?;
-    let row = sqlx::query_as::<_, (i64, i64, i64, i64, i64, i64)>(
+    let row = sqlx::query_as::<_, (i64, i64, i64, i64, i64, i64, i64, i64)>(
         "SELECT COALESCE(SUM(input_tokens), 0), COALESCE(SUM(output_tokens), 0), \
          COALESCE(SUM(total_tokens), 0), COALESCE(SUM(reasoning_tokens), 0), \
-         COALESCE(SUM(CASE WHEN input_tokens IS NOT NULL OR output_tokens IS NOT NULL OR total_tokens IS NOT NULL OR reasoning_tokens IS NOT NULL THEN 1 ELSE 0 END), 0), \
+         COALESCE(SUM(cached_tokens), 0), \
+         COALESCE(SUM(CASE WHEN input_tokens IS NOT NULL OR output_tokens IS NOT NULL OR total_tokens IS NOT NULL OR reasoning_tokens IS NOT NULL OR cached_tokens IS NOT NULL THEN 1 ELSE 0 END), 0), \
+         COALESCE(SUM(CASE WHEN cached_tokens IS NOT NULL THEN 1 ELSE 0 END), 0), \
          COUNT(*) \
          FROM codex_sessions WHERE task_id = $1",
     )
@@ -1476,8 +1511,10 @@ pub async fn get_task_token_usage<R: Runtime>(
         output_tokens: row.1,
         total_tokens: row.2,
         reasoning_tokens: row.3,
-        sessions_with_usage: row.4,
-        session_count: row.5,
+        cached_tokens: row.4,
+        sessions_with_usage: row.5,
+        sessions_with_cache: row.6,
+        session_count: row.7,
     })
 }
 

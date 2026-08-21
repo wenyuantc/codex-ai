@@ -123,6 +123,12 @@
       "timerStartedAt": "计时开始",
       "completedAt": "完成时间",
       "notCompleted": "未完成",
+      "usage": "用量",
+      "usageInput": "输入",
+      "usageOutput": "输出",
+      "usageTotal": "总用量",
+      "usageCacheRate": "缓存率",
+      "usageEmpty": "—",
       "deleteTask": "删除任务",
       "deleteDisabledRunning": "运行中的任务不能删除，请先停止"
     },

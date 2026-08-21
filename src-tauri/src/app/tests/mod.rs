@@ -14,7 +14,8 @@ pub(super) use super::{
     fetch_task_automation_state_record, fetch_task_by_id, fetch_task_latest_review,
     filter_image_attachments, import_tasks_json_with_pool, insert_task_record,
     is_task_automation_active_for_archival, list_tasks_with_pool, normalize_global_search_types,
-    normalize_runtime_path_string, persist_review_session_events, record_completion_metric,
+    normalize_runtime_path_string, persist_review_session_events,
+    persist_review_session_events_from_session_logs, record_completion_metric,
     record_task_review_requested_activity, remote_shell_path_expression,
     remote_task_attachment_dir, remote_task_attachment_path, resolve_project_task_default_settings,
     resolve_running_conflict_message, resolve_session_resume_state,
@@ -30,12 +31,12 @@ pub(super) use super::{
 };
 pub(super) use crate::db::models::GitPreferences;
 
+mod dashboard_report;
 mod review_and_attachments;
 mod runtime_and_paths;
 mod sql_and_session;
 mod task_lifecycle;
 mod tasks_json;
-mod dashboard_report;
 mod templates;
 
 pub(super) async fn setup_test_pool() -> SqlitePool {

@@ -76,7 +76,10 @@ pub async fn resolve_system_executable(
     binary_name: &str,
     path_override: Option<&str>,
 ) -> Result<PathBuf, String> {
-    let explicit_path = match path_override.map(str::trim).filter(|value| !value.is_empty()) {
+    let explicit_path = match path_override
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
         Some(value) => {
             let path = PathBuf::from(value);
             if is_executable_file(&path) {
@@ -338,10 +341,7 @@ fn nvm_root_dir(home: &Path) -> PathBuf {
 fn resolve_nvm_default_bin_dir(nvm_dir: &Path) -> Option<PathBuf> {
     let alias_default = fs::read_to_string(nvm_dir.join("alias/default")).ok()?;
     let version_name = resolve_nvm_alias_target(nvm_dir, alias_default.trim(), 0)?;
-    let bin_dir = nvm_dir
-        .join("versions/node")
-        .join(version_name)
-        .join("bin");
+    let bin_dir = nvm_dir.join("versions/node").join(version_name).join("bin");
     bin_dir.is_dir().then_some(bin_dir)
 }
 
@@ -587,7 +587,9 @@ mod tests {
         unique_dirs,
     };
     #[cfg(not(target_os = "windows"))]
-    use super::{parse_node_version_sort_key, resolve_nvm_alias_target, resolve_nvm_default_bin_dir};
+    use super::{
+        parse_node_version_sort_key, resolve_nvm_alias_target, resolve_nvm_default_bin_dir,
+    };
     use std::fs;
     use std::path::{Path, PathBuf};
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -697,7 +699,12 @@ mod tests {
             .build()
             .expect("build tokio runtime");
         let resolved = runtime
-            .block_on(resolve_executable("npm", &[], None, std::slice::from_ref(&bin_dir)))
+            .block_on(resolve_executable(
+                "npm",
+                &[],
+                None,
+                std::slice::from_ref(&bin_dir),
+            ))
             .expect("resolve npm from extra search dir");
 
         assert_eq!(resolved, npm);
@@ -710,9 +717,7 @@ mod tests {
     fn parse_node_version_sort_key_handles_v_prefix() {
         assert_eq!(parse_node_version_sort_key("v22.19.0"), vec![22, 19, 0]);
         assert_eq!(parse_node_version_sort_key("20.19.2"), vec![20, 19, 2]);
-        assert!(
-            parse_node_version_sort_key("v22.19.0") > parse_node_version_sort_key("v20.19.2")
-        );
+        assert!(parse_node_version_sort_key("v22.19.0") > parse_node_version_sort_key("v20.19.2"));
     }
 
     #[cfg(not(target_os = "windows"))]

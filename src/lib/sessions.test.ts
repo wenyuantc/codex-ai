@@ -104,6 +104,7 @@ describe("formatSessionTokenUsage", () => {
 describe("formatAiProviderLabel", () => {
   it("uses the provider option label", () => {
     expect(formatAiProviderLabel("codex")).toBe("Codex (OpenAI)");
+    expect(formatAiProviderLabel("native")).toBe("内置 Agent");
   });
 });
 

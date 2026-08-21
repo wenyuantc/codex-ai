@@ -30,6 +30,14 @@ import {
   type GrokSession,
 } from "@/lib/grok";
 import {
+  onNativeExit,
+  onNativeOutput,
+  onNativeSession,
+  type NativeExit,
+  type NativeOutput,
+  type NativeSession,
+} from "@/lib/native";
+import {
   onOpenCodeExit,
   onOpenCodeOutput,
   onOpenCodeSession,
@@ -61,6 +69,7 @@ interface EmployeeStore {
     system_prompt?: string;
     project_id?: string;
     ai_provider?: AiProvider;
+    ai_channel_id?: string | null;
   }) => Promise<void>;
   updateEmployee: (
     id: string,
@@ -76,6 +85,7 @@ interface EmployeeStore {
         | "project_id"
         | "status"
         | "ai_provider"
+        | "ai_channel_id"
       >
     >,
   ) => Promise<void>;
@@ -531,6 +541,53 @@ export const useEmployeeStore = create<EmployeeStore>((set, get) => ({
               void get().updateEmployeeStatus(
                 exit.employee_id,
                 exit.status === "exited" ? "offline" : "error",
+              );
+            }
+          })();
+        }),
+        onNativeOutput((output: NativeOutput) => {
+          get().addCodexOutput(
+            output.employee_id,
+            output.line,
+            output.task_id,
+            output.session_kind,
+            output.session_record_id,
+            output.session_event_id,
+          );
+        }),
+        onNativeSession((session: NativeSession) => {
+          set((state) => ({
+            employees: state.employees.map((employee) =>
+              employee.id === session.employee_id ? { ...employee, status: "busy" } : employee,
+            ),
+          }));
+          void get().refreshEmployeeRuntimeStatus(session.employee_id);
+        }),
+        onNativeExit((exit: NativeExit) => {
+          if (exit.line) {
+            get().addCodexOutput(
+              exit.employee_id,
+              exit.line,
+              exit.task_id,
+              exit.session_kind,
+              exit.session_record_id,
+              exit.session_event_id,
+            );
+          }
+
+          void (async () => {
+            const runtime = await syncEmployeeRuntime(exit.employee_id).catch((error) => {
+              console.error(
+                `Failed to sync runtime after native exit for ${exit.employee_id}:`,
+                error,
+              );
+              return null;
+            });
+
+            if (!runtime?.running) {
+              void get().updateEmployeeStatus(
+                exit.employee_id,
+                exit.code === 0 ? "offline" : "error",
               );
             }
           })();

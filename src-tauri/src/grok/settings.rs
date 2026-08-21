@@ -68,7 +68,9 @@ fn format_grok_model_label(model_id: &str) -> String {
 }
 
 /// 解析 `grok models` 文本输出。
-pub fn parse_grok_models_output(output: &str) -> (Vec<GrokModelInfo>, Option<bool>, Option<String>) {
+pub fn parse_grok_models_output(
+    output: &str,
+) -> (Vec<GrokModelInfo>, Option<bool>, Option<String>) {
     let mut models = Vec::new();
     let mut auth_ok: Option<bool> = None;
     let mut default_model: Option<String> = None;
@@ -104,9 +106,7 @@ pub fn parse_grok_models_output(output: &str) -> (Vec<GrokModelInfo>, Option<boo
         }
 
         // 形如: "* grok-4.5 (default)" / "- grok-4.5"
-        let candidate = trimmed
-            .trim_start_matches(['*', '-', '•'])
-            .trim();
+        let candidate = trimmed.trim_start_matches(['*', '-', '•']).trim();
         if candidate.is_empty() {
             continue;
         }
@@ -134,7 +134,10 @@ pub fn parse_grok_models_output(output: &str) -> (Vec<GrokModelInfo>, Option<boo
             || default_model
                 .as_deref()
                 .is_some_and(|value| value == id_part);
-        if models.iter().any(|item: &GrokModelInfo| item.value == id_part) {
+        if models
+            .iter()
+            .any(|item: &GrokModelInfo| item.value == id_part)
+        {
             continue;
         }
         models.push(GrokModelInfo {
@@ -194,7 +197,10 @@ pub fn load_grok_settings<R: Runtime>(app: &AppHandle<R>) -> Result<GrokSettings
     Ok(normalize_settings(&raw))
 }
 
-fn save_grok_settings<R: Runtime>(app: &AppHandle<R>, settings: &GrokSettings) -> Result<(), String> {
+fn save_grok_settings<R: Runtime>(
+    app: &AppHandle<R>,
+    settings: &GrokSettings,
+) -> Result<(), String> {
     let path = settings_path(app)?;
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).map_err(|error| format!("创建 Grok 设置目录失败: {error}"))?;
@@ -362,9 +368,7 @@ async fn resolve_from_shell(binary_name: &str) -> Option<PathBuf> {
     None
 }
 
-pub async fn resolve_grok_executable_path(
-    settings: &GrokSettings,
-) -> Result<PathBuf, String> {
+pub async fn resolve_grok_executable_path(settings: &GrokSettings) -> Result<PathBuf, String> {
     if let Some(cli_path_override) = settings
         .cli_path_override
         .as_deref()
@@ -375,10 +379,7 @@ pub async fn resolve_grok_executable_path(
         if is_executable_file(&path) {
             return Ok(path);
         }
-        return Err(format!(
-            "配置的 grok 路径无效：{}",
-            path.to_string_lossy()
-        ));
+        return Err(format!("配置的 grok 路径无效：{}", path.to_string_lossy()));
     }
 
     if let Some(path) = resolve_from_env_override(GROK_PATH_ENV_VARS) {
@@ -597,24 +598,27 @@ pub async fn install_grok_cli_runtime<R: Runtime>(
         .map(|value| !is_executable_file(Path::new(value)))
         .unwrap_or(false);
 
-    let (cli_path, cli_version, cli_available, message) =
-        match resolve_grok_executable_path(&settings).await {
-            Ok(path) => match read_grok_cli_version(&path).await {
-                Ok(version) => (
-                    Some(path.to_string_lossy().to_string()),
-                    Some(version.clone()),
-                    true,
-                    format!("Grok CLI 安装完成，版本 {version}"),
-                ),
-                Err(error) => (
-                    Some(path.to_string_lossy().to_string()),
-                    None,
-                    false,
-                    format!("Grok CLI 安装完成，但版本检测失败：{error}"),
-                ),
-            },
-            Err(resolve_error) if override_invalid => {
-                match resolve_grok_default_executable_path().await {
+    let (cli_path, cli_version, cli_available, message) = match resolve_grok_executable_path(
+        &settings,
+    )
+    .await
+    {
+        Ok(path) => match read_grok_cli_version(&path).await {
+            Ok(version) => (
+                Some(path.to_string_lossy().to_string()),
+                Some(version.clone()),
+                true,
+                format!("Grok CLI 安装完成，版本 {version}"),
+            ),
+            Err(error) => (
+                Some(path.to_string_lossy().to_string()),
+                None,
+                false,
+                format!("Grok CLI 安装完成，但版本检测失败：{error}"),
+            ),
+        },
+        Err(resolve_error) if override_invalid => {
+            match resolve_grok_default_executable_path().await {
                     Some(default_path) => {
                         let version = read_grok_cli_version(&default_path).await.ok();
                         let version_text = version
@@ -639,14 +643,14 @@ pub async fn install_grok_cli_runtime<R: Runtime>(
                         ),
                     ),
                 }
-            }
-            Err(error) => (
-                None,
-                None,
-                false,
-                format!("Grok CLI 安装脚本已完成，但未能解析可执行文件：{error}"),
-            ),
-        };
+        }
+        Err(error) => (
+            None,
+            None,
+            false,
+            format!("Grok CLI 安装脚本已完成，但未能解析可执行文件：{error}"),
+        ),
+    };
 
     if cli_available {
         if let Ok(pool) = sqlite_pool(app).await {
@@ -654,7 +658,8 @@ pub async fn install_grok_cli_runtime<R: Runtime>(
                 .as_deref()
                 .or(cli_version.as_deref())
                 .unwrap_or("local");
-            let _ = insert_activity_log(&pool, "grok_cli_installed", detail, None, None, None).await;
+            let _ =
+                insert_activity_log(&pool, "grok_cli_installed", detail, None, None, None).await;
         }
     }
 
@@ -694,17 +699,13 @@ pub async fn update_grok_settings<R: Runtime>(
 }
 
 #[tauri::command]
-pub async fn check_grok_health<R: Runtime>(
-    app: AppHandle<R>,
-) -> Result<GrokHealthCheck, String> {
+pub async fn check_grok_health<R: Runtime>(app: AppHandle<R>) -> Result<GrokHealthCheck, String> {
     let settings = load_grok_settings(&app)?;
     Ok(inspect_grok_runtime(&app, &settings).await)
 }
 
 #[tauri::command]
-pub async fn list_grok_models<R: Runtime>(
-    app: AppHandle<R>,
-) -> Result<Vec<GrokModelInfo>, String> {
+pub async fn list_grok_models<R: Runtime>(app: AppHandle<R>) -> Result<Vec<GrokModelInfo>, String> {
     let settings = load_grok_settings(&app)?;
     let cli_path = match resolve_grok_executable_path(&settings).await {
         Ok(path) => path,
@@ -756,7 +757,9 @@ Available models:
         let (models, auth_ok, default_model) = parse_grok_models_output(output);
         assert_eq!(auth_ok, Some(true));
         assert_eq!(default_model.as_deref(), Some("grok-4.5"));
-        assert!(models.iter().any(|item| item.value == "grok-4.5" && item.is_default));
+        assert!(models
+            .iter()
+            .any(|item| item.value == "grok-4.5" && item.is_default));
         assert!(models.iter().any(|item| item.value == "grok-code-fast"));
     }
 }

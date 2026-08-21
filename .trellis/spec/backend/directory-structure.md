@@ -30,6 +30,18 @@ src-tauri/
     │   ├── models.rs           # FromRow entities + command DTOs
     │   └── migrations.rs       # ordered Migration list
     ├── engine/                 # Shared AI process kernel (context/child/manager/status/usage)
+    ├── native/                 # In-process built-in Agent (channels, model client, tools, loop, manager)
+    │   ├── channels.rs         # ai_channels CRUD + probe
+    │   ├── secret_store.rs     # legacy keyring migrate for `codex-ai-channel`; new keys live in `ai_channels.api_key`
+    │   ├── protocol.rs         # openai | anthropic | codex URL/header/model JSON
+    │   ├── model/              # SSE clients for Chat Completions / Messages / Responses
+    │   ├── tools/              # Read/Write/Edit/Bash/Glob/Grep/Todo/Web + local/SSH
+    │   ├── agent/              # multi-turn loop + truncation + compact
+    │   ├── prompt/             # identity.md + AGENTS/CLAUDE load + global template
+    │   ├── manager.rs          # HashMap of live tokio sessions (not EngineChild)
+    │   ├── session.rs          # start/stop/restart/resume/send_input Tauri commands
+    │   ├── settings.rs         # native-settings.json (`max_turns`)
+    │   └── images.rs           # local image load → base64 for model requests
     ├── codex/                  # Codex engine manager/process/settings/mcp/secrets
     ├── claude/                 # Claude engine
     ├── opencode/               # OpenCode engine
@@ -76,8 +88,9 @@ src-tauri/
 | DB maintenance / provider capabilities | `app/database.rs` |
 | Shared pure helpers / constants | `app/shared.rs` |
 | Git UX commands | `git_workflow/` (`crate::git_workflow`) |
-| Shared engine process kernel | `engine/` (`ExecutionContext`, `EngineChild`, `ProcessManager`) |
+| Shared engine process kernel | `engine/` (`ExecutionContext`, `EngineChild`, `ProcessManager`) — **CLI engines only** |
 | Engine process lifecycle / protocol | `codex|claude|opencode|grok` (stream + launch; manager/context re-export kernel) |
+| In-process built-in Agent | `native/` (`NativeAgentManager` + channels/model/tools/agent/session) |
 | Auto review/fix state machine | `task_automation` (+ `task_automation/*` slices) |
 | Sticky/transient notifications | `notifications.rs` |
 
@@ -93,7 +106,7 @@ src-tauri/
 ## State Managed At Startup (`lib.rs`)
 
 - SQL plugin with migrations for `sqlite:codex-ai.db`
-- `CodexManager`, `ClaudeManager`, `OpenCodeManager`, `GrokManager` in Tauri state
+- `CodexManager`, `ClaudeManager`, `OpenCodeManager`, `GrokManager`, `NativeAgentManager` in Tauri state
 - Tray + window size restore
 - Resume pending task automation
 - Optional OpenCode SDK server spawn on startup

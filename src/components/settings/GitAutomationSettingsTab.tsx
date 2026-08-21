@@ -13,7 +13,7 @@ import {
 import {
   AI_COMMIT_MODEL_SOURCE_OPTIONS,
   AI_COMMIT_MESSAGE_LENGTH_OPTIONS,
-  AI_PROVIDER_OPTIONS,
+  CLI_AI_PROVIDER_OPTIONS,
   CODEX_MODEL_OPTIONS,
   CLAUDE_MODEL_OPTIONS,
   CLAUDE_THINKING_BUDGET_OPTIONS,
@@ -192,7 +192,7 @@ export function GitAutomationSettingsTab({
       description: t(`git.options.commitModelSource.${key}.description`),
     };
   });
-  const providerOptions = AI_PROVIDER_OPTIONS.map((option) => ({
+  const providerOptions = CLI_AI_PROVIDER_OPTIONS.map((option) => ({
     ...option,
     label: t(`git.options.providers.${option.value}`),
   }));

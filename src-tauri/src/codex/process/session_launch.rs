@@ -310,9 +310,7 @@ async fn prepare_remote_session_launch(
                                 Some(format!(
                                     "[WARN] [SSH] 远程 SDK 准备失败，已回退到远程 codex exec：{}",
                                     error,
-
                                 )),
-
                                 mcp_servers,
                             )
                             .await?;
@@ -389,9 +387,7 @@ async fn prepare_remote_session_launch(
                         Some(format!(
                             "[WARN] [SSH] 远程运行环境检查失败，已回退到远程 codex exec：{}",
                             error,
-
                         )),
-
                         mcp_servers,
                     )
                     .await?;

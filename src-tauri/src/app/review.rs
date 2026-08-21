@@ -544,6 +544,40 @@ pub(crate) async fn persist_review_session_events(
     Ok(())
 }
 
+pub(crate) async fn collect_session_output_text(
+    pool: &SqlitePool,
+    session_id: &str,
+) -> Result<String, String> {
+    let lines = sqlx::query_scalar::<_, Option<String>>(
+        r#"
+        SELECT message
+        FROM codex_session_events
+        WHERE session_id = $1
+          AND event_type IN ('stdout', 'stderr')
+        ORDER BY created_at ASC, id ASC
+        "#,
+    )
+    .bind(session_id)
+    .fetch_all(pool)
+    .await
+    .map_err(|error| format!("Failed to fetch session output: {}", error))?;
+
+    Ok(lines
+        .into_iter()
+        .flatten()
+        .filter(|line| !line.trim().is_empty())
+        .collect::<Vec<_>>()
+        .join("\n"))
+}
+
+pub(crate) async fn persist_review_session_events_from_session_logs(
+    pool: &SqlitePool,
+    session_id: &str,
+) -> Result<(), String> {
+    let raw = collect_session_output_text(pool, session_id).await?;
+    persist_review_session_events(pool, session_id, &raw).await
+}
+
 fn task_attachments_root_dir<R: Runtime>(app: &AppHandle<R>) -> Result<PathBuf, String> {
     app.path()
         .app_data_dir()
@@ -1211,6 +1245,27 @@ pub(crate) async fn start_task_code_review_internal(
         start_grok_with_manager(
             app.clone(),
             grok_manager,
+            reviewer.id.clone(),
+            review_prompt,
+            Some(reviewer.model.clone()),
+            Some(reviewer.reasoning_effort.clone()),
+            reviewer.system_prompt.clone(),
+            Some(review_working_dir),
+            Some(task.id.clone()),
+            None,
+            None,
+            None,
+            Some("review".to_string()),
+        )
+        .await?;
+    } else if reviewer.ai_provider == "native" {
+        let native_manager = app
+            .state::<Arc<tokio::sync::Mutex<crate::native::NativeAgentManager>>>()
+            .inner()
+            .clone();
+        crate::native::start_native_with_manager(
+            app.clone(),
+            native_manager,
             reviewer.id.clone(),
             review_prompt,
             Some(reviewer.model.clone()),

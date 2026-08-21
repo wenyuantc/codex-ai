@@ -47,7 +47,8 @@ If any step is “unknown”, stop and find the existing closest flow (`create_t
 | Soft delete | `deleted_at` filters on active lists | projects/tasks fetch helpers |
 | Activity action | stable snake_case key + Chinese label | `insert_activity_log`, `getActivityActionLabel` |
 | Execution target | `local` / `ssh` + artifact mode | shared constants, SSH banner |
-| AI provider | `ai_provider` union + start/stop/label/one-shot branches for **every** engine | `types.ts` `AiProvider`, engine `src/lib/*.ts`, `task_automation`, settings normalize |
+| AI provider | `ai_provider` union + start/stop/label branches for **every** engine including `native` | `types.ts` `AiProvider`, `src/lib/{codex,claude,opencode,grok,native,aiEngine}.ts`, `task_automation`, settings normalize |
+| Built-in Agent channel | `ai_channels.api_key` in SQLite (legacy `api_key_ref` migrates once from keyring); employees bind `ai_channel_id` only when provider is `native` | [AI Engines](../backend/ai-engines.md) native scenario |
 | Execution start outcome | `started` vs `queued`; side effects only after `started` | [run-queue.md](../backend/run-queue.md), `startTaskRunSession` |
 | Concurrency cap | local `max_concurrent_sessions` only (0 = unlimited) | `CodexSettings`, not remote settings |
 | Task templates | validate all `{{ident}}` sets then one tx; tags by name; no `create_task` attachments | [task-templates.md](../backend/task-templates.md) |

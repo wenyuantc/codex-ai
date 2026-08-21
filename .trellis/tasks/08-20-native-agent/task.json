@@ -1,0 +1,32 @@
+{
+  "id": "native-agent",
+  "name": "native-agent",
+  "title": "内置 Agent（zcli 移植）",
+  "description": "父任务：将 zcli Go agent 内核移植为 Rust 并融合为第五引擎 native。第一期编码核心 MVP。本任务持有需求全集与最终集成，不作为实现目标。",
+  "status": "planning",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "P1",
+  "creator": "wenyuantc",
+  "assignee": "wenyuantc",
+  "createdAt": "2026-08-20",
+  "completedAt": null,
+  "branch": null,
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [
+    "08-20-native-agent-channels",
+    "08-20-native-agent-model-client",
+    "08-20-native-agent-loop-tools",
+    "08-20-native-agent-engine",
+    "08-20-native-agent-ui"
+  ],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {}
+}

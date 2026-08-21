@@ -96,13 +96,14 @@ Frontend wrapper: `getDashboardReportSummary({ trendRange, milestoneId, ... })` 
 ### 2. Signatures
 - IPC: `invoke("get_task_token_usage", { taskId })` → `TokenUsageSummary`
 - IPC: `get_dashboard_report_summary` additive fields above
-- `TokenUsageSummary { input_tokens, output_tokens, total_tokens, reasoning_tokens, sessions_with_usage, session_count }`
+- `TokenUsageSummary { input_tokens, output_tokens, total_tokens, reasoning_tokens, cached_tokens, sessions_with_usage, sessions_with_cache, session_count }`
 - `DashboardTokenProviderUsage { provider, input_tokens, output_tokens, total_tokens, sessions_with_usage }`
 
 ### 3. Contracts
-- SUM uses `COALESCE(SUM(col), 0)` **only among rows that have usage**. `sessions_with_usage` counts rows where any token column is NOT NULL.
+- SUM uses `COALESCE(SUM(col), 0)` **only among rows that have usage**. `sessions_with_usage` counts rows where any token column is NOT NULL (including `cached_tokens`).
+- `sessions_with_cache` counts rows where `cached_tokens IS NOT NULL`. Cache rate is unknown when this is 0 — never display 0% from missing data.
 - Sessions with all-NULL tokens do not increment `sessions_with_usage` and must not make the UI show “0 tokens used”.
-- Task UI (`TaskExecutionPanel`) renders the block only when `sessions_with_usage > 0`.
+- Task UI: execution tab still hides the compact line when `sessions_with_usage === 0`; the detail sidebar **always** shows the 用量 group (unknown copy when no data).
 - Types for the dashboard DTO live next to `DashboardReportSummary` in `src/lib/backend.ts` (same as other report-only shapes). Session row fields stay on `CodexSessionRecord` in `types.ts`.
 
 ### 4. Validation & Error Matrix

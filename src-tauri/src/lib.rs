@@ -11,6 +11,7 @@ mod engine;
 mod git_runtime;
 mod git_workflow;
 mod grok;
+mod native;
 mod notifications;
 mod opencode;
 mod process_spawn;
@@ -25,6 +26,7 @@ use std::sync::{Arc, Mutex};
 use claude::ClaudeManager;
 use codex::CodexManager;
 use grok::GrokManager;
+use native::NativeAgentManager;
 use opencode::OpenCodeManager;
 use tauri::Manager;
 
@@ -49,6 +51,7 @@ pub fn run() {
             app.manage(Arc::new(Mutex::new(CodexManager::new())));
             app.manage(Arc::new(tokio::sync::Mutex::new(ClaudeManager::new())));
             app.manage(Arc::new(tokio::sync::Mutex::new(GrokManager::new())));
+            app.manage(Arc::new(tokio::sync::Mutex::new(NativeAgentManager::new())));
             let opencode_manager = Arc::new(tokio::sync::Mutex::new(OpenCodeManager::new()));
             app.manage(opencode_manager.clone());
             app.manage(Arc::new(run_queue::RunQueueGate::default()));
@@ -194,6 +197,13 @@ pub fn run() {
             app::remote::install_remote_grok_cli,
             app::remote::install_remote_codex_sdk,
             app::remote::install_remote_opencode_sdk,
+            native::channels::list_ai_channels,
+            native::channels::create_ai_channel,
+            native::channels::update_ai_channel,
+            native::channels::delete_ai_channel,
+            native::channels::test_ai_channel,
+            native::channels::list_ai_channel_models,
+            native::model_catalog::list_model_catalog,
             app::employees::create_employee,
             app::employees::update_employee,
             app::employees::delete_employee,
@@ -293,6 +303,15 @@ pub fn run() {
             grok::stop_grok,
             grok::restart_grok,
             grok::send_grok_input,
+            native::session::start_native_session,
+            native::session::stop_native_session,
+            native::session::stop_native,
+            native::session::restart_native_session,
+            native::session::resume_native_session,
+            native::session::send_native_input,
+            native::session::finish_native_input,
+            native::settings::get_native_settings,
+            native::settings::update_native_settings,
             opencode::get_opencode_settings,
             opencode::update_opencode_settings,
             opencode::check_opencode_sdk_health,

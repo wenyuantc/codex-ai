@@ -620,8 +620,11 @@ export function TaskDetailDialog({
       return;
     }
 
-    if (output[output.length - 1]?.startsWith("[EXIT]")) {
+    const lastLine = output[output.length - 1] ?? "";
+    if (lastLine.startsWith("[EXIT]")) {
       void loadExecutionChangeHistory();
+    } else if (lastLine.startsWith("[用量]")) {
+      void loadTaskTokenUsage();
     }
   }, [open, output]);
 
@@ -777,15 +780,19 @@ export function TaskDetailDialog({
     }
   };
 
+  const loadTaskTokenUsage = async () => {
+    try {
+      setTaskTokenUsage(await getTaskTokenUsage(task.id));
+    } catch (error) {
+      console.error("Failed to load task token usage:", error);
+      setTaskTokenUsage(null);
+    }
+  };
+
   const loadExecutionChangeHistory = async () => {
     setExecutionChangeHistoryLoading(true);
     setExecutionChangeHistoryError(null);
-    getTaskTokenUsage(task.id)
-      .then(setTaskTokenUsage)
-      .catch((error) => {
-        console.error("Failed to load task token usage:", error);
-        setTaskTokenUsage(null);
-      });
+    void loadTaskTokenUsage();
     try {
       const history = await getTaskExecutionChangeHistory(task.id);
       setExecutionChangeHistory(history);
@@ -1753,6 +1760,7 @@ export function TaskDetailDialog({
                   timeStartedAt={task.time_started_at}
                   timeSpentSeconds={task.time_spent_seconds}
                   completedAt={task.completed_at}
+                  tokenUsage={taskTokenUsage}
                   employees={employees}
                   reviewerCandidates={reviewerCandidates}
                   coordinatorCandidates={coordinatorCandidates}

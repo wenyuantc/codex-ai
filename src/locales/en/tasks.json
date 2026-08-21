@@ -123,6 +123,12 @@
       "timerStartedAt": "Timer started",
       "completedAt": "Completed at",
       "notCompleted": "Not completed",
+      "usage": "Usage",
+      "usageInput": "Input",
+      "usageOutput": "Output",
+      "usageTotal": "Total",
+      "usageCacheRate": "Cache rate",
+      "usageEmpty": "—",
       "deleteTask": "Delete task",
       "deleteDisabledRunning": "Cannot delete a running task; stop it first"
     },

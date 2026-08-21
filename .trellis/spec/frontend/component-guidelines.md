@@ -74,13 +74,14 @@ Reference implementations:
 
 - Single shared bar: `src/components/sessions/SessionInputBar.tsx` — wire it under live terminals in TaskLog / SessionLog / EmployeeRunningSessions (and review panel if showing a live session). Do not fork per-host composers.
 - Gate with `can(provider, "send_input")` + live session presence; fail-closed while capabilities are loading (no false "unsupported" flash).
-- Copy lives in `sessions` i18n namespace (`zh-CN` + `en`); dispatch via `src/lib/{codex,claude,opencode,grok}.ts` send helpers — never invent a resume/new-session path from the bar.
+- Copy lives in `sessions` i18n namespace (`zh-CN` + `en`); dispatch via `src/lib/{codex,claude,opencode,grok,native}.ts` send helpers — never invent a resume/new-session path from the bar. Unknown provider throws; `native` finish is `finish_native_input` (stop). Do not call it from `useSessionLogAwaitFollowups`.
 
 ## Task primary path (trust UX)
 
 - **One primary CTA per task surface**: resolve with pure `resolveTaskPrimaryCta` in `src/lib/taskPrimaryCta.ts` — do not fork if/else tables in `TaskCard` vs `TaskDetailDialog`.
 - Inputs must share automation/runtime sources: `getTaskAutomationDisplayState` + `getTaskActionRuntimeState` (never a second phase map in JSX).
 - Detail dialog sticky bar: `TaskPrimaryActionBar`; secondary actions go in overflow, not competing primary color.
+- Detail right rail (`TaskPropertiesSidebar`): always show the 用量 group below 耗时 (unknown copy when no session reported usage). Do not leave task-level token totals only on the Execution tab.
 - **SSH trust**: global mode uses `SshTrustBanner` in `MainLayout`; session artifact limits still use `SshArtifactLimitedNotice` — keep both messages consistent (审查依据可能不完整).
 
 ## Accessibility Baseline

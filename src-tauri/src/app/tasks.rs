@@ -406,10 +406,7 @@ pub(crate) async fn fetch_task_automation_state_record(
 /// Kept for phase-table unit tests and future await-policy hooks (await_followups
 /// currently keys off task_id + terminal-log UI control messages).
 #[cfg_attr(not(test), allow(dead_code))]
-pub(crate) fn is_orchestration_awaiting_session_exit(
-    phase: &str,
-    pipeline_active: bool,
-) -> bool {
+pub(crate) fn is_orchestration_awaiting_session_exit(phase: &str, pipeline_active: bool) -> bool {
     if pipeline_active
         && matches!(
             phase,
@@ -1476,9 +1473,11 @@ pub async fn update_task<R: Runtime>(
         touched = true;
     }
     if let Some(acceptance_checklist) = updates.acceptance_checklist {
-        separated.push("acceptance_checklist = ").push_bind_unseparated(
-            acceptance_checklist.and_then(|value| normalize_optional_text(Some(&value))),
-        );
+        separated
+            .push("acceptance_checklist = ")
+            .push_bind_unseparated(
+                acceptance_checklist.and_then(|value| normalize_optional_text(Some(&value))),
+            );
         touched = true;
     }
     if let Some((completed_at, time_spent_seconds)) = completion_time_update.clone() {
@@ -1687,11 +1686,13 @@ pub async fn delete_task<R: Runtime>(app: AppHandle<R>, id: String) -> Result<()
     let pool = sqlite_pool(&app).await?;
     let task = fetch_task_by_id(&pool, &id).await?;
 
-    sqlx::query("UPDATE tasks SET deleted_at = datetime('now'), updated_at = datetime('now') WHERE id = $1")
-        .bind(&id)
-        .execute(&pool)
-        .await
-        .map_err(|error| format!("软删除任务失败: {}", error))?;
+    sqlx::query(
+        "UPDATE tasks SET deleted_at = datetime('now'), updated_at = datetime('now') WHERE id = $1",
+    )
+    .bind(&id)
+    .execute(&pool)
+    .await
+    .map_err(|error| format!("软删除任务失败: {}", error))?;
 
     insert_activity_log(
         &pool,
@@ -1785,7 +1786,12 @@ pub async fn export_tasks_csv<R: Runtime>(
         "#,
     );
 
-    if let Some(project_id) = payload.project_id.as_deref().map(str::trim).filter(|v| !v.is_empty()) {
+    if let Some(project_id) = payload
+        .project_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+    {
         builder.push(" AND t.project_id = ");
         builder.push_bind(project_id);
     }
@@ -1933,8 +1939,8 @@ fn default_subtask_status() -> String {
 }
 
 pub(crate) fn parse_tasks_json_envelope(json: &str) -> Result<TasksJsonEnvelope, String> {
-    let envelope: TasksJsonEnvelope = serde_json::from_str(json)
-        .map_err(|error| format!("任务 JSON 解析失败: {error}"))?;
+    let envelope: TasksJsonEnvelope =
+        serde_json::from_str(json).map_err(|error| format!("任务 JSON 解析失败: {error}"))?;
     if envelope.format != TASKS_JSON_FORMAT {
         return Err(format!(
             "不支持的任务 JSON 格式: {}（期望 {}）",
@@ -1978,10 +1984,7 @@ fn normalize_import_subtask_status(raw: &str) -> Result<String, String> {
 }
 
 /// Validate one envelope task for import. Pure — no DB access.
-pub(crate) fn validate_tasks_json_task(
-    task: &TasksJsonTask,
-    index: usize,
-) -> Result<(), String> {
+pub(crate) fn validate_tasks_json_task(task: &TasksJsonTask, index: usize) -> Result<(), String> {
     let source_id = task.source_id.trim();
     if source_id.is_empty() {
         return Err(format!("第 {} 条任务缺少 source_id", index + 1));
@@ -1989,8 +1992,7 @@ pub(crate) fn validate_tasks_json_task(
     if task.title.trim().is_empty() {
         return Err(format!("第 {} 条任务标题不能为空", index + 1));
     }
-    normalize_import_status(&task.status)
-        .map_err(|e| format!("第 {} 条任务: {e}", index + 1))?;
+    normalize_import_status(&task.status).map_err(|e| format!("第 {} 条任务: {e}", index + 1))?;
     normalize_import_priority(&task.priority)
         .map_err(|e| format!("第 {} 条任务: {e}", index + 1))?;
     for (sub_idx, subtask) in task.subtasks.iter().enumerate() {
@@ -2001,13 +2003,8 @@ pub(crate) fn validate_tasks_json_task(
                 sub_idx + 1
             ));
         }
-        normalize_import_subtask_status(&subtask.status).map_err(|e| {
-            format!(
-                "第 {} 条任务的第 {} 个子任务: {e}",
-                index + 1,
-                sub_idx + 1
-            )
-        })?;
+        normalize_import_subtask_status(&subtask.status)
+            .map_err(|e| format!("第 {} 条任务的第 {} 个子任务: {e}", index + 1, sub_idx + 1))?;
     }
     Ok(())
 }
@@ -2104,8 +2101,7 @@ pub(crate) async fn export_tasks_json_with_pool(
         truncated = rows.len() as i64 > limit;
         let rows: Vec<_> = rows.into_iter().take(limit as usize).collect();
         let task_ids: Vec<String> = rows.iter().map(|r| r.0.clone()).collect();
-        let id_set: std::collections::HashSet<String> =
-            task_ids.iter().cloned().collect();
+        let id_set: std::collections::HashSet<String> = task_ids.iter().cloned().collect();
 
         // tags by task
         let mut tags_by_task: std::collections::HashMap<String, Vec<String>> =
@@ -2294,10 +2290,7 @@ pub(crate) async fn import_tasks_json_with_pool(
 
     let envelope = parse_tasks_json_envelope(&payload.json)?;
     if envelope.tasks.len() as i64 > TASKS_JSON_MAX_LIMIT {
-        return Err(format!(
-            "导入任务数量超过上限 {} 条",
-            TASKS_JSON_MAX_LIMIT
-        ));
+        return Err(format!("导入任务数量超过上限 {} 条", TASKS_JSON_MAX_LIMIT));
     }
 
     let mut errors: Vec<ImportTaskError> = Vec::new();
@@ -2566,7 +2559,10 @@ pub async fn import_tasks_json<R: Runtime>(
 }
 
 #[tauri::command]
-pub async fn permanently_delete_task<R: Runtime>(app: AppHandle<R>, id: String) -> Result<(), String> {
+pub async fn permanently_delete_task<R: Runtime>(
+    app: AppHandle<R>,
+    id: String,
+) -> Result<(), String> {
     let pool = sqlite_pool(&app).await?;
     let task = fetch_any_task_by_id(&pool, &id).await?;
     let project = fetch_any_project_by_id(&pool, &task.project_id).await?;
@@ -2695,9 +2691,7 @@ pub(crate) async fn list_tasks_with_pool(
     let limit = resolve_list_tasks_limit(project_id, project_ids, payload.limit);
     let offset = payload.offset.unwrap_or(0).max(0);
 
-    let mut builder = QueryBuilder::<Sqlite>::new(
-        "SELECT * FROM tasks WHERE deleted_at IS NULL",
-    );
+    let mut builder = QueryBuilder::<Sqlite>::new("SELECT * FROM tasks WHERE deleted_at IS NULL");
 
     if let Some(pid) = project_id {
         builder.push(" AND project_id = ");
@@ -2768,13 +2762,11 @@ pub(crate) async fn fetch_task_comments(
     pool: &SqlitePool,
     task_id: &str,
 ) -> Result<Vec<Comment>, String> {
-    sqlx::query_as::<_, Comment>(
-        "SELECT * FROM comments WHERE task_id = $1 ORDER BY created_at",
-    )
-    .bind(task_id)
-    .fetch_all(pool)
-    .await
-    .map_err(|error| format!("获取任务评论失败: {}", error))
+    sqlx::query_as::<_, Comment>("SELECT * FROM comments WHERE task_id = $1 ORDER BY created_at")
+        .bind(task_id)
+        .fetch_all(pool)
+        .await
+        .map_err(|error| format!("获取任务评论失败: {}", error))
 }
 
 #[tauri::command]
@@ -2825,21 +2817,39 @@ mod await_followups_phase_tests {
 
     #[test]
     fn review_fix_mid_flight_requires_exit() {
-        assert!(is_orchestration_awaiting_session_exit("launching_review", false));
-        assert!(is_orchestration_awaiting_session_exit("waiting_review", false));
-        assert!(is_orchestration_awaiting_session_exit("launching_fix", false));
+        assert!(is_orchestration_awaiting_session_exit(
+            "launching_review",
+            false
+        ));
+        assert!(is_orchestration_awaiting_session_exit(
+            "waiting_review",
+            false
+        ));
+        assert!(is_orchestration_awaiting_session_exit(
+            "launching_fix",
+            false
+        ));
         assert!(is_orchestration_awaiting_session_exit(
             "waiting_execution",
             false
         ));
-        assert!(is_orchestration_awaiting_session_exit("launching_tester", false));
-        assert!(is_orchestration_awaiting_session_exit("waiting_tester", false));
+        assert!(is_orchestration_awaiting_session_exit(
+            "launching_tester",
+            false
+        ));
+        assert!(is_orchestration_awaiting_session_exit(
+            "waiting_tester",
+            false
+        ));
     }
 
     #[test]
     fn interactive_phases_await_followups() {
         assert!(!is_orchestration_awaiting_session_exit("idle", false));
-        assert!(!is_orchestration_awaiting_session_exit("manual_control", false));
+        assert!(!is_orchestration_awaiting_session_exit(
+            "manual_control",
+            false
+        ));
         assert!(!is_orchestration_awaiting_session_exit("completed", false));
         assert!(!is_orchestration_awaiting_session_exit("blocked", false));
     }
@@ -2847,25 +2857,17 @@ mod await_followups_phase_tests {
 
 #[cfg(test)]
 mod list_tasks_limit_tests {
-    use super::{
-        resolve_list_tasks_limit, LIST_TASKS_DEFAULT_LIMIT, LIST_TASKS_MAX_LIMIT,
-    };
+    use super::{resolve_list_tasks_limit, LIST_TASKS_DEFAULT_LIMIT, LIST_TASKS_MAX_LIMIT};
 
     #[test]
     fn project_id_disables_limit() {
-        assert_eq!(
-            resolve_list_tasks_limit(Some("p1"), None, Some(10)),
-            None
-        );
+        assert_eq!(resolve_list_tasks_limit(Some("p1"), None, Some(10)), None);
     }
 
     #[test]
     fn project_ids_disables_limit() {
         let ids = vec!["p1".to_string(), "p2".to_string()];
-        assert_eq!(
-            resolve_list_tasks_limit(None, Some(&ids), Some(10)),
-            None
-        );
+        assert_eq!(resolve_list_tasks_limit(None, Some(&ids), Some(10)), None);
     }
 
     #[test]
@@ -2886,10 +2888,7 @@ mod list_tasks_limit_tests {
             resolve_list_tasks_limit(None, None, Some(-5)),
             Some(LIST_TASKS_DEFAULT_LIMIT)
         );
-        assert_eq!(
-            resolve_list_tasks_limit(None, None, Some(50)),
-            Some(50)
-        );
+        assert_eq!(resolve_list_tasks_limit(None, None, Some(50)), Some(50));
         assert_eq!(
             resolve_list_tasks_limit(None, None, Some(5000)),
             Some(LIST_TASKS_MAX_LIMIT)
@@ -2965,7 +2964,8 @@ mod tasks_json_tests {
 
     #[test]
     fn parse_rejects_invalid_format_and_version() {
-        let bad_format = r#"{"format":"other","version":1,"exported_at":"t","source":{"app":"x"},"tasks":[]}"#;
+        let bad_format =
+            r#"{"format":"other","version":1,"exported_at":"t","source":{"app":"x"},"tasks":[]}"#;
         let err = parse_tasks_json_envelope(bad_format).expect_err("format");
         assert!(err.contains("不支持的任务 JSON 格式"));
 

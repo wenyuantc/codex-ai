@@ -4,6 +4,7 @@ import {
   CODEX_MODEL_OPTIONS,
   CLAUDE_MODEL_OPTIONS,
   GROK_MODEL_OPTIONS,
+  formatEmployeeAiProviderLabel,
   normalizeClaudeModel,
   normalizeGrokModel,
   type Employee,
@@ -53,7 +54,7 @@ export function EmployeeCard({ employee, taskCount = 0, highlighted = false }: E
   const allModelOptions =
     employee.ai_provider === "claude"
       ? CLAUDE_MODEL_OPTIONS
-      : employee.ai_provider === "opencode"
+      : employee.ai_provider === "opencode" || employee.ai_provider === "native"
         ? []
         : employee.ai_provider === "grok"
           ? GROK_MODEL_OPTIONS
@@ -67,14 +68,7 @@ export function EmployeeCard({ employee, taskCount = 0, highlighted = false }: E
   const modelLabel =
     allModelOptions.find((option) => option.value === displayModel)?.label ?? displayModel;
   const reasoningLabel = getReasoningEffortLabel(employee.reasoning_effort, employee.ai_provider);
-  const providerLabel =
-    employee.ai_provider === "claude"
-      ? "Claude"
-      : employee.ai_provider === "opencode"
-        ? "OpenCode"
-        : employee.ai_provider === "grok"
-          ? "Grok"
-          : "Codex";
+  const providerLabel = formatEmployeeAiProviderLabel(employee.ai_provider);
 
   return (
     <div
@@ -104,7 +98,9 @@ export function EmployeeCard({ employee, taskCount = 0, highlighted = false }: E
                       ? "text-blue-500"
                       : employee.ai_provider === "grok"
                         ? "text-purple-500"
-                        : "text-green-500"
+                        : employee.ai_provider === "native"
+                          ? "text-cyan-500"
+                          : "text-green-500"
                 }
               >
                 {providerLabel}

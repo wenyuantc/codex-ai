@@ -5,8 +5,8 @@ use tokio::process::ChildStdin;
 
 /// Encode a bootstrap JSON object as a single NDJSON line (no EOF).
 pub fn encode_ndjson_line(value: &serde_json::Value) -> Result<Vec<u8>, String> {
-    let mut bytes = serde_json::to_vec(value)
-        .map_err(|error| format!("序列化会话 stdin 载荷失败: {error}"))?;
+    let mut bytes =
+        serde_json::to_vec(value).map_err(|error| format!("序列化会话 stdin 载荷失败: {error}"))?;
     bytes.push(b'\n');
     Ok(bytes)
 }

@@ -452,6 +452,7 @@ pub(crate) async fn generate_commit_message_for_project<R: Runtime>(
         ai_selection.provider_override.clone(),
         ai_selection.model_override.clone(),
         ai_selection.reasoning_override.clone(),
+        None,
     )
     .await?;
     let normalized = normalize_generated_commit_message(&raw)?;
@@ -487,6 +488,7 @@ pub(crate) async fn generate_commit_message_for_project<R: Runtime>(
         ai_selection.provider_override.clone(),
         ai_selection.model_override.clone(),
         ai_selection.reasoning_override.clone(),
+        None,
     )
     .await?;
     let retried = normalize_generated_commit_message(&retried_raw)?;
@@ -546,6 +548,7 @@ pub async fn ai_suggest_assignee(
         None,
         None,
         None,
+        None,
     )
     .await
 }
@@ -569,6 +572,7 @@ pub async fn ai_analyze_complexity(
         task_id,
         None,
         working_dir,
+        None,
         None,
         None,
         None,
@@ -597,6 +601,7 @@ pub async fn ai_generate_comment(
         task_id,
         None,
         working_dir,
+        None,
         None,
         None,
         None,
@@ -634,6 +639,7 @@ pub async fn ai_generate_plan(
         task_id,
         None,
         working_dir,
+        None,
         None,
         None,
         None,
@@ -901,6 +907,7 @@ pub async fn ai_generate_coordinator_task_plan(
         Some(coordinator.ai_provider.clone()),
         Some(coordinator.model.clone()),
         Some(coordinator.reasoning_effort.clone()),
+        Some(coordinator.id.clone()),
     )
     .await?;
 
@@ -987,6 +994,7 @@ pub async fn ai_generate_tester_acceptance(
         Some(tester.ai_provider.clone()),
         Some(tester.model.clone()),
         Some(tester.reasoning_effort.clone()),
+        Some(tester.id.clone()),
     )
     .await?;
 
@@ -1128,6 +1136,7 @@ pub async fn ai_optimize_prompt(
         None,
         None,
         None,
+        None,
     )
     .await?;
 
@@ -1215,6 +1224,7 @@ pub async fn ai_split_subtasks(
         task_id,
         None,
         working_dir,
+        None,
         None,
         None,
         None,

@@ -9,6 +9,7 @@ import { useEmployeeStore } from "@/stores/employeeStore";
 import { useAiOptimizePrompt } from "@/hooks/useAiOptimizePrompt";
 import { getEmployeeRoleLabel, getPriorityLabel } from "@/lib/utils";
 import { dedupePaths, isTauriRuntime, normalizeDialogSelection } from "@/lib/taskAttachments";
+import { formatEmployeeAiProviderLabel } from "@/lib/types";
 import type { CodexSessionKind, Milestone, Tag, Task } from "@/lib/types";
 import { PRIORITIES } from "@/lib/types";
 import {
@@ -763,7 +764,7 @@ export function CreateTaskDialog({
 
                     const employee = employees.find((emp) => emp.id === value);
                     return employee
-                      ? `${employee.name} (${getEmployeeRoleLabel(employee.role)}) · ${employee.ai_provider === "claude" ? "Claude" : employee.ai_provider === "opencode" ? "OpenCode" : employee.ai_provider === "grok" ? "Grok" : "Codex"}`
+                      ? `${employee.name} (${getEmployeeRoleLabel(employee.role)}) · ${formatEmployeeAiProviderLabel(employee.ai_provider)}`
                       : t("createDialog.fields.unspecified");
                   }}
                 </SelectValue>
@@ -775,13 +776,7 @@ export function CreateTaskDialog({
                 {employees.map((emp) => (
                   <SelectItem key={emp.id} value={emp.id}>
                     {emp.name} ({getEmployeeRoleLabel(emp.role)}) ·{" "}
-                    {emp.ai_provider === "claude"
-                      ? "Claude"
-                      : emp.ai_provider === "opencode"
-                        ? "OpenCode"
-                        : emp.ai_provider === "grok"
-                          ? "Grok"
-                          : "Codex"}
+                    {formatEmployeeAiProviderLabel(emp.ai_provider)}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -809,7 +804,7 @@ export function CreateTaskDialog({
 
                     const employee = reviewerCandidates.find((emp) => emp.id === value);
                     return employee
-                      ? `${employee.name} (${getEmployeeRoleLabel(employee.role)}) · ${employee.ai_provider === "claude" ? "Claude" : employee.ai_provider === "opencode" ? "OpenCode" : employee.ai_provider === "grok" ? "Grok" : "Codex"}`
+                      ? `${employee.name} (${getEmployeeRoleLabel(employee.role)}) · ${formatEmployeeAiProviderLabel(employee.ai_provider)}`
                       : t("createDialog.fields.unspecified");
                   }}
                 </SelectValue>
@@ -821,13 +816,7 @@ export function CreateTaskDialog({
                 {reviewerCandidates.map((emp) => (
                   <SelectItem key={emp.id} value={emp.id}>
                     {emp.name} ({getEmployeeRoleLabel(emp.role)}) ·{" "}
-                    {emp.ai_provider === "claude"
-                      ? "Claude"
-                      : emp.ai_provider === "opencode"
-                        ? "OpenCode"
-                        : emp.ai_provider === "grok"
-                          ? "Grok"
-                          : "Codex"}
+                    {formatEmployeeAiProviderLabel(emp.ai_provider)}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -860,7 +849,7 @@ export function CreateTaskDialog({
 
                     const employee = coordinatorCandidates.find((emp) => emp.id === value);
                     return employee
-                      ? `${employee.name} (${getEmployeeRoleLabel(employee.role)}) · ${employee.ai_provider === "claude" ? "Claude" : employee.ai_provider === "opencode" ? "OpenCode" : employee.ai_provider === "grok" ? "Grok" : "Codex"}`
+                      ? `${employee.name} (${getEmployeeRoleLabel(employee.role)}) · ${formatEmployeeAiProviderLabel(employee.ai_provider)}`
                       : t("createDialog.fields.unspecified");
                   }}
                 </SelectValue>
@@ -872,13 +861,7 @@ export function CreateTaskDialog({
                 {coordinatorCandidates.map((emp) => (
                   <SelectItem key={emp.id} value={emp.id}>
                     {emp.name} ({getEmployeeRoleLabel(emp.role)}) ·{" "}
-                    {emp.ai_provider === "claude"
-                      ? "Claude"
-                      : emp.ai_provider === "opencode"
-                        ? "OpenCode"
-                        : emp.ai_provider === "grok"
-                          ? "Grok"
-                          : "Codex"}
+                    {formatEmployeeAiProviderLabel(emp.ai_provider)}
                   </SelectItem>
                 ))}
               </SelectContent>

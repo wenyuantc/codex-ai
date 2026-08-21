@@ -1,6 +1,6 @@
 # AI Engines
 
-> Codex, Claude, OpenCode, and Grok share session storage and a process kernel; they diverge in stream protocols and CLI/SDK launch.
+> Codex, Claude, OpenCode, and Grok share session storage and a **process kernel** (`EngineChild`). The fifth provider `native` (UI: 内置 Agent) is an **in-process** tokio loop: it shares `codex_sessions` and `ExecutionContext`, but must **not** be registered in `engine::ProcessManager`.
 
 ---
 
@@ -16,13 +16,14 @@
 | `engine/usage.rs` | `UsageDelta` + `parse_usage_value` / `usage_u64` — shared token parsing for all engines |
 
 Rules:
-- **Do not copy** manager / lifecycle / context implementations into a new engine — re-export or type-alias the shared kernel.
+- **Do not copy** manager / lifecycle / context implementations into a new **CLI** engine — re-export or type-alias the shared kernel.
 - Keep **`process/stream.rs` per engine** (CLI JSON protocols differ).
 - Keep **`process/mod.rs` launch/CLI args** per engine unless a pure helper is already proven identical.
 - Codex extras (`provider`, execution-change baseline, sdk file-change store) live in `CodexProcessExtra` on `ManagedProcess::extra`.
 - OpenCode keeps `sdk_server` on `OpenCodeManager` (not in the generic process table).
 - `start_*` / `stop_*` remain engine-specific Tauri commands; do not introduce a single `dyn AiEngine::start` dispatcher unless product scope expands.
-- Task-execution `start_*` returns tagged `StartSessionOutcome` (`started` \| `queued`). Gate/queue rules live in [run-queue.md](./run-queue.md), not in four engine copies.
+- Task-execution `start_*` returns tagged `StartSessionOutcome` (`started` \| `queued`). Gate/queue rules live in [run-queue.md](./run-queue.md), not in five engine copies.
+- **`native` is not a CLI engine.** Do not wrap it in `EngineChild` / `ProcessManager`. Live sessions live in `NativeAgentManager` (HashMap of cancel + followup mpsc + `JoinHandle`). Count those sessions in `run_queue` live total.
 
 ## Engine Modules
 
@@ -32,14 +33,21 @@ Rules:
 | Claude | `src-tauri/src/claude/` | Anthropic Claude SDK bridge + process lifecycle (local + SSH CLI) |
 | OpenCode | `src-tauri/src/opencode/` | OpenCode SDK server/process integration; local Node bridge + **remote SDK bridge over SSH** |
 | Grok | `src-tauri/src/grok/` | xAI Grok Build CLI (`grok`) headless sessions + settings/health (local + SSH) |
+| Native | `src-tauri/src/native/` | In-process coding agent: channels + three HTTP protocols + tool loop + `NativeAgentManager` |
 
-Common internal layout per engine:
+Common internal layout per **CLI** engine:
 - `manager.rs` — thin wrapper / type alias over `engine::ProcessManager` (Codex/OpenCode may wrap extras)
 - `settings.rs` — load/save engine settings
 - `process/` — launch (`mod.rs`), stream, session_runtime; lifecycle/context re-export shared kernel
 - `*_sdk_bridge.mjs` — Node bridge assets where needed (Codex/Claude/OpenCode; Grok is CLI-only)
 
-`ai_provider` stored values: `"codex" | "claude" | "opencode" | "grok"`.
+`ai_provider` stored values: `"codex" | "claude" | "opencode" | "grok" | "native"`.
+
+`normalize_employee_ai_provider` **must** recognize `"native"`; unknown values still default to `"codex"`. Frontend `normalizeAiProvider` must do the same — otherwise a native employee silently starts Codex.
+
+`normalize_one_shot_provider_for_target` **must** recognize `"native"`. Employee-scoped one-shots (`ai_generate_coordinator_task_plan`, `ai_generate_tester_acceptance`) pass the employee's provider; if that employee is `native`, `run_ai_command` **must** call `native::run_native_one_shot` (HTTP `ModelClient.chat()`, no tools) with the employee's channel. **Never** remap `native` → Codex SDK/exec. Missing `employee_id` is a Chinese error, not a Codex fallback. Settings Git / one-shot dropdowns still use `CLI_AI_PROVIDER_OPTIONS` (exclude `native`).
+
+Native employees **must** bind `employees.ai_channel_id` to an enabled `ai_channels` row. Other providers store `ai_channel_id = NULL`.
 
 ## Shared Session Model
 
@@ -56,11 +64,11 @@ Single source of truth: `app/database.rs::get_ai_provider_capabilities` (fronten
 
 | Capability | Meaning |
 |------------|---------|
-| `start` / `stop` / `resume` | Per-engine session lifecycle (all four engines) |
+| `start` / `stop` / `resume` | Per-engine session lifecycle (all **five** providers) |
 | `restart` | Stop live managed processes for the employee, then call that engine's `start_*` (**not** CLI resume of the old session id) |
-| `send_input` | Mid-session stdin to a **live** process. **Codex / Claude / OpenCode = true** (SDK bridge keeps stdin; NDJSON `{"type":"input","prompt":...}` follow-ups). **Grok = false** (B1: headless `-p` + `Stdio::null`; see task notes). Do not set `true` without a verifiable write path; never advertise a capability that always fails. CLI-only Codex/Claude sessions may still reject at command time with a clear Chinese error. |
+| `send_input` | Mid-session write to a **live** session. **Codex / Claude / OpenCode = true** (SDK bridge keeps stdin; NDJSON follow-ups). **Native = true** (in-process `mpsc` `NativeFollowup::Input`). **Grok = false** (B1: headless `-p` + `Stdio::null`). Do not set `true` without a verifiable write path; never advertise a capability that always fails. CLI-only Codex/Claude sessions may still reject at command time with a clear Chinese error. |
 
-UI rules: Settings shows the four-engine comparison; any control for restart/send_input must gate on the matrix (`can(provider, cap)`) with Chinese disabled reasons. Prefer fail-closed when the matrix fails to load.
+UI rules: Settings shows the five-engine comparison; any control for restart/send_input must gate on the matrix (`can(provider, cap)`) with Chinese disabled reasons. Prefer fail-closed when the matrix fails to load. Git / one-shot **settings** dropdowns use `CLI_AI_PROVIDER_OPTIONS` (exclude `native`). That exclusion does **not** apply when a coordinator/tester **employee** is `native` — those one-shots use the employee's channel HTTP path.
 
 ## Mid-session `send_input` (code-spec)
 
@@ -74,9 +82,11 @@ Real mid-session stdin to a **live** managed process. Never implement via resume
 | `send_claude_input` | same | same |
 | `send_opencode_input` | same | same |
 | `send_grok_input` | same | **always** `Err` (B1 honesty) |
+| `send_native_input` | same | `mpsc` `NativeFollowup::Input` to the live runner |
 | `finish_codex_input` / `finish_claude_input` / `finish_opencode_input` | `employee_id: String` | Close retained stdin (EOF) so interactive wait exits; process ends → orchestration can advance |
+| `finish_native_input` | `employee_id: String` | Cancels + joins **all** live native sessions for that employee (stop, not EOF). UI: SessionInputBar **结束** only. Do **not** call it when closing a log (`useSessionLogAwaitFollowups` skips native like grok). |
 
-Frontend wrappers: `send*` / `finish*` in `src/lib/{codex,claude,opencode,grok}.ts`. Shared UI: `SessionInputBar` — **Send** queues follow-up; **结束会话 / End session** closes stdin. Hosts: TaskLog / SessionLog / EmployeeRunningSessions (+ review panel).
+Frontend wrappers: `send*` / `finish*` in `src/lib/{codex,claude,opencode,grok,native}.ts`. Unified start/stop: `src/lib/aiEngine.ts` `startByProvider` / `stopSessionByProvider` / `restartByProvider` — unknown provider **throws**, never falls through to Codex. Shared UI: `SessionInputBar` — **Send** queues follow-up; **结束会话 / End session** closes stdin (CLI) or stops native. Hosts: TaskLog / SessionLog / EmployeeRunningSessions (+ review panel).
 
 ### 3. Contracts
 - **Framing** (Codex / Claude / OpenCode SDK bridges): one NDJSON line `{"type":"input","prompt":"<trimmed>"}` + `\n`; pipe stays open (`engine/stdin.rs`).
@@ -91,6 +101,7 @@ Frontend wrappers: `send*` / `finish*` in `src/lib/{codex,claude,opencode,grok}.
   - Do **not** rely on `main()` return while stdin listeners are registered — always `exit(0)` after the chosen mode finishes.
 - **Stop path**: `EngineChild::kill` closes retained stdin (EOF to bridge wait loop) then kills the child; stop commands also `kill_process_group`.
 - **Grok B1**: headless `grok -p` + `Stdio::null`; matrix stays `false`; command returns Chinese reason (live vs no-session variants). Evidence: task `notes-b1-grok.md`.
+- **Native**: no `ChildStdin`. Follow-ups are `NativeFollowup::{Input, Finish}` on an mpsc. Task-linked start uses `await_followups=false` (exit after one turn). Free sessions wait on the channel. Images: local files read as base64 on the first user message (OpenAI `image_url` / Anthropic `image.source` / Responses `input_image`). SSH does **not** sync images to the remote host — the HTTP call stays on this machine. Cap 8 images / 8MB each; missing or oversized files are logged and skipped. Mid-session `send_input` is text-only.
 
 ### 4. Validation & Error Matrix
 | Case | Behavior |
@@ -115,6 +126,9 @@ Frontend wrappers: `send*` / `finish*` in `src/lib/{codex,claude,opencode,grok}.
 - Capability matrix unit coverage for `send_input` flags
 - `resolve_await_session_followups` (task-linked → false; no task → true)
 - `is_orchestration_awaiting_session_exit` phase table (pipeline + review-fix + interactive)
+- Native `parse_max_output_token_limit` + `chat()` one-shot retry when gateway rejects oversized `max_tokens`
+- Native execution Git snapshot: capture only for `session_kind=execution`; review does not; persist uses Cli/`git_fallback` like Grok
+- `normalize_one_shot_provider_for_target("native")` stays `"native"`; native one-shot without `employee_id` errors in Chinese (no Codex fallback)
 
 ### 7. Wrong vs Correct
 #### Wrong
@@ -123,6 +137,8 @@ Frontend wrappers: `send*` / `finish*` in `src/lib/{codex,claude,opencode,grok}.
 send_input: true  // in get_ai_provider_capabilities for grok
 // Or: on send_input, call start_*/resume_* to "continue" the chat
 // Or: task-linked idle run awaits stdin (stuck unless user opens log / End session)
+// Or: coordinator ai_provider=native remapped to Codex SDK/exec in run_ai_command
+Some("native") => "codex".to_string()  // in normalize_one_shot_provider_for_target
 ```
 #### Correct
 ```rust
@@ -143,12 +159,17 @@ Before launch:
 5. Run cross-provider conflict checks **independently per engine** (do not short-circuit with `else if` chains that skip later managers)
 
 During run:
-- Stream output/error events to the frontend (`onCodexOutput` / `onClaude*` / `onOpenCode*` / `onGrok*`)
+- Stream output/error events to the frontend (`onCodexOutput` / `onClaude*` / `onOpenCode*` / `onGrok*` / `onNative*`)
 - Keep employee runtime status coherent (`busy` / online / error)
 - When a usage event is parsed, runtime (not `stream.rs`) calls `apply_codex_session_usage` — stream parsers stay pure.
+- Native: `client.chat()` already returns `Usage` (including `cached_tokens` from `native/model/usage.rs`). `AgentRunner` converts it with `usage_to_delta` after each turn, emits `[用量]`, and persists via `on_usage` → `apply_codex_session_usage`. Do not invent a native-only usage table. `chat_stream` is a replay helper and is **not** the persist path.
+- Native HTTP 400 `max_tokens is too large` / `supports at most N`: `chat()` retries **once** with `max_output_tokens = N`. Catalog max is capacity, not a gateway guarantee (e.g. DeepSeek V4 catalog 384000 vs Console Go 131072). Do not treat the first 400 as a terminal Auto QC failure if the limit can be parsed.
+- Auto QC execution `status != exited || exit_code != 0` still hands off to manual, but **must keep** `last_verdict_json` so a later restart can still run the fix round.
 
 On exit:
 - Finalize session record
+- Review sessions: persist tagged `<review_verdict>` / `<review_report>` / `<review_findings>` **before** `handle_session_exit`. Native has no captured stream buffer — call `persist_review_session_events_from_session_logs` after stdout events are flushed.
+- Native **execution** sessions: capture a Git working-tree baseline at start (local + SSH, same helpers as Grok: `capture_external_execution_change_baseline` / `capture_external_remote_execution_change_baseline`). On exit call `persist_external_execution_change_history` with `CodexExecutionProvider::Cli` and that baseline **before** `handle_session_exit`. Review sessions skip capture. Do **not** skip this path — the task detail “改动文件” panel shows `emptyGit` when `codex_session_file_changes` is empty.
 - Trigger task automation transitions when applicable
 - Allow UI stores to refresh tasks/employees
 
@@ -211,7 +232,32 @@ New engine features must not assume local filesystem diffs always exist.
 
 Both channels must share `serialize_opencode_bridge_config` — the bridge protocol has exactly one serializer. Adding a field for local only silently desyncs SSH.
 
-When adding another CLI engine, prefer **Claude/Grok process shape** over Codex SDK unless SDK is required.
+When adding another **CLI** engine, prefer **Claude/Grok process shape** over Codex SDK unless SDK is required. A process-in-app agent belongs under `native/`, not a fifth `EngineChild`.
+
+### Native-specific contracts
+
+| Item | Contract |
+|------|----------|
+| Provider id | `"native"` (UI label `内置 Agent`) |
+| Runtime | In-process tokio task. **No** sidecar binary, **no** `EngineChild`, **no** remote agent install |
+| Channels | Table `ai_channels` (migration **v48**). Protocols `openai` / `anthropic` / `codex`. `base_url` trimmed of trailing `/`; HTTP path appended by protocol. `models_json` is an array of `{id, context_tokens, max_output_tokens, thinking_enabled, thinking_level}` (legacy string arrays still parse). Bundled catalog: `native/model_catalog.json` via `list_model_catalog` |
+| HTTP | openai → `POST {base}/v1/chat/completions` SSE; anthropic → `POST {base}/v1/messages` SSE + `anthropic-version: 2023-06-01`; codex → `POST {base}/v1/responses` SSE |
+| Secrets | SQLite `ai_channels.api_key` (plaintext config). DTO returns `api_key` + `api_key_configured`. Legacy `api_key_ref` / keyring `codex-ai-channel` is a one-time migrate-on-read; new writes do not touch the OS keyring. SQL backup includes the key |
+| Employee bind | `employees.ai_channel_id` required iff `ai_provider=native` and channel enabled. Delete channel fails while referenced |
+| Tools | `Read` `Write` `Edit` `Bash` `Glob` `Grep` `TodoRead` `TodoWrite` `WebFetch` `WebSearch`. Workspace-only (file tools). Permission = yolo. Web tools run on this machine even for SSH projects |
+| System prompt | `Message::system` = identity.md + env + optional git + **全局提示词模板** `native_agent_global` (`ai-prompt-templates.json`) + project `AGENTS.md`/`Agents.md`/`CLAUDE.md` + employee `system_prompt`. Task text stays in the user message. SSH reads project files via `SshToolRuntime`. Do **not** load `.zcli/AGENTS.md` |
+| Compact | After tool-result truncation, if chars ≥ 85% of `context_char_limit`, summarize older user-turns locally and keep the latest turn; log `[工具] 已压缩上下文` |
+| Images | First user message may include local files as base64. Native never uses remote image paths. Frontend does **not** skip `native` in `resolveImageAttachmentSkip`. |
+| One-shot | Employee-scoped (`ai_generate_coordinator_task_plan`, `ai_generate_tester_acceptance`): `run_native_one_shot` → channel HTTP `chat()`, **no tools**, no `NativeAgentManager` session, no Codex SDK/exec. Local images only. SSH: HTTP still on this machine. Settings one-shot dropdown stays CLI-only. |
+| SSH tools | Loop stays local. File/shell via `SshToolRuntime` + `build_ssh_command` / `execute_ssh_command_with_input`. Workspace prefix is the remote cwd |
+| Commands | `start_native_session` `stop_native_session` `stop_native` `restart_native_session` `resume_native_session` `send_native_input` `finish_native_input` |
+| Internal start | Automation / run-queue drain call `start_native_with_manager` (bypasses gate). Restart-safe stop: `stop_native_for_automation_restart` |
+| Events | `native-stdout`, `native-session`, `native-exit` (no stderr event). Stdout lines: `[USER_INPUT]`, Claude/Grok-compatible tool tags (`[读取]`/`[写入]`/`[编辑]`/`[命令]`/`[工具]`/`[工具结果]`/`[思考]`/`[待办]`), assistant text, `[ERROR]`. `native-exit.line` is **null** (do not duplicate `[ERROR]` into the log). Tool-loop cap from `native-settings.json` `max_turns` (default **40**, **0** = unlimited, last turn sends no tools and asks for a final answer instead of failing the session). |
+| Settings | Local file `app_config_dir/native-settings.json`. Commands `get_native_settings` / `update_native_settings`. Not per-SSH-profile: the loop always runs on this machine. Activity key `native_settings_updated`. |
+| Frontend | Channel CRUD in `src/lib/backend.ts`; session IPC in `src/lib/native.ts`; start/stop via `aiEngine.ts` |
+| Settings UI | `AiChannelsSettingsTab`; employee dialogs bind enabled channels + `models` from `models_json` |
+
+Channel CRUD commands: `list_ai_channels` `create_ai_channel` `update_ai_channel` `delete_ai_channel` `test_ai_channel` `list_ai_channel_models`. `list_ai_channel_models` uses GET `{base}/v1/models` with the same auth as chat (Bearer or `x-api-key`); it fills the settings form and does **not** write `models_json` until Save. Activity keys: `ai_channel_created` / `updated` / `deleted` / `tested` / `models_fetched`.
 
 ## Scenario: Token usage parse + persist (A1)
 
@@ -284,7 +330,7 @@ if let Some(delta) = parse_usage_value(&value) {
 - modes like `review_fix_loop_v1`
 - phases such as `launching_review`, `waiting_review`, `launching_fix`, `waiting_execution`, `committing_code`
 - startup resumes pending automation via `spawn_resume_pending_automation`
-- assignee/reviewer `ai_provider` must dispatch `start_*_with_manager` for **each** engine including `grok`
+- assignee/reviewer `ai_provider` must dispatch `start_*_with_manager` for **each** engine including `grok` and `native` (`start_native_with_manager`)
 
 When changing session exit semantics, verify automation still observes the events it needs.
 
@@ -356,15 +402,85 @@ match one_shot_provider.as_str() {
 }
 ```
 
+## Scenario: Built-in native agent (in-process)
+
+### 1. Scope / Trigger
+New `ai_provider=native`, `ai_channels` / keyring, in-process tool loop, or any start/stop/send_input/run-queue/automation branch that must not fall through to Codex.
+
+### 2. Signatures
+- `list_ai_channels` / `create_ai_channel` / `update_ai_channel` / `delete_ai_channel` / `test_ai_channel` / `list_ai_channel_models`
+- `start_native_session(employee_id, task_description, model?, reasoning_effort?, system_prompt?, working_dir?, task_id?, task_git_context_id?, resume_session_id?, image_paths?, session_kind?) -> StartSessionOutcome`
+- `stop_native_session(session_record_id)` / `stop_native(employee_id)` / `restart_native_session` / `resume_native_session`
+- `send_native_input(employee_id, input)` / `finish_native_input(employee_id)`
+- Schema v48: `ai_channels(...)`; `employees.ai_channel_id TEXT REFERENCES ai_channels(id)`
+
+### 3. Contracts
+- Request: native employee + enabled channel + keyring key + validated working dir (local `.git` or SSH via `ExecutionContext`)
+- Response: `StartSessionOutcome` for start/restart/resume; other commands `Result<(), String>`
+- Env: none for API keys. Keyring service `codex-ai-channel`, user `api_key_ref`
+- Protocols: `openai` | `anthropic` | `codex` (aliases `openai-compatible` → openai; `claude` → anthropic; `responses` → codex)
+- Tools stay inside workspace root; SSH uses remote cwd as root. Loop never SSHs an agent binary
+
+### 4. Validation & Error Matrix
+| Case | Behavior |
+|------|----------|
+| Employee not `native` | `员工不是内置 Agent` |
+| Missing / empty `ai_channel_id` | `请先为内置 Agent 员工配置渠道` / create employee `内置 Agent 员工必须选择已启用的渠道` |
+| Channel disabled | `渠道「…」已停用` |
+| Missing keyring key | `渠道未配置 API 密钥` / `渠道 API 密钥不存在或无法读取` |
+| Invalid protocol / base_url | Chinese validation from `native/protocol.rs` |
+| Delete channel still bound | Count employees with `ai_channel_id`; refuse with Chinese reason |
+| Blank `send_native_input` | `输入内容不能为空` |
+| No live native session | `员工 … 当前没有运行中的内置 Agent 会话` |
+| Unknown frontend provider | `startByProvider` / SessionInputBar throw `未知 AI 引擎` — never Codex |
+
+### 5. Good / Base / Bad Cases
+- Good: create enabled openai channel → native employee binds it → start task → `codex_sessions.ai_provider=native` + stdout tool lines → stop cancels the join
+- Good: SSH project — tools run via `build_ssh_command`; no remote `native` binary
+- Base: free session (`task_id` none) waits on mpsc; `send_native_input` starts the next turn
+- Bad: `else { start_codex }` after grok/opencode checks; `EngineChild` for native; key in `ai_channels.api_key`
+
+### 6. Tests Required
+- Migration 48: `ai_channels` columns + `employees.ai_channel_id`
+- Protocol normalize + URL join (`protocol.rs`)
+- Secret redaction never leaks `sk-` in errors
+- Glob matcher includes `**/*.rs`
+- Tool workspace-only + SSH command builders
+- Capability matrix length **5**, native `send_input=true`
+- `normalize_employee_ai_provider("native") == "native"`
+- Run-queue drain `provider == "native"`
+- Frontend: `normalizeAiProvider("native")`, `formatAiProviderLabel`, image skip `native_images`
+
+### 7. Wrong vs Correct
+#### Wrong
+```rust
+if provider == "claude" { start_claude }
+else if provider == "grok" { start_grok }
+else { start_codex } // native silently becomes Codex
+// or: manager.add(EngineChild::spawn("native-agent", ...))
+```
+#### Correct
+```rust
+match provider {
+  "native" => start_native_with_manager(...),
+  "grok" => start_grok_with_manager(...),
+  // ...
+  other => return Err(format!("未知 AI 引擎：{other}")),
+}
+```
+
 ## Anti-Patterns
 
 - Starting processes without working-dir validation.
 - Engine-specific session tables that fragment history UI.
 - Blocking the main async runtime on long interactive CLI without the established process modules.
 - Logging full prompts that embed secrets.
-- Treating “not claude/opencode” as Codex in UI/backend branches (breaks Grok).
+- Treating “not claude/opencode/grok” as Codex in UI/backend branches (breaks Grok **and native**).
+- Registering native live sessions in `engine::ProcessManager` / spawning a sidecar for the built-in agent.
+- Storing channel API keys in SQLite or SQL export (`api_key_ref` + keyring only).
+- Calling `finish_native_input` when a log dialog closes — that command **stops** the employee’s native sessions; skip native in `useSessionLogAwaitFollowups`.
 - Injecting third-party API keys over SSH when the product convention is remote self-auth (Grok/Claude CLI pattern).
-- Forgetting one-shot normalize + health + settings UI when adding a provider to `SUPPORTED_ONE_SHOT_PROVIDERS`.
+- Forgetting one-shot normalize + health + settings UI when adding a provider to `SUPPORTED_ONE_SHOT_PROVIDERS`. (`native` is **not** a one-shot/Git-commit provider; keep it out of `CLI_AI_PROVIDER_OPTIONS`.)
 - Gating a provider on `if !is_remote` inside `normalize_one_shot_provider` — that silently rewrites the user's choice to `codex` instead of surfacing a reason. Gate on runtime availability and report it, don't rewrite the provider.
 - Passing `None` for `ssh_config` into `capture_execution_change_baseline` on an SSH path — baseline capture then fails at runtime with a generic error while the code looks correct.
 - Hard-failing an execution target with 「尚未实现」. Either implement the channel or return a specific Chinese reason the user can act on (missing Node, SDK not installed, missing `ssh_config_id`).

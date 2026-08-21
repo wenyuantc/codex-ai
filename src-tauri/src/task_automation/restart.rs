@@ -54,6 +54,17 @@ async fn stop_running_session_for_automation_restart(
         return Ok(true);
     }
 
+    if stop_native_for_automation_restart(
+        app,
+        employee_id,
+        Some(expected_session_record_id),
+        message,
+    )
+    .await?
+    {
+        return Ok(true);
+    }
+
     stop_opencode_for_automation_restart(
         app,
         employee_id,
@@ -159,13 +170,8 @@ async fn restart_fix_step(
     )
     .await?;
 
-    let last_verdict_json = if let Some(verdict_json) = state_record.last_verdict_json.clone() {
-        Some(verdict_json)
-    } else if let Some(session_id) = state_record.consumed_session_id.as_deref() {
-        recover_review_verdict_json_for_session(pool, session_id).await?
-    } else {
-        None
-    };
+    let last_verdict_json =
+        recover_fix_verdict_json_for_task(pool, &task.id, state_record).await?;
     let (pending_round_count, round_count) = restart_fix_round_state(state_record);
 
     reserve_pending_action(

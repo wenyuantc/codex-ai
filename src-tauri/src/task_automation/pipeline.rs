@@ -426,6 +426,27 @@ async fn start_employee_execution_session(
             Some("execution".to_string()),
         )
         .await
+    } else if employee.ai_provider == "native" {
+        let manager = app
+            .state::<Arc<tokio::sync::Mutex<crate::native::NativeAgentManager>>>()
+            .inner()
+            .clone();
+        crate::native::start_native_with_manager(
+            app.clone(),
+            manager,
+            employee.id.clone(),
+            prompt,
+            Some(employee.model.clone()),
+            Some(employee.reasoning_effort.clone()),
+            employee.system_prompt.clone(),
+            Some(execution_context.working_dir.clone()),
+            Some(task.id.clone()),
+            execution_context.task_git_context_id.clone(),
+            None,
+            image_paths,
+            Some("execution".to_string()),
+        )
+        .await
     } else {
         let manager = app.state::<Arc<Mutex<CodexManager>>>().inner().clone();
         start_codex_with_manager(

@@ -206,6 +206,13 @@ export function getReasoningEffortLabel(
       defaultValue: effort,
     });
   }
+  if (provider === "native") {
+    return i18n.t(`settings:channels.thinkingLevels.${effort}`, {
+      defaultValue: i18n.t(`settings:runtime.options.reasoningEffort.${effort}`, {
+        defaultValue: effort,
+      }),
+    });
+  }
   return i18n.t(`settings:runtime.options.reasoningEffort.${effort}`, {
     defaultValue: effort,
   });

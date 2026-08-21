@@ -1,9 +1,6 @@
 import { useState } from "react";
 
-import { stopCodexSession } from "@/lib/codex";
-import { stopClaudeSession } from "@/lib/claude";
-import { stopGrokSession } from "@/lib/grok";
-import { stopOpenCodeSession } from "@/lib/opencode";
+import { stopSessionByProvider } from "@/lib/aiEngine";
 import { isImageSkipCancelled } from "@/lib/imageAttachmentSkip";
 import { reportTaskRunSessionError, startTaskRunSession } from "@/lib/taskRunSession";
 import type { Employee, ProjectType, Task } from "@/lib/types";
@@ -128,15 +125,7 @@ export function useTaskExecutionActions({
 
     setLoading("stop");
     try {
-      if (runningSession.ai_provider === "claude") {
-        await stopClaudeSession(runningSession.session_record_id);
-      } else if (runningSession.ai_provider === "opencode") {
-        await stopOpenCodeSession(runningSession.session_record_id);
-      } else if (runningSession.ai_provider === "grok") {
-        await stopGrokSession(runningSession.session_record_id);
-      } else {
-        await stopCodexSession(runningSession.session_record_id);
-      }
+      await stopSessionByProvider(runningSession.ai_provider, runningSession.session_record_id);
       const runtime = await refreshEmployeeRuntimeStatus(assigneeId);
       if (!runtime?.running) {
         await updateEmployeeStatus(assigneeId, "offline");

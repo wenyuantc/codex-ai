@@ -379,14 +379,14 @@ fn apply_codex_session_usage_keeps_null_until_first_delta_then_accumulates() {
         let pool = setup_test_pool().await;
         insert_session(&pool, "sess-usage", Some("cli-1"), "execution").await;
 
-        let before = sqlx::query_as::<_, (Option<i64>, Option<i64>, Option<i64>, Option<i64>)>(
-            "SELECT input_tokens, output_tokens, total_tokens, reasoning_tokens FROM codex_sessions WHERE id = $1",
+        let before = sqlx::query_as::<_, (Option<i64>, Option<i64>, Option<i64>, Option<i64>, Option<i64>)>(
+            "SELECT input_tokens, output_tokens, total_tokens, reasoning_tokens, cached_tokens FROM codex_sessions WHERE id = $1",
         )
         .bind("sess-usage")
         .fetch_one(&pool)
         .await
         .expect("fetch unused session");
-        assert_eq!(before, (None, None, None, None));
+        assert_eq!(before, (None, None, None, None, None));
 
         crate::app::apply_codex_session_usage(
             &pool,
@@ -396,19 +396,20 @@ fn apply_codex_session_usage_keeps_null_until_first_delta_then_accumulates() {
                 output_tokens: Some(5),
                 total_tokens: Some(15),
                 reasoning_tokens: None,
+                cached_tokens: Some(4),
             },
         )
         .await
         .expect("apply first usage");
 
-        let after_first = sqlx::query_as::<_, (Option<i64>, Option<i64>, Option<i64>, Option<i64>)>(
-            "SELECT input_tokens, output_tokens, total_tokens, reasoning_tokens FROM codex_sessions WHERE id = $1",
+        let after_first = sqlx::query_as::<_, (Option<i64>, Option<i64>, Option<i64>, Option<i64>, Option<i64>)>(
+            "SELECT input_tokens, output_tokens, total_tokens, reasoning_tokens, cached_tokens FROM codex_sessions WHERE id = $1",
         )
         .bind("sess-usage")
         .fetch_one(&pool)
         .await
         .expect("fetch after first usage");
-        assert_eq!(after_first, (Some(10), Some(5), Some(15), None));
+        assert_eq!(after_first, (Some(10), Some(5), Some(15), None, Some(4)));
 
         crate::app::apply_codex_session_usage(
             &pool,
@@ -418,19 +419,23 @@ fn apply_codex_session_usage_keeps_null_until_first_delta_then_accumulates() {
                 output_tokens: Some(3),
                 total_tokens: Some(5),
                 reasoning_tokens: Some(4),
+                cached_tokens: Some(1),
             },
         )
         .await
         .expect("apply second usage");
 
-        let after_second = sqlx::query_as::<_, (Option<i64>, Option<i64>, Option<i64>, Option<i64>)>(
-            "SELECT input_tokens, output_tokens, total_tokens, reasoning_tokens FROM codex_sessions WHERE id = $1",
+        let after_second = sqlx::query_as::<_, (Option<i64>, Option<i64>, Option<i64>, Option<i64>, Option<i64>)>(
+            "SELECT input_tokens, output_tokens, total_tokens, reasoning_tokens, cached_tokens FROM codex_sessions WHERE id = $1",
         )
         .bind("sess-usage")
         .fetch_one(&pool)
         .await
         .expect("fetch after second usage");
-        assert_eq!(after_second, (Some(12), Some(8), Some(20), Some(4)));
+        assert_eq!(
+            after_second,
+            (Some(12), Some(8), Some(20), Some(4), Some(5))
+        );
 
         crate::app::apply_codex_session_usage(
             &pool,
@@ -440,8 +445,8 @@ fn apply_codex_session_usage_keeps_null_until_first_delta_then_accumulates() {
         .await
         .expect("empty delta is a no-op");
 
-        let after_empty = sqlx::query_as::<_, (Option<i64>, Option<i64>, Option<i64>, Option<i64>)>(
-            "SELECT input_tokens, output_tokens, total_tokens, reasoning_tokens FROM codex_sessions WHERE id = $1",
+        let after_empty = sqlx::query_as::<_, (Option<i64>, Option<i64>, Option<i64>, Option<i64>, Option<i64>)>(
+            "SELECT input_tokens, output_tokens, total_tokens, reasoning_tokens, cached_tokens FROM codex_sessions WHERE id = $1",
         )
         .bind("sess-usage")
         .fetch_one(&pool)
@@ -493,15 +498,18 @@ fn task_token_usage_sum_ignores_sessions_without_usage() {
                 output_tokens: Some(20),
                 total_tokens: Some(120),
                 reasoning_tokens: None,
+                cached_tokens: Some(30),
             },
         )
         .await
         .expect("apply known usage");
 
-        let row = sqlx::query_as::<_, (i64, i64, i64, i64, i64, i64)>(
+        let row = sqlx::query_as::<_, (i64, i64, i64, i64, i64, i64, i64, i64)>(
             "SELECT COALESCE(SUM(input_tokens), 0), COALESCE(SUM(output_tokens), 0), \
              COALESCE(SUM(total_tokens), 0), COALESCE(SUM(reasoning_tokens), 0), \
-             COALESCE(SUM(CASE WHEN input_tokens IS NOT NULL OR output_tokens IS NOT NULL OR total_tokens IS NOT NULL OR reasoning_tokens IS NOT NULL THEN 1 ELSE 0 END), 0), \
+             COALESCE(SUM(cached_tokens), 0), \
+             COALESCE(SUM(CASE WHEN input_tokens IS NOT NULL OR output_tokens IS NOT NULL OR total_tokens IS NOT NULL OR reasoning_tokens IS NOT NULL OR cached_tokens IS NOT NULL THEN 1 ELSE 0 END), 0), \
+             COALESCE(SUM(CASE WHEN cached_tokens IS NOT NULL THEN 1 ELSE 0 END), 0), \
              COUNT(*) \
              FROM codex_sessions WHERE task_id = $1",
         )
@@ -510,7 +518,7 @@ fn task_token_usage_sum_ignores_sessions_without_usage() {
         .await
         .expect("aggregate task usage");
 
-        assert_eq!(row, (100, 20, 120, 0, 1, 2));
+        assert_eq!(row, (100, 20, 120, 0, 30, 1, 1, 2));
 
         pool.close().await;
     });

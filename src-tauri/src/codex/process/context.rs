@@ -8,8 +8,7 @@ pub(super) async fn resolve_task_project_execution_context<R: Runtime>(
     app: &AppHandle<R>,
     task_id: &str,
 ) -> Result<ExecutionContext, String> {
-    crate::engine::context::resolve_task_project_execution_context(app, task_id, ENGINE_LABEL)
-        .await
+    crate::engine::context::resolve_task_project_execution_context(app, task_id, ENGINE_LABEL).await
 }
 
 pub(super) async fn resolve_project_execution_context<R: Runtime>(

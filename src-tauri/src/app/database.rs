@@ -802,7 +802,7 @@ pub fn get_database_backup_scope() -> crate::db::models::DatabaseBackupScope {
         ],
         excludes: vec![
             "任务附件文件目录：应用数据目录下的 task-attachments/（图片/文档本体）".to_string(),
-            "密钥环中的 SSH 密码/私钥口令等敏感密钥".to_string(),
+            "密钥环中的 SSH 密码/私钥口令、AI 渠道 API 密钥等敏感密钥".to_string(),
             "应用配置目录中的 ai-prompt-templates.json（AI 提示词模板）".to_string(),
             "应用配置目录中的 mcp-servers.json（MCP 服务器配置）".to_string(),
             "窗口尺寸等本地 UI 状态".to_string(),
@@ -854,6 +854,16 @@ pub fn get_ai_provider_capabilities() -> Vec<crate::db::models::AiProviderCapabi
             resume: true,
             notes: "支持启动/停止/续聊；重启=停止当前运行后重新启动（非 CLI resume 旧会话）。Grok 为 headless CLI（-p + Stdio::null），无会话中可写 stdin（B1 豁免）。".to_string(),
         },
+        crate::db::models::AiProviderCapabilities {
+            provider: "native".to_string(),
+            label: "内置 Agent".to_string(),
+            start: true,
+            stop: true,
+            restart: true,
+            send_input: true,
+            resume: true,
+            notes: "支持启动/停止/续聊/会话中输入（进程内 mpsc 跟进）；重启=停止当前运行后重新启动。任务会话一轮结束后退出；自由会话可 send_native_input。".to_string(),
+        },
     ]
 }
 
@@ -864,10 +874,10 @@ mod ai_provider_capabilities_tests {
     #[test]
     fn capability_matrix_is_honest_and_complete() {
         let caps = get_ai_provider_capabilities();
-        assert_eq!(caps.len(), 4, "expected four providers");
+        assert_eq!(caps.len(), 5, "expected five providers");
 
         let providers: Vec<&str> = caps.iter().map(|c| c.provider.as_str()).collect();
-        for expected in ["codex", "claude", "opencode", "grok"] {
+        for expected in ["codex", "claude", "opencode", "grok", "native"] {
             assert!(
                 providers.contains(&expected),
                 "missing provider {expected} in {providers:?}"
@@ -921,6 +931,10 @@ mod ai_provider_capabilities_tests {
             by_provider["codex"].notes.contains("stdin")
                 || by_provider["codex"].notes.contains("会话中输入"),
             "codex notes should mention mid-session input path"
+        );
+        assert!(
+            by_provider["native"].send_input,
+            "native must expose real mid-session send_input"
         );
     }
 }
@@ -1864,7 +1878,7 @@ async fn build_weekly_completion_series(
     Ok(series)
 }
 
-const SESSION_HAS_USAGE_CONDITION: &str = "(s.input_tokens IS NOT NULL OR s.output_tokens IS NOT NULL OR s.total_tokens IS NOT NULL OR s.reasoning_tokens IS NOT NULL)";
+const SESSION_HAS_USAGE_CONDITION: &str = "(s.input_tokens IS NOT NULL OR s.output_tokens IS NOT NULL OR s.total_tokens IS NOT NULL OR s.reasoning_tokens IS NOT NULL OR s.cached_tokens IS NOT NULL)";
 
 /// 拼接 codex_sessions 的项目作用域条件。`include_null_project` 对齐员工负载口径：
 /// 未指定具体项目时，无项目归属的 ad-hoc 会话计入全局统计。
@@ -1904,13 +1918,15 @@ async fn load_token_usage_summary(
     let mut builder = QueryBuilder::<Sqlite>::new(format!(
         "SELECT COALESCE(SUM(s.input_tokens), 0), COALESCE(SUM(s.output_tokens), 0), \
          COALESCE(SUM(s.total_tokens), 0), COALESCE(SUM(s.reasoning_tokens), 0), \
-         COALESCE(SUM(CASE WHEN {SESSION_HAS_USAGE_CONDITION} THEN 1 ELSE 0 END), 0), COUNT(*) \
+         COALESCE(SUM(s.cached_tokens), 0), \
+         COALESCE(SUM(CASE WHEN {SESSION_HAS_USAGE_CONDITION} THEN 1 ELSE 0 END), 0), \
+         COALESCE(SUM(CASE WHEN s.cached_tokens IS NOT NULL THEN 1 ELSE 0 END), 0), COUNT(*) \
          FROM codex_sessions s"
     ));
     push_session_scope_condition(&mut builder, scoped_ids, include_null_project);
 
     let row = builder
-        .build_query_as::<(i64, i64, i64, i64, i64, i64)>()
+        .build_query_as::<(i64, i64, i64, i64, i64, i64, i64, i64)>()
         .fetch_one(pool)
         .await
         .map_err(|e| format!("统计 token 用量失败: {e}"))?;
@@ -1920,8 +1936,10 @@ async fn load_token_usage_summary(
         output_tokens: row.1,
         total_tokens: row.2,
         reasoning_tokens: row.3,
-        sessions_with_usage: row.4,
-        session_count: row.5,
+        cached_tokens: row.4,
+        sessions_with_usage: row.5,
+        sessions_with_cache: row.6,
+        session_count: row.7,
     })
 }
 

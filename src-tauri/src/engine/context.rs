@@ -49,15 +49,12 @@ pub async fn resolve_task_project_execution_context<R: Runtime>(
 
     let (repo_path, project_type, ssh_config_id, remote_repo_path) = row;
     if project_type == EXECUTION_TARGET_SSH {
-        let ssh_config_id = ssh_config_id.ok_or_else(|| {
-            format!("当前 SSH 项目缺少 ssh_config_id，无法启动 {engine_label}。")
-        })?;
+        let ssh_config_id = ssh_config_id
+            .ok_or_else(|| format!("当前 SSH 项目缺少 ssh_config_id，无法启动 {engine_label}。"))?;
         let ssh_config = fetch_ssh_config_record_by_id(&pool, &ssh_config_id).await?;
         let working_dir = remote_repo_path
             .map(|value| normalize_runtime_path_string(&value))
-            .ok_or_else(|| {
-                format!("当前 SSH 项目缺少远程仓库目录，无法启动 {engine_label}。")
-            })?;
+            .ok_or_else(|| format!("当前 SSH 项目缺少远程仓库目录，无法启动 {engine_label}。"))?;
         Ok(ExecutionContext {
             execution_target: EXECUTION_TARGET_SSH.to_string(),
             working_dir: Some(working_dir),
@@ -88,16 +85,14 @@ pub async fn resolve_project_execution_context<R: Runtime>(
     let project = fetch_project_by_id(&pool, project_id).await?;
 
     if project.project_type == EXECUTION_TARGET_SSH {
-        let ssh_config_id = project.ssh_config_id.ok_or_else(|| {
-            format!("当前 SSH 项目缺少 ssh_config_id，无法启动 {engine_label}。")
-        })?;
+        let ssh_config_id = project
+            .ssh_config_id
+            .ok_or_else(|| format!("当前 SSH 项目缺少 ssh_config_id，无法启动 {engine_label}。"))?;
         let ssh_config = fetch_ssh_config_record_by_id(&pool, &ssh_config_id).await?;
         let working_dir = project
             .remote_repo_path
             .map(|value| normalize_runtime_path_string(&value))
-            .ok_or_else(|| {
-                format!("当前 SSH 项目缺少远程仓库目录，无法启动 {engine_label}。")
-            })?;
+            .ok_or_else(|| format!("当前 SSH 项目缺少远程仓库目录，无法启动 {engine_label}。"))?;
         Ok(ExecutionContext {
             execution_target: EXECUTION_TARGET_SSH.to_string(),
             working_dir: Some(working_dir),
@@ -223,7 +218,10 @@ mod tests {
     fn local_default_matches_local_full_capture() {
         let context = ExecutionContext::local_default();
         assert_eq!(context.execution_target, EXECUTION_TARGET_LOCAL);
-        assert_eq!(context.artifact_capture_mode, ARTIFACT_CAPTURE_MODE_LOCAL_FULL);
+        assert_eq!(
+            context.artifact_capture_mode,
+            ARTIFACT_CAPTURE_MODE_LOCAL_FULL
+        );
         assert!(context.working_dir.is_none());
         assert!(context.ssh_config_id.is_none());
         assert!(context.target_host_label.is_none());

@@ -33,6 +33,9 @@ File: `src-tauri/src/db/migrations.rs`
 - Each entry has `description` + SQL string
 - Applied at app startup by `tauri-plugin-sql` in `lib.rs`
 - After adding a version, update the `latest_migration_version()` assertion in `migrations.rs` tests
+- Current latest: **50** (`ai_channels.api_key`). Do not rewrite published versions; empty unused channels are fine.
+
+Version 48 adds `ai_channels` + `employees.ai_channel_id`. Version 49 adds nullable `cached_tokens` on `codex_sessions` (NULL = unknown, same as v45). Version 50 adds `ai_channels.api_key` (plaintext channel config; `api_key_ref` kept only as a one-time keyring migrate hint).
 
 ### Adding A Migration
 
@@ -76,6 +79,7 @@ Version 47 adds `task_templates` (soft-delete, optional `project_id`, `tags_json
 - DDL: `ALTER TABLE codex_sessions ADD COLUMN {input,output,total,reasoning}_tokens INTEGER;`
 - Persist: `apply_codex_session_usage(pool, session_record_id, &UsageDelta) -> Result<(), String>`
 - Read: `get_task_token_usage(task_id) -> TokenUsageSummary`
+- v49: `ALTER TABLE codex_sessions ADD COLUMN cached_tokens INTEGER;` (cache **hit** only; not cache-creation)
 
 ### 3. Contracts
 - Columns nullable. First delta for a field uses `COALESCE(col, 0) + delta`; a NULL delta leaves that column unchanged.
@@ -91,7 +95,7 @@ Version 47 adds `task_templates` (soft-delete, optional `project_id`, `tags_json
 
 ### 5. Good / Base / Bad Cases
 - Good: first usage writes 812/45; second usage adds; NULL fields stay NULL until seen
-- Base: session never emits usage → all four columns NULL; UI hides the row
+- Base: session never emits usage → token columns stay NULL; UI shows 未知, not 0
 - Bad: `DEFAULT 0` on the migration; `SUM` treating NULL sessions as 0 in a “has usage” empty state
 
 ### 6. Tests Required

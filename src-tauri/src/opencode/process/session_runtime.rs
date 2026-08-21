@@ -96,8 +96,7 @@ pub async fn launch_opencode_bridge_via_ssh<R: Runtime>(
     node_path_override: Option<&str>,
     config: &OpenCodeBridgeConfig,
 ) -> Result<(OpenCodeChild, Vec<PathBuf>), String> {
-    let remote_command =
-        build_remote_opencode_sdk_bridge_command(install_dir, node_path_override);
+    let remote_command = build_remote_opencode_sdk_bridge_command(install_dir, node_path_override);
     let (mut command, askpass_path) =
         build_ssh_command(app, ssh_config, Some(&remote_command), true, false).await?;
     command
@@ -117,18 +116,17 @@ pub async fn launch_opencode_bridge_via_ssh<R: Runtime>(
     let stdout = child.stdout.take();
     let stderr = child.stderr.take();
 
-    let stdin = match write_bridge_stdin_keep(stdin, &serialize_opencode_bridge_config(config)?)
-        .await
-    {
-        Ok(stdin) => stdin,
-        Err(error) => {
-            let _ = child.kill().await;
-            if let Some(path) = askpass_path.as_ref() {
-                let _ = std::fs::remove_file(path);
+    let stdin =
+        match write_bridge_stdin_keep(stdin, &serialize_opencode_bridge_config(config)?).await {
+            Ok(stdin) => stdin,
+            Err(error) => {
+                let _ = child.kill().await;
+                if let Some(path) = askpass_path.as_ref() {
+                    let _ = std::fs::remove_file(path);
+                }
+                return Err(error);
             }
-            return Err(error);
-        }
-    };
+        };
 
     Ok((
         OpenCodeChild::with_stdio_and_stdin(child, stdout, stderr, Some(stdin)),

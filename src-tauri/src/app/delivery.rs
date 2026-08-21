@@ -190,10 +190,7 @@ pub async fn list_tags<R: Runtime>(
 }
 
 #[tauri::command]
-pub async fn create_tag<R: Runtime>(
-    app: AppHandle<R>,
-    payload: CreateTag,
-) -> Result<Tag, String> {
+pub async fn create_tag<R: Runtime>(app: AppHandle<R>, payload: CreateTag) -> Result<Tag, String> {
     let pool = sqlite_pool(&app).await?;
     ensure_project_exists(&pool, &payload.project_id).await?;
 
@@ -205,15 +202,17 @@ pub async fn create_tag<R: Runtime>(
     let id = new_id();
     let color = normalize_optional_text(payload.color.as_deref());
 
-    sqlx::query("INSERT INTO tags (id, project_id, name, color, created_at) VALUES ($1, $2, $3, $4, $5)")
-        .bind(&id)
-        .bind(&payload.project_id)
-        .bind(&name)
-        .bind(&color)
-        .bind(now_sqlite())
-        .execute(&pool)
-        .await
-        .map_err(|error| format!("Failed to create tag: {}", error))?;
+    sqlx::query(
+        "INSERT INTO tags (id, project_id, name, color, created_at) VALUES ($1, $2, $3, $4, $5)",
+    )
+    .bind(&id)
+    .bind(&payload.project_id)
+    .bind(&name)
+    .bind(&color)
+    .bind(now_sqlite())
+    .execute(&pool)
+    .await
+    .map_err(|error| format!("Failed to create tag: {}", error))?;
 
     sqlx::query_as::<_, Tag>("SELECT * FROM tags WHERE id = $1 LIMIT 1")
         .bind(&id)
@@ -303,13 +302,12 @@ pub async fn set_task_tags<R: Runtime>(
         }
     }
 
-    let previous_tag_ids: Vec<String> = sqlx::query_scalar(
-        "SELECT tag_id FROM task_tags WHERE task_id = $1 ORDER BY tag_id",
-    )
-    .bind(&payload.task_id)
-    .fetch_all(&pool)
-    .await
-    .map_err(|error| format!("Failed to load existing task tags: {}", error))?;
+    let previous_tag_ids: Vec<String> =
+        sqlx::query_scalar("SELECT tag_id FROM task_tags WHERE task_id = $1 ORDER BY tag_id")
+            .bind(&payload.task_id)
+            .fetch_all(&pool)
+            .await
+            .map_err(|error| format!("Failed to load existing task tags: {}", error))?;
 
     let mut tx = pool
         .begin()

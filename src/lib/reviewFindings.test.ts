@@ -29,6 +29,7 @@ function session(partial: Pick<CodexSessionRecord, "id" | "started_at">): CodexS
     output_tokens: null,
     total_tokens: null,
     reasoning_tokens: null,
+    cached_tokens: null,
     execution_target: "local",
     ssh_config_id: null,
     target_host_label: null,

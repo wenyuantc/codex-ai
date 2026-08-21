@@ -247,10 +247,9 @@ fn load_index_document(config_dir: &Path) -> Result<SecretIndexDocument, String>
         return Ok(SecretIndexDocument::default());
     }
 
-    let raw =
-        fs::read_to_string(&path).map_err(|error| format!("读取密钥索引失败: {error}"))?;
-    let mut document: SecretIndexDocument = serde_json::from_str(&raw)
-        .map_err(|error| format!("解析密钥索引失败: {error}"))?;
+    let raw = fs::read_to_string(&path).map_err(|error| format!("读取密钥索引失败: {error}"))?;
+    let mut document: SecretIndexDocument =
+        serde_json::from_str(&raw).map_err(|error| format!("解析密钥索引失败: {error}"))?;
     if document.version == 0 {
         document.version = SECRET_INDEX_VERSION;
     }
@@ -259,8 +258,7 @@ fn load_index_document(config_dir: &Path) -> Result<SecretIndexDocument, String>
 
 fn save_index_document(config_dir: &Path, document: &SecretIndexDocument) -> Result<(), String> {
     let path = index_path(config_dir);
-    fs::create_dir_all(config_dir)
-        .map_err(|error| format!("创建密钥索引目录失败: {error}"))?;
+    fs::create_dir_all(config_dir).map_err(|error| format!("创建密钥索引目录失败: {error}"))?;
     let raw = serde_json::to_string_pretty(document)
         .map_err(|error| format!("序列化密钥索引失败: {error}"))?;
 
@@ -269,8 +267,7 @@ fn save_index_document(config_dir: &Path, document: &SecretIndexDocument) -> Res
         ".{SECRET_INDEX_FILE_NAME}.{}.tmp",
         std::process::id()
     ));
-    fs::write(&tmp_path, raw.as_bytes())
-        .map_err(|error| format!("写入密钥索引失败: {error}"))?;
+    fs::write(&tmp_path, raw.as_bytes()).map_err(|error| format!("写入密钥索引失败: {error}"))?;
     // Best-effort: if rename fails because target exists (Windows), remove then retry.
     if let Err(error) = fs::rename(&tmp_path, &path) {
         let _ = fs::remove_file(&path);
@@ -308,9 +305,8 @@ fn ensure_migrated(config_dir: &Path, backend: &dyn SecretBackend) -> Result<(),
         }
     };
 
-    migrate_from_legacy_document(config_dir, backend, &legacy).map_err(|error| {
-        format!("迁移 SSH 密钥到系统凭据库失败: {error}")
-    })?;
+    migrate_from_legacy_document(config_dir, backend, &legacy)
+        .map_err(|error| format!("迁移 SSH 密钥到系统凭据库失败: {error}"))?;
 
     let legacy_path = legacy_store_path(config_dir);
     if legacy_path.exists() {
@@ -584,10 +580,9 @@ mod tests {
             .expect("store old")
             .expect("old ref");
 
-        let new_ref =
-            store_secret_value_with(&dir, &backend, Some("new-secret"), Some(&old_ref))
-                .expect("store new")
-                .expect("new ref");
+        let new_ref = store_secret_value_with(&dir, &backend, Some("new-secret"), Some(&old_ref))
+            .expect("store new")
+            .expect("new ref");
 
         assert_ne!(old_ref, new_ref);
         assert!(backend.get(&old_ref).expect("old get").is_none());
@@ -595,11 +590,9 @@ mod tests {
             backend.get(&new_ref).expect("new get").as_deref(),
             Some("new-secret")
         );
-        assert!(
-            resolve_secret_value_with(&dir, &backend, Some(&old_ref))
-                .expect("resolve old")
-                .is_none()
-        );
+        assert!(resolve_secret_value_with(&dir, &backend, Some(&old_ref))
+            .expect("resolve old")
+            .is_none());
         assert_eq!(
             resolve_secret_value_with(&dir, &backend, Some(&new_ref))
                 .expect("resolve new")
@@ -641,8 +634,7 @@ mod tests {
         let mut active = HashSet::new();
         active.insert(keep.clone());
 
-        let removed =
-            sweep_orphan_secret_refs_with(&dir, &backend, &active).expect("sweep");
+        let removed = sweep_orphan_secret_refs_with(&dir, &backend, &active).expect("sweep");
         assert_eq!(removed, 1);
         assert!(backend.get(&drop_ref).expect("drop get").is_none());
         assert_eq!(
@@ -821,7 +813,10 @@ mod tests {
             err.contains("迁移 SSH 密钥到系统凭据库失败"),
             "unexpected: {err}"
         );
-        assert!(legacy_path.exists(), "corrupt legacy must be kept for retry");
+        assert!(
+            legacy_path.exists(),
+            "corrupt legacy must be kept for retry"
+        );
 
         cleanup(&dir);
     }
@@ -883,6 +878,8 @@ mod tests {
         assert!(looks_like_missing_secret_service(
             "Couldn't access platform secure storage: no secret service"
         ));
-        assert!(!looks_like_missing_secret_service("No matching entry found"));
+        assert!(!looks_like_missing_secret_service(
+            "No matching entry found"
+        ));
     }
 }
