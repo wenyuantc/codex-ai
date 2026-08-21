@@ -10,6 +10,7 @@ import {
 } from "@/components/ui/dialog";
 import { useSessionLogAwaitFollowups } from "@/hooks/useSessionLogAwaitFollowups";
 import { getCodexSessionLogLines } from "@/lib/backend";
+import { formatSessionKind } from "@/lib/sessions";
 import {
   formatEmployeeAiProviderLabel,
   type Employee,
@@ -23,10 +24,6 @@ interface EmployeeRunningSessionsDialogProps {
   employee: Employee;
   sessions: EmployeeRunningSession[];
   onOpenChange: (open: boolean) => void;
-}
-
-function formatSessionKind(sessionKind: EmployeeRunningSession["session_kind"]) {
-  return sessionKind === "review" ? "审核" : "执行";
 }
 
 function formatAiProvider(provider: EmployeeRunningSession["ai_provider"]) {
@@ -150,7 +147,7 @@ export function EmployeeRunningSessionsDialog({
               >
                 <div className="mb-3 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                   <span className="rounded-full bg-secondary px-2 py-0.5 text-foreground">
-                    {formatSessionKind(session.session_kind)}
+                    {formatSessionKind(session)}
                   </span>
                   <span className="rounded-full bg-secondary px-2 py-0.5 text-foreground">
                     {formatAiProvider(session.ai_provider)}

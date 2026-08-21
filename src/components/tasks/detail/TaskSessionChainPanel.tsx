@@ -7,8 +7,9 @@ import { SessionLogDialog, type SessionLogTarget } from "@/components/sessions/S
 import { SshArtifactLimitedNotice } from "@/components/sessions/SshArtifactLimitedNotice";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { listActivityLogs, listCodexSessions, prepareCodexSessionResume } from "@/lib/backend";
 import { startByProvider, stopSessionByProvider } from "@/lib/aiEngine";
+import { listActivityLogs, listCodexSessions, prepareCodexSessionResume } from "@/lib/backend";
+import { sessionKindBadgeClassName } from "@/lib/sessions";
 import type {
   ActivityLog,
   AiProvider,
@@ -21,7 +22,7 @@ import { useEmployeeStore } from "@/stores/employeeStore";
 import { getSessionStatusLabel } from "./taskDetailViewHelpers";
 import { TokenUsageBreakdown } from "./TokenUsageBreakdown";
 
-type ChainRole = "execute" | "review" | "fix";
+type ChainRole = "execute" | "review" | "fix" | "pipeline";
 
 interface ChainItem {
   session: CodexSessionListItem;
@@ -95,12 +96,14 @@ function formatResumeStatus(status: CodexSessionResumeStatus, translate: (key: s
 function roleBadgeClassName(role: ChainRole) {
   switch (role) {
     case "review":
-      return "border-blue-500/30 bg-blue-500/10 text-blue-700";
+      return sessionKindBadgeClassName("review");
+    case "pipeline":
+      return sessionKindBadgeClassName("pipeline");
     case "fix":
       return "border-amber-500/30 bg-amber-500/10 text-amber-800";
     case "execute":
     default:
-      return "border-emerald-500/30 bg-emerald-500/10 text-emerald-700";
+      return sessionKindBadgeClassName("execution");
   }
 }
 
@@ -108,6 +111,8 @@ function formatChainRole(role: ChainRole, translate: (key: string) => string) {
   switch (role) {
     case "review":
       return translate("detail.chain.role.review");
+    case "pipeline":
+      return translate("detail.chain.role.pipeline");
     case "fix":
       return translate("detail.chain.role.fix");
     case "execute":
@@ -130,8 +135,9 @@ function parseTime(value: string | null | undefined) {
 
 /**
  * Build execution → review → fix timeline labels.
- * Review sessions → review. Execution sessions → execute, unless they follow a
- * failed review or sit near task_automation_fix_started activity → fix.
+ * Review sessions → review. Pipeline-origin execution sessions → pipeline
+ * (beats the fix heuristic). Remaining execution sessions → execute, unless
+ * they follow a failed review or sit near task_automation_fix_started → fix.
  */
 export function buildTaskSessionChain(
   sessions: CodexSessionListItem[],
@@ -148,6 +154,10 @@ export function buildTaskSessionChain(
   return sorted.map((session, index) => {
     if (session.session_kind === "review") {
       return { session, role: "review" as const };
+    }
+
+    if (session.session_origin === "pipeline") {
+      return { session, role: "pipeline" as const };
     }
 
     const previous = index > 0 ? sorted[index - 1] : null;
@@ -395,9 +405,11 @@ export function TaskSessionChainPanel({ taskId, active = true }: TaskSessionChai
                   className={`absolute -left-[1.29rem] top-1.5 h-2.5 w-2.5 rounded-full border-2 border-background ${
                     role === "review"
                       ? "bg-blue-500"
-                      : role === "fix"
-                        ? "bg-amber-500"
-                        : "bg-emerald-500"
+                      : role === "pipeline"
+                        ? "bg-violet-500"
+                        : role === "fix"
+                          ? "bg-amber-500"
+                          : "bg-emerald-500"
                   }`}
                   aria-hidden
                 />

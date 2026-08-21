@@ -325,6 +325,7 @@ export interface CodexSessionRecord {
   ssh_config_id: string | null;
   target_host_label: string | null;
   artifact_capture_mode: ArtifactCaptureMode;
+  session_origin: SessionOrigin;
   created_at: string;
 }
 
@@ -411,6 +412,7 @@ export interface CodexSessionListItem {
   cli_session_id: string | null;
   ai_provider: AiProvider;
   session_kind: CodexSessionKind;
+  session_origin: SessionOrigin;
   status: string;
   last_updated_at: string;
   display_name: string;
@@ -838,6 +840,7 @@ export interface EmployeeRunningSession {
   task_title: string | null;
   ai_provider: AiProvider;
   session_kind: CodexSessionKind;
+  session_origin: SessionOrigin;
   started_at: string;
   status: string;
 }
@@ -931,6 +934,7 @@ export interface DatabaseRestoreResult {
 }
 
 export type CodexSessionKind = "execution" | "review";
+export type SessionOrigin = "direct" | "pipeline";
 export type CodexSessionResumeStatus =
   "ready" | "running" | "missing_employee" | "missing_cli_session" | "stopping" | "invalid";
 export type CodexModelId =

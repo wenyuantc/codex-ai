@@ -107,9 +107,9 @@ pub(crate) use sessions::{
     apply_codex_session_usage, compare_global_search_items, fetch_codex_session_by_id,
     fetch_execution_change_history_item_by_session_id, fetch_task_latest_review,
     insert_activity_log, insert_codex_session_event, insert_codex_session_event_with_id,
-    insert_codex_session_record, normalize_global_search_types, replace_codex_session_file_changes,
-    resolve_running_conflict_message, resolve_session_resume_state,
-    rewrite_file_change_diff_labels, update_codex_session_record,
+    insert_codex_session_record, mark_codex_session_origin_pipeline, normalize_global_search_types,
+    replace_codex_session_file_changes, resolve_running_conflict_message,
+    resolve_session_resume_state, rewrite_file_change_diff_labels, update_codex_session_record,
 };
 #[allow(unused_imports)]
 pub(crate) use shared::{

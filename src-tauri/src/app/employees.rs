@@ -187,6 +187,7 @@ async fn build_employee_runtime_status<R: Runtime>(
             task_title,
             ai_provider: session.ai_provider.clone(),
             session_kind: session.session_kind.clone(),
+            session_origin: session.session_origin.clone(),
             started_at: session.started_at.clone(),
             status: session.status.clone(),
         });

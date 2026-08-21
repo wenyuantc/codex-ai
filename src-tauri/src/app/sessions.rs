@@ -249,6 +249,7 @@ pub(crate) async fn insert_codex_session_record<R: Runtime>(
         target_host_label: target_host_label.map(ToOwned::to_owned),
         artifact_capture_mode: artifact_capture_mode.to_string(),
         session_kind: session_kind.to_string(),
+        session_origin: "direct".to_string(),
         status: status.to_string(),
         started_at: now_sqlite(),
         ended_at: None,
@@ -292,6 +293,18 @@ pub(crate) async fn insert_codex_session_record<R: Runtime>(
     .map_err(|error| format!("Failed to insert session record: {}", error))?;
 
     Ok(record)
+}
+
+pub(crate) async fn mark_codex_session_origin_pipeline(
+    pool: &SqlitePool,
+    session_id: &str,
+) -> Result<(), String> {
+    sqlx::query("UPDATE codex_sessions SET session_origin = 'pipeline' WHERE id = $1")
+        .bind(session_id)
+        .execute(pool)
+        .await
+        .map_err(|error| format!("Failed to mark session origin as pipeline: {}", error))?;
+    Ok(())
 }
 
 pub(crate) async fn update_codex_session_record<R: Runtime>(
@@ -756,9 +769,11 @@ fn search_project_type_label(project_type: &str) -> &str {
     }
 }
 
-fn search_session_kind_label(session_kind: &str) -> &str {
+fn search_session_kind_label(session_kind: &str, session_origin: &str) -> &'static str {
     if session_kind == "review" {
         "审核对话"
+    } else if session_origin == "pipeline" {
+        "编排对话"
     } else {
         "执行对话"
     }
@@ -971,7 +986,7 @@ fn build_session_search_item(
         title: session.display_name.clone(),
         subtitle: Some(format!(
             "{} · {} · {}",
-            search_session_kind_label(&session.session_kind),
+            search_session_kind_label(&session.session_kind, &session.session_origin),
             search_status_label(&session.status),
             session
                 .project_name
@@ -1157,6 +1172,7 @@ async fn query_codex_session_list<R: Runtime>(
             s.cli_session_id AS cli_session_id,
             s.ai_provider AS ai_provider,
             s.session_kind AS session_kind,
+            s.session_origin AS session_origin,
             s.status AS status,
             COALESCE(
                 (
@@ -1172,6 +1188,7 @@ async fn query_codex_session_list<R: Runtime>(
                 t.title,
                 CASE
                     WHEN s.session_kind = 'review' THEN '代码审核对话'
+                    WHEN s.session_origin = 'pipeline' THEN '编排对话'
                     ELSE 'Codex 执行对话'
                 END
             ) AS display_name,
@@ -1520,7 +1537,18 @@ pub async fn get_task_token_usage<R: Runtime>(
 
 #[cfg(test)]
 mod tests {
-    use super::{format_session_log_line, search_status_label};
+    use super::{format_session_log_line, search_session_kind_label, search_status_label};
+
+    #[test]
+    fn search_session_kind_label_uses_session_origin_for_pipeline() {
+        assert_eq!(search_session_kind_label("review", "pipeline"), "审核对话");
+        assert_eq!(
+            search_session_kind_label("execution", "pipeline"),
+            "编排对话"
+        );
+        assert_eq!(search_session_kind_label("execution", "direct"), "执行对话");
+        assert_eq!(search_session_kind_label("execution", ""), "执行对话");
+    }
 
     #[test]
     fn employee_runtime_status_labels_are_idle_running_error() {

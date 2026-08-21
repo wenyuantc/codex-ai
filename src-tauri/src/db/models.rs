@@ -268,6 +268,7 @@ pub struct CodexSessionRecord {
     pub target_host_label: Option<String>,
     pub artifact_capture_mode: String,
     pub session_kind: String,
+    pub session_origin: String,
     pub status: String,
     pub started_at: String,
     pub ended_at: Option<String>,
@@ -436,6 +437,7 @@ pub struct EmployeeRunningSession {
     pub task_title: Option<String>,
     pub ai_provider: String,
     pub session_kind: String,
+    pub session_origin: String,
     pub started_at: String,
     pub status: String,
 }
@@ -667,6 +669,7 @@ pub struct CodexSessionListItem {
     pub cli_session_id: Option<String>,
     pub ai_provider: String,
     pub session_kind: String,
+    pub session_origin: String,
     pub status: String,
     pub last_updated_at: String,
     pub display_name: String,

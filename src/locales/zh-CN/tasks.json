@@ -323,7 +323,8 @@
       "role": {
         "execute": "执行",
         "review": "审核",
-        "fix": "修复"
+        "fix": "修复",
+        "pipeline": "编排"
       },
       "resume": {
         "ready": "可继续",

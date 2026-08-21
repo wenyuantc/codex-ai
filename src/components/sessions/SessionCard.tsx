@@ -18,6 +18,8 @@ import {
   formatSessionKind,
   formatSessionStatus,
   formatSessionTokenUsage,
+  sessionDisplayKind,
+  sessionKindBadgeClassName,
   sessionStatusBadgeVariant,
 } from "@/lib/sessions";
 import type { CodexSessionListItem } from "@/lib/types";
@@ -81,7 +83,9 @@ export function SessionCard({
         <Badge variant={aiProviderBadgeVariant(normalizeAiProvider(session.ai_provider))}>
           {formatAiProviderLabel(normalizeAiProvider(session.ai_provider))}
         </Badge>
-        <span>{formatSessionKind(session.session_kind)}</span>
+        <Badge variant="outline" className={sessionKindBadgeClassName(sessionDisplayKind(session))}>
+          {formatSessionKind(session)}
+        </Badge>
         <span aria-hidden>·</span>
         <span>{isSsh ? t("common:sshShort") : t("common:localShort")}</span>
         <span aria-hidden>·</span>

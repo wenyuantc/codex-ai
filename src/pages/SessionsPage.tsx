@@ -43,6 +43,8 @@ import {
   getStoredSessionsViewMode,
   matchesSessionIdentifier,
   normalizeSearchText,
+  sessionDisplayKind,
+  sessionKindBadgeClassName,
   sessionStatusBadgeVariant,
   storeSessionsViewMode,
   type SessionsViewMode,
@@ -166,7 +168,7 @@ export function SessionsPage() {
         return false;
       }
 
-      if (kindFilter !== "all" && session.session_kind !== kindFilter) {
+      if (kindFilter !== "all" && sessionDisplayKind(session) !== kindFilter) {
         return false;
       }
 
@@ -647,6 +649,7 @@ export function SessionsPage() {
                       <option value="all">{t("allKinds")}</option>
                       <option value="execution">{t("kindExecution")}</option>
                       <option value="review">{t("kindReview")}</option>
+                      <option value="pipeline">{t("kindPipeline")}</option>
                     </select>
                   </div>
                 </div>
@@ -726,6 +729,7 @@ export function SessionsPage() {
                     <thead className="bg-muted/40 text-left">
                       <tr className="border-b border-border">
                         <th className="px-4 py-3 font-medium">{t("colSession")}</th>
+                        <th className="px-4 py-3 font-medium">{t("kind")}</th>
                         <th className="px-4 py-3 font-medium">{t("colStatus")}</th>
                         <th className="px-4 py-3 font-medium">{t("colProvider")}</th>
                         <th className="px-4 py-3 font-medium">{t("colUpdated")}</th>
@@ -779,12 +783,18 @@ export function SessionsPage() {
                             </div>
                           </td>
                           <td className="px-4 py-3">
+                            <Badge
+                              variant="outline"
+                              className={sessionKindBadgeClassName(sessionDisplayKind(session))}
+                            >
+                              {formatSessionKind(session)}
+                            </Badge>
+                          </td>
+                          <td className="px-4 py-3">
                             <Badge variant={sessionStatusBadgeVariant(session.status)}>
                               {formatSessionStatus(session.status)}
                             </Badge>
                             <div className="mt-1 whitespace-nowrap text-[11px] text-muted-foreground">
-                              {formatSessionKind(session.session_kind)}
-                              {" · "}
                               {session.execution_target === "ssh"
                                 ? t("common:sshShort")
                                 : t("common:localShort")}

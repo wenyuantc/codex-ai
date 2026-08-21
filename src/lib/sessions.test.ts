@@ -3,11 +3,14 @@ import { describe, expect, it } from "vitest";
 import {
   aiProviderBadgeVariant,
   formatAiProviderLabel,
+  formatSessionKind,
   formatSessionStatus,
   formatSessionTokenUsage,
   getStoredSessionsViewMode,
   matchesSessionIdentifier,
   normalizeSearchText,
+  sessionDisplayKind,
+  sessionKindBadgeClassName,
   sessionStatusBadgeVariant,
 } from "@/lib/sessions";
 import type { CodexSessionListItem } from "@/lib/types";
@@ -136,5 +139,48 @@ describe("formatSessionStatus", () => {
     // Rendered directly in the UI, so an unmapped status shows as-is rather
     // than crashing — same fallback contract as getActivityActionLabel.
     expect(formatSessionStatus("brand_new_status")).toBe("brand_new_status");
+  });
+});
+
+describe("sessionDisplayKind", () => {
+  it("treats review as review even when origin is pipeline", () => {
+    expect(sessionDisplayKind({ session_kind: "review", session_origin: "pipeline" })).toBe(
+      "review",
+    );
+  });
+
+  it("treats pipeline origin as pipeline for execution sessions", () => {
+    expect(sessionDisplayKind({ session_kind: "execution", session_origin: "pipeline" })).toBe(
+      "pipeline",
+    );
+  });
+
+  it("defaults missing or unknown origin to execution", () => {
+    expect(sessionDisplayKind({ session_kind: "execution" })).toBe("execution");
+    expect(sessionDisplayKind({ session_kind: "execution", session_origin: null })).toBe(
+      "execution",
+    );
+    expect(sessionDisplayKind({ session_kind: "execution", session_origin: "other" })).toBe(
+      "execution",
+    );
+    expect(sessionDisplayKind({})).toBe("execution");
+  });
+});
+
+describe("formatSessionKind", () => {
+  it("maps display kinds to i18n labels with review winning over pipeline", () => {
+    expect(formatSessionKind({ session_kind: "review", session_origin: "pipeline" })).toBe("审核");
+    expect(formatSessionKind({ session_kind: "execution", session_origin: "pipeline" })).toBe(
+      "编排",
+    );
+    expect(formatSessionKind({ session_kind: "execution" })).toBe("执行");
+  });
+});
+
+describe("sessionKindBadgeClassName", () => {
+  it("uses distinct colors for review, pipeline, and execution", () => {
+    expect(sessionKindBadgeClassName("review")).toContain("text-blue-700");
+    expect(sessionKindBadgeClassName("pipeline")).toContain("text-violet-700");
+    expect(sessionKindBadgeClassName("execution")).toContain("text-emerald-700");
   });
 });

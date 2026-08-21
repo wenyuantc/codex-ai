@@ -89,8 +89,44 @@ export function aiProviderBadgeVariant(provider: AiProvider): "default" | "secon
   }
 }
 
-export function formatSessionKind(kind: CodexSessionListItem["session_kind"]) {
-  return kind === "review" ? i18n.t("sessions:kindReview") : i18n.t("sessions:kindExecution");
+export type SessionDisplayKind = "execution" | "review" | "pipeline";
+
+export function sessionDisplayKind(session: {
+  session_kind?: string | null;
+  session_origin?: string | null;
+}): SessionDisplayKind {
+  if (session.session_kind === "review") {
+    return "review";
+  }
+  if (session.session_origin === "pipeline") {
+    return "pipeline";
+  }
+  return "execution";
+}
+
+export function formatSessionKind(session: {
+  session_kind?: string | null;
+  session_origin?: string | null;
+}) {
+  switch (sessionDisplayKind(session)) {
+    case "review":
+      return i18n.t("sessions:kindReview");
+    case "pipeline":
+      return i18n.t("sessions:kindPipeline");
+    default:
+      return i18n.t("sessions:kindExecution");
+  }
+}
+
+export function sessionKindBadgeClassName(kind: SessionDisplayKind): string {
+  switch (kind) {
+    case "review":
+      return "border-blue-500/30 bg-blue-500/10 text-blue-700";
+    case "pipeline":
+      return "border-violet-500/30 bg-violet-500/10 text-violet-700";
+    default:
+      return "border-emerald-500/30 bg-emerald-500/10 text-emerald-700";
+  }
 }
 
 export function formatSessionStatus(status: string) {

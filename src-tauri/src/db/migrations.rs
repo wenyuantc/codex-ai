@@ -1206,6 +1206,21 @@ pub fn get_all_migrations() -> Vec<Migration> {
             "#,
             kind: tauri_plugin_sql::MigrationKind::Up,
         },
+        Migration {
+            version: 51,
+            description: "codex session origin for pipeline vs direct launches",
+            sql: r#"
+                ALTER TABLE codex_sessions ADD COLUMN session_origin TEXT NOT NULL DEFAULT 'direct';
+
+                UPDATE codex_sessions
+                SET session_origin = 'pipeline'
+                WHERE id IN (
+                    SELECT session_id FROM task_pipeline_steps
+                    WHERE session_id IS NOT NULL AND TRIM(session_id) <> ''
+                );
+            "#,
+            kind: tauri_plugin_sql::MigrationKind::Up,
+        },
     ]
 }
 
@@ -1247,7 +1262,7 @@ mod tests {
 
     #[test]
     fn latest_migration_version_includes_session_events_retention_index() {
-        assert_eq!(latest_migration_version(), 50);
+        assert_eq!(latest_migration_version(), 51);
     }
 
     #[test]
@@ -1376,6 +1391,101 @@ mod tests {
             .collect();
 
             assert_eq!(columns, vec!["api_key"]);
+        });
+    }
+
+    #[test]
+    fn migration_51_adds_session_origin_and_backfills_pipeline_steps() {
+        tauri::async_runtime::block_on(async {
+            let pool = setup_test_pool_through(50).await;
+
+            sqlx::query(
+                r#"
+                INSERT INTO codex_sessions (id, session_kind, status, started_at, created_at)
+                VALUES
+                    ('sess-pipeline', 'execution', 'exited', '2026-08-21 10:00:00', '2026-08-21 10:00:00'),
+                    ('sess-direct', 'execution', 'exited', '2026-08-21 10:01:00', '2026-08-21 10:01:00'),
+                    ('sess-review', 'review', 'exited', '2026-08-21 10:02:00', '2026-08-21 10:02:00')
+                "#,
+            )
+            .execute(&pool)
+            .await
+            .expect("insert pre-migration sessions");
+
+            sqlx::query(
+                r#"
+                INSERT INTO task_pipeline_steps (
+                    id, task_id, step_index, title, status, session_id, created_at, updated_at
+                ) VALUES
+                    ('step-bound', 'seed-task-1', 0, '实现接口', 'succeeded', 'sess-pipeline', '2026-08-21 10:00:00', '2026-08-21 10:00:00'),
+                    ('step-empty', 'seed-task-2', 0, '空会话', 'pending', '', '2026-08-21 10:00:00', '2026-08-21 10:00:00'),
+                    ('step-null', 'seed-task-3', 0, '无会话', 'pending', NULL, '2026-08-21 10:00:00', '2026-08-21 10:00:00')
+                "#,
+            )
+            .execute(&pool)
+            .await
+            .expect("insert pipeline steps for backfill");
+
+            let migration = get_all_migrations()
+                .into_iter()
+                .find(|migration| migration.version == 51)
+                .expect("find migration 51");
+            sqlx::raw_sql(migration.sql)
+                .execute(&pool)
+                .await
+                .expect("run migration 51");
+
+            let columns: Vec<String> = sqlx::query(
+                "SELECT name FROM pragma_table_info('codex_sessions') WHERE name = 'session_origin'",
+            )
+            .fetch_all(&pool)
+            .await
+            .expect("read session_origin column")
+            .into_iter()
+            .map(|row| row.get::<String, _>("name"))
+            .collect();
+            assert_eq!(columns, vec!["session_origin"]);
+
+            let origins = sqlx::query(
+                "SELECT id, session_origin FROM codex_sessions WHERE id IN ('sess-pipeline', 'sess-direct', 'sess-review') ORDER BY id",
+            )
+            .fetch_all(&pool)
+            .await
+            .expect("read backfilled origins")
+            .into_iter()
+            .map(|row| {
+                (
+                    row.get::<String, _>("id"),
+                    row.get::<String, _>("session_origin"),
+                )
+            })
+            .collect::<Vec<_>>();
+            assert_eq!(
+                origins,
+                vec![
+                    ("sess-direct".to_string(), "direct".to_string()),
+                    ("sess-pipeline".to_string(), "pipeline".to_string()),
+                    ("sess-review".to_string(), "direct".to_string()),
+                ]
+            );
+
+            sqlx::query(
+                r#"
+                INSERT INTO codex_sessions (id, session_kind, status, started_at, created_at)
+                VALUES ('sess-new-default', 'execution', 'pending', '2026-08-21 11:00:00', '2026-08-21 11:00:00')
+                "#,
+            )
+            .execute(&pool)
+            .await
+            .expect("insert session without origin");
+
+            let default_origin = sqlx::query_scalar::<_, String>(
+                "SELECT session_origin FROM codex_sessions WHERE id = 'sess-new-default'",
+            )
+            .fetch_one(&pool)
+            .await
+            .expect("read default session_origin");
+            assert_eq!(default_origin, "direct");
         });
     }
 

@@ -34,6 +34,7 @@ function session(partial: Pick<CodexSessionRecord, "id" | "started_at">): CodexS
     ssh_config_id: null,
     target_host_label: null,
     artifact_capture_mode: "local_full",
+    session_origin: "direct",
     created_at: partial.started_at,
   };
 }

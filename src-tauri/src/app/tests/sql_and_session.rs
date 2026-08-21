@@ -523,3 +523,35 @@ fn task_token_usage_sum_ignores_sessions_without_usage() {
         pool.close().await;
     });
 }
+
+#[test]
+fn mark_codex_session_origin_pipeline_updates_existing_row() {
+    tauri::async_runtime::block_on(async {
+        let pool = setup_test_pool().await;
+        insert_session(&pool, "sess-origin", None, "execution").await;
+
+        let default_origin = sqlx::query_scalar::<_, String>(
+            "SELECT session_origin FROM codex_sessions WHERE id = $1",
+        )
+        .bind("sess-origin")
+        .fetch_one(&pool)
+        .await
+        .expect("read default session_origin");
+        assert_eq!(default_origin, "direct");
+
+        crate::app::mark_codex_session_origin_pipeline(&pool, "sess-origin")
+            .await
+            .expect("mark session origin pipeline");
+
+        let origin = sqlx::query_scalar::<_, String>(
+            "SELECT session_origin FROM codex_sessions WHERE id = $1",
+        )
+        .bind("sess-origin")
+        .fetch_one(&pool)
+        .await
+        .expect("read updated session_origin");
+        assert_eq!(origin, "pipeline");
+
+        pool.close().await;
+    });
+}

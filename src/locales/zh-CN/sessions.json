@@ -61,6 +61,7 @@
   "nextPage": "下一页",
   "kindExecution": "执行",
   "kindReview": "审核",
+  "kindPipeline": "编排",
   "statusPending": "待启动",
   "statusRunning": "运行中",
   "statusStopping": "停止中",

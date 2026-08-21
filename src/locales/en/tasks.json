@@ -323,7 +323,8 @@
       "role": {
         "execute": "Execute",
         "review": "Review",
-        "fix": "Fix"
+        "fix": "Fix",
+        "pipeline": "Orchestration"
       },
       "resume": {
         "ready": "Resumable",

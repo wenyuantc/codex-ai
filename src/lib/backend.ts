@@ -27,6 +27,7 @@ import type {
   CodexSessionLogLine,
   CodexSessionListItem,
   CodexSessionResumePreview,
+  SessionOrigin,
   CodexSessionFileChangeDetail,
   DatabaseBackupResult,
   DatabaseRestoreResult,
@@ -106,6 +107,10 @@ function normalizeArtifactCaptureMode(value: string | null | undefined): Artifac
   }
 }
 
+function normalizeSessionOrigin(value: string | null | undefined): SessionOrigin {
+  return value === "pipeline" ? "pipeline" : "direct";
+}
+
 function normalizeSessionListItem(session: CodexSessionListItem): CodexSessionListItem {
   return {
     ...session,
@@ -113,6 +118,7 @@ function normalizeSessionListItem(session: CodexSessionListItem): CodexSessionLi
     ssh_config_id: session.ssh_config_id ?? null,
     target_host_label: session.target_host_label ?? null,
     artifact_capture_mode: normalizeArtifactCaptureMode(session.artifact_capture_mode),
+    session_origin: normalizeSessionOrigin(session.session_origin),
   };
 }
 

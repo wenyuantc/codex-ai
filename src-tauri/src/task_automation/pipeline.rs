@@ -599,6 +599,9 @@ async fn launch_pipeline_step(
         false,
     )
     .await?;
+    if let Some(session_id) = session_id.as_deref() {
+        mark_codex_session_origin_pipeline(pool, session_id).await?;
+    }
     set_pipeline_state(
         pool,
         &task.id,
