@@ -20,6 +20,7 @@ import { SessionCard } from "@/components/sessions/SessionCard";
 import { SessionContinueDialog } from "@/components/sessions/SessionContinueDialog";
 import { SessionExecutionChangesDialog } from "@/components/sessions/SessionExecutionChangesDialog";
 import { SessionLogDialog, type SessionLogTarget } from "@/components/sessions/SessionLogDialog";
+import { TokenUsageBreakdown } from "@/components/tasks/detail/TokenUsageBreakdown";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -803,8 +804,13 @@ export function SessionsPage() {
                           <td className="whitespace-nowrap px-4 py-3 text-xs text-muted-foreground">
                             {formatDate(session.last_updated_at)}
                           </td>
-                          <td className="whitespace-nowrap px-4 py-3 text-xs text-muted-foreground">
-                            {formatSessionTokenUsage(session)}
+                          <td className="px-4 py-3">
+                            <TokenUsageBreakdown
+                              layout="inline"
+                              source={session}
+                              className="min-w-[16rem] text-left"
+                              title={formatSessionTokenUsage(session)}
+                            />
                           </td>
                           <td className="px-4 py-3">
                             <div className="space-y-1 text-xs">

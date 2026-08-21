@@ -81,7 +81,9 @@ Reference implementations:
 - **One primary CTA per task surface**: resolve with pure `resolveTaskPrimaryCta` in `src/lib/taskPrimaryCta.ts` — do not fork if/else tables in `TaskCard` vs `TaskDetailDialog`.
 - Inputs must share automation/runtime sources: `getTaskAutomationDisplayState` + `getTaskActionRuntimeState` (never a second phase map in JSX).
 - Detail dialog sticky bar: `TaskPrimaryActionBar`; secondary actions go in overflow, not competing primary color.
-- Detail right rail (`TaskPropertiesSidebar`): always show the 用量 group below 耗时 (unknown copy when no session reported usage). Do not leave task-level token totals only on the Execution tab.
+- Detail right rail (`TaskPropertiesSidebar`): always show the 用量 group below 耗时 (unknown copy when no session reported usage). Do not leave task-level token totals only on the Execution tab. Field order is 输入 / 输出 / 缓存 / 总用量 / 缓存率 via `TokenUsageBreakdown`.
+- Execution chain (`TaskSessionChainPanel`): each session card shows the same five metrics from `listCodexSessions` token fields. Missing values stay 未知; do not fake 0. Reuse `buildTokenUsageMetrics` / `TokenUsageBreakdown` — do not fork a third formatter.
+- Sessions page (`SessionCard` + table): same five metrics, including cache tokens and cache rate. Compact `formatSessionTokenUsage` must include cache + rate, not only in/out/total.
 - **SSH trust**: global mode uses `SshTrustBanner` in `MainLayout`; session artifact limits still use `SshArtifactLimitedNotice` — keep both messages consistent (审查依据可能不完整).
 
 ## Accessibility Baseline

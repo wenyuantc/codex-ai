@@ -2,6 +2,7 @@ import { FileText, Loader2, MoreHorizontal } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { SshArtifactLimitedNotice } from "@/components/sessions/SshArtifactLimitedNotice";
+import { TokenUsageBreakdown } from "@/components/tasks/detail/TokenUsageBreakdown";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -87,9 +88,14 @@ export function SessionCard({
         <span>{formatResumeStatus(session.resume_status)}</span>
         <span aria-hidden>·</span>
         <span>{formatDate(session.last_updated_at)}</span>
-        <span aria-hidden>·</span>
-        <span title={t("colTokens")}>{formatSessionTokenUsage(session)}</span>
       </div>
+
+      <TokenUsageBreakdown
+        layout="inline"
+        source={session}
+        className="w-full text-left"
+        title={formatSessionTokenUsage(session)}
+      />
 
       <div className="truncate text-xs text-muted-foreground">
         <span title={session.task_title ?? undefined}>

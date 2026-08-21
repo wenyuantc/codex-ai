@@ -93,11 +93,29 @@ describe("formatSessionTokenUsage", () => {
     expect(formatSessionTokenUsage({})).toBe("未知");
   });
 
-  it("formats a known total and optional input/output split", () => {
-    expect(formatSessionTokenUsage({ total_tokens: 950 })).toBe("950");
+  it("formats known totals with cache usage and cache rate", () => {
+    expect(formatSessionTokenUsage({ total_tokens: 950 })).toBe(
+      "950 · 入 未知 / 出 未知 · 缓存 未知 · 率 未知",
+    );
     expect(
       formatSessionTokenUsage({ total_tokens: 12340, input_tokens: 8000, output_tokens: 4340 }),
-    ).toBe("12K · 入 8.0K / 出 4.3K");
+    ).toBe("12K · 入 8.0K / 出 4.3K · 缓存 未知 · 率 未知");
+    expect(
+      formatSessionTokenUsage({
+        total_tokens: 110,
+        input_tokens: 100,
+        output_tokens: 10,
+        cached_tokens: 25,
+      }),
+    ).toBe("110 · 入 100 / 出 10 · 缓存 25 · 率 25.0%");
+    expect(
+      formatSessionTokenUsage({
+        total_tokens: 0,
+        input_tokens: 0,
+        output_tokens: 0,
+        cached_tokens: 0,
+      }),
+    ).toBe("0 · 入 0 / 出 0 · 缓存 0 · 率 —");
   });
 });
 

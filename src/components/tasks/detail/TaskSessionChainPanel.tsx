@@ -19,6 +19,7 @@ import { AI_PROVIDER_OPTIONS, normalizeAiProvider } from "@/lib/types";
 import { formatDate, isArtifactCaptureLimited } from "@/lib/utils";
 import { useEmployeeStore } from "@/stores/employeeStore";
 import { getSessionStatusLabel } from "./taskDetailViewHelpers";
+import { TokenUsageBreakdown } from "./TokenUsageBreakdown";
 
 type ChainRole = "execute" | "review" | "fix";
 
@@ -429,24 +430,31 @@ export function TaskSessionChainPanel({ taskId, active = true }: TaskSessionChai
                     )}
                   </div>
 
-                  <div className="mt-2 space-y-1 text-xs">
-                    <div className="font-medium text-foreground">{session.display_name}</div>
-                    <div className="font-mono text-[11px] text-muted-foreground">
-                      {session.session_id}
+                  <div className="mt-2 flex flex-wrap items-start justify-between gap-3">
+                    <div className="min-w-0 flex-1 space-y-1 text-xs">
+                      <div className="font-medium text-foreground">{session.display_name}</div>
+                      <div className="font-mono text-[11px] text-muted-foreground">
+                        {session.session_id}
+                      </div>
+                      <div className="text-[11px] text-muted-foreground">
+                        {t("detail.chain.employee", {
+                          name: session.employee_name ?? t("detail.labels.unbound"),
+                        })}
+                        {session.target_host_label
+                          ? t("detail.chain.host", { host: session.target_host_label })
+                          : ""}
+                      </div>
+                      {session.summary && (
+                        <p className="text-[11px] text-muted-foreground line-clamp-2">
+                          {session.summary}
+                        </p>
+                      )}
                     </div>
-                    <div className="text-[11px] text-muted-foreground">
-                      {t("detail.chain.employee", {
-                        name: session.employee_name ?? t("detail.labels.unbound"),
-                      })}
-                      {session.target_host_label
-                        ? t("detail.chain.host", { host: session.target_host_label })
-                        : ""}
-                    </div>
-                    {session.summary && (
-                      <p className="text-[11px] text-muted-foreground line-clamp-2">
-                        {session.summary}
-                      </p>
-                    )}
+                    <TokenUsageBreakdown
+                      layout="inline"
+                      source={session}
+                      className="w-full min-w-[18rem] sm:w-auto sm:min-w-[22rem] sm:max-w-[26rem]"
+                    />
                   </div>
 
                   {isArtifactCaptureLimited(session.artifact_capture_mode) && (

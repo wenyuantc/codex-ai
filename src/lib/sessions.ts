@@ -1,4 +1,4 @@
-import { formatTokenCount } from "@/lib/dashboardReport";
+import { buildTokenUsageMetrics, formatUsageMetricText } from "@/lib/dashboardReport";
 import i18n from "@/lib/i18n";
 import type { AiProvider, CodexSessionListItem, CodexSessionResumeStatus } from "@/lib/types";
 import { AI_PROVIDER_OPTIONS } from "@/lib/types";
@@ -42,24 +42,29 @@ export function formatSessionTokenUsage(session: {
   total_tokens?: number | null;
   input_tokens?: number | null;
   output_tokens?: number | null;
+  cached_tokens?: number | null;
 }): string {
-  if (session.total_tokens == null || !Number.isFinite(session.total_tokens)) {
-    return i18n.t("sessions:tokenUnknown");
+  const metrics = buildTokenUsageMetrics(session);
+  const labels = {
+    unknown: i18n.t("sessions:tokenUnknown"),
+    empty: i18n.t("sessions:tokenEmpty"),
+  };
+  const noneKnown =
+    metrics.input.kind === "unknown" &&
+    metrics.output.kind === "unknown" &&
+    metrics.cached.kind === "unknown" &&
+    metrics.total.kind === "unknown" &&
+    metrics.cacheRate.kind === "unknown";
+  if (noneKnown) {
+    return labels.unknown;
   }
-  const total = formatTokenCount(session.total_tokens);
-  if (
-    session.input_tokens != null &&
-    session.output_tokens != null &&
-    Number.isFinite(session.input_tokens) &&
-    Number.isFinite(session.output_tokens)
-  ) {
-    return i18n.t("sessions:tokenBreakdown", {
-      total,
-      input: formatTokenCount(session.input_tokens),
-      output: formatTokenCount(session.output_tokens),
-    });
-  }
-  return i18n.t("sessions:tokenTotal", { total });
+  return i18n.t("sessions:tokenBreakdown", {
+    total: formatUsageMetricText(metrics.total, labels),
+    input: formatUsageMetricText(metrics.input, labels),
+    output: formatUsageMetricText(metrics.output, labels),
+    cache: formatUsageMetricText(metrics.cached, labels),
+    rate: formatUsageMetricText(metrics.cacheRate, labels),
+  });
 }
 
 export function formatAiProviderLabel(provider: AiProvider) {

@@ -126,6 +126,7 @@
       "usage": "用量",
       "usageInput": "输入",
       "usageOutput": "输出",
+      "usageCache": "缓存",
       "usageTotal": "总用量",
       "usageCacheRate": "缓存率",
       "usageEmpty": "—",

@@ -126,6 +126,7 @@
       "usage": "Usage",
       "usageInput": "Input",
       "usageOutput": "Output",
+      "usageCache": "Cache",
       "usageTotal": "Total",
       "usageCacheRate": "Cache rate",
       "usageEmpty": "—",

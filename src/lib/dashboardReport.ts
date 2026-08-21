@@ -77,3 +77,86 @@ export function resolveCacheRateDisplay(
   }
   return { kind: "rate", text: `${((cached / denominator) * 100).toFixed(1)}%` };
 }
+
+export type TokenUsageCountDisplay = { kind: "unknown" } | { kind: "value"; text: string };
+
+export interface TokenUsageMetricSource {
+  input_tokens?: number | null;
+  output_tokens?: number | null;
+  total_tokens?: number | null;
+  cached_tokens?: number | null;
+  sessions_with_usage?: number | null;
+  sessions_with_cache?: number | null;
+}
+
+export interface TokenUsageMetrics {
+  input: TokenUsageCountDisplay;
+  output: TokenUsageCountDisplay;
+  cached: TokenUsageCountDisplay;
+  total: TokenUsageCountDisplay;
+  cacheRate: CacheRateDisplay;
+}
+
+export function formatUsageMetricText(
+  metric: TokenUsageCountDisplay | CacheRateDisplay,
+  labels: { unknown: string; empty: string },
+): string {
+  if (metric.kind === "value" || metric.kind === "rate") {
+    return metric.text;
+  }
+  if (metric.kind === "empty") {
+    return labels.empty;
+  }
+  return labels.unknown;
+}
+
+function isKnownCount(value: number | null | undefined): value is number {
+  return value != null && Number.isFinite(value);
+}
+
+function countDisplay(value: number | null | undefined, known: boolean): TokenUsageCountDisplay {
+  if (!known || !isKnownCount(value)) {
+    return { kind: "unknown" };
+  }
+  return { kind: "value", text: formatTokenCount(value) };
+}
+
+/**
+ * Session or task-aggregate token metrics for UI.
+ * Per-field unknown stays unknown; never coerce missing values to 0.
+ */
+export function buildTokenUsageMetrics(source: TokenUsageMetricSource): TokenUsageMetrics {
+  const isAggregate = source.sessions_with_usage != null || source.sessions_with_cache != null;
+  if (isAggregate) {
+    const hasUsage = (source.sessions_with_usage ?? 0) > 0;
+    const hasCache = (source.sessions_with_cache ?? 0) > 0;
+    return {
+      input: countDisplay(source.input_tokens ?? 0, hasUsage),
+      output: countDisplay(source.output_tokens ?? 0, hasUsage),
+      cached: countDisplay(source.cached_tokens ?? 0, hasCache),
+      total: countDisplay(source.total_tokens ?? 0, hasUsage),
+      cacheRate: resolveCacheRateDisplay({
+        cached_tokens: source.cached_tokens ?? 0,
+        input_tokens: source.input_tokens ?? 0,
+        sessions_with_cache: source.sessions_with_cache ?? 0,
+      }),
+    };
+  }
+
+  const inputKnown = isKnownCount(source.input_tokens);
+  const cachedKnown = isKnownCount(source.cached_tokens);
+  return {
+    input: countDisplay(source.input_tokens, inputKnown),
+    output: countDisplay(source.output_tokens, isKnownCount(source.output_tokens)),
+    cached: countDisplay(source.cached_tokens, cachedKnown),
+    total: countDisplay(source.total_tokens, isKnownCount(source.total_tokens)),
+    cacheRate:
+      inputKnown && cachedKnown
+        ? resolveCacheRateDisplay({
+            cached_tokens: source.cached_tokens ?? 0,
+            input_tokens: source.input_tokens ?? 0,
+            sessions_with_cache: 1,
+          })
+        : { kind: "unknown" },
+  };
+}
