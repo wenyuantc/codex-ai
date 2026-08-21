@@ -59,10 +59,10 @@ export function TaskLogDialog({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
-        className="w-[min(96vw,88rem)] max-w-[min(96vw,88rem)] sm:max-w-[min(96vw,88rem)]"
+        className="flex h-[min(92vh,calc(100vh-2rem))] w-[min(96vw,88rem)] max-w-[min(96vw,88rem)] flex-col gap-4 overflow-hidden sm:max-w-[min(96vw,88rem)]"
         showCloseButton
       >
-        <DialogHeader>
+        <DialogHeader className="shrink-0">
           <DialogTitle>{sessionLabel}</DialogTitle>
           <DialogDescription>
             {task
@@ -72,8 +72,10 @@ export function TaskLogDialog({
         </DialogHeader>
 
         {task ? (
-          <div className="[&_div[data-slot='scroll-area']]:h-[28rem]">
+          <div className="flex min-h-0 flex-1 flex-col">
             <CodexTerminal
+              className="h-full"
+              heightClassName="min-h-0 flex-1"
               taskId={task.id}
               sessionKind={sessionKind}
               showInputBar

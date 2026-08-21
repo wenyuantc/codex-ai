@@ -7,6 +7,7 @@ import { formatTerminalLine, getLineColor } from "@/components/tasks/detail/task
 import { SessionInputBar } from "@/components/sessions/SessionInputBar";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import type { CodexSessionKind } from "@/lib/types";
+import { cn } from "@/lib/utils";
 import { buildTaskLogKey, useEmployeeStore } from "@/stores/employeeStore";
 
 /** Lines at or above this count use virtualization (aligns with long session UX). */
@@ -152,8 +153,8 @@ export function CodexTerminal({
   }, [output.length, shouldVirtualize]);
 
   return (
-    <div className={`relative ${className}`}>
-      <div className="flex items-center justify-between px-2 py-1 bg-black/80 rounded-t border-b border-zinc-800">
+    <div className={cn("relative flex min-h-0 flex-col", className)}>
+      <div className="flex shrink-0 items-center justify-between px-2 py-1 bg-black/80 rounded-t border-b border-zinc-800">
         <span className="text-xs text-zinc-500 font-mono">终端输出</span>
         <div className="flex items-center gap-1">
           <button
@@ -247,11 +248,13 @@ export function CodexTerminal({
         </ScrollArea>
       )}
       {showInputBar ? (
-        <SessionInputBar
-          employeeId={inputEmployeeId}
-          provider={inputProvider}
-          sessionLive={inputSessionLive}
-        />
+        <div className="shrink-0">
+          <SessionInputBar
+            employeeId={inputEmployeeId}
+            provider={inputProvider}
+            sessionLive={inputSessionLive}
+          />
+        </div>
       ) : null}
     </div>
   );
