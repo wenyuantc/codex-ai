@@ -472,3 +472,24 @@ i18next zh-CN/en framework, main-path extraction, activity single-source, leftov
 
 - 桌面端 tauri:dev 冒烟：本地与 SSH 任务、带图、Web 工具
 - 未提交的 08-21-chain-token-usage 链路用量 UI 另开会话继续
+
+
+## Session 16: 执行链路与对话管理展示用量
+
+**Date**: 2026-08-21
+**Task**: 执行链路与对话管理展示用量
+**Branch**: `main`
+
+### Summary
+
+任务详情执行链路、侧栏与对话管理统一展示输入/输出/缓存/总用量/缓存率；无上报显示未知，不假装 0。复用 TokenUsageBreakdown 与 buildTokenUsageMetrics。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `b4002a6` | (see git log) |
+
+### Status
+
+[OK] **Completed**
