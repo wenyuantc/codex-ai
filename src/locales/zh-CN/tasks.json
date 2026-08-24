@@ -46,11 +46,11 @@
   "createDialog": {
     "title": "新建任务",
     "fields": {
-      "title": "标题 *",
+      "title": "标题",
       "titlePlaceholder": "任务标题",
       "description": "描述",
       "descriptionPlaceholder": "任务描述（可选）",
-      "project": "项目 *",
+      "project": "项目",
       "projectPlaceholder": "选择项目",
       "worktreeMode": "Worktree 模式",
       "worktreePlaceholder": "选择是否启用 worktree",

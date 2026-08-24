@@ -46,11 +46,11 @@
   "createDialog": {
     "title": "New task",
     "fields": {
-      "title": "Title *",
+      "title": "Title",
       "titlePlaceholder": "Task title",
       "description": "Description",
       "descriptionPlaceholder": "Task description (optional)",
-      "project": "Project *",
+      "project": "Project",
       "projectPlaceholder": "Select project",
       "worktreeMode": "Worktree mode",
       "worktreePlaceholder": "Choose whether to enable worktree",

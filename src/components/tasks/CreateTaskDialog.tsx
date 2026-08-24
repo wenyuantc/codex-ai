@@ -425,6 +425,9 @@ export function CreateTaskDialog({
           <div>
             <label className="text-xs font-medium text-muted-foreground">
               {t("createDialog.fields.title")}
+              <span aria-hidden="true" className="ml-0.5 text-destructive">
+                *
+              </span>
             </label>
             <Input
               value={title}
@@ -496,6 +499,9 @@ export function CreateTaskDialog({
             <div>
               <label className="text-xs font-medium text-muted-foreground">
                 {t("createDialog.fields.project")}
+                <span aria-hidden="true" className="ml-0.5 text-destructive">
+                  *
+                </span>
               </label>
               <Select
                 value={selectedProjectId || null}
