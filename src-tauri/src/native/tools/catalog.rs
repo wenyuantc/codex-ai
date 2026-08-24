@@ -2,6 +2,23 @@ use serde_json::json;
 
 use crate::native::model::types::ToolSpec;
 
+pub const READ_ONLY_NATIVE_TOOL_NAMES: &[&str] = &[
+    "Read",
+    "Glob",
+    "Grep",
+    "TodoRead",
+    "TodoWrite",
+    "WebFetch",
+    "WebSearch",
+];
+
+pub fn is_read_only_native_tool(name: &str) -> bool {
+    matches!(
+        name,
+        "Read" | "Glob" | "Grep" | "TodoRead" | "TodoWrite" | "WebFetch" | "WebSearch"
+    )
+}
+
 pub fn tool_specs() -> Vec<ToolSpec> {
     vec![
         spec(
@@ -148,6 +165,16 @@ fn spec(name: &str, description: &str, parameters: serde_json::Value) -> ToolSpe
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn read_only_tools_exclude_writers() {
+        assert!(is_read_only_native_tool("Read"));
+        assert!(is_read_only_native_tool("Grep"));
+        assert!(is_read_only_native_tool("TodoWrite"));
+        assert!(!is_read_only_native_tool("Write"));
+        assert!(!is_read_only_native_tool("Edit"));
+        assert!(!is_read_only_native_tool("Bash"));
+    }
 
     #[test]
     fn includes_core_tools() {

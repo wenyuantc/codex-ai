@@ -386,6 +386,7 @@ async function runSession(thread, input) {
     lastTodoSummary: "",
     sessionId: null,
   };
+  let finalText = "";
 
   emit("[SDK] 任务已提交，等待 Codex 响应...");
 
@@ -407,6 +408,9 @@ async function runSession(thread, input) {
       case "item.updated":
       case "item.completed":
         emitItemUpdate(event.item, state);
+        if (event.item?.type === "agent_message" && typeof event.item.text === "string") {
+          finalText = event.item.text;
+        }
         break;
       case "turn.completed":
         if (event.usage && typeof event.usage === "object") {
@@ -424,6 +428,12 @@ async function runSession(thread, input) {
         break;
     }
   }
+
+  if (!String(finalText).trim()) {
+    finalText =
+      [...state.agentMessages.values()].sort((left, right) => right.length - left.length)[0] || "";
+  }
+  return { text: finalText, sessionId: state.sessionId };
 }
 
 async function main() {
@@ -456,7 +466,7 @@ async function main() {
         : undefined,
     );
     const threadOptions = {
-      sandboxMode: "danger-full-access",
+      sandboxMode: payload.readOnly === true ? "read-only" : "danger-full-access",
       skipGitRepoCheck: true,
     };
     if (typeof payload.model === "string" && payload.model.trim()) {
@@ -550,14 +560,25 @@ async function main() {
       }
     }
 
-    const result = await thread.run(input);
-    const text = extractText(result).trim();
-    stdout.write(
-      JSON.stringify({
-        ok: true,
-        text,
-      }),
-    );
+    if (payload.streamProgress === true) {
+      const streamed = await runSession(thread, input);
+      const text = String(streamed?.text || "").trim();
+      stdout.write(
+        `${JSON.stringify({
+          ok: true,
+          text,
+        })}\n`,
+      );
+    } else {
+      const result = await thread.run(input);
+      const text = extractText(result).trim();
+      stdout.write(
+        JSON.stringify({
+          ok: true,
+          text,
+        }),
+      );
+    }
   } catch (error) {
     emitError(String(error?.stack || error?.message || error));
     if (mode !== "session" && String(error?.message || error).trim()) {

@@ -90,6 +90,131 @@ impl AiCommandResult {
     }
 }
 
+#[derive(Clone, Debug, Default)]
+pub(crate) struct AiCommandOptions {
+    pub progress_request_id: Option<String>,
+    pub task_id_for_progress: Option<String>,
+    pub read_only_tools: bool,
+}
+
+#[derive(Clone, Debug, serde::Serialize)]
+struct AiCommandOutput {
+    request_id: String,
+    task_id: Option<String>,
+    line: String,
+}
+
+pub(crate) fn emit_ai_command_line<R: Runtime>(
+    app: &AppHandle<R>,
+    options: &AiCommandOptions,
+    line: impl Into<String>,
+) {
+    let Some(request_id) = options
+        .progress_request_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    else {
+        return;
+    };
+    let line = line.into();
+    if line.trim().is_empty() {
+        return;
+    }
+    let _ = app.emit(
+        "ai-command-stdout",
+        AiCommandOutput {
+            request_id: request_id.to_string(),
+            task_id: options.task_id_for_progress.clone(),
+            line,
+        },
+    );
+}
+
+fn ai_command_options_streaming(options: &AiCommandOptions) -> bool {
+    options
+        .progress_request_id
+        .as_deref()
+        .map(str::trim)
+        .is_some_and(|value| !value.is_empty())
+}
+
+async fn wait_sdk_bridge_output<R: Runtime>(
+    mut child: tokio::process::Child,
+    app: &AppHandle<R>,
+    options: &AiCommandOptions,
+) -> Result<String, String> {
+    if !ai_command_options_streaming(options) {
+        let output = child
+            .wait_with_output()
+            .await
+            .map_err(|error| format!("Failed to wait for SDK bridge: {error}"))?;
+        return parse_sdk_bridge_output(&output.stdout, &output.stderr);
+    }
+
+    use tokio::io::{AsyncBufReadExt, AsyncReadExt, BufReader};
+    let stdout = child
+        .stdout
+        .take()
+        .ok_or_else(|| "SDK bridge 缺少 stdout".to_string())?;
+    let mut stderr = child.stderr.take();
+    let mut lines = BufReader::new(stdout).lines();
+    let mut result_text = None;
+    let mut result_error = None;
+    while let Some(line) = lines
+        .next_line()
+        .await
+        .map_err(|error| format!("Failed to read SDK bridge stdout: {error}"))?
+    {
+        if let Ok(parsed) = serde_json::from_str::<SdkBridgeResponse>(&line) {
+            if parsed.ok {
+                result_text = Some(parsed.text.unwrap_or_default());
+            } else {
+                result_error = Some(
+                    parsed
+                        .error
+                        .filter(|value| !value.trim().is_empty())
+                        .unwrap_or_else(|| "SDK 返回了失败响应".to_string()),
+                );
+            }
+            continue;
+        }
+        if let Some(usage) = parse_sdk_usage_event(&line) {
+            if let Some(usage_line) = usage.format_terminal_line() {
+                emit_ai_command_line(app, options, usage_line);
+            }
+            continue;
+        }
+        if parse_sdk_file_change_event(&line).is_some() {
+            continue;
+        }
+        emit_ai_command_line(app, options, line);
+    }
+    let status = child
+        .wait()
+        .await
+        .map_err(|error| format!("Failed to wait for SDK bridge: {error}"))?;
+    let mut stderr_bytes = Vec::new();
+    if let Some(mut err) = stderr.take() {
+        let _ = err.read_to_end(&mut stderr_bytes).await;
+    }
+    if let Some(error) = result_error {
+        return Err(error);
+    }
+    if let Some(text) = result_text {
+        return Ok(text.trim().to_string());
+    }
+    if !status.success() {
+        let stderr_text = String::from_utf8_lossy(&stderr_bytes);
+        return Err(if stderr_text.trim().is_empty() {
+            "SDK bridge 失败".to_string()
+        } else {
+            stderr_text.trim().to_string()
+        });
+    }
+    Err("Codex SDK 返回空响应".to_string())
+}
+
 fn resolve_native_one_shot_employee_id(
     provider_override: Option<&str>,
     employee_id: Option<&str>,
@@ -103,23 +228,29 @@ fn resolve_native_one_shot_employee_id(
     Ok(Some(employee_id.to_string()))
 }
 
-async fn run_ai_command_via_exec(
+async fn run_ai_command_via_exec<R: Runtime>(
+    app: &AppHandle<R>,
     prompt: String,
     model: &str,
     reasoning_effort: &str,
     working_dir: Option<&str>,
     image_paths: &[String],
+    options: &AiCommandOptions,
 ) -> Result<String, String> {
+    let mut args = build_one_shot_exec_args(model, reasoning_effort, working_dir, image_paths);
+    let json_flag = if ai_command_options_streaming(options) {
+        probe_local_exec_json_support().await.ok().flatten()
+    } else {
+        None
+    };
+    if let Some(flag) = json_flag {
+        args.push(flag.as_arg().to_string());
+    }
     let mut cmd = new_codex_command()
         .await
         .map_err(|error| format!("Failed to spawn codex exec: {}", error))?;
     let mut child = cmd
-        .args(build_one_shot_exec_args(
-            model,
-            reasoning_effort,
-            working_dir,
-            image_paths,
-        ))
+        .args(args)
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
@@ -131,6 +262,10 @@ async fn run_ai_command_via_exec(
             .write_all(prompt.as_bytes())
             .await
             .map_err(|error| format!("Failed to write codex exec prompt: {}", error))?;
+    }
+
+    if json_flag.is_some() {
+        return wait_exec_json_output(child, app, options).await;
     }
 
     let output = child
@@ -146,6 +281,58 @@ async fn run_ai_command_via_exec(
     }
 }
 
+async fn wait_exec_json_output<R: Runtime>(
+    mut child: tokio::process::Child,
+    app: &AppHandle<R>,
+    options: &AiCommandOptions,
+) -> Result<String, String> {
+    use tokio::io::{AsyncBufReadExt, AsyncReadExt, BufReader};
+    let stdout = child
+        .stdout
+        .take()
+        .ok_or_else(|| "codex exec 缺少 stdout".to_string())?;
+    let mut stderr = child.stderr.take();
+    let mut lines = BufReader::new(stdout).lines();
+    let mut state = CliJsonStreamState::default();
+    while let Some(line) = lines
+        .next_line()
+        .await
+        .map_err(|error| format!("Failed to read codex exec stdout: {error}"))?
+    {
+        if let Some(parsed) = parse_cli_json_event_line(&line, &mut state) {
+            for item in parsed.lines {
+                emit_ai_command_line(app, options, item);
+            }
+            continue;
+        }
+        if !line.trim().is_empty() && !line.trim_start().starts_with('{') {
+            emit_ai_command_line(app, options, line);
+        }
+    }
+    let status = child
+        .wait()
+        .await
+        .map_err(|error| format!("Failed to wait for codex exec: {error}"))?;
+    let mut stderr_bytes = Vec::new();
+    if let Some(mut err) = stderr.take() {
+        let _ = err.read_to_end(&mut stderr_bytes).await;
+    }
+    let text = state
+        .agent_messages
+        .values()
+        .max_by_key(|value| value.len())
+        .map(|value| value.trim().to_string())
+        .unwrap_or_default();
+    if !status.success() && text.is_empty() {
+        let stderr_text = String::from_utf8_lossy(&stderr_bytes);
+        return Err(format!("codex exec failed: {}", stderr_text.trim()));
+    }
+    if text.is_empty() {
+        return Err("codex exec 未返回可用内容".to_string());
+    }
+    Ok(text)
+}
+
 async fn run_ai_command_via_remote_sdk<R: Runtime>(
     app: &AppHandle<R>,
     ssh_config_id: &str,
@@ -154,6 +341,7 @@ async fn run_ai_command_via_remote_sdk<R: Runtime>(
     reasoning_effort: &str,
     working_dir: Option<&str>,
     image_paths: &[String],
+    options: &AiCommandOptions,
 ) -> Result<String, String> {
     let ssh_config = fetch_ssh_config_record_by_id(&sqlite_pool(app).await?, ssh_config_id).await?;
     let remote_settings = ensure_remote_sdk_runtime_layout(app, ssh_config_id).await?;
@@ -178,6 +366,8 @@ async fn run_ai_command_via_remote_sdk<R: Runtime>(
             "model": model,
             "modelReasoningEffort": reasoning_effort,
             "workingDirectory": working_dir,
+            "streamProgress": ai_command_options_streaming(options),
+            "readOnly": options.read_only_tools,
         }))
         .map_err(|error| format!("Failed to serialize remote SDK request: {}", error))?;
         stdin
@@ -190,15 +380,11 @@ async fn run_ai_command_via_remote_sdk<R: Runtime>(
             .map_err(|error| format!("Failed to close remote SDK request stdin: {}", error))?;
     }
 
-    let output = child
-        .wait_with_output()
-        .await
-        .map_err(|error| format!("Failed to wait for remote Codex SDK bridge: {}", error))?;
+    let result = wait_sdk_bridge_output(child, app, options).await;
     if let Some(path) = askpass_path {
         let _ = fs::remove_file(path);
     }
-
-    parse_sdk_bridge_output(&output.stdout, &output.stderr)
+    result
 }
 
 async fn run_ai_command_via_ssh_exec<R: Runtime>(
@@ -271,6 +457,7 @@ async fn run_ai_command_via_sdk<R: Runtime>(
     reasoning_effort: &str,
     working_dir: Option<&str>,
     image_paths: &[String],
+    options: &AiCommandOptions,
 ) -> Result<String, String> {
     let settings = load_codex_settings(app)?;
     let install_dir = PathBuf::from(&settings.sdk_install_dir);
@@ -306,6 +493,8 @@ async fn run_ai_command_via_sdk<R: Runtime>(
             "modelReasoningEffort": reasoning_effort,
             "workingDirectory": working_dir,
             "codexPathOverride": codex_path_override,
+            "streamProgress": ai_command_options_streaming(options),
+            "readOnly": options.read_only_tools,
         }))
         .map_err(|error| format!("Failed to serialize SDK request: {}", error))?;
         stdin
@@ -314,11 +503,7 @@ async fn run_ai_command_via_sdk<R: Runtime>(
             .map_err(|error| format!("Failed to write SDK request: {}", error))?;
     }
 
-    let output = child
-        .wait_with_output()
-        .await
-        .map_err(|error| format!("Failed to wait for Codex SDK bridge: {}", error))?;
-    parse_sdk_bridge_output(&output.stdout, &output.stderr)
+    wait_sdk_bridge_output(child, app, options).await
 }
 
 fn build_claude_one_shot_cli_args(model: &str, effort: &str) -> Vec<String> {
@@ -349,6 +534,7 @@ async fn run_claude_one_shot_via_sdk<R: Runtime>(
     reasoning_effort: &str,
     working_dir: Option<&str>,
     image_paths: &[String],
+    options: &AiCommandOptions,
 ) -> Result<String, String> {
     let claude_settings = crate::claude::load_claude_settings(app)?;
     let install_dir = PathBuf::from(&claude_settings.sdk_install_dir);
@@ -385,6 +571,8 @@ async fn run_claude_one_shot_via_sdk<R: Runtime>(
             "workingDirectory": working_dir,
             "imagePaths": image_paths,
             "claudePathOverride": claude_path_override,
+            "streamProgress": ai_command_options_streaming(options),
+            "readOnly": options.read_only_tools,
         }))
         .map_err(|error| format!("Failed to serialize Claude SDK request: {error}"))?;
         stdin
@@ -397,11 +585,7 @@ async fn run_claude_one_shot_via_sdk<R: Runtime>(
             .map_err(|error| format!("Failed to close Claude SDK request stdin: {error}"))?;
     }
 
-    let output = child
-        .wait_with_output()
-        .await
-        .map_err(|error| format!("Failed to wait for Claude SDK bridge: {error}"))?;
-    parse_sdk_bridge_output(&output.stdout, &output.stderr)
+    wait_sdk_bridge_output(child, app, options).await
 }
 
 async fn run_claude_one_shot_via_cli<R: Runtime>(
@@ -893,6 +1077,113 @@ async fn run_opencode_one_shot_via_remote_sdk<R: Runtime>(
     parse_result
 }
 
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn run_native_ai_command(
+    app: &AppHandle,
+    employee_id: String,
+    prompt: String,
+    image_paths: Option<Vec<String>>,
+    task_id: Option<String>,
+    project_id: Option<String>,
+    working_dir: Option<String>,
+    model_override: Option<String>,
+    reasoning_effort_override: Option<String>,
+    options: &AiCommandOptions,
+) -> Result<AiCommandResult, String> {
+    if !options.read_only_tools {
+        let shot = crate::native::run_native_one_shot(
+            app,
+            &employee_id,
+            prompt,
+            image_paths,
+            model_override,
+            reasoning_effort_override,
+        )
+        .await?;
+        return Ok(AiCommandResult {
+            text: shot.text,
+            usage_line: shot.usage_line,
+        });
+    }
+
+    let working_dir = resolve_one_shot_working_dir(
+        app,
+        task_id.as_deref(),
+        project_id.as_deref(),
+        working_dir.as_deref(),
+    )
+    .await?;
+    let Some(run_cwd) = working_dir
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
+    else {
+        emit_ai_command_line(
+            app,
+            options,
+            "[WARN] 未配置工作目录，规划将不读取仓库。".to_string(),
+        );
+        let shot = crate::native::run_native_one_shot(
+            app,
+            &employee_id,
+            prompt,
+            image_paths,
+            model_override,
+            reasoning_effort_override,
+        )
+        .await?;
+        return Ok(AiCommandResult {
+            text: shot.text,
+            usage_line: shot.usage_line,
+        });
+    };
+
+    let execution_context = match task_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        Some(task_id) => resolve_task_project_execution_context(app, task_id).await?,
+        None => match project_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            Some(project_id) => resolve_project_execution_context(app, project_id).await?,
+            None => ExecutionContext::local_default(),
+        },
+    };
+
+    let (event_tx, mut event_rx) = tokio::sync::mpsc::unbounded_channel();
+    let app_for_emit = app.clone();
+    let options_for_emit = options.clone();
+    let drain = tokio::spawn(async move {
+        while let Some(line) = event_rx.recv().await {
+            emit_ai_command_line(&app_for_emit, &options_for_emit, line);
+        }
+    });
+    let shot_result = crate::native::run_native_read_only_one_shot(
+        app,
+        &employee_id,
+        prompt,
+        image_paths,
+        model_override,
+        reasoning_effort_override,
+        &run_cwd,
+        &execution_context.execution_target,
+        execution_context.ssh_config_id.as_deref(),
+        event_tx,
+    )
+    .await;
+    let _ = drain.await;
+    let shot = shot_result?;
+    Ok(AiCommandResult {
+        text: shot.text,
+        usage_line: shot.usage_line,
+    })
+}
+
 pub(crate) async fn run_ai_command<R: Runtime>(
     app: &AppHandle<R>,
     prompt: String,
@@ -904,6 +1195,36 @@ pub(crate) async fn run_ai_command<R: Runtime>(
     model_override: Option<String>,
     reasoning_effort_override: Option<String>,
     employee_id: Option<String>,
+) -> Result<AiCommandResult, String> {
+    run_ai_command_with_options(
+        app,
+        prompt,
+        image_paths,
+        task_id,
+        project_id,
+        working_dir,
+        provider_override,
+        model_override,
+        reasoning_effort_override,
+        employee_id,
+        &AiCommandOptions::default(),
+    )
+    .await
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn run_ai_command_with_options<R: Runtime>(
+    app: &AppHandle<R>,
+    prompt: String,
+    image_paths: Option<Vec<String>>,
+    task_id: Option<String>,
+    project_id: Option<String>,
+    working_dir: Option<String>,
+    provider_override: Option<String>,
+    model_override: Option<String>,
+    reasoning_effort_override: Option<String>,
+    employee_id: Option<String>,
+    options: &AiCommandOptions,
 ) -> Result<AiCommandResult, String> {
     if let Some(employee_id) =
         resolve_native_one_shot_employee_id(provider_override.as_deref(), employee_id.as_deref())?
@@ -1019,6 +1340,7 @@ pub(crate) async fn run_ai_command<R: Runtime>(
                     &one_shot_reasoning_effort,
                     working_dir.as_deref(),
                     &image_paths,
+                    options,
                 )
                 .await
                 {
@@ -1147,6 +1469,7 @@ pub(crate) async fn run_ai_command<R: Runtime>(
                                 &one_shot_reasoning_effort,
                                 working_dir.as_deref(),
                                 &image_paths,
+                                options,
                             )
                             .await
                             {
@@ -1198,6 +1521,7 @@ pub(crate) async fn run_ai_command<R: Runtime>(
                         &one_shot_reasoning_effort,
                         working_dir.as_deref(),
                         &image_paths,
+                        options,
                     )
                     .await
                     {
@@ -1211,11 +1535,13 @@ pub(crate) async fn run_ai_command<R: Runtime>(
             }
 
             match run_ai_command_via_exec(
+                app,
                 prompt,
                 &one_shot_model,
                 &one_shot_reasoning_effort,
                 working_dir.as_deref(),
                 &image_paths,
+                options,
             )
             .await
             {

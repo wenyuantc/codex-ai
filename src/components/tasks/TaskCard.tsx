@@ -19,6 +19,7 @@ import {
   abortTaskPipeline,
   aiCommitTaskChanges,
   aiGenerateCoordinatorTaskPlan,
+  withCoordinatorPlanLogStream,
   aiGenerateTesterAcceptance,
   aiResolveTaskGitConflicts,
   getTaskCommitActionState,
@@ -892,7 +893,8 @@ function TaskCardComponent({
 
   const generateCoordinatorPlan = async () => {
     setCoordinatorPlanTerminalVisible(true);
-    if (!task.coordinator_id) {
+    const coordinatorId = task.coordinator_id;
+    if (!coordinatorId) {
       appendCoordinatorPlanLog("[ERROR] 当前任务未指定协调员，无法生成计划。");
       setCoordinatorPlanError("请先指定协调员。");
       return;
@@ -900,20 +902,23 @@ function TaskCardComponent({
 
     setCoordinatorPlanLoading(true);
     setCoordinatorPlanError(null);
-    appendCoordinatorPlanLog(`[计划] 准备调用协调员：${coordinator?.name ?? task.coordinator_id}`);
+    appendCoordinatorPlanLog(`[计划] 准备调用协调员：${coordinator?.name ?? coordinatorId}`);
     appendCoordinatorPlanLog(`[计划] 运行配置：${getCoordinatorPlanRuntimeLabel()}`);
     appendCoordinatorPlanLog(`[计划] 工作目录：${projectRepoPath ?? "未配置"}`);
     appendCoordinatorPlanLog("[计划] 正在生成协调员执行计划，可能需要一点时间...");
     try {
-      const plan = await aiGenerateCoordinatorTaskPlan({
-        task_id: task.id,
-        coordinator_id: task.coordinator_id,
-        title: task.title,
-        description: task.description,
-        status: task.status,
-        priority: task.priority,
-        working_dir: projectRepoPath ?? null,
-      });
+      const plan = await withCoordinatorPlanLogStream(appendCoordinatorPlanLog, (requestId) =>
+        aiGenerateCoordinatorTaskPlan({
+          task_id: task.id,
+          coordinator_id: coordinatorId,
+          title: task.title,
+          description: task.description,
+          status: task.status,
+          priority: task.priority,
+          working_dir: projectRepoPath ?? null,
+          request_id: requestId,
+        }),
+      );
       const trimmedPlan = plan.markdown.trim();
       if (!trimmedPlan) {
         appendCoordinatorPlanLog("[WARN] 协调员返回了空计划。");

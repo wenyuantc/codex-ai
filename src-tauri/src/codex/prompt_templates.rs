@@ -78,7 +78,8 @@ pub fn default_ai_prompt_templates() -> AiPromptTemplatesDocument {
 - markdown 为中文计划正文，需包含：# 标题、## 目标与范围、## 实施步骤、## 验收与验证、## 风险与依赖、## 假设\n\
 - steps 为串行工作包，3-8 步，title/goal/success_criteria 必填且具体可执行\n\
 - employee_id 必须来自输入的「可用员工」列表 id；若不确定可填 null（运行时回落到任务负责人）\n\
-- 不要假装已读取仓库或完成验证；缺口写入 markdown 的风险/假设\n\
+- 可以用只读工具（Read/Glob/Grep）查看仓库后再规划；禁止改文件、禁止执行会写盘的命令\n\
+- 未读到的缺口写入 markdown 的风险/假设，不要假装已完成验证\n\
 - 若有任务图片/附件，纳入计划依据".to_string(),
             },
             AiPromptTemplate {

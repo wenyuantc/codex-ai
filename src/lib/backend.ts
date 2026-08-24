@@ -332,6 +332,13 @@ export interface GenerateCoordinatorTaskPlanInput {
   status: string;
   priority: string;
   working_dir?: string | null;
+  request_id?: string | null;
+}
+
+export interface AiCommandOutput {
+  request_id: string;
+  task_id: string | null;
+  line: string;
 }
 
 export interface CoordinatorTaskPlanResult {
@@ -1716,6 +1723,27 @@ export async function removeTaskDependency(id: string): Promise<void> {
 
 export async function startTaskTimer(taskId: string): Promise<Task> {
   return invoke("start_task_timer", { taskId });
+}
+
+export function onAiCommandOutput(callback: (output: AiCommandOutput) => void) {
+  return listen<AiCommandOutput>("ai-command-stdout", (event) => callback(event.payload));
+}
+
+export async function withCoordinatorPlanLogStream<T>(
+  onLine: (line: string) => void,
+  run: (requestId: string) => Promise<T>,
+): Promise<T> {
+  const requestId = crypto.randomUUID();
+  const unlisten = await onAiCommandOutput((payload) => {
+    if (payload.request_id === requestId && payload.line) {
+      onLine(payload.line);
+    }
+  });
+  try {
+    return await run(requestId);
+  } finally {
+    unlisten();
+  }
 }
 
 export async function aiGenerateCoordinatorTaskPlan(

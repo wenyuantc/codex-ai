@@ -14,6 +14,7 @@ import { formatEmployeeRuntimeLabel, formatPlanUsageLogLine } from "@/lib/types"
 import {
   abortTaskPipeline,
   aiGenerateCoordinatorTaskPlan,
+  withCoordinatorPlanLogStream,
   aiGenerateTesterAcceptance,
   getTaskAcceptanceRuns,
   getTaskCommitActionState,
@@ -891,15 +892,18 @@ export function TaskDetailDialog({
     appendCoordinatorPlanLog(`[计划] 工作目录：${projectRepoPath ?? "未配置"}`);
     appendCoordinatorPlanLog("[计划] 正在生成协调员执行计划，可能需要一点时间...");
     try {
-      const plan = await aiGenerateCoordinatorTaskPlan({
-        task_id: task.id,
-        coordinator_id: coordinatorId,
-        title: title.trim() || task.title,
-        description: description.trim() || null,
-        status,
-        priority,
-        working_dir: projectRepoPath ?? null,
-      });
+      const plan = await withCoordinatorPlanLogStream(appendCoordinatorPlanLog, (requestId) =>
+        aiGenerateCoordinatorTaskPlan({
+          task_id: task.id,
+          coordinator_id: coordinatorId,
+          title: title.trim() || task.title,
+          description: description.trim() || null,
+          status,
+          priority,
+          working_dir: projectRepoPath ?? null,
+          request_id: requestId,
+        }),
+      );
       const trimmedPlan = plan.markdown.trim();
       if (!trimmedPlan) {
         appendCoordinatorPlanLog("[WARN] 协调员返回了空计划。");

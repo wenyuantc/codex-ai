@@ -5,7 +5,8 @@ use super::{
     build_ai_generate_commit_message_prompt, build_ai_generate_plan_prompt,
     build_ai_generate_plan_prompt_with_attachments, build_ai_generate_tester_acceptance_prompt,
     build_ai_optimize_prompt_prompt, parse_ai_subtasks_response, resolve_project_execution_context,
-    resolve_task_project_execution_context, run_ai_command, ExecutionContext,
+    resolve_task_project_execution_context, run_ai_command, run_ai_command_with_options,
+    run_native_ai_command, AiCommandOptions, ExecutionContext,
 };
 use crate::app::{
     fetch_employee_by_id, fetch_project_by_id, fetch_task_attachments, fetch_task_by_id,
@@ -288,6 +289,8 @@ pub struct GenerateCoordinatorTaskPlanPayload {
     pub status: String,
     pub priority: String,
     pub working_dir: Option<String>,
+    #[serde(default)]
+    pub request_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -907,19 +910,41 @@ pub async fn ai_generate_coordinator_task_plan(
         .map(|attachment| attachment.stored_path.clone())
         .collect::<Vec<_>>();
 
-    let result = run_ai_command(
-        &app,
-        prompt,
-        Some(image_paths),
-        Some(task.id.clone()),
-        Some(task.project_id.clone()),
-        payload.working_dir,
-        Some(coordinator.ai_provider.clone()),
-        Some(coordinator.model.clone()),
-        Some(coordinator.reasoning_effort.clone()),
-        Some(coordinator.id.clone()),
-    )
-    .await?;
+    let command_options = AiCommandOptions {
+        progress_request_id: payload.request_id.clone(),
+        task_id_for_progress: Some(task.id.clone()),
+        read_only_tools: true,
+    };
+    let result = if coordinator.ai_provider.trim() == "native" {
+        run_native_ai_command(
+            &app,
+            coordinator.id.clone(),
+            prompt,
+            Some(image_paths),
+            Some(task.id.clone()),
+            Some(task.project_id.clone()),
+            payload.working_dir,
+            Some(coordinator.model.clone()),
+            Some(coordinator.reasoning_effort.clone()),
+            &command_options,
+        )
+        .await?
+    } else {
+        run_ai_command_with_options(
+            &app,
+            prompt,
+            Some(image_paths),
+            Some(task.id.clone()),
+            Some(task.project_id.clone()),
+            payload.working_dir,
+            Some(coordinator.ai_provider.clone()),
+            Some(coordinator.model.clone()),
+            Some(coordinator.reasoning_effort.clone()),
+            Some(coordinator.id.clone()),
+            &command_options,
+        )
+        .await?
+    };
 
     let (markdown, steps) = parse_coordinator_structured_plan(&result.text)?;
     let step_count =

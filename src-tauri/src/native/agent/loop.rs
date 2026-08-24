@@ -27,6 +27,7 @@ pub struct AgentRunner {
     pub on_event: Option<mpsc::UnboundedSender<String>>,
     pub on_usage: Option<mpsc::UnboundedSender<UsageDelta>>,
     extra_tools: Vec<ToolSpec>,
+    allowed_tools: Option<HashSet<String>>,
     turns: u32,
     last_tool_key: Option<String>,
     last_tool_repeat: u32,
@@ -49,6 +50,7 @@ impl AgentRunner {
                 mcp: McpSession::empty(),
                 allow_all_high_risk: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
                 request_permission: None,
+                read_only: false,
             },
             messages: Vec::new(),
             max_turns: DEFAULT_NATIVE_MAX_TURNS as u32,
@@ -56,6 +58,7 @@ impl AgentRunner {
             on_event: None,
             on_usage: None,
             extra_tools: Vec::new(),
+            allowed_tools: None,
             turns: 0,
             last_tool_key: None,
             last_tool_repeat: 0,
@@ -70,9 +73,20 @@ impl AgentRunner {
         self.extra_tools = tools;
     }
 
+    pub fn set_allowed_tools(&mut self, names: &[&str]) {
+        self.allowed_tools = Some(names.iter().map(|name| (*name).to_string()).collect());
+    }
+
+    pub fn set_read_only(&mut self, read_only: bool) {
+        self.ctx.read_only = read_only;
+    }
+
     fn combined_tools(&self) -> Vec<ToolSpec> {
         let mut tools = tool_specs();
         tools.extend(self.extra_tools.clone());
+        if let Some(allowed) = &self.allowed_tools {
+            tools.retain(|tool| allowed.contains(&tool.name));
+        }
         tools
     }
 
@@ -527,6 +541,53 @@ mod tests {
         assert!(
             lines.iter().any(|line| line == "done"),
             "missing final: {lines:?}"
+        );
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[tokio::test]
+    async fn read_only_emits_read_and_blocks_write() {
+        let (mut runner, root) = temp_runner();
+        runner.set_read_only(true);
+        runner.set_allowed_tools(crate::native::tools::READ_ONLY_NATIVE_TOOL_NAMES);
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        runner.on_event = Some(tx);
+        let replies = vec![
+            assistant_tool_call("c1", "Read", r#"{"file_path":"hello.txt"}"#),
+            assistant_tool_call(
+                "c2",
+                "Write",
+                r#"{"file_path":"hello.txt","content":"changed"}"#,
+            ),
+            Message::assistant_text("plan ready"),
+        ];
+        let text = runner
+            .run_scripted("plan the work", replies)
+            .await
+            .expect("run");
+        assert_eq!(text, "plan ready");
+        assert_eq!(
+            fs::read_to_string(root.join("hello.txt")).expect("read"),
+            "hello world\n"
+        );
+        let lines = drain_events(&mut rx);
+        assert!(
+            lines
+                .iter()
+                .any(|line| line.starts_with("[读取] hello.txt")),
+            "missing read: {lines:?}"
+        );
+        assert!(
+            runner
+                .messages
+                .iter()
+                .any(|message| message.content.contains("只读规划模式禁止调用工具 Write")),
+            "expected write rejection in tool results: {:?}",
+            runner
+                .messages
+                .iter()
+                .map(|message| message.content.clone())
+                .collect::<Vec<_>>()
         );
         let _ = fs::remove_dir_all(root);
     }

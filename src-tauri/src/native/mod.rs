@@ -13,6 +13,6 @@ pub mod tools;
 
 pub use manager::NativeAgentManager;
 pub use session::{
-    list_live_native_employee_processes, run_native_one_shot, start_native_with_manager,
-    stop_native_for_automation_restart,
+    list_live_native_employee_processes, run_native_one_shot, run_native_read_only_one_shot,
+    start_native_with_manager, stop_native_for_automation_restart,
 };

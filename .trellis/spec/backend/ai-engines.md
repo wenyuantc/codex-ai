@@ -45,7 +45,12 @@ Common internal layout per **CLI** engine:
 
 `normalize_employee_ai_provider` **must** recognize `"native"`; unknown values still default to `"codex"`. Frontend `normalizeAiProvider` must do the same — otherwise a native employee silently starts Codex.
 
-`normalize_one_shot_provider_for_target` **must** recognize `"native"`. Employee-scoped one-shots (`ai_generate_coordinator_task_plan`, `ai_generate_tester_acceptance`) pass the employee's provider; if that employee is `native`, `run_ai_command` **must** call `native::run_native_one_shot` (HTTP `ModelClient.chat()`, no tools) with the employee's channel. **Never** remap `native` → Codex SDK/exec. Missing `employee_id` is a Chinese error, not a Codex fallback. Settings Git / one-shot dropdowns still use `CLI_AI_PROVIDER_OPTIONS` (exclude `native`).
+`normalize_one_shot_provider_for_target` **must** recognize `"native"`. Employee-scoped one-shots pass the employee's provider; if that employee is `native`, **never** remap `native` → Codex SDK/exec. Missing `employee_id` is a Chinese error, not a Codex fallback.
+
+- **Tester / generic one-shot** (`ai_generate_tester_acceptance`, commit message, prompt optimize): `native::run_native_one_shot` — HTTP `ModelClient.chat()`, `tools: &[]`.
+- **Coordinator plan** (`ai_generate_coordinator_task_plan`): `native::run_native_read_only_one_shot` — in-process `AgentRunner` with read-only tools (`Read`/`Glob`/`Grep`/`Todo*`/`WebFetch`/`WebSearch`). Do **not** register `NativeAgentManager`, do **not** gate run-queue, do **not** call `handle_session_exit`. SSH uses `SshToolRuntime`. Progress lines go to `ai-command-stdout` (not `native-stdout`). Write/Edit/Bash/MCP are rejected. If working dir is missing, fall back to HTTP no-tools and emit a warning line.
+
+Settings Git / one-shot dropdowns still use `CLI_AI_PROVIDER_OPTIONS` (exclude `native`).
 
 Native employees **must** bind `employees.ai_channel_id` to an enabled `ai_channels` row. Other providers store `ai_channel_id = NULL`.
 

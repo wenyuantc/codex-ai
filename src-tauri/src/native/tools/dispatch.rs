@@ -44,6 +44,7 @@ pub struct ToolCtx {
     pub mcp: McpSession,
     pub allow_all_high_risk: Arc<std::sync::atomic::AtomicBool>,
     pub request_permission: Option<PermissionRequester>,
+    pub read_only: bool,
 }
 
 pub async fn execute_tool(
@@ -53,6 +54,9 @@ pub async fn execute_tool(
 ) -> Result<String, String> {
     if ctx.cancel.is_cancelled() {
         return Err("已取消".to_string());
+    }
+    if ctx.read_only && !super::is_read_only_native_tool(name) {
+        return Err(format!("只读规划模式禁止调用工具 {name}"));
     }
     confirm_if_high_risk(ctx, name, arguments).await?;
     match name {
@@ -359,6 +363,7 @@ mod tests {
                     let _ = tx.send(NativePermissionDecision::Deny);
                 },
             )),
+            read_only: false,
         };
         let err = execute_tool(
             &mut ctx,
@@ -368,6 +373,41 @@ mod tests {
         .await
         .expect_err("denied");
         assert!(err.contains("不允许"));
+        assert_eq!(std::fs::read_to_string(&path).expect("read"), "original");
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[tokio::test]
+    async fn read_only_rejects_write_without_mutating() {
+        let root = std::env::temp_dir().join(format!(
+            "codex-ai-readonly-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("time")
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&root).expect("mkdir");
+        let path = root.join("keep.txt");
+        std::fs::write(&path, "original").expect("write");
+        let mut ctx = ToolCtx {
+            workspace: LocalWorkspace::new(root.clone()),
+            ssh: None,
+            cancel: CancelFlag::new(),
+            read_files: HashSet::new(),
+            todos: Vec::new(),
+            mcp: McpSession::empty(),
+            allow_all_high_risk: Arc::new(std::sync::atomic::AtomicBool::new(true)),
+            request_permission: None,
+            read_only: true,
+        };
+        let err = execute_tool(
+            &mut ctx,
+            "Write",
+            r#"{"file_path":"keep.txt","content":"changed"}"#,
+        )
+        .await
+        .expect_err("read-only write");
+        assert!(err.contains("只读规划模式禁止调用工具 Write"));
         assert_eq!(std::fs::read_to_string(&path).expect("read"), "original");
         let _ = std::fs::remove_dir_all(root);
     }

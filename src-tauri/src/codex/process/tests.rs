@@ -577,7 +577,8 @@ fn builds_plan_prompt_with_required_sections_and_context() {
     assert!(prompt.contains("当前优先级：high"));
     assert!(prompt.contains("1. 补后端命令"));
     assert!(prompt.contains("2. 补前端预览"));
-    assert!(prompt.contains("不要假装已读取仓库"));
+    assert!(prompt.contains("可以用只读工具"));
+    assert!(prompt.contains("禁止改文件"));
     assert!(prompt.contains("employee_id"));
 }
 

@@ -312,8 +312,8 @@ fn one_shot_reasoning_usable(text: &str) -> bool {
         || trimmed.contains("\n## ")
 }
 
-/// Employee-scoped one-shot (coordinator plan, tester acceptance). HTTP only, no
-/// tool loop and no Codex SDK/exec fallback. Images stay on this machine.
+/// Employee-scoped HTTP one-shot (tester acceptance and no-workspace fallback).
+/// No tool loop and no Codex SDK/exec fallback. Images stay on this machine.
 pub async fn run_native_one_shot<R: Runtime>(
     app: &AppHandle<R>,
     employee_id: &str,
@@ -386,6 +386,131 @@ pub async fn run_native_one_shot<R: Runtime>(
         text: native_one_shot_text(&message)?,
         usage_line: crate::native::model::usage_to_delta(usage)
             .and_then(|delta| delta.format_terminal_line()),
+    })
+}
+
+/// Coordinator plan generation: in-process read-only tool loop, no session registry.
+#[allow(clippy::too_many_arguments)]
+pub async fn run_native_read_only_one_shot(
+    app: &AppHandle,
+    employee_id: &str,
+    prompt: String,
+    image_paths: Option<Vec<String>>,
+    model_override: Option<String>,
+    reasoning_effort_override: Option<String>,
+    working_dir: &str,
+    execution_target: &str,
+    ssh_config_id: Option<&str>,
+    event_tx: mpsc::UnboundedSender<String>,
+) -> Result<NativeOneShotResult, String> {
+    let pool = sqlite_pool(app).await?;
+    let mut employee = fetch_employee_by_id(&pool, employee_id).await?;
+    if let Some(model) = model_override
+        .as_deref()
+        .map(str::trim)
+        .filter(|item| !item.is_empty())
+    {
+        employee.model = model.to_string();
+    }
+    if let Some(effort) = reasoning_effort_override
+        .as_deref()
+        .map(str::trim)
+        .filter(|item| !item.is_empty())
+    {
+        employee.reasoning_effort = effort.to_string();
+    }
+    let mut run = load_native_client(&pool, &employee).await?;
+    run.employee_system_prompt = employee
+        .system_prompt
+        .as_deref()
+        .map(str::trim)
+        .filter(|item| !item.is_empty())
+        .map(ToOwned::to_owned);
+
+    let run_cwd = if execution_target == EXECUTION_TARGET_LOCAL {
+        validate_runtime_working_dir(Some(working_dir))?
+    } else {
+        working_dir.to_string()
+    };
+    let ssh = if execution_target == EXECUTION_TARGET_SSH {
+        let ssh_id = ssh_config_id
+            .map(str::trim)
+            .filter(|item| !item.is_empty())
+            .ok_or_else(|| "SSH 项目缺少 ssh_config_id".to_string())?;
+        let config = fetch_ssh_config_record_by_id(&pool, ssh_id).await?;
+        Some(SshToolRuntime {
+            app: app.clone(),
+            config,
+            root: run_cwd.clone(),
+        })
+    } else {
+        None
+    };
+
+    let loaded = crate::native::images::load_native_images(image_paths.as_deref());
+    for path in &loaded.missing {
+        eprintln!("[native] read-only one-shot 附件图片不存在，已跳过: {path}");
+    }
+    for reason in &loaded.skipped {
+        eprintln!("[native] read-only one-shot 跳过图片: {reason}");
+    }
+
+    let mut runner = AgentRunner::new(LocalWorkspace::new(PathBuf::from(&run_cwd)));
+    runner.ctx.ssh = ssh;
+    runner.set_read_only(true);
+    runner.set_allowed_tools(crate::native::tools::READ_ONLY_NATIVE_TOOL_NAMES);
+    runner.max_turns = crate::native::settings::effective_max_turns(app);
+    if let Some(context_tokens) = run.context_tokens {
+        runner.context_char_limit = (context_tokens as usize).saturating_mul(3).max(8_000);
+    }
+    let system = crate::native::prompt::compose_system(&crate::native::prompt::NativePromptParts {
+        cwd: run_cwd.clone(),
+        model: run.model.clone(),
+        platform: std::env::consts::OS.to_string(),
+        git: if let Some(ssh) = runner.ctx.ssh.as_ref() {
+            crate::native::prompt::detect_ssh_git(ssh).await
+        } else {
+            crate::native::prompt::detect_local_git(&run_cwd)
+        },
+        global_template: crate::native::prompt::load_global_template(app),
+        project_agents: if let Some(ssh) = runner.ctx.ssh.as_ref() {
+            crate::native::prompt::read_ssh_project_agents(ssh).await
+        } else {
+            crate::native::prompt::read_local_project_agents(&run_cwd)
+        },
+        employee_prompt: run.employee_system_prompt.clone().unwrap_or_default(),
+    });
+    runner
+        .messages
+        .push(crate::native::model::types::Message::system(system));
+    runner.on_event = Some(event_tx);
+    if let Some(tx) = &runner.on_event {
+        let _ = tx.send(native_startup_banner(
+            &run.channel_name,
+            &run.protocol,
+            &run.model,
+            run.effort.as_deref(),
+            run.thinking_enabled,
+        ));
+    }
+    let text = runner
+        .run_with_client(
+            &run.client,
+            &prompt,
+            &run.model,
+            run.effort.as_deref(),
+            run.max_output_tokens,
+            run.thinking_enabled,
+            loaded.images,
+        )
+        .await
+        .map_err(|error| format!("内置 Agent 规划调用失败：{error}"))?;
+    if text.trim().is_empty() {
+        return Err("内置 Agent 未返回可用内容".to_string());
+    }
+    Ok(NativeOneShotResult {
+        text,
+        usage_line: None,
     })
 }
 

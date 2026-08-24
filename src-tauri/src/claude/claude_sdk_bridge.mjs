@@ -344,12 +344,14 @@ async function runSession(payload) {
 
 async function runOneShot(payload) {
   const { query } = await import("@anthropic-ai/claude-agent-sdk");
+  const streamProgress = payload.streamProgress === true;
+  const readOnly = payload.readOnly === true;
 
   const options = {
     model: payload.model || "sonnet",
     settingSources: CLAUDE_SETTING_SOURCES,
-    permissionMode: "bypassPermissions",
-    allowDangerouslySkipPermissions: true,
+    permissionMode: readOnly ? "plan" : "bypassPermissions",
+    allowDangerouslySkipPermissions: !readOnly,
     maxTurns: payload.maxTurns || 3,
   };
 
@@ -373,18 +375,40 @@ async function runOneShot(payload) {
     };
   }
 
+  if (readOnly) {
+    delete options.allowDangerouslySkipPermissions;
+  }
+
   let resultText = "";
   for await (const message of query({ prompt: payload.prompt, options })) {
+    if (streamProgress && message.type === "assistant" && message.message?.content) {
+      for (const block of message.message.content) {
+        if (block.type === "thinking" && block.thinking) {
+          emit(`[思考] ${String(block.thinking).slice(0, 200)}`);
+        }
+        if (block.type === "tool_use") {
+          if (block.name === "Read") {
+            emit(`[读取] ${block.input?.file_path || "(unknown)"}`);
+          } else if (block.name === "Glob" || block.name === "Grep" || block.name === "LS") {
+            emit(`[工具] ${block.name}`);
+          } else if (block.name === "Bash") {
+            emit(`[命令] ${block.input?.command || "(unknown)"}`);
+          } else if (block.name) {
+            emit(`[工具] ${block.name}`);
+          }
+        }
+      }
+    }
     if (message.type === "result" && message.subtype === "success") {
       resultText = message.result || "";
     }
   }
 
   stdout.write(
-    JSON.stringify({
+    `${JSON.stringify({
       ok: true,
       text: resultText,
-    }),
+    })}${streamProgress ? "\n" : ""}`,
   );
 }
 

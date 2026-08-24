@@ -13,7 +13,7 @@ pub mod ssh;
 pub mod web;
 
 pub use cancel::CancelFlag;
-pub use catalog::tool_specs;
+pub use catalog::{is_read_only_native_tool, tool_specs, READ_ONLY_NATIVE_TOOL_NAMES};
 pub use dispatch::{execute_tool, ToolCtx};
 pub use local::LocalWorkspace;
 pub use mcp::{connect_mcp_servers, McpSession};

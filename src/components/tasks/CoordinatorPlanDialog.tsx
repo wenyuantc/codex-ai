@@ -21,7 +21,7 @@ import {
 } from "@/components/ui/dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { SessionLogDialog } from "@/components/sessions/SessionLogDialog";
-import { getAiLogColor } from "./detail/taskDetailViewHelpers";
+import { formatTerminalLine, getLineColor } from "./detail/taskDetailViewHelpers";
 import { TaskPipelineProgress } from "./detail/TaskPipelineProgress";
 
 const MonacoMarkdownEditor = lazy(() =>
@@ -202,7 +202,7 @@ export function CoordinatorPlanDialog({
                     <Eraser className="h-3 w-3" />
                   </button>
                 </div>
-                <ScrollArea className="h-36 overflow-hidden rounded-b bg-black">
+                <ScrollArea className="h-48 overflow-hidden rounded-b bg-black">
                   <div className="space-y-0.5 p-2 font-mono text-xs">
                     {terminalLogs.length === 0 ? (
                       <div className="text-zinc-600">等待运行日志...</div>
@@ -210,9 +210,9 @@ export function CoordinatorPlanDialog({
                       terminalLogs.map((line, index) => (
                         <div
                           key={`${line}-${index}`}
-                          className={`whitespace-pre-wrap ${getAiLogColor(line)}`}
+                          className={`whitespace-pre-wrap ${getLineColor(line)}`}
                         >
-                          {line}
+                          {formatTerminalLine(line)}
                         </div>
                       ))
                     )}
