@@ -528,3 +528,41 @@ i18next zh-CN/en framework, main-path extraction, activity single-source, leftov
 ### Next Steps
 
 - 重启桌面应用跑 migration 51，在对话管理核对三种类型筛选
+
+
+## Session 18: P0 引擎生态对齐
+
+**Date**: 2026-08-24
+**Task**: P0 引擎生态对齐
+**Branch**: `main`
+
+### Summary
+
+落地 MCP 对齐、native 高风险确认（可在设置关闭）与 Claude CLI 本地传图；配了要能用。
+
+### Main Changes
+
+- native 注入 MCP：本地 spawn，SSH 经 build_ssh_command 远端拉起，失败不回退本机
+- 能力矩阵/设置/任务绑定按引擎声明 MCP，Claude/Grok/OpenCode 不再假装生效
+- 高风险工具弹窗三选，设置「界面与运行」可关闭确认
+- Claude 本地 CLI 用 stream-json 传图；SSH 仍跳过
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `be6eeba` | (see git log) |
+
+### Testing
+
+- [OK] clippy -D warnings、format:check、test:ci、npm run build 通过
+- [OK] cargo test：mcp / permission / claude_cli / missing_confirm_flag_defaults_on
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 重启桌面应用冒烟：MCP 连接日志、高风险弹窗与设置开关、Claude CLI 本地带图
+- BUG.md 两条新待办未提交：TodoWrite 日志内容、协调员终端过程日志
