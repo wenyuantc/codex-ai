@@ -221,7 +221,7 @@ impl AgentRunner {
             }
             self.emit(tool_start_line(&call.name, &call.arguments));
             let output = self.execute_logged_tool(&call).await;
-            self.emit(tool_result_line(&output));
+            self.emit(tool_result_line(&call.name, &output));
             let mut message = Message::tool_result(&call.id, output);
             message.name = call.name.clone();
             self.messages.push(message);
@@ -272,17 +272,80 @@ fn tool_start_line(name: &str, arguments: &str) -> String {
         "Bash" => format!("[命令] {}", json_string(&args, "command")),
         "Glob" => format!("[工具] Glob {}", json_string(&args, "pattern")),
         "Grep" => format!("[工具] Grep {}", json_string(&args, "pattern")),
-        "TodoRead" | "TodoWrite" => format!("[待办] {name}"),
+        "TodoRead" => "[待办] 读取任务清单".to_string(),
+        "TodoWrite" => format_todo_write_start(&args),
         other => format!("[工具] {other}"),
     }
 }
 
-fn tool_result_line(output: &str) -> String {
-    let first = output
+fn format_todo_write_start(args: &Value) -> String {
+    let Some(todos) = args.get("todos").and_then(Value::as_array) else {
+        return "[待办] 更新任务清单".to_string();
+    };
+    if todos.is_empty() {
+        return "[待办] (空)".to_string();
+    }
+    let lines: Vec<String> = todos.iter().filter_map(format_todo_item_line).collect();
+    if lines.is_empty() {
+        return "[待办] 更新任务清单".to_string();
+    }
+    format!("[待办]\n{}", lines.join("\n"))
+}
+
+fn format_todo_item_line(item: &Value) -> Option<String> {
+    let content = item
+        .get("content")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())?;
+    let status = item
+        .get("status")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("pending");
+    let priority = item
+        .get("priority")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("medium");
+    Some(format!(
+        "- [{}] {} ({})",
+        status,
+        truncate_chars(content, 200),
+        priority
+    ))
+}
+
+fn tool_result_line(name: &str, output: &str) -> String {
+    match name {
+        "TodoWrite" if is_todo_list_output(output) => {
+            format!("[工具结果] 已更新 {} 项", count_todo_item_lines(output))
+        }
+        "TodoRead" if is_todo_list_output(output) => {
+            format!("[工具结果]\n{}", output.trim_end())
+        }
+        _ => {
+            let first = output
+                .lines()
+                .find(|line| !line.trim().is_empty())
+                .unwrap_or("");
+            format!("[工具结果] {}", truncate_chars(first.trim(), 200))
+        }
+    }
+}
+
+fn is_todo_list_output(output: &str) -> bool {
+    let trimmed = output.trim();
+    trimmed == "(no todos)" || count_todo_item_lines(output) > 0
+}
+
+fn count_todo_item_lines(output: &str) -> usize {
+    output
         .lines()
-        .find(|line| !line.trim().is_empty())
-        .unwrap_or("");
-    format!("[工具结果] {}", truncate_chars(first.trim(), 200))
+        .filter(|line| line.trim_start().starts_with("- ["))
+        .count()
 }
 
 fn json_string(value: &Value, key: &str) -> String {
@@ -498,6 +561,115 @@ mod tests {
         }];
         let text = runner.run_scripted("go", vec![dummy]).await.expect("run");
         assert_eq!(text, "hello");
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn todo_write_start_line_lists_all_items() {
+        let line = tool_start_line(
+            "TodoWrite",
+            r#"{"todos":[
+                {"id":"1","content":"定位 TestController","status":"in_progress","priority":"high"},
+                {"id":"2","content":"实现 ok 接口","status":"pending"},
+                {"id":"3","content":"补测试","status":"pending","priority":"low"}
+            ]}"#,
+        );
+        assert_eq!(
+            line,
+            "[待办]\n- [in_progress] 定位 TestController (high)\n- [pending] 实现 ok 接口 (medium)\n- [pending] 补测试 (low)"
+        );
+        assert!(!line.contains("TodoWrite"));
+    }
+
+    #[test]
+    fn todo_write_start_line_empty_and_invalid() {
+        assert_eq!(
+            tool_start_line("TodoWrite", r#"{"todos":[]}"#),
+            "[待办] (空)"
+        );
+        assert_eq!(
+            tool_start_line("TodoWrite", "not-json"),
+            "[待办] 更新任务清单"
+        );
+        assert_eq!(tool_start_line("TodoWrite", "{}"), "[待办] 更新任务清单");
+    }
+
+    #[test]
+    fn todo_read_start_line_is_label() {
+        assert_eq!(tool_start_line("TodoRead", "{}"), "[待办] 读取任务清单");
+    }
+
+    #[test]
+    fn todo_write_result_summarizes_count() {
+        let output =
+            "- [in_progress] 定位 TestController (medium)\n- [pending] 实现 ok 接口 (medium)";
+        assert_eq!(
+            tool_result_line("TodoWrite", output),
+            "[工具结果] 已更新 2 项"
+        );
+        assert_eq!(
+            tool_result_line("TodoWrite", "(no todos)"),
+            "[工具结果] 已更新 0 项"
+        );
+        assert_eq!(
+            tool_result_line("TodoWrite", "todos 必须是数组"),
+            "[工具结果] todos 必须是数组"
+        );
+    }
+
+    #[test]
+    fn todo_read_result_keeps_full_list() {
+        let output =
+            "- [completed] 定位 TestController (medium)\n- [in_progress] 实现 ok 接口 (medium)";
+        assert_eq!(
+            tool_result_line("TodoRead", output),
+            "[工具结果]\n- [completed] 定位 TestController (medium)\n- [in_progress] 实现 ok 接口 (medium)"
+        );
+    }
+
+    #[test]
+    fn other_tool_result_still_uses_first_line() {
+        assert_eq!(tool_result_line("Read", "line1\nline2"), "[工具结果] line1");
+    }
+
+    #[tokio::test]
+    async fn emits_todo_write_list() {
+        let (mut runner, root) = temp_runner();
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        runner.on_event = Some(tx);
+        let _ = runner
+            .run_scripted(
+                "go",
+                vec![
+                    assistant_tool_call(
+                        "t1",
+                        "TodoWrite",
+                        r#"{"todos":[
+                            {"content":"定位 TestController","status":"in_progress"},
+                            {"content":"实现 ok 接口","status":"pending"},
+                            {"content":"补测试","status":"pending"}
+                        ]}"#,
+                    ),
+                    Message::assistant_text("done"),
+                ],
+            )
+            .await
+            .expect("run");
+        let lines = drain_events(&mut rx);
+        let start = lines
+            .iter()
+            .find(|line| line.starts_with("[待办]"))
+            .expect("missing todo start");
+        assert!(
+            start.contains("- [in_progress] 定位 TestController (medium)")
+                && start.contains("- [pending] 实现 ok 接口 (medium)")
+                && start.contains("- [pending] 补测试 (medium)"),
+            "todo list missing items: {start}"
+        );
+        assert!(
+            lines.iter().any(|line| line == "[工具结果] 已更新 3 项"),
+            "missing todo result count: {lines:?}"
+        );
         let _ = fs::remove_dir_all(root);
     }
 }
