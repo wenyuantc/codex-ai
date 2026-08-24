@@ -11,10 +11,22 @@ fn normalize_employee_ai_provider(value: Option<&str>) -> String {
     }
 }
 
-/// 按 provider 归一化员工推理强度。Grok / OpenCode 仅 low|medium|high。
+/// 按 provider 归一化员工推理强度。Grok / OpenCode 仅 low|medium|high；
+/// 内置 Agent 保留模型目录档位（含 xhigh/max/minimal）。
 fn normalize_employee_reasoning_effort(provider: &str, value: Option<&str>) -> String {
     match provider {
-        "grok" | "native" => crate::grok::normalize_grok_reasoning_effort(value),
+        "native" => match value.map(str::trim) {
+            Some(value)
+                if matches!(
+                    value,
+                    "none" | "no_think" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max"
+                ) =>
+            {
+                value.to_string()
+            }
+            _ => "high".to_string(),
+        },
+        "grok" => crate::grok::normalize_grok_reasoning_effort(value),
         "opencode" => match value.map(str::trim) {
             Some(value) if matches!(value, "low" | "medium" | "high") => value.to_string(),
             _ => "high".to_string(),
@@ -583,4 +595,62 @@ pub async fn list_employee_metrics<R: Runtime>(
     .fetch_all(&pool)
     .await
     .map_err(|error| format!("获取员工绩效失败: {}", error))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::normalize_employee_reasoning_effort;
+
+    #[test]
+    fn native_keeps_catalog_thinking_levels() {
+        assert_eq!(
+            normalize_employee_reasoning_effort("native", Some("xhigh")),
+            "xhigh"
+        );
+        assert_eq!(
+            normalize_employee_reasoning_effort("native", Some("max")),
+            "max"
+        );
+        assert_eq!(
+            normalize_employee_reasoning_effort("native", Some("minimal")),
+            "minimal"
+        );
+        assert_eq!(
+            normalize_employee_reasoning_effort("native", Some("none")),
+            "none"
+        );
+        assert_eq!(
+            normalize_employee_reasoning_effort("native", Some("no_think")),
+            "no_think"
+        );
+        assert_eq!(
+            normalize_employee_reasoning_effort("native", Some("high")),
+            "high"
+        );
+    }
+
+    #[test]
+    fn native_unknown_effort_falls_back_to_high() {
+        assert_eq!(normalize_employee_reasoning_effort("native", None), "high");
+        assert_eq!(
+            normalize_employee_reasoning_effort("native", Some("auto")),
+            "high"
+        );
+        assert_eq!(
+            normalize_employee_reasoning_effort("native", Some("")),
+            "high"
+        );
+    }
+
+    #[test]
+    fn grok_still_clamps_xhigh_to_high() {
+        assert_eq!(
+            normalize_employee_reasoning_effort("grok", Some("xhigh")),
+            "high"
+        );
+        assert_eq!(
+            normalize_employee_reasoning_effort("grok", Some("medium")),
+            "medium"
+        );
+    }
 }

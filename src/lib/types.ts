@@ -1188,6 +1188,18 @@ export const GROK_EFFORT_OPTIONS: { value: string; label: string }[] = [
   { value: "high", label: "高" },
 ];
 
+/** 内置 Agent 思考等级与模型目录对齐，不能套用 Grok 三档白名单。 */
+export const NATIVE_THINKING_LEVELS = [
+  "none",
+  "no_think",
+  "minimal",
+  "low",
+  "medium",
+  "high",
+  "xhigh",
+  "max",
+] as const;
+
 export const CLAUDE_THINKING_BUDGET_OPTIONS: {
   value: string;
   label: string;
@@ -1212,6 +1224,10 @@ export function isSupportedGrokReasoningEffort(value: string): boolean {
   return GROK_EFFORT_OPTIONS.some((option) => option.value === value);
 }
 
+export function isSupportedNativeReasoningEffort(value: string): boolean {
+  return (NATIVE_THINKING_LEVELS as readonly string[]).includes(value);
+}
+
 export function normalizeReasoningEffortForProvider(
   provider: AiProvider,
   value: string | null | undefined,
@@ -1228,7 +1244,13 @@ export function normalizeReasoningEffortForProvider(
       : "high";
   }
 
-  if (provider === "grok" || provider === "native") {
+  if (provider === "native") {
+    return value && isSupportedNativeReasoningEffort(value)
+      ? value
+      : getDefaultReasoningEffortForProvider(provider);
+  }
+
+  if (provider === "grok") {
     return value && isSupportedGrokReasoningEffort(value)
       ? value
       : getDefaultReasoningEffortForProvider(provider);

@@ -17,7 +17,7 @@
 2. Prefer string union aliases for closed sets:
    - `TaskStatus = "todo" | "in_progress" | "review" | "completed" | "blocked" | "archived"`
    - `ProjectType = "local" | "ssh"`
-   - `AiProvider = "codex" | "claude" | "opencode" | "grok" | "native"` — `normalizeAiProvider` must keep `"native"`. Git/one-shot lists use `CLI_AI_PROVIDER_OPTIONS` / `normalizeCliAiProvider` (native → codex).
+   - `AiProvider = "codex" | "claude" | "opencode" | "grok" | "native"` — `normalizeAiProvider` must keep `"native"`. Git/one-shot lists use `CLI_AI_PROVIDER_OPTIONS` / `normalizeCliAiProvider` (native → codex). `normalizeReasoningEffortForProvider("native")` must use `NATIVE_THINKING_LEVELS` (includes `xhigh`/`max`/`minimal`); do not reuse Grok's three-level set.
    - `ArtifactCaptureMode`, `GitActionType`, etc.
 3. Nullable DB columns are `T | null`, not optional `?`, when the row always includes the key.
 4. Constants such as `PRIORITIES` live next to the types when UI enumerations need them.

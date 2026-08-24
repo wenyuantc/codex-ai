@@ -49,6 +49,8 @@ Common internal layout per **CLI** engine:
 
 Native employees **must** bind `employees.ai_channel_id` to an enabled `ai_channels` row. Other providers store `ai_channel_id = NULL`.
 
+`normalize_employee_reasoning_effort` **must not** reuse Grok's `low|medium|high` whitelist for `native`. Built-in Agent thinking levels come from the model catalog (`none` / `no_think` / `minimal` / `low` / `medium` / `high` / `xhigh` / `max`). Grouping `native` with Grok silently maps `xhigh`/`max` to `high`, so employee "最高/极高" saves have no effect. Session HTTP already forwards `xhigh`/`max` (`openai::normalize_effort`, Anthropic budget map). Frontend `normalizeReasoningEffortForProvider` must keep the same split.
+
 ## Shared Session Model
 
 Despite the historical `codex_` table prefix, sessions for engines are stored in:
