@@ -566,3 +566,24 @@ i18next zh-CN/en framework, main-path extraction, activity single-source, leftov
 
 - 重启桌面应用冒烟：MCP 连接日志、高风险弹窗与设置开关、Claude CLI 本地带图
 - BUG.md 两条新待办未提交：TodoWrite 日志内容、协调员终端过程日志
+
+
+## Session 19: 协调员计划日志补齐工具过程
+
+**Date**: 2026-08-24
+**Task**: 协调员计划日志补齐工具过程
+**Branch**: `main`
+
+### Summary
+
+协调员生成计划时通过 ai-command-stdout 流式展示只读工具过程；内置 Agent 走只读 AgentRunner，不注册执行会话、不进质控。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `635ddea` | (see git log) |
+
+### Status
+
+[OK] **Completed**
