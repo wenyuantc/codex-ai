@@ -171,13 +171,37 @@ pub fn parse_anthropic_sse(text: &str) -> Result<(Message, Usage), String> {
     }
     tools.sort_by_key(|(index, _)| *index);
     message.tool_calls = tools.into_iter().map(|(_, call)| call).collect();
-    if message.content.is_empty()
-        && message.reasoning_content.is_empty()
-        && message.tool_calls.is_empty()
-    {
+    if message_is_empty(&message) {
         return Err("模型返回空响应".to_string());
     }
     Ok((message, usage))
+}
+
+pub fn parse_anthropic_json(value: &Value) -> Result<(Message, Usage), String> {
+    let mut message = Message::assistant_text("");
+    let mut tools: Vec<(i64, ToolCall)> = Vec::new();
+    let usage = value.get("usage").map(parse_usage).unwrap_or_default();
+    if let Some(blocks) = value.get("content").and_then(Value::as_array) {
+        for (index, block) in blocks.iter().enumerate() {
+            let payload = json!({
+                "index": index as i64,
+                "content_block": block,
+            });
+            start_anthropic_block(&mut message, &mut tools, &payload);
+        }
+    }
+    tools.sort_by_key(|(index, _)| *index);
+    message.tool_calls = tools.into_iter().map(|(_, call)| call).collect();
+    if message_is_empty(&message) {
+        return Err("模型返回空响应".to_string());
+    }
+    Ok((message, usage))
+}
+
+fn message_is_empty(message: &Message) -> bool {
+    message.content.is_empty()
+        && message.reasoning_content.is_empty()
+        && message.tool_calls.is_empty()
 }
 
 fn start_anthropic_block(message: &mut Message, tools: &mut Vec<(i64, ToolCall)>, payload: &Value) {
@@ -187,6 +211,15 @@ fn start_anthropic_block(message: &mut Message, tools: &mut Vec<(i64, ToolCall)>
         Some("text") => {
             if let Some(text) = block.get("text").and_then(Value::as_str) {
                 message.content.push_str(text);
+            }
+        }
+        Some("thinking") | Some("redacted_thinking") => {
+            if let Some(text) = block
+                .get("thinking")
+                .or_else(|| block.get("text"))
+                .and_then(Value::as_str)
+            {
+                message.reasoning_content.push_str(text);
             }
         }
         Some("tool_use") => tools.push((
@@ -258,6 +291,34 @@ mod tests {
         assert_eq!(message.tool_calls[0].arguments, r#"{"path":"a.rs"}"#);
         assert_eq!(usage.prompt_tokens, 9);
         assert_eq!(usage.completion_tokens, 6);
+    }
+
+    #[test]
+    fn parses_complete_json_text_and_thinking() {
+        let value = json!({
+            "content": [
+                {"type": "thinking", "thinking": "reason"},
+                {"type": "text", "text": "hello"}
+            ],
+            "usage": {"input_tokens": 5, "output_tokens": 2}
+        });
+        let (message, usage) = parse_anthropic_json(&value).expect("parse json");
+        assert_eq!(message.reasoning_content, "reason");
+        assert_eq!(message.content, "hello");
+        assert_eq!(usage.prompt_tokens, 5);
+        assert_eq!(usage.completion_tokens, 2);
+    }
+
+    #[test]
+    fn parses_thinking_block_start() {
+        let sse = concat!(
+            "event: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"thinking\",\"thinking\":\"hm\"}}\n\n",
+            "event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"thinking_delta\",\"thinking\":\"m\"}}\n\n",
+            "event: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":1,\"content_block\":{\"type\":\"text\",\"text\":\"ok\"}}\n\n",
+        );
+        let (message, _) = parse_anthropic_sse(sse).expect("parse thinking start");
+        assert_eq!(message.reasoning_content, "hmm");
+        assert_eq!(message.content, "ok");
     }
 
     #[test]

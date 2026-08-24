@@ -140,9 +140,23 @@ fn apply_responses_event(
                 message.content.push_str(delta);
             }
         }
+        "response.output_text.done" | "response.output_text.completed" => {
+            if message.content.is_empty() {
+                if let Some(text) = payload.get("text").and_then(Value::as_str) {
+                    message.content.push_str(text);
+                }
+            }
+        }
         "response.reasoning_text.delta" | "response.reasoning.delta" => {
             if let Some(delta) = payload.get("delta").and_then(Value::as_str) {
                 message.reasoning_content.push_str(delta);
+            }
+        }
+        "response.reasoning_text.done" | "response.reasoning.done" => {
+            if message.reasoning_content.is_empty() {
+                if let Some(text) = payload.get("text").and_then(Value::as_str) {
+                    message.reasoning_content.push_str(text);
+                }
             }
         }
         "response.output_item.added" => {
@@ -186,6 +200,18 @@ fn apply_responses_event(
             {
                 *usage = parse_usage(raw);
             }
+            let empty = message.content.is_empty()
+                && message.reasoning_content.is_empty()
+                && tools.is_empty();
+            if empty {
+                if let Some(output) = payload
+                    .pointer("/response/output")
+                    .or_else(|| payload.get("output"))
+                    .and_then(Value::as_array)
+                {
+                    apply_responses_output(message, tools, output);
+                }
+            }
         }
         _ => {
             if let Some(text) = payload.get("delta").and_then(Value::as_str) {
@@ -195,6 +221,113 @@ fn apply_responses_event(
             }
         }
     }
+}
+
+pub fn parse_responses_json(value: &Value) -> Result<(Message, Usage), String> {
+    let mut message = Message::assistant_text("");
+    let mut tools = Vec::new();
+    let response = value.get("response").unwrap_or(value);
+    let usage = response
+        .get("usage")
+        .or_else(|| value.get("usage"))
+        .map(parse_usage)
+        .unwrap_or_default();
+    if let Some(output) = response.get("output").and_then(Value::as_array) {
+        apply_responses_output(&mut message, &mut tools, output);
+    }
+    if message.content.is_empty() {
+        if let Some(text) = response.get("output_text").and_then(Value::as_str) {
+            message.content.push_str(text);
+        }
+    }
+    message.tool_calls = tools;
+    if message.content.is_empty()
+        && message.reasoning_content.is_empty()
+        && message.tool_calls.is_empty()
+    {
+        return Err("模型返回空响应".to_string());
+    }
+    Ok((message, usage))
+}
+
+fn apply_responses_output(message: &mut Message, tools: &mut Vec<ToolCall>, output: &[Value]) {
+    for item in output {
+        match item.get("type").and_then(Value::as_str) {
+            Some("message") => {
+                if let Some(parts) = item.get("content").and_then(Value::as_array) {
+                    for part in parts {
+                        let part_type = part.get("type").and_then(Value::as_str);
+                        if matches!(part_type, Some("output_text") | Some("text") | None) {
+                            if let Some(text) = part
+                                .get("text")
+                                .and_then(Value::as_str)
+                                .filter(|item| !item.is_empty())
+                            {
+                                message.content.push_str(text);
+                            }
+                        }
+                    }
+                } else if let Some(text) = item.get("content").and_then(Value::as_str) {
+                    message.content.push_str(text);
+                }
+            }
+            Some("reasoning") => {
+                if let Some(text) = responses_reasoning_text(item) {
+                    message.reasoning_content.push_str(&text);
+                }
+            }
+            Some("function_call") => {
+                tools.push(ToolCall {
+                    id: item
+                        .get("call_id")
+                        .or_else(|| item.get("id"))
+                        .and_then(Value::as_str)
+                        .unwrap_or_default()
+                        .to_string(),
+                    name: item
+                        .get("name")
+                        .and_then(Value::as_str)
+                        .unwrap_or_default()
+                        .to_string(),
+                    arguments: item
+                        .get("arguments")
+                        .and_then(Value::as_str)
+                        .unwrap_or_default()
+                        .to_string(),
+                });
+            }
+            _ => {}
+        }
+    }
+}
+
+fn responses_reasoning_text(item: &Value) -> Option<String> {
+    if let Some(text) = item.get("content").and_then(Value::as_str) {
+        if !text.is_empty() {
+            return Some(text.to_string());
+        }
+    }
+    for key in ["summary", "content"] {
+        let Some(parts) = item.get(key).and_then(Value::as_array) else {
+            continue;
+        };
+        let mut out = String::new();
+        for part in parts {
+            if let Some(text) = part
+                .get("text")
+                .or_else(|| part.get("summary"))
+                .and_then(Value::as_str)
+            {
+                out.push_str(text);
+            } else if let Some(text) = part.as_str() {
+                out.push_str(text);
+            }
+        }
+        if !out.is_empty() {
+            return Some(out);
+        }
+    }
+    None
 }
 
 #[cfg(test)]
@@ -216,6 +349,42 @@ mod tests {
         assert_eq!(message.tool_calls[0].arguments, r#"{"path":"a.rs"}"#);
         assert_eq!(usage.prompt_tokens, 11);
         assert_eq!(usage.completion_tokens, 4);
+    }
+
+    #[test]
+    fn parses_completed_output_without_deltas() {
+        let sse = concat!(
+            "event: response.completed\n",
+            "data: {\"type\":\"response.completed\",\"response\":{\"output\":[{\"type\":\"message\",\"content\":[{\"type\":\"output_text\",\"text\":\"plan ok\"}]}],\"usage\":{\"input_tokens\":3,\"output_tokens\":2}}}\n\n",
+        );
+        let (message, usage) = parse_responses_sse(sse).expect("parse completed output");
+        assert_eq!(message.content, "plan ok");
+        assert_eq!(usage.prompt_tokens, 3);
+        assert_eq!(usage.completion_tokens, 2);
+    }
+
+    #[test]
+    fn parses_output_text_done_without_deltas() {
+        let sse = "event: response.output_text.done\ndata: {\"type\":\"response.output_text.done\",\"text\":\"only done\"}\n\n";
+        let (message, _) = parse_responses_sse(sse).expect("parse output_text.done");
+        assert_eq!(message.content, "only done");
+    }
+
+    #[test]
+    fn parses_complete_json_output() {
+        let value = json!({
+            "output": [
+                {"type":"reasoning","summary":[{"text":"think"}]},
+                {"type":"message","content":[{"type":"output_text","text":"hello"}]},
+                {"type":"function_call","call_id":"call_1","name":"Read","arguments":"{}"}
+            ],
+            "usage": {"input_tokens": 4, "output_tokens": 1}
+        });
+        let (message, usage) = parse_responses_json(&value).expect("parse json");
+        assert_eq!(message.content, "hello");
+        assert_eq!(message.reasoning_content, "think");
+        assert_eq!(message.tool_calls[0].id, "call_1");
+        assert_eq!(usage.prompt_tokens, 4);
     }
 
     #[test]

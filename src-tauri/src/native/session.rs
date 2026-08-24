@@ -254,7 +254,7 @@ async fn load_native_client(
         api_key,
         extra_headers: extra_headers_map(channel.extra_headers_json.as_deref()),
         retry: RetryConfig::default(),
-        timeout: Duration::from_secs(120),
+        timeout: Duration::from_secs(if thinking_enabled { 300 } else { 120 }),
     })?;
     Ok(NativeRunSettings {
         client,
@@ -269,13 +269,30 @@ async fn load_native_client(
     })
 }
 
-fn native_one_shot_text(content: &str) -> Result<String, String> {
-    let text = content.trim();
-    if text.is_empty() {
-        Err("内置 Agent 未返回可用内容".to_string())
-    } else {
-        Ok(text.to_string())
+fn native_one_shot_text(message: &crate::native::model::types::Message) -> Result<String, String> {
+    let content = message.content.trim();
+    if !content.is_empty() {
+        return Ok(content.to_string());
     }
+    let reasoning = message.reasoning_content.trim();
+    if reasoning.is_empty() {
+        return Err("内置 Agent 未返回可用内容".to_string());
+    }
+    if one_shot_reasoning_usable(reasoning) {
+        return Ok(reasoning.to_string());
+    }
+    Err(format!(
+        "模型只返回了思考内容（{} 字），没有正文。请将推理强度从 max 改为 high 或 low 后重试。",
+        reasoning.chars().count()
+    ))
+}
+
+fn one_shot_reasoning_usable(text: &str) -> bool {
+    let trimmed = text.trim();
+    (trimmed.contains('{') && trimmed.contains('}'))
+        || trimmed.starts_with('#')
+        || trimmed.contains("\n# ")
+        || trimmed.contains("\n## ")
 }
 
 /// Employee-scoped one-shot (coordinator plan, tester acceptance). HTTP only, no
@@ -317,10 +334,10 @@ pub async fn run_native_one_shot<R: Runtime>(
     } else {
         crate::native::model::types::Message::user_with_images(prompt, loaded.images)
     };
-    let (message, usage) = run
+    let (mut message, mut usage) = run
         .client
         .chat(crate::native::model::client::ChatRequest {
-            messages: &[user],
+            messages: std::slice::from_ref(&user),
             tools: &[],
             model: &run.model,
             effort: run.effort.as_deref(),
@@ -329,8 +346,27 @@ pub async fn run_native_one_shot<R: Runtime>(
         })
         .await
         .map_err(|error| format!("内置 Agent 一次性调用失败：{error}"))?;
+    if native_one_shot_text(&message).is_err() && run.thinking_enabled {
+        if let Ok((retry_message, retry_usage)) = run
+            .client
+            .chat(crate::native::model::client::ChatRequest {
+                messages: std::slice::from_ref(&user),
+                tools: &[],
+                model: &run.model,
+                effort: None,
+                max_output_tokens: run.max_output_tokens,
+                thinking_enabled: false,
+            })
+            .await
+        {
+            if native_one_shot_text(&retry_message).is_ok() {
+                message = retry_message;
+                usage = retry_usage;
+            }
+        }
+    }
     Ok(NativeOneShotResult {
-        text: native_one_shot_text(&message.content)?,
+        text: native_one_shot_text(&message)?,
         usage_line: crate::native::model::usage_to_delta(usage)
             .and_then(|delta| delta.format_terminal_line()),
     })
@@ -1016,11 +1052,32 @@ mod tests {
 
     #[test]
     fn native_one_shot_text_requires_non_empty_assistant() {
-        assert_eq!(super::native_one_shot_text("  ok  ").as_deref(), Ok("ok"));
+        let mut message = crate::native::model::types::Message::assistant_text("  ok  ");
+        assert_eq!(super::native_one_shot_text(&message).as_deref(), Ok("ok"));
+        message.content = "   ".to_string();
         assert_eq!(
-            super::native_one_shot_text("   ").unwrap_err(),
+            super::native_one_shot_text(&message).unwrap_err(),
             "内置 Agent 未返回可用内容"
         );
+    }
+
+    #[test]
+    fn native_one_shot_text_uses_plan_shaped_reasoning() {
+        let mut message = crate::native::model::types::Message::assistant_text("");
+        message.reasoning_content =
+            "{\"markdown\":\"# 计划\",\"steps\":[{\"title\":\"a\"}]}".to_string();
+        assert!(super::native_one_shot_text(&message)
+            .expect("usable reasoning")
+            .contains("计划"));
+    }
+
+    #[test]
+    fn native_one_shot_text_rejects_plain_reasoning() {
+        let mut message = crate::native::model::types::Message::assistant_text("");
+        message.reasoning_content = "先分析任务边界再给出步骤".to_string();
+        let error = super::native_one_shot_text(&message).unwrap_err();
+        assert!(error.contains("思考内容"));
+        assert!(error.contains("没有正文"));
     }
 
     #[test]

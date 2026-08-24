@@ -129,6 +129,8 @@ Frontend wrappers: `send*` / `finish*` in `src/lib/{codex,claude,opencode,grok,n
 - `resolve_await_session_followups` (task-linked → false; no task → true)
 - `is_orchestration_awaiting_session_exit` phase table (pipeline + review-fix + interactive)
 - Native `parse_max_output_token_limit` + `chat()` one-shot retry when gateway rejects oversized `max_tokens`
+- Native HTTP 200 JSON completion / wrapped `data.choices` / 200 `error.message` / Responses `response.completed` without deltas; packed SSE `data:` lines without blank separators
+- DeepSeek V4 `thinking.type` enabled/disabled in OpenAI body; one-shot uses plan-shaped `reasoning_content` or retries with thinking off; empty content error mentions 思考内容 not timeout
 - Native execution Git snapshot: capture only for `session_kind=execution`; review does not; persist uses Cli/`git_fallback` like Grok
 - `normalize_one_shot_provider_for_target("native")` stays `"native"`; native one-shot without `employee_id` errors in Chinese (no Codex fallback)
 - Native session startup banner includes channel/protocol/model/effort; coordinator plan runtime label uses `内置 Agent` not `native`
@@ -167,6 +169,8 @@ During run:
 - When a usage event is parsed, runtime (not `stream.rs`) calls `apply_codex_session_usage` — stream parsers stay pure.
 - Native: `client.chat()` already returns `Usage` (including `cached_tokens` from `native/model/usage.rs`). `AgentRunner` converts it with `usage_to_delta` after each turn, emits `[用量]`, and persists via `on_usage` → `apply_codex_session_usage`. Do not invent a native-only usage table. `chat_stream` is a replay helper and is **not** the persist path.
 - Native HTTP 400 `max_tokens is too large` / `supports at most N`: `chat()` retries **once** with `max_output_tokens = N`. Catalog max is capacity, not a gateway guarantee (e.g. DeepSeek V4 catalog 384000 vs Console Go 131072). Do not treat the first 400 as a terminal Auto QC failure if the limit can be parsed.
+- Native HTTP **200** body parsing (`ModelClient::parse_success_body`): try protocol SSE, then a complete JSON object (optional one-layer `data`/`result` wrapper). A JSON `error` object on 200 is a gateway error (`模型返回错误：…`), **not** `模型返回空响应`. Responses must also read `response.output_text.done` and `response.completed.output` when deltas are missing. Empty is last-resort and should include a redacted body snippet. Do not treat “gateway returned JSON instead of SSE” as an empty model. Coordinator/tester one-shots share this client — a stub JSON fallback will fail plan generation with `内置 Agent 一次性调用失败：模型返回空响应`.
+- DeepSeek V4 (`deepseek-v4-pro` / `deepseek-v4-flash`) **defaults thinking ON**. OpenAI-compat body must send `thinking: {type: enabled|disabled}`; omitting it leaves thinking on. `reasoning_effort` is low/high/max (not `none`). One-shot `未返回可用内容` after a successful parse means empty `content` (often reasoning-only at `max`), **not** HTTP timeout (`模型请求失败`). One-shot: prefer `content`; if empty, use reasoning when it looks like JSON/Markdown; else retry once with thinking disabled. Thinking sessions/one-shots use a 300s HTTP timeout; non-thinking stays 120s.
 - Auto QC execution `status != exited || exit_code != 0` still hands off to manual, but **must keep** `last_verdict_json` so a later restart can still run the fix round.
 
 On exit:

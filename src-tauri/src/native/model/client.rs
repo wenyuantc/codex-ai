@@ -9,10 +9,13 @@ use crate::native::protocol::{
     PROTOCOL_ANTHROPIC, PROTOCOL_CODEX, PROTOCOL_OPENAI,
 };
 
-use super::anthropic::{build_anthropic_body, parse_anthropic_sse};
-use super::openai::{build_openai_body, parse_max_output_token_limit, parse_openai_sse};
-use super::responses::{build_responses_body, parse_responses_sse};
-use super::retry::{format_http_error, is_retryable_status, RetryConfig};
+use super::anthropic::{build_anthropic_body, parse_anthropic_json, parse_anthropic_sse};
+use super::openai::{
+    build_openai_body, parse_max_output_token_limit, parse_openai_json, parse_openai_sse,
+};
+use super::responses::{build_responses_body, parse_responses_json, parse_responses_sse};
+use super::retry::{format_http_error, is_retryable_status, redact_secrets, RetryConfig};
+use super::sse::parse_sse;
 use super::types::{Message, StreamEvent, ToolSpec, Usage};
 
 #[derive(Debug, Clone)]
@@ -199,9 +202,7 @@ impl ModelClient {
         for attempt in 0..attempts {
             match self.post_raw(url, body).await {
                 Ok((status, text)) if (200..300).contains(&status) => {
-                    return self
-                        .parse_sse(&text)
-                        .or_else(|_| self.parse_json_fallback(&text));
+                    return self.parse_success_body(&text);
                 }
                 Ok((status, text)) => {
                     last_error = format_http_error(status, url, &text);
@@ -271,13 +272,124 @@ impl ModelClient {
         Ok((status, text))
     }
 
-    fn parse_json_fallback(&self, text: &str) -> Result<(Message, Usage), String> {
-        let trimmed = text.trim_start();
-        if trimmed.starts_with("data:") || trimmed.starts_with("event:") {
-            return self.parse_sse(text);
+    fn parse_success_body(&self, text: &str) -> Result<(Message, Usage), String> {
+        let trimmed = text.trim_start_matches('\u{feff}').trim();
+        if trimmed.is_empty() {
+            return Err("模型返回空响应：正文为空".to_string());
         }
-        Err("模型返回空响应".to_string())
+        if let Some(error) = extract_gateway_error(trimmed) {
+            return Err(format_gateway_error(&error));
+        }
+        if let Ok(parsed) = self.parse_sse(trimmed) {
+            return Ok(parsed);
+        }
+        if let Ok(value) = serde_json::from_str::<Value>(trimmed) {
+            let payload = unwrap_gateway_payload(&value);
+            if let Some(error) = json_error_message(payload) {
+                return Err(format_gateway_error(&error));
+            }
+            if let Ok(parsed) = self.parse_complete_json(payload) {
+                return Ok(parsed);
+            }
+        }
+        Err(empty_response_error(trimmed))
     }
+
+    fn parse_complete_json(&self, value: &Value) -> Result<(Message, Usage), String> {
+        match self.config.protocol.as_str() {
+            PROTOCOL_ANTHROPIC => parse_anthropic_json(value),
+            PROTOCOL_CODEX => parse_responses_json(value),
+            PROTOCOL_OPENAI => parse_openai_json(value),
+            other => Err(format!("不支持的渠道协议: {other}")),
+        }
+    }
+}
+
+fn extract_gateway_error(text: &str) -> Option<String> {
+    if let Ok(value) = serde_json::from_str::<Value>(text) {
+        return json_error_message(&value)
+            .or_else(|| json_error_message(unwrap_gateway_payload(&value)));
+    }
+    for event in parse_sse(text) {
+        let Ok(value) = serde_json::from_str::<Value>(&event.data) else {
+            continue;
+        };
+        if let Some(error) = json_error_message(&value) {
+            return Some(error);
+        }
+    }
+    None
+}
+
+fn json_error_message(value: &Value) -> Option<String> {
+    let error = value.get("error")?;
+    if error.is_null() || error.as_object().is_some_and(serde_json::Map::is_empty) {
+        return None;
+    }
+    if let Some(text) = error.as_str() {
+        let text = text.trim();
+        return if text.is_empty() {
+            None
+        } else {
+            Some(text.to_string())
+        };
+    }
+    if let Some(text) = error
+        .get("message")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|item| !item.is_empty())
+    {
+        return Some(text.to_string());
+    }
+    if let Some(text) = error
+        .get("type")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|item| !item.is_empty())
+    {
+        return Some(text.to_string());
+    }
+    Some("未知错误".to_string())
+}
+
+fn unwrap_gateway_payload(value: &Value) -> &Value {
+    for key in ["data", "result"] {
+        if let Some(inner) = value.get(key) {
+            if inner.get("choices").is_some()
+                || inner.get("content").is_some()
+                || inner.get("output").is_some()
+                || inner.get("error").is_some()
+            {
+                return inner;
+            }
+        }
+    }
+    value
+}
+
+fn format_gateway_error(message: &str) -> String {
+    let snippet = snippet_for_error(message);
+    format!("模型返回错误：{snippet}")
+}
+
+fn empty_response_error(text: &str) -> String {
+    let snippet = snippet_for_error(text);
+    if snippet.is_empty() {
+        "模型返回空响应".to_string()
+    } else {
+        format!("模型返回空响应：{snippet}")
+    }
+}
+
+fn snippet_for_error(text: &str) -> String {
+    redact_secrets(text)
+        .chars()
+        .filter(|ch| *ch != '\n' && *ch != '\r')
+        .take(180)
+        .collect::<String>()
+        .trim()
+        .to_string()
 }
 
 pub fn events_from_message(message: Message, usage: Usage) -> Vec<StreamEvent> {
@@ -327,8 +439,12 @@ mod tests {
     }
 
     fn client(base_url: String) -> ModelClient {
+        client_with_protocol(base_url, PROTOCOL_OPENAI)
+    }
+
+    fn client_with_protocol(base_url: String, protocol: &str) -> ModelClient {
         ModelClient::new(ModelClientConfig {
-            protocol: PROTOCOL_OPENAI.to_string(),
+            protocol: protocol.to_string(),
             base_url,
             api_key: "sk-secret-key".to_string(),
             extra_headers: HashMap::new(),
@@ -416,5 +532,75 @@ mod tests {
             .await
             .expect("chat should retry with gateway limit");
         assert_eq!(message.content, "ok");
+    }
+
+    async fn chat_hi(base: String) -> Result<(Message, Usage), String> {
+        client(base)
+            .chat(ChatRequest {
+                messages: &[Message::user("hi")],
+                tools: &[],
+                model: "gpt-4o",
+                effort: None,
+                max_output_tokens: None,
+                thinking_enabled: false,
+            })
+            .await
+    }
+
+    #[tokio::test]
+    async fn chat_parses_non_stream_json() {
+        let body = r#"{"choices":[{"message":{"role":"assistant","content":"json ok"}}],"usage":{"prompt_tokens":1,"completion_tokens":2}}"#;
+        let (message, usage) = chat_hi(serve_once(200, body).await)
+            .await
+            .expect("json chat");
+        assert_eq!(message.content, "json ok");
+        assert_eq!(usage.prompt_tokens, 1);
+    }
+
+    #[tokio::test]
+    async fn chat_parses_wrapped_gateway_json() {
+        let body = r#"{"data":{"choices":[{"message":{"content":"wrapped"}}]}}"#;
+        let (message, _) = chat_hi(serve_once(200, body).await)
+            .await
+            .expect("wrapped json");
+        assert_eq!(message.content, "wrapped");
+    }
+
+    #[tokio::test]
+    async fn chat_surfaces_json_error_on_http_200() {
+        let body = r#"{"error":{"message":"insufficient quota for sk-secret-key"}}"#;
+        let error = chat_hi(serve_once(200, body).await)
+            .await
+            .expect_err("json error should fail");
+        assert!(error.contains("模型返回错误"));
+        assert!(error.contains("insufficient quota"));
+        assert!(!error.contains("空响应"));
+        assert!(!error.contains("sk-secret-key"));
+    }
+
+    #[tokio::test]
+    async fn chat_empty_body_includes_empty_hint() {
+        let error = chat_hi(serve_once(200, "").await)
+            .await
+            .expect_err("empty body");
+        assert!(error.contains("模型返回空响应"));
+        assert!(error.contains("正文为空"));
+    }
+
+    #[tokio::test]
+    async fn chat_parses_responses_completed_json() {
+        let body = r#"{"output":[{"type":"message","content":[{"type":"output_text","text":"done plan"}]}],"usage":{"input_tokens":2,"output_tokens":1}}"#;
+        let (message, _) = client_with_protocol(serve_once(200, body).await, PROTOCOL_CODEX)
+            .chat(ChatRequest {
+                messages: &[Message::user("hi")],
+                tools: &[],
+                model: "gpt-5.4",
+                effort: None,
+                max_output_tokens: None,
+                thinking_enabled: false,
+            })
+            .await
+            .expect("responses json");
+        assert_eq!(message.content, "done plan");
     }
 }

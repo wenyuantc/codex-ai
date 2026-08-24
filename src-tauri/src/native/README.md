@@ -62,7 +62,7 @@ src-tauri/src/native/
 - `start_native_session`：启动会话。先经 `crate::run_queue` 做任务级门控（并发任务排队/插槽），再调用 `start_native_with_manager`。
 - `start_native_with_manager`：核心启动流程 —— 校验同员工/同任务会话不重复 → 解析执行上下文（`engine::context::resolve_session_execution_context`，本地或 SSH）→ 校验工作目录 → 加载员工配置并组装 `ModelClient`（`load_native_client`）→ 插入 `codex_sessions` 记录 → 采集执行文件变更基线（`capture_native_execution_change_baseline`，本地/SSH 均支持）→ spawn `run_native_loop` → 注册到 manager → 发 `native-session` 事件、写活动日志。
 - `run_native_loop`：会话主循环 —— 组装系统提示词（`prompt::compose_system`，含 Git 上下文、AGENTS.md、员工设定）、创建 `AgentRunner`、起两个转发任务（事件行 → `native-stdout`/session 事件表；用量 → `apply_codex_session_usage`）、循环处理首条提示词与 `followup_rx` 后续输入；结束时落库会话状态、持久化文件变更历史、发 `native-exit`、清理 manager、触发任务自动化（`handle_session_exit_blocking`）与 run_queue 排空。
-- `run_native_one_shot`：员工级一次性调用（协调器计划、测试验收等场景）。仅一次 HTTP 请求，无工具循环、无文件变更采集，可带图片附件。
+- `run_native_one_shot`：员工级一次性调用（协调器计划、测试验收等场景）。仅 HTTP，无工具循环。思考模型若只回 `reasoning_content`、正文为空，则在思考内容像 JSON/Markdown 计划时采用，否则关思考再打一次。DeepSeek V4 必须显式 `thinking.type=disabled` 才能关掉默认思考。
 - `stop_native_session` / `stop_native` / `finish_native_input`：停止单个会话、按员工停止全部、结束当前输入轮。
 - `restart_native_session` / `resume_native_session`：停止后重新启动 / 以 `resume_session_id` 续接会话记录。
 - `send_native_input`：向运行中的会话发送后续输入（`NativeFollowup::Input`）。
@@ -121,18 +121,18 @@ src-tauri/src/native/
 
 #### `model/client.rs` — `ModelClient`
 统一的 HTTP 模型客户端：
-- `chat`：按协议构造请求体 → `post_stream` 流式拉取 → `parse_sse` 解析为统一 `Message` + `Usage`；若网关报「max_tokens 超限」，自动从错误信息解析上限并降级重试一次（`parse_max_output_token_limit`）。
+- `chat`：按协议构造请求体 → `post_stream` 流式拉取 → `parse_success_body`（SSE，失败再解析完整 JSON）解析为统一 `Message` + `Usage`；若网关报「max_tokens 超限」，自动从错误信息解析上限并降级重试一次（`parse_max_output_token_limit`）。HTTP 200 的 `error` 对象要报「模型返回错误」，不得叫空响应。
 - `chat_stream`：把一次 chat 结果拆成 `StreamEvent` 序列（文本/思考/工具调用/用量/Done），供流式消费。
 - `list_models`：`/v1/models` 分页拉取（最多 500，去重、排序）。
 - `probe`：发送最小请求测通渠道。
 - `post_raw` / `get_raw` / `apply_auth`：鉴权（Anthropic 用 `x-api-key` + `anthropic-version`，其他用 `Authorization: Bearer`），支持额外请求头（禁止覆盖 authorization/x-api-key），重试由 `RetryConfig` 驱动（指数退避 + 抖动）。
-- `parse_json_fallback`：SSE 解析失败时尝试 JSON 兜底。
+- `parse_success_body`：SSE（含缺空行的完整 JSON `data:` 行）失败时解析非流式 JSON（可剥一层 `data`/`result`）；仍空则错误带脱敏正文摘要。
 
 #### `model/types.rs`
 统一的内部消息模型：`Role`（system/user/assistant/tool）、`Message`（content、tool_calls、tool_call_id、name、reasoning_content、images）、`ToolCall`、`NativeImage`（data_url 生成）、`Usage`（prompt/completion/cached tokens）、`StreamEvent`、`ToolSpec`，及常用构造器（`Message::system/user/user_with_images/assistant_text/tool_result`）。
 
 #### `model/sse.rs`
-SSE 文本解析：把 `event:` / `data:` 块解析为 `SseEvent` 列表，`[DONE]` 归一为 `done` 事件，忽略注释行。
+SSE 文本解析：把 `event:` / `data:` 块解析为 `SseEvent` 列表，`[DONE]` 归一为 `done` 事件，忽略注释行；完整 JSON / `[DONE]` 的 `data:` 行即使中间没有空行也单独成事件（兼容不按 spec 分帧的中转）。
 
 #### `model/retry.rs`
 重试配置 `RetryConfig`（默认最多 5 次、2s 起步、60s 上限、抖动；`none` 用于探测请求）、指数退避延迟计算（`delay_for_attempt`）、可重试状态码判定（408/409/429/5xx）、错误信息脱敏（`redact_secrets` 抹掉 `Bearer` 与 `sk-` 令牌）与 `format_http_error` 友好错误文案。
@@ -141,13 +141,13 @@ SSE 文本解析：把 `event:` / `data:` 块解析为 `SseEvent` 列表，`[DON
 `parse_usage`：兼容 OpenAI（prompt_tokens/completion_tokens/prompt_tokens_details.cached_tokens）、Anthropic（input_tokens/output_tokens/cache_read_input_tokens）与 Responses 的用量字段；`usage_to_delta` 转换为引擎通用的 `engine::UsageDelta`。
 
 #### `model/openai.rs`
-OpenAI chat/completions 协议：`build_openai_body`（stream + stream_options.include_usage、tools/tool_choice=auto、reasoning_effort、max_tokens 与 thinking 时的 max_completion_tokens、多模态 image_url 内容）、`openai_messages` / `openai_tools`、`parse_openai_sse`（增量 content/reasoning_content/tool_calls 聚合、usage 提取）、`parse_max_output_token_limit`（从网关错误正文解析支持的最大输出 token）、`normalize_effort`（minimal/low/medium/high/xhigh/max）。
+OpenAI chat/completions 协议：`build_openai_body`（stream + stream_options.include_usage、tools/tool_choice=auto、reasoning_effort、max_tokens 与 thinking 时的 max_completion_tokens、多模态 image_url 内容）、`openai_messages` / `openai_tools`、`parse_openai_sse` / `parse_openai_json`（增量或完整 `choices[].message`，含 reasoning 对象与 content 数组）、`parse_max_output_token_limit`（从网关错误正文解析支持的最大输出 token）、`normalize_effort`（minimal/low/medium/high/xhigh/max）。
 
 #### `model/anthropic.rs`
-Anthropic messages 协议：`build_anthropic_body`（system 提取、thinking 开启时按 effort 计算 budget 并抬高 max_tokens、tools 用 input_schema、图片用 base64 source）、`anthropic_messages` / `anthropic_tools`、`parse_anthropic_sse`（content_block_start/delta、message_start/message_delta 用量）、`thinking_budget_tokens`（effort → token 预算）。
+Anthropic messages 协议：`build_anthropic_body`（system 提取、thinking 开启时按 effort 计算 budget 并抬高 max_tokens、tools 用 input_schema、图片用 base64 source）、`anthropic_messages` / `anthropic_tools`、`parse_anthropic_sse` / `parse_anthropic_json`（content_block_start/delta、非流式 content[]，含 thinking）、`thinking_budget_tokens`（effort → token 预算）。
 
 #### `model/responses.rs`
-OpenAI Responses（codex）协议：`build_responses_body`（instructions/input、function 工具、reasoning.effort、max_output_tokens、input_image 内容）、`responses_input` / `responses_tools`、`parse_responses_sse`（output_text.delta、function_call 输出项、arguments.delta、completed 用量）。
+OpenAI Responses（codex）协议：`build_responses_body`（instructions/input、function 工具、reasoning.effort、max_output_tokens、input_image 内容）、`responses_input` / `responses_tools`、`parse_responses_sse` / `parse_responses_json`（output_text.delta/done、function_call、completed.output 正文）。
 
 ### `tools/` — 工具运行时
 

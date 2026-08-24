@@ -31,12 +31,24 @@ pub fn build_openai_body(
             body["max_completion_tokens"] = json!(max_tokens);
         }
     }
+    // DeepSeek V4 defaults thinking ON. OpenAI-format toggle is `thinking.type`;
+    // omitting it keeps thinking enabled even when our catalog says off.
+    if model_uses_thinking_toggle(model) {
+        body["thinking"] = json!({
+            "type": if thinking_enabled { "enabled" } else { "disabled" }
+        });
+    }
     if thinking_enabled {
         if let Some(level) = normalize_effort(effort) {
             body["reasoning_effort"] = json!(level);
         }
     }
     body
+}
+
+pub fn model_uses_thinking_toggle(model: &str) -> bool {
+    let id = model.to_ascii_lowercase();
+    id.contains("deepseek")
 }
 
 pub fn openai_messages(messages: &[Message]) -> Vec<Value> {
@@ -141,38 +153,65 @@ pub fn parse_openai_sse(text: &str) -> Result<(Message, Usage), String> {
         else {
             continue;
         };
-        let delta = choice
-            .get("delta")
-            .unwrap_or(choice.get("message").unwrap_or(&Value::Null));
-        append_openai_delta(&mut message, &mut tools, delta);
+        apply_openai_choice(&mut message, &mut tools, choice);
     }
     tools.sort_by_key(|(index, _)| *index);
     message.tool_calls = tools.into_iter().map(|(_, call)| call).collect();
-    if message.content.is_empty()
-        && message.reasoning_content.is_empty()
-        && message.tool_calls.is_empty()
-    {
+    if message_is_empty(&message) {
         return Err("模型返回空响应".to_string());
     }
     Ok((message, usage))
+}
+
+pub fn parse_openai_json(value: &Value) -> Result<(Message, Usage), String> {
+    let mut message = Message::assistant_text("");
+    let usage = value.get("usage").map(parse_usage).unwrap_or_default();
+    let mut tools: Vec<(i64, ToolCall)> = Vec::new();
+    let Some(choice) = value
+        .get("choices")
+        .and_then(Value::as_array)
+        .and_then(|items| items.first())
+    else {
+        return Err("模型返回空响应".to_string());
+    };
+    apply_openai_choice(&mut message, &mut tools, choice);
+    tools.sort_by_key(|(index, _)| *index);
+    message.tool_calls = tools.into_iter().map(|(_, call)| call).collect();
+    if message_is_empty(&message) {
+        return Err("模型返回空响应".to_string());
+    }
+    Ok((message, usage))
+}
+
+fn message_is_empty(message: &Message) -> bool {
+    message.content.is_empty()
+        && message.reasoning_content.is_empty()
+        && message.tool_calls.is_empty()
+}
+
+fn apply_openai_choice(message: &mut Message, tools: &mut Vec<(i64, ToolCall)>, choice: &Value) {
+    if let Some(delta) = choice.get("delta") {
+        append_openai_delta(message, tools, delta);
+        if message.content.is_empty() {
+            if let Some(complete) = choice.get("message") {
+                if let Some(text) = delta_text(complete.get("content")) {
+                    message.content.push_str(&text);
+                }
+            }
+        }
+        return;
+    }
+    if let Some(complete) = choice.get("message") {
+        append_openai_delta(message, tools, complete);
+    }
 }
 
 fn append_openai_delta(message: &mut Message, tools: &mut Vec<(i64, ToolCall)>, delta: &Value) {
     if let Some(text) = delta_text(delta.get("content")) {
         message.content.push_str(&text);
     }
-    if let Some(text) = delta
-        .get("reasoning_content")
-        .and_then(Value::as_str)
-        .filter(|item| !item.is_empty())
-        .map(ToOwned::to_owned)
-        .or_else(|| {
-            delta
-                .get("reasoning")
-                .and_then(Value::as_str)
-                .filter(|item| !item.is_empty())
-                .map(ToOwned::to_owned)
-        })
+    if let Some(text) = reasoning_text(delta.get("reasoning_content"))
+        .or_else(|| reasoning_text(delta.get("reasoning")))
     {
         message.reasoning_content.push_str(&text);
     }
@@ -220,7 +259,15 @@ fn delta_text(value: Option<&Value>) -> Option<String> {
         Value::Array(parts) => {
             let mut out = String::new();
             for part in parts {
+                if let Some(text) = part.as_str() {
+                    out.push_str(text);
+                    continue;
+                }
                 if let Some(text) = part.get("text").and_then(Value::as_str) {
+                    out.push_str(text);
+                    continue;
+                }
+                if let Some(text) = part.get("output_text").and_then(Value::as_str) {
                     out.push_str(text);
                 }
             }
@@ -232,6 +279,53 @@ fn delta_text(value: Option<&Value>) -> Option<String> {
         }
         _ => None,
     }
+}
+
+fn reasoning_text(value: Option<&Value>) -> Option<String> {
+    let value = value?;
+    match value {
+        Value::String(text) if !text.is_empty() => Some(text.clone()),
+        Value::Object(_) => object_text(value),
+        Value::Array(parts) => {
+            let mut out = String::new();
+            for part in parts {
+                if let Some(text) = part.as_str().filter(|item| !item.is_empty()) {
+                    out.push_str(text);
+                } else if let Some(text) = object_text(part) {
+                    out.push_str(&text);
+                }
+            }
+            if out.is_empty() {
+                None
+            } else {
+                Some(out)
+            }
+        }
+        _ => None,
+    }
+}
+
+fn object_text(value: &Value) -> Option<String> {
+    for key in ["content", "text", "summary"] {
+        match value.get(key) {
+            Some(Value::String(text)) if !text.is_empty() => return Some(text.clone()),
+            Some(Value::Array(parts)) => {
+                let mut out = String::new();
+                for part in parts {
+                    if let Some(text) = part.as_str() {
+                        out.push_str(text);
+                    } else if let Some(text) = part.get("text").and_then(Value::as_str) {
+                        out.push_str(text);
+                    }
+                }
+                if !out.is_empty() {
+                    return Some(out);
+                }
+            }
+            _ => {}
+        }
+    }
+    None
 }
 
 fn take_u32_after(haystack: &str, needle: &str) -> Option<u32> {
@@ -359,6 +453,31 @@ mod tests {
     }
 
     #[test]
+    fn deepseek_thinking_toggle_is_explicit() {
+        let on = build_openai_body(&[], &[], "deepseek-v4-pro", Some("max"), Some(8192), true, true);
+        assert_eq!(on["thinking"]["type"], "enabled");
+        assert_eq!(on["reasoning_effort"], "max");
+
+        let off = build_openai_body(&[], &[], "deepseek-v4-pro", None, Some(8192), false, false);
+        assert_eq!(off["thinking"]["type"], "disabled");
+        assert!(off.get("reasoning_effort").is_none());
+
+        let gpt = build_openai_body(&[], &[], "gpt-4o", None, None, false, false);
+        assert!(gpt.get("thinking").is_none());
+    }
+
+    #[test]
+    fn prefers_message_content_when_delta_is_empty() {
+        let sse = concat!(
+            "data: {\"choices\":[{\"delta\":{\"reasoning_content\":\"think\"},\"message\":{\"content\":\"plan json\"}}]}\n\n",
+            "data: [DONE]\n\n",
+        );
+        let (message, _) = parse_openai_sse(sse).expect("parse message fallback");
+        assert_eq!(message.reasoning_content, "think");
+        assert_eq!(message.content, "plan json");
+    }
+
+    #[test]
     fn normalize_effort_keeps_xhigh_and_max() {
         assert_eq!(normalize_effort(Some("xhigh")), Some("xhigh"));
         assert_eq!(normalize_effort(Some("max")), Some("max"));
@@ -393,5 +512,45 @@ mod tests {
             None
         );
         assert_eq!(parse_max_output_token_limit("unauthorized"), None);
+    }
+
+    #[test]
+    fn parses_reasoning_only_json_is_not_empty() {
+        let value = json!({
+            "choices": [{"message": {"reasoning": {"content": "think"}}}]
+        });
+        let (message, _) = parse_openai_json(&value).expect("reasoning only");
+        assert_eq!(message.reasoning_content, "think");
+        assert!(message.content.is_empty());
+    }
+
+    #[test]
+    fn parses_complete_json_message() {
+        let value = json!({
+            "choices": [{"message": {"role": "assistant", "content": "hello plan"}}],
+            "usage": {"prompt_tokens": 8, "completion_tokens": 2}
+        });
+        let (message, usage) = parse_openai_json(&value).expect("parse json");
+        assert_eq!(message.content, "hello plan");
+        assert_eq!(usage.prompt_tokens, 8);
+        assert_eq!(usage.completion_tokens, 2);
+    }
+
+    #[test]
+    fn parses_reasoning_object_and_content_parts() {
+        let sse = concat!(
+            "data: {\"choices\":[{\"delta\":{\"reasoning\":{\"content\":\"think\"},\"content\":[{\"type\":\"output_text\",\"text\":\"hi\"}]}}]}\n\n",
+            "data: [DONE]\n\n",
+        );
+        let (message, _) = parse_openai_sse(sse).expect("parse reasoning object");
+        assert_eq!(message.reasoning_content, "think");
+        assert_eq!(message.content, "hi");
+    }
+
+    #[test]
+    fn parses_sse_without_blank_line_separators() {
+        let sse = "data: {\"choices\":[{\"delta\":{\"content\":\"hello\"}}]}\ndata: {\"choices\":[{\"delta\":{\"content\":\" world\"}}]}\ndata: [DONE]\n";
+        let (message, _) = parse_openai_sse(sse).expect("parse packed sse");
+        assert_eq!(message.content, "hello world");
     }
 }
