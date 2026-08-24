@@ -70,6 +70,8 @@ interface RuntimeSettingsTabProps {
   nativeMaxTurns: number;
   onNativeMaxTurnsChange: (value: number) => void;
   onNativeMaxTurnsCommit: (value: number) => void;
+  nativeConfirmHighRisk: boolean;
+  onNativeConfirmHighRiskChange: (value: boolean) => void;
   onTaskSdkEnabledChange: (value: boolean) => void;
   onOneShotSdkEnabledChange: (value: boolean) => void;
   onOneShotPreferredProviderChange: (value: AiProvider) => void;
@@ -202,6 +204,8 @@ export function RuntimeSettingsTab({
   nativeMaxTurns,
   onNativeMaxTurnsChange,
   onNativeMaxTurnsCommit,
+  nativeConfirmHighRisk,
+  onNativeConfirmHighRiskChange,
   onTaskSdkEnabledChange,
   onOneShotSdkEnabledChange,
   onOneShotPreferredProviderChange,
@@ -521,6 +525,22 @@ export function RuntimeSettingsTab({
             />
             <p className="text-xs text-muted-foreground">{t("settings:nativeAgent.hint")}</p>
           </div>
+          <label className="mt-4 flex items-start gap-3 rounded-md border border-border px-3 py-2">
+            <input
+              type="checkbox"
+              className="mt-0.5 h-4 w-4 rounded border-input"
+              checked={nativeConfirmHighRisk}
+              onChange={(event) => onNativeConfirmHighRiskChange(event.target.checked)}
+            />
+            <div className="space-y-1">
+              <p className="text-sm font-medium">
+                {t("settings:nativeAgent.confirmHighRiskLabel")}
+              </p>
+              <p className="text-xs text-muted-foreground">
+                {t("settings:nativeAgent.confirmHighRiskHint")}
+              </p>
+            </div>
+          </label>
         </div>
       </div>
 

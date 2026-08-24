@@ -27,6 +27,22 @@
     "continue": "仍要运行",
     "cancel": "取消"
   },
+  "nativePermission": {
+    "title": "确认高风险操作",
+    "summary": "{{location}} · {{kind}} · {{tool}}：{{summary}}",
+    "local": "本地工作区",
+    "remote": "远程工作区",
+    "allowSession": "本会话全部允许",
+    "allowOnce": "仅允许一次",
+    "deny": "不允许",
+    "kind": {
+      "overwrite": "覆盖文件",
+      "delete": "删除",
+      "push": "推送",
+      "force_git": "强制 Git",
+      "mcp": "MCP 工具"
+    }
+  },
   "createDialog": {
     "title": "新建任务",
     "fields": {
@@ -279,13 +295,16 @@
     "mcp": {
       "loading": "加载任务 MCP 绑定…",
       "title": "MCP 工具绑定",
-      "description": "控制本任务会话启用的 MCP 服务器。默认继承设置页中全局已启用的服务器；关闭继承后可多选或全不选（显式空集）。",
+      "description": "控制本任务在 Codex / 内置 Agent 会话中启用的 MCP 服务器。默认继承设置页中全局已启用的服务器；关闭继承后可多选或全不选（显式空集）。Claude / Grok / OpenCode 不会执行这些服务器。",
       "save": "保存绑定",
       "useGlobalDefault": "使用全局默认（设置页中 enabled 的服务器）",
       "emptyCatalog": "尚未配置 MCP 服务器，请先到「设置 → MCP 管理」添加。",
       "globalNotEnabled": "（全局未默认启用）",
       "overrideHint": "全不选表示本任务显式禁用全部 MCP（与「继承全局」不同）。",
       "effectivePrefix": "当前将生效：",
+      "savedOnlyPrefix": "已保存（当前员工引擎不会执行）：",
+      "engineUnsupported": "当前指派员工使用 {{engine}}，不会执行应用内 MCP。绑定仍可保存，供 Codex 或内置 Agent 员工接手后使用。",
+      "noAssignee": "尚未指派员工。绑定会保存，但要等 Codex 或内置 Agent 员工运行才生效。",
       "noMcp": "（无 MCP）",
       "savedInherit": "已保存：继承全局默认 MCP",
       "savedDisabledAll": "已保存：本任务显式禁用全部 MCP",

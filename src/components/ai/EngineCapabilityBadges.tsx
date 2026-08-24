@@ -150,6 +150,16 @@ export function EngineCapabilityBadges({
                 unsupportedSuffix={unsupportedSuffix}
                 title={notesTitle}
               />
+              <CapBadge
+                supported={item.mcp}
+                label={t("capability.mcp")}
+                unsupportedSuffix={unsupportedSuffix}
+                title={
+                  item.mcp
+                    ? notesTitle
+                    : notesTitle || t("capabilityUnsupported", { label: t("capability.mcp") })
+                }
+              />
             </div>
           </div>
         );

@@ -10,13 +10,18 @@ import {
   type McpServerConfig,
   type TaskMcpBindingMode,
 } from "@/lib/backend";
+import { useAiProviderCapabilities } from "@/hooks/useAiProviderCapabilities";
+import { formatEmployeeAiProviderLabel, type Employee } from "@/lib/types";
 
 interface TaskMcpBindingSectionProps {
   taskId: string;
+  assignee?: Pick<Employee, "ai_provider" | "name"> | null;
 }
 
-export function TaskMcpBindingSection({ taskId }: TaskMcpBindingSectionProps) {
+export function TaskMcpBindingSection({ taskId, assignee = null }: TaskMcpBindingSectionProps) {
   const { t } = useTranslation("tasks");
+  const { can: engineCan } = useAiProviderCapabilities();
+  const mcpSupported = Boolean(assignee && engineCan(assignee.ai_provider, "mcp"));
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -110,6 +115,17 @@ export function TaskMcpBindingSection({ taskId }: TaskMcpBindingSectionProps) {
             {t("detail.mcp.title")}
           </div>
           <p className="text-[11px] text-muted-foreground">{t("detail.mcp.description")}</p>
+          {!assignee ? (
+            <p className="text-[11px] text-amber-700 dark:text-amber-300">
+              {t("detail.mcp.noAssignee")}
+            </p>
+          ) : !mcpSupported ? (
+            <p className="text-[11px] text-amber-700 dark:text-amber-300">
+              {t("detail.mcp.engineUnsupported", {
+                engine: formatEmployeeAiProviderLabel(assignee.ai_provider),
+              })}
+            </p>
+          ) : null}
         </div>
         <Button size="sm" variant="outline" onClick={() => void handleSave()} disabled={saving}>
           {saving ? (
@@ -170,7 +186,9 @@ export function TaskMcpBindingSection({ taskId }: TaskMcpBindingSectionProps) {
       )}
 
       <div className="rounded-md border border-border bg-background/50 px-2 py-1.5 text-[11px] text-muted-foreground">
-        <span>{t("detail.mcp.effectivePrefix")}</span>
+        <span>
+          {mcpSupported ? t("detail.mcp.effectivePrefix") : t("detail.mcp.savedOnlyPrefix")}
+        </span>
         {effectiveNames.length === 0 ? (
           <span className="ml-1">{t("detail.mcp.noMcp")}</span>
         ) : (

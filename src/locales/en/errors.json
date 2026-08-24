@@ -11,7 +11,8 @@
     "stop": "stop",
     "restart": "restart",
     "send_input": "mid-session input",
-    "resume": "resume"
+    "resume": "resume",
+    "mcp": "MCP"
   },
   "generic": "Something went wrong. Please try again.",
   "rustUnmappedNote": "These backend errors are shown as-is until a stable frontend mapping exists"

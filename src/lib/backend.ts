@@ -455,6 +455,7 @@ export interface AiProviderCapabilities {
   restart: boolean;
   send_input: boolean;
   resume: boolean;
+  mcp: boolean;
   notes: string;
 }
 

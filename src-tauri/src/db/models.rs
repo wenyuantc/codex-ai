@@ -928,11 +928,13 @@ pub struct ListAiChannelModelsResult {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NativeSettings {
     pub max_turns: i32,
+    pub confirm_high_risk: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UpdateNativeSettings {
     pub max_turns: Option<i32>,
+    pub confirm_high_risk: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1198,6 +1200,7 @@ pub struct AiProviderCapabilities {
     pub restart: bool,
     pub send_input: bool,
     pub resume: bool,
+    pub mcp: bool,
     pub notes: String,
 }
 

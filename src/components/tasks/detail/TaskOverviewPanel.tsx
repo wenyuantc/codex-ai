@@ -440,7 +440,10 @@ export function TaskOverviewPanel({
         )}
       </DetailSection>
 
-      <TaskMcpBindingSection taskId={task.id} />
+      <TaskMcpBindingSection
+        taskId={task.id}
+        assignee={employees.find((item) => item.id === task.assignee_id) ?? null}
+      />
     </div>
   );
 }

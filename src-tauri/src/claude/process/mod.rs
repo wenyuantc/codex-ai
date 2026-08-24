@@ -127,11 +127,75 @@ fn normalize_reasoning_effort(effort: Option<&str>) -> &'static str {
     }
 }
 
+fn claude_image_mime_type(path: &Path) -> &'static str {
+    match path
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .map(|ext| ext.to_ascii_lowercase())
+        .as_deref()
+    {
+        Some("jpg") | Some("jpeg") => "image/jpeg",
+        Some("webp") => "image/webp",
+        Some("gif") => "image/gif",
+        _ => "image/png",
+    }
+}
+
+type ClaudeCliImageInput = (Vec<u8>, Vec<String>, Vec<String>);
+
+fn build_claude_cli_stream_json_input(
+    prompt: &str,
+    image_paths: &[String],
+) -> Result<ClaudeCliImageInput, String> {
+    use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
+
+    let mut content = vec![serde_json::json!({
+        "type": "text",
+        "text": prompt,
+    })];
+    let mut attached = Vec::new();
+    let mut failed = Vec::new();
+    for raw in image_paths {
+        let path = Path::new(raw);
+        let name = path
+            .file_name()
+            .map(|value| value.to_string_lossy().into_owned())
+            .unwrap_or_else(|| raw.clone());
+        match fs::read(path) {
+            Ok(bytes) => {
+                content.push(serde_json::json!({
+                    "type": "image",
+                    "source": {
+                        "type": "base64",
+                        "media_type": claude_image_mime_type(path),
+                        "data": BASE64.encode(bytes),
+                    }
+                }));
+                attached.push(name);
+            }
+            Err(error) => failed.push(format!("{name}: {error}")),
+        }
+    }
+    let payload = serde_json::json!({
+        "type": "user",
+        "message": {
+            "role": "user",
+            "content": content,
+        },
+        "parent_tool_use_id": serde_json::Value::Null,
+    });
+    let mut bytes = serde_json::to_vec(&payload)
+        .map_err(|error| format!("序列化 Claude CLI 图片输入失败: {error}"))?;
+    bytes.push(b'\n');
+    Ok((bytes, attached, failed))
+}
+
 fn build_claude_cli_args(
     model: &str,
     effort: &str,
     system_prompt: Option<&str>,
     resume_session_id: Option<&str>,
+    attach_images: bool,
 ) -> Vec<String> {
     let mut args = vec!["-p".to_string(), "--model".to_string(), model.to_string()];
 
@@ -148,6 +212,9 @@ fn build_claude_cli_args(
         "--permission-mode".to_string(),
         "bypassPermissions".to_string(),
     ]);
+    if attach_images {
+        args.extend(["--input-format".to_string(), "stream-json".to_string()]);
+    }
 
     if let Some(sp) = system_prompt.map(str::trim).filter(|s| !s.is_empty()) {
         args.push("--system-prompt".to_string());
@@ -311,7 +378,7 @@ mod tests {
 
     #[test]
     fn claude_cli_args_skip_auto_effort() {
-        let args = build_claude_cli_args("sonnet", "auto", None, None);
+        let args = build_claude_cli_args("sonnet", "auto", None, None, false);
 
         assert!(!args.contains(&"--effort".to_string()));
         assert!(!args.contains(&"auto".to_string()));
@@ -323,7 +390,13 @@ mod tests {
 
     #[test]
     fn claude_cli_args_keep_supported_effort_and_resume() {
-        let args = build_claude_cli_args("sonnet", "high", Some("审查代码"), Some("session-123"));
+        let args = build_claude_cli_args(
+            "sonnet",
+            "high",
+            Some("审查代码"),
+            Some("session-123"),
+            false,
+        );
 
         assert!(args
             .windows(2)
@@ -335,11 +408,39 @@ mod tests {
             .windows(2)
             .any(|pair| pair[0] == "--resume" && pair[1] == "session-123"));
         assert!(args.contains(&"--verbose".to_string()));
+        assert!(!args.contains(&"--input-format".to_string()));
+    }
+
+    #[test]
+    fn claude_cli_args_add_stream_json_input_when_attaching_images() {
+        let args = build_claude_cli_args("sonnet", "high", None, None, true);
+        assert!(args
+            .windows(2)
+            .any(|pair| pair[0] == "--input-format" && pair[1] == "stream-json"));
+    }
+
+    #[test]
+    fn claude_cli_stream_json_input_embeds_base64_image() {
+        let stamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("time")
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!("codex-ai-claude-img-{stamp}.png"));
+        std::fs::write(&path, b"\x89PNG\r\n").expect("write png");
+        let (bytes, attached, failed) =
+            build_claude_cli_stream_json_input("看图", &[path.to_string_lossy().into_owned()])
+                .expect("frame");
+        let text = String::from_utf8(bytes).expect("utf8");
+        assert!(text.contains("\"type\":\"image\"") || text.contains("\"type\": \"image\""));
+        assert!(text.contains("base64"));
+        assert_eq!(attached.len(), 1);
+        assert!(failed.is_empty());
+        let _ = std::fs::remove_file(path);
     }
 
     #[test]
     fn remote_claude_session_command_uses_shell_bootstrap() {
-        let args = build_claude_cli_args("sonnet", "high", None, None);
+        let args = build_claude_cli_args("sonnet", "high", None, None, false);
         let command = build_remote_claude_session_command("~/repo with space", &args);
 
         assert!(command.starts_with("sh -lc "));
@@ -995,11 +1096,14 @@ pub async fn start_claude_with_manager(
 
     let claude_health = inspect_claude_sdk_runtime(&app, &claude_settings).await;
 
+    let attach_cli_images =
+        execution_context.execution_target != EXECUTION_TARGET_SSH && !image_paths.is_empty();
     let cli_args = build_claude_cli_args(
         &model,
         effort,
         system_prompt.as_deref(),
         resume_session_id.as_deref(),
+        attach_cli_images,
     );
 
     let ssh_config_for_artifact_capture =
@@ -1237,26 +1341,66 @@ pub async fn start_claude_with_manager(
         (child, Vec::new(), ClaudeExecutionProvider::Cli)
     };
 
-    if provider == ClaudeExecutionProvider::Cli && !image_paths.is_empty() {
-        emit_session_terminal_line(
-            &app,
-            &pool,
-            &session_record.id,
-            &employee_id,
-            task_id.as_deref(),
-            session_kind,
-            format!(
-                "[WARN] Claude CLI 当前不支持直接附带本地图片，已跳过 {} 张图片附件。",
-                image_paths.len()
-            ),
-        )
-        .await;
-    }
-
+    let mut cli_attached_images: Vec<String> = Vec::new();
     if provider == ClaudeExecutionProvider::Cli {
         match child.stdin.take() {
             Some(mut stdin) => {
-                if let Err(error) = stdin.write_all(prompt.as_bytes()).await {
+                let stdin_bytes = if execution_context.execution_target != EXECUTION_TARGET_SSH
+                    && !image_paths.is_empty()
+                {
+                    match build_claude_cli_stream_json_input(&prompt, &image_paths) {
+                        Ok((bytes, attached, failed)) => {
+                            cli_attached_images = attached;
+                            for reason in failed {
+                                emit_session_terminal_line(
+                                    &app,
+                                    &pool,
+                                    &session_record.id,
+                                    &employee_id,
+                                    task_id.as_deref(),
+                                    session_kind,
+                                    format!("[WARN] Claude CLI 跳过图片附件：{reason}"),
+                                )
+                                .await;
+                            }
+                            if !cli_attached_images.is_empty() {
+                                emit_session_terminal_line(
+                                    &app,
+                                    &pool,
+                                    &session_record.id,
+                                    &employee_id,
+                                    task_id.as_deref(),
+                                    session_kind,
+                                    format!(
+                                        "[Claude] CLI 已附带 {} 张本地图片",
+                                        cli_attached_images.len()
+                                    ),
+                                )
+                                .await;
+                            }
+                            bytes
+                        }
+                        Err(error) => {
+                            let message = format!("构造 Claude CLI 图片输入失败: {error}");
+                            let _ = child.kill().await;
+                            cleanup_process_artifacts(&cleanup_paths);
+                            finalize_claude_launch_failure(
+                                &app,
+                                &pool,
+                                &session_record.id,
+                                task_git_context_id.as_deref(),
+                                git_context_marked_running,
+                                "spawn_failed",
+                                &message,
+                            )
+                            .await;
+                            return Err(message);
+                        }
+                    }
+                } else {
+                    prompt.as_bytes().to_vec()
+                };
+                if let Err(error) = stdin.write_all(&stdin_bytes).await {
                     let message = format!("写入 Claude CLI 提示词失败: {error}");
                     let _ = child.kill().await;
                     cleanup_process_artifacts(&cleanup_paths);
@@ -1437,6 +1581,8 @@ pub async fn start_claude_with_manager(
         &prompt,
         if provider == ClaudeExecutionProvider::Sdk {
             &image_paths
+        } else if !cli_attached_images.is_empty() {
+            &cli_attached_images
         } else {
             &[]
         },

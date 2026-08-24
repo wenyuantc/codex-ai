@@ -1,8 +1,7 @@
 import i18n from "@/lib/i18n";
 import type { AiProvider, ProjectType } from "@/lib/types";
 
-export type ImageSkipReason =
-  "ssh_grok" | "ssh_claude" | "claude_cli" | "ssh_no_task" | "batch_mixed";
+export type ImageSkipReason = "ssh_grok" | "ssh_claude" | "ssh_no_task" | "batch_mixed";
 
 export class ImageSkipCancelledError extends Error {
   constructor() {
@@ -34,9 +33,6 @@ export function resolveImageAttachmentSkip(input: {
   }
   if (provider === "claude" && isSsh) {
     return "ssh_claude";
-  }
-  if (provider === "claude" && input.claudeEffectiveProvider !== "sdk") {
-    return "claude_cli";
   }
   if ((provider === "codex" || provider === "opencode") && isSsh && input.hasTaskId === false) {
     return "ssh_no_task";

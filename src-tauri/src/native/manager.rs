@@ -1,8 +1,11 @@
 use std::collections::HashMap;
+use std::sync::atomic::AtomicBool;
+use std::sync::Arc;
 
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, oneshot};
 use tokio::task::JoinHandle;
 
+use crate::native::tools::permission::NativePermissionDecision;
 use crate::native::tools::CancelFlag;
 
 #[derive(Debug, Clone)]
@@ -23,6 +26,8 @@ pub struct NativeLiveSession {
     pub cancel: CancelFlag,
     pub followup_tx: mpsc::Sender<NativeFollowup>,
     pub join: JoinHandle<()>,
+    pub allow_all_high_risk: Arc<AtomicBool>,
+    pub pending_permission: Option<(String, oneshot::Sender<NativePermissionDecision>)>,
 }
 
 #[derive(Default)]
@@ -46,6 +51,47 @@ impl NativeAgentManager {
 
     pub fn get_session(&self, session_record_id: &str) -> Option<&NativeLiveSession> {
         self.sessions.get(session_record_id)
+    }
+
+    pub fn get_session_mut(&mut self, session_record_id: &str) -> Option<&mut NativeLiveSession> {
+        self.sessions.get_mut(session_record_id)
+    }
+
+    pub fn deny_pending_permission(&mut self, session_record_id: &str) {
+        if let Some(session) = self.sessions.get_mut(session_record_id) {
+            if let Some((_, tx)) = session.pending_permission.take() {
+                let _ = tx.send(NativePermissionDecision::Deny);
+            }
+        }
+    }
+
+    pub fn resolve_permission(
+        &mut self,
+        session_record_id: &str,
+        request_id: &str,
+        decision: NativePermissionDecision,
+    ) -> Result<(), String> {
+        let session = self
+            .sessions
+            .get_mut(session_record_id)
+            .ok_or_else(|| "没有运行中的内置 Agent 会话".to_string())?;
+        let pending = session
+            .pending_permission
+            .take()
+            .ok_or_else(|| "没有待确认的高风险操作".to_string())?;
+        if pending.0 != request_id {
+            session.pending_permission = Some(pending);
+            return Err("权限确认请求已过期".to_string());
+        }
+        if decision == NativePermissionDecision::AllowSession {
+            session
+                .allow_all_high_risk
+                .store(true, std::sync::atomic::Ordering::SeqCst);
+        }
+        pending
+            .1
+            .send(decision)
+            .map_err(|_| "权限确认通道已关闭".to_string())
     }
 
     pub fn len(&self) -> usize {
@@ -99,6 +145,8 @@ mod tests {
             cancel: CancelFlag::new(),
             followup_tx: tx,
             join: tokio::spawn(async {}),
+            allow_all_high_risk: Arc::new(AtomicBool::new(false)),
+            pending_permission: None,
         });
         assert!(manager.has_employee_processes("emp-1"));
         assert!(manager

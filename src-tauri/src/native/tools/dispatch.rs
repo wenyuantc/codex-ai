@@ -5,8 +5,14 @@ use serde_json::Value;
 
 use super::cancel::CancelFlag;
 use super::local::{apply_edit, format_read, LocalWorkspace};
+use super::mcp::McpSession;
 use super::paths::resolve_under_workspace;
+use super::permission::{
+    classify_native_tool_risk, NativePermissionDecision, NativeToolRisk, NativeToolRiskKind,
+};
 use super::ssh::SshToolRuntime;
+use std::sync::Arc;
+use tokio::sync::oneshot;
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct TodoItem {
@@ -18,12 +24,26 @@ pub struct TodoItem {
     pub priority: String,
 }
 
+#[derive(Debug, Clone)]
+pub struct PermissionPrompt {
+    pub tool_name: String,
+    pub kind: NativeToolRiskKind,
+    pub summary: String,
+    pub remote: bool,
+}
+
+pub type PermissionRequester =
+    Arc<dyn Fn(PermissionPrompt, oneshot::Sender<NativePermissionDecision>) + Send + Sync>;
+
 pub struct ToolCtx {
     pub workspace: LocalWorkspace,
     pub ssh: Option<SshToolRuntime>,
     pub cancel: CancelFlag,
     pub read_files: HashSet<String>,
     pub todos: Vec<TodoItem>,
+    pub mcp: McpSession,
+    pub allow_all_high_risk: Arc<std::sync::atomic::AtomicBool>,
+    pub request_permission: Option<PermissionRequester>,
 }
 
 pub async fn execute_tool(
@@ -34,6 +54,7 @@ pub async fn execute_tool(
     if ctx.cancel.is_cancelled() {
         return Err("已取消".to_string());
     }
+    confirm_if_high_risk(ctx, name, arguments).await?;
     match name {
         "Read" => call_read(ctx, arguments).await,
         "Write" => call_write(ctx, arguments).await,
@@ -45,7 +66,97 @@ pub async fn execute_tool(
         "TodoWrite" => call_todo_write(ctx, arguments),
         "WebFetch" => super::web::web_fetch(arguments).await,
         "WebSearch" => super::web::web_search(arguments).await,
+        other if ctx.mcp.has_tool(other) => ctx.mcp.call(other, arguments).await,
         other => Err(format!("unknown tool: {other}")),
+    }
+}
+
+async fn confirm_if_high_risk(
+    ctx: &mut ToolCtx,
+    name: &str,
+    arguments: &str,
+) -> Result<(), String> {
+    let exists = match name {
+        "Write" => write_target_exists(ctx, arguments).await,
+        _ => None,
+    };
+    let is_mcp = ctx.mcp.has_tool(name) || name.starts_with("mcp_");
+    match classify_native_tool_risk(name, arguments, exists, is_mcp) {
+        NativeToolRisk::Low => Ok(()),
+        NativeToolRisk::High { kind, summary } => {
+            request_permission(ctx, name, kind, summary).await
+        }
+    }
+}
+
+async fn write_target_exists(ctx: &ToolCtx, arguments: &str) -> Option<bool> {
+    let path = serde_json::from_str::<Value>(arguments)
+        .ok()
+        .and_then(|value| {
+            value
+                .get("file_path")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|item| !item.is_empty())
+                .map(ToOwned::to_owned)
+        })?;
+    if ctx.ssh.is_some() {
+        return Some(ctx.read_files.contains(&path));
+    }
+    ctx.workspace
+        .resolve(&path)
+        .ok()
+        .map(|resolved| resolved.exists())
+}
+
+async fn request_permission(
+    ctx: &mut ToolCtx,
+    name: &str,
+    kind: NativeToolRiskKind,
+    summary: String,
+) -> Result<(), String> {
+    if ctx
+        .allow_all_high_risk
+        .load(std::sync::atomic::Ordering::SeqCst)
+    {
+        return Ok(());
+    }
+    let Some(requester) = ctx.request_permission.clone() else {
+        // Setting off, or tests that skip the UI channel.
+        return Ok(());
+    };
+    let prompt = PermissionPrompt {
+        tool_name: name.to_string(),
+        kind,
+        summary: if ctx.ssh.is_some() {
+            format!("远程工作区 · {summary}")
+        } else {
+            summary
+        },
+        remote: ctx.ssh.is_some(),
+    };
+    let (tx, rx) = oneshot::channel();
+    requester(prompt, tx);
+    let decision = tokio::select! {
+        biased;
+        _ = async {
+            loop {
+                if ctx.cancel.is_cancelled() {
+                    break;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+            }
+        } => NativePermissionDecision::Deny,
+        result = rx => result.unwrap_or(NativePermissionDecision::Deny),
+    };
+    match decision {
+        NativePermissionDecision::AllowSession => {
+            ctx.allow_all_high_risk
+                .store(true, std::sync::atomic::Ordering::SeqCst);
+            Ok(())
+        }
+        NativePermissionDecision::AllowOnce => Ok(()),
+        NativePermissionDecision::Deny => Err("用户不允许该高风险操作".to_string()),
     }
 }
 
@@ -215,4 +326,49 @@ fn string_arg(args: &Value, key: &str) -> Result<String, String> {
         .filter(|value| !value.is_empty())
         .map(ToOwned::to_owned)
         .ok_or_else(|| format!("{key} 不能为空"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::Arc;
+    use tokio::sync::oneshot;
+
+    #[tokio::test]
+    async fn deny_keeps_existing_file() {
+        let root = std::env::temp_dir().join(format!(
+            "codex-ai-perm-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("time")
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&root).expect("mkdir");
+        let path = root.join("keep.txt");
+        std::fs::write(&path, "original").expect("write");
+        let mut ctx = ToolCtx {
+            workspace: LocalWorkspace::new(root.clone()),
+            ssh: None,
+            cancel: CancelFlag::new(),
+            read_files: HashSet::new(),
+            todos: Vec::new(),
+            mcp: McpSession::empty(),
+            allow_all_high_risk: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            request_permission: Some(Arc::new(
+                |_prompt, tx: oneshot::Sender<NativePermissionDecision>| {
+                    let _ = tx.send(NativePermissionDecision::Deny);
+                },
+            )),
+        };
+        let err = execute_tool(
+            &mut ctx,
+            "Write",
+            r#"{"file_path":"keep.txt","content":"changed"}"#,
+        )
+        .await
+        .expect_err("denied");
+        assert!(err.contains("不允许"));
+        assert_eq!(std::fs::read_to_string(&path).expect("read"), "original");
+        let _ = std::fs::remove_dir_all(root);
+    }
 }

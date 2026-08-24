@@ -13,6 +13,7 @@ use crate::app::{
     sqlite_pool, update_codex_session_record, validate_runtime_working_dir, EXECUTION_TARGET_LOCAL,
     EXECUTION_TARGET_SSH,
 };
+use crate::codex::mcp::{mcp_summary_line, resolve_effective_mcp_for_task};
 use crate::codex::{CodexExecutionProvider, CodexSessionKind, ExecutionChangeBaseline};
 use crate::db::models::ChannelModelConfig;
 use crate::db::models::{CodexExit, CodexOutput, CodexSession, SshConfigRecord};
@@ -25,9 +26,25 @@ use crate::native::manager::{
 use crate::native::model::{ModelClient, ModelClientConfig, RetryConfig};
 use crate::native::model_catalog::{apply_catalog_defaults, fill_from_catalog};
 use crate::native::protocol::record_to_channel;
-use crate::native::tools::{local::LocalWorkspace, ssh::SshToolRuntime};
+use crate::native::tools::permission::{NativePermissionDecision, NativeToolRiskKind};
+use crate::native::tools::{connect_mcp_servers, local::LocalWorkspace, ssh::SshToolRuntime};
+use serde::Serialize;
 
 const ENGINE_LABEL: &str = "内置 Agent";
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct NativePermissionRequestEvent {
+    session_record_id: String,
+    request_id: String,
+    employee_id: String,
+    task_id: Option<String>,
+    session_kind: String,
+    tool_name: String,
+    kind: NativeToolRiskKind,
+    summary: String,
+    remote: bool,
+}
 
 fn session_kind(value: Option<&str>) -> String {
     match value.map(str::trim) {
@@ -561,6 +578,9 @@ pub async fn start_native_with_manager(
 
     let (followup_tx, followup_rx) = mpsc::channel(8);
     let cancel = crate::native::tools::CancelFlag::new();
+    let confirm_high_risk = crate::native::settings::confirm_high_risk_enabled(&app);
+    let allow_all_high_risk =
+        std::sync::Arc::new(std::sync::atomic::AtomicBool::new(!confirm_high_risk));
     let session_record_id = session_record.id.clone();
     let employee_id_spawn = employee_id.clone();
     let task_id_spawn = task_id.clone();
@@ -569,7 +589,10 @@ pub async fn start_native_with_manager(
     let app_spawn = app.clone();
     let await_followups = task_id.is_none();
     let cancel_run = cancel.clone();
+    let allow_all_run = allow_all_high_risk.clone();
+    let (loop_ready_tx, loop_ready_rx) = tokio::sync::oneshot::channel();
     let join = tokio::spawn(async move {
+        let _ = loop_ready_rx.await;
         run_native_loop(
             app_spawn,
             manager_spawn,
@@ -578,6 +601,7 @@ pub async fn start_native_with_manager(
             run_cwd,
             ssh,
             cancel_run,
+            allow_all_run,
             followup_rx,
             session_record_id,
             employee_id_spawn,
@@ -600,7 +624,10 @@ pub async fn start_native_with_manager(
         cancel,
         followup_tx,
         join,
+        allow_all_high_risk,
+        pending_permission: None,
     });
+    let _ = loop_ready_tx.send(());
 
     let _ = app.emit(
         "native-session",
@@ -637,6 +664,7 @@ async fn run_native_loop(
     run_cwd: String,
     ssh: Option<SshToolRuntime>,
     cancel: crate::native::tools::CancelFlag,
+    allow_all_high_risk: Arc<std::sync::atomic::AtomicBool>,
     mut followup_rx: mpsc::Receiver<NativeFollowup>,
     session_record_id: String,
     employee_id: String,
@@ -649,6 +677,84 @@ async fn run_native_loop(
     let mut runner = AgentRunner::new(LocalWorkspace::new(PathBuf::from(&run_cwd)));
     runner.ctx.ssh = ssh;
     runner.ctx.cancel = cancel.clone();
+    runner.ctx.allow_all_high_risk = allow_all_high_risk;
+    let confirm_high_risk = crate::native::settings::confirm_high_risk_enabled(&app);
+    if !confirm_high_risk {
+        emit_native_line(
+            &app,
+            &session_record_id,
+            &employee_id,
+            task_id.as_deref(),
+            &kind,
+            "[PERMISSION] 已在设置中关闭高风险确认，本会话工具将直接执行".to_string(),
+        )
+        .await;
+    }
+    if confirm_high_risk {
+        let app_perm = app.clone();
+        let manager_perm = manager_state.clone();
+        let session_perm = session_record_id.clone();
+        let employee_perm = employee_id.clone();
+        let task_perm = task_id.clone();
+        let kind_perm = kind.clone();
+        runner.ctx.request_permission = Some(std::sync::Arc::new(move |prompt, reply| {
+            let app = app_perm.clone();
+            let manager_state = manager_perm.clone();
+            let session_record_id = session_perm.clone();
+            let employee_id = employee_perm.clone();
+            let task_id = task_perm.clone();
+            let kind = kind_perm.clone();
+            tauri::async_runtime::spawn(async move {
+                let request_id = uuid::Uuid::new_v4().to_string();
+                {
+                    let mut manager = manager_state.lock().await;
+                    if let Some(session) = manager.get_session_mut(&session_record_id) {
+                        if let Some((_, old)) = session.pending_permission.take() {
+                            let _ = old.send(
+                                crate::native::tools::permission::NativePermissionDecision::Deny,
+                            );
+                        }
+                        session.pending_permission = Some((request_id.clone(), reply));
+                    } else {
+                        let _ = reply
+                            .send(crate::native::tools::permission::NativePermissionDecision::Deny);
+                        return;
+                    }
+                }
+                let location = if prompt.remote {
+                    "远程工作区"
+                } else {
+                    "本地工作区"
+                };
+                emit_native_line(
+                    &app,
+                    &session_record_id,
+                    &employee_id,
+                    task_id.as_deref(),
+                    &kind,
+                    format!(
+                        "[PERMISSION] 等待确认高风险操作（{location} / {:?}）：{}",
+                        prompt.kind, prompt.summary
+                    ),
+                )
+                .await;
+                let _ = app.emit(
+                    "native-permission-request",
+                    NativePermissionRequestEvent {
+                        session_record_id: session_record_id.clone(),
+                        request_id,
+                        employee_id,
+                        task_id,
+                        session_kind: kind,
+                        tool_name: prompt.tool_name,
+                        kind: prompt.kind,
+                        summary: prompt.summary,
+                        remote: prompt.remote,
+                    },
+                );
+            });
+        }));
+    }
     runner.max_turns = crate::native::settings::effective_max_turns(&app);
     if let Some(context_tokens) = run.context_tokens {
         runner.context_char_limit = (context_tokens as usize).saturating_mul(3).max(8_000);
@@ -692,6 +798,87 @@ async fn run_native_loop(
         ),
     )
     .await;
+    if let Ok(pool) = sqlite_pool(&app).await {
+        match resolve_effective_mcp_for_task(&app, &pool, task_id.as_deref()).await {
+            Ok(resolved) => {
+                emit_native_line(
+                    &app,
+                    &session_record_id,
+                    &employee_id,
+                    task_id.as_deref(),
+                    &kind,
+                    mcp_summary_line(&resolved),
+                )
+                .await;
+                let ssh_config = runner.ctx.ssh.as_ref().map(|item| item.config.clone());
+                if ssh_config.is_some() {
+                    emit_native_line(
+                        &app,
+                        &session_record_id,
+                        &employee_id,
+                        task_id.as_deref(),
+                        &kind,
+                        "[MCP] SSH 会话将在远端拉起 MCP，失败不回退本机".to_string(),
+                    )
+                    .await;
+                }
+                let connected = connect_mcp_servers(
+                    &app,
+                    &resolved.servers,
+                    ssh_config.as_ref(),
+                    &runner.ctx.cancel,
+                )
+                .await;
+                for warning in connected.warnings {
+                    emit_native_line(
+                        &app,
+                        &session_record_id,
+                        &employee_id,
+                        task_id.as_deref(),
+                        &kind,
+                        warning,
+                    )
+                    .await;
+                }
+                if connected.connected.is_empty() {
+                    if !resolved.servers.is_empty() {
+                        emit_native_line(
+                            &app,
+                            &session_record_id,
+                            &employee_id,
+                            task_id.as_deref(),
+                            &kind,
+                            "[MCP] 没有成功连接的服务器".to_string(),
+                        )
+                        .await;
+                    }
+                } else {
+                    emit_native_line(
+                        &app,
+                        &session_record_id,
+                        &employee_id,
+                        task_id.as_deref(),
+                        &kind,
+                        format!("[MCP] 已连接：{}", connected.connected.join("、")),
+                    )
+                    .await;
+                }
+                runner.set_extra_tools(connected.session.tool_specs());
+                runner.ctx.mcp = connected.session;
+            }
+            Err(error) => {
+                emit_native_line(
+                    &app,
+                    &session_record_id,
+                    &employee_id,
+                    task_id.as_deref(),
+                    &kind,
+                    format!("[MCP] 读取绑定失败：{error}"),
+                )
+                .await;
+            }
+        }
+    }
     let emit_app = app.clone();
     let emit_session = session_record_id.clone();
     let emit_employee = employee_id.clone();
@@ -789,6 +976,7 @@ async fn run_native_loop(
 
     runner.on_event.take();
     runner.on_usage.take();
+    runner.ctx.mcp.shutdown().await;
     let _ = emit_join.await;
     let _ = usage_join.await;
 
@@ -854,6 +1042,7 @@ async fn stop_native_process(
 ) -> Result<bool, String> {
     let session = {
         let mut manager = manager_state.lock().await;
+        manager.deny_pending_permission(session_record_id);
         manager.remove_session(session_record_id)
     };
     let Some(session) = session else {
@@ -863,6 +1052,19 @@ async fn stop_native_process(
     let _ = session.followup_tx.send(NativeFollowup::Finish).await;
     let _ = session.join.await;
     Ok(true)
+}
+
+#[tauri::command]
+pub async fn resolve_native_tool_permission(
+    state: State<'_, Arc<Mutex<NativeAgentManager>>>,
+    session_record_id: String,
+    request_id: String,
+    decision: NativePermissionDecision,
+) -> Result<(), String> {
+    state
+        .lock()
+        .await
+        .resolve_permission(&session_record_id, &request_id, decision)
 }
 
 #[tauri::command]

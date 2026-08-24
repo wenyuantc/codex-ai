@@ -60,7 +60,7 @@ fn environment_block(parts: &NativePromptParts) -> String {
         format!("- Working directory: {}", parts.cwd),
         format!("- Platform: {}", parts.platform),
         format!("- Date: {}", chrono::Local::now().format("%Y-%m-%d")),
-        "- Permission mode: yolo".to_string(),
+        "- Permission mode: confirm-high-risk".to_string(),
     ];
     if !parts.model.trim().is_empty() {
         lines.push(format!(
@@ -222,6 +222,8 @@ mod tests {
             employee_prompt: "角色：reviewer".to_string(),
         });
         assert!(text.contains("内置编程 Agent"));
+        assert!(text.contains("confirm-high-risk"));
+        assert!(!text.contains("yolo"));
         assert!(text.contains("Working directory: /repo"));
         assert!(text.contains("Branch: main"));
         assert!(text.contains("全局规则"));

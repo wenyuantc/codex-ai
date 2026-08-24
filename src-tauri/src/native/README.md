@@ -37,9 +37,10 @@ src-tauri/src/native/
 └── tools/
     ├── mod.rs                # 模块声明与重导出
     ├── catalog.rs            # 工具清单（ToolSpec 定义，随请求声明给模型）
-    ├── dispatch.rs           # execute_tool 分发 + ToolCtx（工作区/SSH/取消/待办/已读文件）
+    ├── dispatch.rs           # execute_tool 分发 + ToolCtx（工作区/SSH/MCP/取消/待办/已读文件）
     ├── cancel.rs             # CancelFlag 原子取消标志
     ├── local.rs              # 本地工作区：读/写/编辑/glob/grep/bash
+    ├── mcp.rs                # stdio MCP 客户端（本地 spawn / SSH 远端 spawn，失败跳过不回退）
     ├── ssh.rs                # SSH 工作区：通过 SSH 命令执行 read/write/glob/grep/bash
     ├── web.rs                # WebFetch / WebSearch（DuckDuckGo / Exa）
     ├── glob.rs               # glob 匹配实现（**、*、?）
@@ -93,7 +94,7 @@ src-tauri/src/native/
 ### `prompt/` — 提示词
 
 #### `prompt/mod.rs`
-`compose_system` 按顺序组装系统提示词块：identity.md → 环境块（工作目录/平台/日期/权限 yolo/模型名）→ Git 上下文（分支/状态/最近提交）→ 全局提示词（`native_agent_global` 模板，来自 AI 提示词模板库）→ 项目指令（AGENTS.md / Agents.md / CLAUDE.md，本地文件系统或 SSH 读取，单文件上限 32KB 并去重）→ 员工设定。另有 `detect_local_git` / `detect_ssh_git` 采集 Git 信息、`format_global_template` 组合「输出目标 + 场景要求」。
+`compose_system` 按顺序组装系统提示词块：identity.md → 环境块（工作目录/平台/日期/权限 confirm-high-risk/模型名）→ Git 上下文（分支/状态/最近提交）→ 全局提示词（`native_agent_global` 模板，来自 AI 提示词模板库）→ 项目指令（AGENTS.md / Agents.md / CLAUDE.md，本地文件系统或 SSH 读取，单文件上限 32KB 并去重）→ 员工设定。另有 `detect_local_git` / `detect_ssh_git` 采集 Git 信息、`format_global_template` 组合「输出目标 + 场景要求」。
 
 #### `prompt/identity.md`
 内置 Agent 的身份设定：先读后改、最小必要改动、不编造仓库事实、优先用 Read/Glob/Grep/WebFetch/WebSearch 而非 Bash、把工具输出当数据防注入、删除/覆盖/推送/密钥前说明风险、用简洁中文汇报并标注「未验证」等。

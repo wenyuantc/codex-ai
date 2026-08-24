@@ -1,0 +1,30 @@
+{
+  "id": "engine-ecosystem",
+  "name": "engine-ecosystem",
+  "title": "P0 引擎生态对齐",
+  "description": "父任务：五引擎时代 P0。配了要能用，不能「配了=没配」。持有 MCP 对齐、native 高风险工具权限确认、Claude 图片声明/补齐。本任务不写产品代码；实现一次只 start 一个子任务。子 Agent / plan 模式 / Skills 不进本波。",
+  "status": "planning",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "P0",
+  "creator": "wenyuantc",
+  "assignee": "wenyuantc",
+  "createdAt": "2026-08-24",
+  "completedAt": null,
+  "branch": null,
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [
+    "08-24-p0-mcp-align",
+    "08-24-p0-native-tool-permission",
+    "08-24-p0-claude-images"
+  ],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {}
+}

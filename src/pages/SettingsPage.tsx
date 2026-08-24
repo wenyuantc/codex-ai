@@ -181,6 +181,7 @@ export function SettingsPage() {
   const [locale, setLocale] = useState<AppLocale>(getLocalePreference);
   const [maxConcurrentSessions, setMaxConcurrentSessions] = useState(3);
   const [nativeMaxTurns, setNativeMaxTurns] = useState(40);
+  const [nativeConfirmHighRisk, setNativeConfirmHighRisk] = useState(true);
   const [codexHealth, setCodexHealth] = useState<CodexHealthCheck | RemoteCodexHealthCheck | null>(
     null,
   );
@@ -388,6 +389,7 @@ export function SettingsPage() {
     try {
       const settings = await getNativeSettings();
       setNativeMaxTurns(settings.max_turns ?? 40);
+      setNativeConfirmHighRisk(settings.confirm_high_risk !== false);
     } catch (error) {
       console.error("Failed to load native agent max turns:", error);
     }
@@ -399,8 +401,21 @@ export function SettingsPage() {
     try {
       const next = await updateNativeSettings({ max_turns: normalized });
       setNativeMaxTurns(next.max_turns);
+      setNativeConfirmHighRisk(next.confirm_high_risk !== false);
     } catch (error) {
       console.error("Failed to save native agent max turns:", error);
+      await loadNativeMaxTurns();
+    }
+  }
+
+  async function persistNativeConfirmHighRisk(value: boolean) {
+    setNativeConfirmHighRisk(value);
+    try {
+      const next = await updateNativeSettings({ confirm_high_risk: value });
+      setNativeMaxTurns(next.max_turns);
+      setNativeConfirmHighRisk(next.confirm_high_risk !== false);
+    } catch (error) {
+      console.error("Failed to save native high-risk confirmation:", error);
       await loadNativeMaxTurns();
     }
   }
@@ -1246,6 +1261,8 @@ export function SettingsPage() {
             nativeMaxTurns={nativeMaxTurns}
             onNativeMaxTurnsChange={setNativeMaxTurns}
             onNativeMaxTurnsCommit={(value) => void persistNativeMaxTurns(value)}
+            nativeConfirmHighRisk={nativeConfirmHighRisk}
+            onNativeConfirmHighRiskChange={(value) => void persistNativeConfirmHighRisk(value)}
             onTaskSdkEnabledChange={setTaskSdkEnabled}
             onOneShotSdkEnabledChange={setOneShotSdkEnabled}
             onOneShotPreferredProviderChange={(provider) => {

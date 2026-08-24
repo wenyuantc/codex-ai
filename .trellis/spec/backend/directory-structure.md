@@ -40,7 +40,7 @@ src-tauri/
     │   ├── prompt/             # identity.md + AGENTS/CLAUDE load + global template
     │   ├── manager.rs          # HashMap of live tokio sessions (not EngineChild)
     │   ├── session.rs          # start/stop/restart/resume/send_input Tauri commands
-    │   ├── settings.rs         # native-settings.json (`max_turns`)
+    │   ├── settings.rs         # native-settings.json (`max_turns`, `confirm_high_risk`)
     │   └── images.rs           # local image load → base64 for model requests
     ├── codex/                  # Codex engine manager/process/settings/mcp/secrets
     ├── claude/                 # Claude engine

@@ -522,6 +522,58 @@ pub(crate) async fn execute_ssh_command_with_input<R: Runtime>(
     Ok(output)
 }
 
+/// Long-lived SSH stdio pipe for protocols such as MCP JSON-RPC.
+///
+/// Uses `allocate_tty=true` so Unix ControlMaster is disabled — a mux master
+/// dying must not take the MCP session with it (see ssh-remote.md).
+pub(crate) struct SshStdioProcess {
+    pub child: tokio::process::Child,
+    askpass_path: Option<PathBuf>,
+}
+
+impl SshStdioProcess {
+    pub fn cleanup_askpass(&mut self) {
+        if let Some(path) = self.askpass_path.take() {
+            let _ = fs::remove_file(path);
+        }
+    }
+}
+
+impl Drop for SshStdioProcess {
+    fn drop(&mut self) {
+        self.cleanup_askpass();
+        let _ = self.child.start_kill();
+    }
+}
+
+pub(crate) async fn spawn_ssh_stdio_command<R: Runtime>(
+    app: &AppHandle<R>,
+    ssh_config: &SshConfigRecord,
+    remote_command: &str,
+    require_password_probe: bool,
+) -> Result<SshStdioProcess, String> {
+    let (mut command, askpass_path) = build_ssh_command(
+        app,
+        ssh_config,
+        Some(remote_command),
+        require_password_probe,
+        true,
+    )
+    .await?;
+    command
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    crate::process_spawn::configure_tokio_command(&mut command);
+    let child = command
+        .spawn()
+        .map_err(|error| format!("启动远程 SSH 长连接失败: {error}"))?;
+    Ok(SshStdioProcess {
+        child,
+        askpass_path,
+    })
+}
+
 pub(crate) fn remote_path_join(base: &str, leaf: &str) -> String {
     let trimmed = base.trim_end_matches('/');
     if trimmed.is_empty() {

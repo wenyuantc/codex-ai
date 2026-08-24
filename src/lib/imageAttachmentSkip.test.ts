@@ -42,7 +42,7 @@ describe("resolveImageAttachmentSkip", () => {
     ).toBeNull();
   });
 
-  it("warns for Grok SSH, Claude SSH, and local Claude CLI", () => {
+  it("warns for Grok SSH and Claude SSH, but not local Claude CLI", () => {
     expect(
       resolveImageAttachmentSkip({
         imageCount: 1,
@@ -65,7 +65,7 @@ describe("resolveImageAttachmentSkip", () => {
         projectType: "local",
         claudeEffectiveProvider: "cli",
       }),
-    ).toBe("claude_cli");
+    ).toBeNull();
   });
 
   it("does not warn for built-in Agent images", () => {

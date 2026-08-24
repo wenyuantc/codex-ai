@@ -82,7 +82,7 @@ pub(crate) use remote::{
     inspect_remote_opencode_runtime, normalize_ssh_auth_type, redact_secret_text,
     remote_opencode_sdk_bridge_path, remote_path_join, remote_sdk_bridge_path,
     remote_shell_path_expression, sdk_notification_unavailable, shell_escape_single_quoted,
-    ssh_config_target_host_label,
+    spawn_ssh_stdio_command, ssh_config_target_host_label, SshStdioProcess,
 };
 #[allow(unused_imports)]
 pub(crate) use review::{

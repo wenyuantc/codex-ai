@@ -822,7 +822,8 @@ pub fn get_ai_provider_capabilities() -> Vec<crate::db::models::AiProviderCapabi
             restart: true,
             send_input: true,
             resume: true,
-            notes: "支持启动/停止/续聊/会话中输入（SDK 通道保留 stdin，运行中可 send_codex_input）；重启=停止当前运行后重新启动（非 CLI resume 旧会话）。CLI 批处理通道无 stdin，发送会返回明确错误。".to_string(),
+            mcp: true,
+            notes: "支持启动/停止/续聊/会话中输入（SDK 通道保留 stdin，运行中可 send_codex_input）；重启=停止当前运行后重新启动（非 CLI resume 旧会话）。CLI 批处理通道无 stdin，发送会返回明确错误。会话启动会注入应用 MCP（mcp-servers.json + 任务绑定）。".to_string(),
         },
         crate::db::models::AiProviderCapabilities {
             provider: "claude".to_string(),
@@ -832,7 +833,8 @@ pub fn get_ai_provider_capabilities() -> Vec<crate::db::models::AiProviderCapabi
             restart: true,
             send_input: true,
             resume: true,
-            notes: "支持启动/停止/续聊/会话中输入（SDK bridge 保留 stdin）；重启=停止当前运行后重新启动（非 CLI resume 旧会话）。CLI 批处理通道不支持会话中输入。".to_string(),
+            mcp: false,
+            notes: "支持启动/停止/续聊/会话中输入（SDK bridge 保留 stdin）；重启=停止当前运行后重新启动（非 CLI resume 旧会话）。CLI 批处理通道不支持会话中输入。本地 CLI/SDK 可附带图片；SSH 跳过图片。不执行应用内 MCP 配置。".to_string(),
         },
         crate::db::models::AiProviderCapabilities {
             provider: "opencode".to_string(),
@@ -842,7 +844,8 @@ pub fn get_ai_provider_capabilities() -> Vec<crate::db::models::AiProviderCapabi
             restart: true,
             send_input: true,
             resume: true,
-            notes: "支持启动/停止/续聊/会话中输入（SDK bridge 保留 stdin，同一 OpenCode session 上追加 prompt）；重启=停止当前运行后重新启动（非 CLI resume 旧会话）。".to_string(),
+            mcp: false,
+            notes: "支持启动/停止/续聊/会话中输入（SDK bridge 保留 stdin，同一 OpenCode session 上追加 prompt）；重启=停止当前运行后重新启动（非 CLI resume 旧会话）。不执行应用内 MCP 配置。".to_string(),
         },
         crate::db::models::AiProviderCapabilities {
             provider: "grok".to_string(),
@@ -852,7 +855,8 @@ pub fn get_ai_provider_capabilities() -> Vec<crate::db::models::AiProviderCapabi
             restart: true,
             send_input: false,
             resume: true,
-            notes: "支持启动/停止/续聊；重启=停止当前运行后重新启动（非 CLI resume 旧会话）。Grok 为 headless CLI（-p + Stdio::null），无会话中可写 stdin（B1 豁免）。".to_string(),
+            mcp: false,
+            notes: "支持启动/停止/续聊；重启=停止当前运行后重新启动（非 CLI resume 旧会话）。Grok 为 headless CLI（-p + Stdio::null），无会话中可写 stdin（B1 豁免）。不执行应用内 MCP 配置。".to_string(),
         },
         crate::db::models::AiProviderCapabilities {
             provider: "native".to_string(),
@@ -862,7 +866,8 @@ pub fn get_ai_provider_capabilities() -> Vec<crate::db::models::AiProviderCapabi
             restart: true,
             send_input: true,
             resume: true,
-            notes: "支持启动/停止/续聊/会话中输入（进程内 mpsc 跟进）；重启=停止当前运行后重新启动。任务会话一轮结束后退出；自由会话可 send_native_input。".to_string(),
+            mcp: true,
+            notes: "支持启动/停止/续聊/会话中输入（进程内 mpsc 跟进）；重启=停止当前运行后重新启动。任务会话一轮结束后退出；自由会话可 send_native_input。按任务绑定注入 MCP 工具：本地本机 spawn，SSH 在远端 spawn（失败跳过，不回退本机）。".to_string(),
         },
     ]
 }
@@ -935,6 +940,23 @@ mod ai_provider_capabilities_tests {
         assert!(
             by_provider["native"].send_input,
             "native must expose real mid-session send_input"
+        );
+        assert!(
+            by_provider["codex"].mcp,
+            "codex sessions consume app MCP bindings"
+        );
+        assert!(
+            by_provider["native"].mcp,
+            "native injects app MCP tools locally and over SSH"
+        );
+        assert!(
+            !by_provider["claude"].mcp && !by_provider["opencode"].mcp && !by_provider["grok"].mcp,
+            "claude/opencode/grok must not advertise app MCP execution"
+        );
+        assert!(
+            by_provider["native"].notes.contains("MCP")
+                || by_provider["native"].notes.contains("mcp"),
+            "native notes should document MCP injection"
         );
     }
 }

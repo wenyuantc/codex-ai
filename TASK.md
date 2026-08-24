@@ -1,9 +1,10 @@
 # 任务列表
 
-# 下一波 · 2026-08-24 五引擎时代：设备补齐 + 信任兑现（待排期）
+# 下一波 · 2026-08-24 五引擎时代：设备补齐 + 信任兑现
 
 > 依据：本文件由 PM 视角代码实读（2026-08-24，v0.6.1 基线），每条附可复核证据；参考 `docs/analysis/09-product-gap-2026-08-20.md`（已全部落地）。
 > 主题一句话：**第五引擎内置 Agent（native）已跑通「模型→工具→会话」主循环，但它只有手脚没有装备（MCP / 子 Agent / 交互式权限 / Skills），而文档还停在四引擎时代。**
+> Trellis 本波 P0：`.trellis/tasks/08-24-engine-ecosystem/`（3 子任务：MCP 对齐、native 高风险权限、Claude 图片）。子 Agent / plan 模式 / Skills 不进本波。
 
 ## 背景：上一波之前的增量（已落地，08-20/21）
 
@@ -13,16 +14,18 @@
 
 ## P0 · 引擎生态对齐（配了要能用，不能「配了=没配」）
 
-- [ ] **MCP 实际只服务 Codex ⭐⭐⭐**：MCP 引用全在 `codex/`（`codex/mcp.rs` + `codex/process` 共 87 处）；`claude/`、`grok/`、`opencode/`、`native/` 对 MCP **零命中**。设置页 `McpSettingsTab` 与任务级三态绑定（`TaskMcpBindingSection`）生成的 `mcp-servers.json` 只被 Codex 启动路径消费。→ 用户给 Claude/Grok/OpenCode/native 员工配 MCP 是假功能，违背上波「已交付能力要说真话」。方案二选一：A) UI 明确「MCP 仅 Codex」并禁选；B) **建议** native 工具目录加 MCP 工具注入（`tools/` 分发 + SSH 通道已就绪，成本可控），外部引擎逐步跟随。
+> Trellis：`.trellis/tasks/08-24-engine-ecosystem/` · P0 三项已实现（MCP 对齐 / native 高风险确认 / Claude CLI 本地传图）
 
-- [ ] **native 缺「自研 Agent 该有的装备」（native PRD Out of Scope 清单，全部仍缺）⭐⭐⭐**：
-  - **交互式权限确认**：工具执行全 yolo（`native/prompt/identity.md` 只约定「先说明风险」），Write/Bash/删除/推送无用户确认——与本产品「可信」主线正面冲突。建议先做「高风险工具（删除/覆盖/推送/强制 git 操作）确认」，成本低信任收益最大。
+- [x] **MCP 实际只服务 Codex ⭐⭐⭐**（`08-24-p0-mcp-align`，已改为 Codex + native 真执行；Claude/Grok/OpenCode 诚实声明不执行）：MCP 引用全在 `codex/`（`codex/mcp.rs` + `codex/process` 共 87 处）；`claude/`、`grok/`、`opencode/`、`native/` 对 MCP **零命中**。设置页 `McpSettingsTab` 与任务级三态绑定（`TaskMcpBindingSection`）生成的 `mcp-servers.json` 只被 Codex 启动路径消费。→ 用户给 Claude/Grok/OpenCode/native 员工配 MCP 是假功能，违背上波「已交付能力要说真话」。方案二选一：A) UI 明确「MCP 仅 Codex」并禁选；B) **建议** native 工具目录加 MCP 工具注入（`tools/` 分发 + SSH 通道已就绪，成本可控），外部引擎逐步跟随。
+
+- [ ] **native 缺「自研 Agent 该有的装备」（其余项仍缺）⭐⭐⭐**：
+  - [x] **交互式权限确认**（本波只做这一项：`08-24-p0-native-tool-permission`）：工具执行全 yolo（`native/prompt/identity.md` 只约定「先说明风险」），Write/Bash/删除/推送无用户确认——与本产品「可信」主线正面冲突。建议先做「高风险工具（删除/覆盖/推送/强制 git 操作）确认」，成本低信任收益最大。
   - **子 Agent**：工具目录只有 TodoRead/TodoWrite，无会话内委派/并行子 Agent。
   - **plan 模式**：任务详情「AI 生成计划」是一次性文本（`useTaskAiActions.ts`），无「计划 → 用户确认 → 执行」工作流。
   - **Skills / Hooks / ApplyPatch / Browser**：均无（已有 WebFetch/WebSearch，无浏览器自动化）。
   - 建议优先级：交互式权限 > 子 Agent > plan 模式 > Skills。
 
-- [ ] **图片附件引擎间仍不对齐 ⭐⭐**：native 支持 ≤8 张（`native/images.rs`）；Codex/Grok/OpenCode 本地支持、SSH 跳过（已诚实提示）；**Claude CLI 本地也跳过**（`claude/process/mod.rs:1240-1250`）。→ Claude 本地图片补齐，或在员工绑定页面明确「该引擎不支持图片」。
+- [x] **图片附件引擎间仍不对齐 ⭐⭐**（`08-24-p0-claude-images`，本地 Claude CLI 已补齐 stream-json 传图；SSH 仍跳过）：native 支持 ≤8 张（`native/images.rs`）；Codex/Grok/OpenCode 本地支持、SSH 跳过（已诚实提示）；**Claude CLI 本地也跳过**（`claude/process/mod.rs:1240-1250`）。→ Claude 本地图片补齐，或在员工绑定页面明确「该引擎不支持图片」。
 
 ## P1 · 信任与运营深化
 

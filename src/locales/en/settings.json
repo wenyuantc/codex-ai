@@ -31,7 +31,9 @@
     "title": "Built-in Agent tool turns",
     "description": "Cap how many model-and-tool rounds run for one user message. 0 means unlimited. Local and SSH projects share this cap because the loop always runs on this machine.",
     "label": "Max tool turns",
-    "hint": "0 = unlimited, default 40, max 500"
+    "hint": "0 = unlimited, default 40, max 500",
+    "confirmHighRiskLabel": "Confirm high-risk tools",
+    "confirmHighRiskHint": "When on, the built-in Agent prompts before overwrite/delete/push/force git/MCP (allow all this session, allow once, or deny). Turn off to run those tools immediately. Applies to sessions started after you change it."
   },
   "about": {
     "title": "About & updates",
@@ -67,13 +69,13 @@
     "description": "Currently in {{mode}}. Codex runtime settings and SSH settings are stored separately.",
     "engineCapabilities": {
       "title": "Five-engine capability overview",
-      "description": "Codex, Claude, Grok, OpenCode, and the built-in Agent all support start, stop, restart, and resume. Restart means stopping the current run and starting again, not resuming an old CLI session. Built-in Agent free sessions support mid-session follow-ups.",
+      "description": "Codex, Claude, Grok, OpenCode, and the built-in Agent all support start, stop, restart, and resume. MCP is executed only by Codex and the built-in Agent; Claude / Grok / OpenCode do not consume in-app MCP config. Restart means stopping the current run and starting again, not resuming an old CLI session. Built-in Agent free sessions support mid-session follow-ups.",
       "notes": {
-        "codex": "Supports start/stop/resume/mid-session input (SDK channel keeps stdin; send_codex_input while running). Restart = stop current run then start again (not CLI resume of an old session). CLI batch channel has no stdin; send returns an explicit error.",
-        "claude": "Supports start/stop/resume/mid-session input (SDK bridge keeps stdin). Restart = stop current run then start again (not CLI resume of an old session). CLI batch channel does not support mid-session input.",
-        "opencode": "Supports start/stop/resume/mid-session input (SDK bridge keeps stdin; append prompts on the same OpenCode session). Restart = stop current run then start again (not CLI resume of an old session).",
-        "grok": "Supports start/stop/resume. Restart = stop current run then start again (not CLI resume of an old session). Grok is a headless CLI (-p + Stdio::null) with no writable mid-session stdin (B1 exemption).",
-        "native": "Supports start/stop/resume/mid-session input (in-process follow-ups). Restart = stop current run then start again. Task sessions exit after one turn; free sessions accept follow-up input."
+        "codex": "Supports start/stop/resume/mid-session input (SDK channel keeps stdin; send_codex_input while running). Restart = stop current run then start again (not CLI resume of an old session). CLI batch channel has no stdin; send returns an explicit error. Session launch injects app MCP.",
+        "claude": "Supports start/stop/resume/mid-session input (SDK bridge keeps stdin). Restart = stop current run then start again (not CLI resume of an old session). CLI batch channel does not support mid-session input. Local CLI/SDK can attach images; SSH skips images. Does not execute in-app MCP config.",
+        "opencode": "Supports start/stop/resume/mid-session input (SDK bridge keeps stdin; append prompts on the same OpenCode session). Restart = stop current run then start again (not CLI resume of an old session). Does not execute in-app MCP config.",
+        "grok": "Supports start/stop/resume. Restart = stop current run then start again (not CLI resume of an old session). Grok is a headless CLI (-p + Stdio::null) with no writable mid-session stdin (B1 exemption). Does not execute in-app MCP config.",
+        "native": "Supports start/stop/resume/mid-session input (in-process follow-ups). Restart = stop current run then start again. Task sessions exit after one turn; free sessions accept follow-up input. Injects bound MCP tools: local spawn on this machine, SSH spawn on the remote host."
       }
     },
     "databaseDialogs": {
@@ -622,7 +624,7 @@
   },
   "mcp": {
     "title": "MCP server management",
-    "description": "Maintain the MCP server list here and export it as a JSON snippet to merge into Codex, Claude, and other engine configurations. The configuration is stored in the app config directory and is not part of SQL backups.",
+    "description": "Maintain the MCP server list here. Codex session launches inject it directly; the built-in Agent injects bound servers as tools (local spawn on this machine, SSH spawn on the remote host). Claude / Grok / OpenCode do not execute this config in this wave. The configuration is stored in the app config directory and is not part of SQL backups.",
     "states": {
       "loading": "Loading MCP configuration...",
       "empty": "No MCP servers yet. Click Add Server."

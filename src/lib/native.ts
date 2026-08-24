@@ -114,12 +114,50 @@ export function onNativeSession(callback: (session: NativeSession) => void): Pro
   });
 }
 
+export type NativePermissionDecision = "allow_session" | "allow_once" | "deny";
+
+export type NativeToolRiskKind = "overwrite" | "delete" | "push" | "force_git" | "mcp";
+
+export interface NativePermissionRequest {
+  sessionRecordId: string;
+  requestId: string;
+  employeeId: string;
+  taskId: string | null;
+  sessionKind: string;
+  toolName: string;
+  kind: NativeToolRiskKind;
+  summary: string;
+  remote: boolean;
+}
+
+export function onNativePermissionRequest(
+  callback: (request: NativePermissionRequest) => void,
+): Promise<() => void> {
+  return listen<NativePermissionRequest>("native-permission-request", (event) => {
+    callback(event.payload);
+  });
+}
+
+export async function resolveNativeToolPermission(
+  sessionRecordId: string,
+  requestId: string,
+  decision: NativePermissionDecision,
+): Promise<void> {
+  await invoke("resolve_native_tool_permission", {
+    sessionRecordId,
+    requestId,
+    decision,
+  });
+}
+
 export interface NativeSettings {
   max_turns: number;
+  confirm_high_risk: boolean;
 }
 
 export interface UpdateNativeSettings {
   max_turns?: number;
+  confirm_high_risk?: boolean;
 }
 
 export async function getNativeSettings(): Promise<NativeSettings> {

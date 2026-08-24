@@ -1,0 +1,6 @@
+{"_example": "Fill with {\"file\": \"<path>\", \"reason\": \"<why>\"}. Put spec/research files only — no code paths. Run `python3 .trellis/scripts/get_context.py --mode packages` to list available specs. Delete this line once real entries are added."}
+{"file": ".trellis/spec/backend/ai-engines.md", "reason": "Capability matrix and native vs CLI engine contracts"}
+{"file": ".trellis/spec/backend/ssh-remote.md", "reason": "SSH command construction; MCP must not fake remote tools"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "UI IPC Rust SQLite engine field changes"}
+{"file": ".trellis/spec/frontend/i18n.md", "reason": "zh-CN+en and activity action labels"}
+{"file": ".trellis/spec/backend/command-guidelines.md", "reason": "New permission resolve command shape"}

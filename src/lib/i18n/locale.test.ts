@@ -28,6 +28,14 @@ describe("i18n locale preference", () => {
     expect(i18n.t("dashboard:stats.onlineEmployees")).toBe("运行中员工");
     expect(i18n.t("employees:noEnabledChannelHint")).toContain("AI 渠道");
     expect(i18n.t("settings:page.engineCapabilities.notes.native")).toContain("进程内");
+    expect(i18n.t("settings:page.engineCapabilities.notes.native")).toContain("MCP");
+    expect(i18n.t("settings:mcp.description")).toContain("内置 Agent");
+    expect(i18n.t("errors:capability.mcp")).toBe("MCP");
+    expect(i18n.t("tasks:nativePermission.allowSession")).toBe("本会话全部允许");
+    expect(i18n.t("settings:nativeAgent.confirmHighRiskLabel")).toBe("高风险工具需确认");
+    expect(i18n.t("settings:page.engineCapabilities.notes.claude")).toContain(
+      "本地 CLI/SDK 可附带图片",
+    );
     expect(i18n.t("settings:prompts.scenes.native_agent_global")).toBe("内置 Agent 全局提示词");
 
     await changeAppLocale("en");
@@ -47,6 +55,14 @@ describe("i18n locale preference", () => {
     expect(i18n.t("nav:dashboard")).toBe("Dashboard");
     expect(i18n.t("employees:noEnabledChannelHint")).toContain("AI channels");
     expect(i18n.t("settings:page.engineCapabilities.notes.native")).toContain("in-process");
+    expect(i18n.t("settings:page.engineCapabilities.notes.native")).toContain("MCP");
+    expect(i18n.t("settings:mcp.description")).toContain("built-in Agent");
+    expect(i18n.t("errors:capability.mcp")).toBe("MCP");
+    expect(i18n.t("tasks:nativePermission.allowOnce")).toBe("Allow once");
+    expect(i18n.t("settings:nativeAgent.confirmHighRiskLabel")).toBe("Confirm high-risk tools");
+    expect(i18n.t("settings:page.engineCapabilities.notes.claude")).toContain(
+      "Local CLI/SDK can attach images",
+    );
     expect(i18n.t("settings:prompts.scenes.native_agent_global")).toBe(
       "Built-in Agent global prompt",
     );

@@ -2,7 +2,7 @@ import { getAiProviderCapabilities, type AiProviderCapabilities } from "@/lib/ba
 import i18n from "@/lib/i18n";
 import type { AiProvider } from "@/lib/types";
 
-export type EngineCapabilityKey = "start" | "stop" | "restart" | "send_input" | "resume";
+export type EngineCapabilityKey = "start" | "stop" | "restart" | "send_input" | "resume" | "mcp";
 
 function capabilityLabel(capability: EngineCapabilityKey): string {
   return i18n.t(`errors:capability.${capability}`);

@@ -27,6 +27,22 @@
     "continue": "Run anyway",
     "cancel": "Cancel"
   },
+  "nativePermission": {
+    "title": "Confirm high-risk action",
+    "summary": "{{location}} · {{kind}} · {{tool}}: {{summary}}",
+    "local": "local workspace",
+    "remote": "remote workspace",
+    "allowSession": "Allow all for this session",
+    "allowOnce": "Allow once",
+    "deny": "Don't allow",
+    "kind": {
+      "overwrite": "overwrite",
+      "delete": "delete",
+      "push": "push",
+      "force_git": "force git",
+      "mcp": "MCP tool"
+    }
+  },
   "createDialog": {
     "title": "New task",
     "fields": {
@@ -279,13 +295,16 @@
     "mcp": {
       "loading": "Loading task MCP binding…",
       "title": "MCP tool binding",
-      "description": "Controls which MCP servers this task’s sessions use. By default inherits globally enabled servers from Settings; turn off inherit to multi-select or select none (explicit empty set).",
+      "description": "Controls which MCP servers Codex / built-in Agent sessions for this task use. By default inherits globally enabled servers from Settings; turn off inherit to multi-select or select none (explicit empty set). Claude / Grok / OpenCode do not execute these servers.",
       "save": "Save binding",
       "useGlobalDefault": "Use global defaults (enabled servers in Settings)",
       "emptyCatalog": "No MCP servers configured yet. Add some under Settings → MCP.",
       "globalNotEnabled": "(not enabled globally by default)",
       "overrideHint": "Selecting none explicitly disables all MCP for this task (unlike “inherit global”).",
       "effectivePrefix": "Will take effect:",
+      "savedOnlyPrefix": "Saved (current employee engine will not run them):",
+      "engineUnsupported": "The assigned employee uses {{engine}}, which does not execute in-app MCP. The binding is still saved for a later Codex or built-in Agent assignee.",
+      "noAssignee": "No employee assigned yet. The binding is saved, but it only takes effect when a Codex or built-in Agent employee runs the task.",
       "noMcp": "(no MCP)",
       "savedInherit": "Saved: inherit global default MCP",
       "savedDisabledAll": "Saved: this task explicitly disables all MCP",

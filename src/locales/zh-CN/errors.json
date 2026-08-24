@@ -11,7 +11,8 @@
     "stop": "停止",
     "restart": "重启",
     "send_input": "会话中输入",
-    "resume": "续聊"
+    "resume": "续聊",
+    "mcp": "MCP"
   },
   "generic": "操作失败，请稍后重试",
   "rustUnmappedNote": "以下错误来自后端原文，尚未建立稳定前端映射"

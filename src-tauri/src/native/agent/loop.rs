@@ -8,7 +8,9 @@ use crate::native::model::client::{ChatRequest, ModelClient};
 use crate::native::model::types::{Message, NativeImage, Role, ToolCall, ToolSpec};
 use crate::native::model::usage_to_delta;
 use crate::native::settings::DEFAULT_NATIVE_MAX_TURNS;
-use crate::native::tools::{execute_tool, tool_specs, CancelFlag, LocalWorkspace, ToolCtx};
+use crate::native::tools::{
+    execute_tool, tool_specs, CancelFlag, LocalWorkspace, McpSession, ToolCtx,
+};
 
 use super::compact::{compact_local, should_compact};
 use super::truncate::truncate_messages;
@@ -24,6 +26,7 @@ pub struct AgentRunner {
     pub context_char_limit: usize,
     pub on_event: Option<mpsc::UnboundedSender<String>>,
     pub on_usage: Option<mpsc::UnboundedSender<UsageDelta>>,
+    extra_tools: Vec<ToolSpec>,
     turns: u32,
     last_tool_key: Option<String>,
     last_tool_repeat: u32,
@@ -43,12 +46,16 @@ impl AgentRunner {
                 cancel: CancelFlag::new(),
                 read_files: HashSet::new(),
                 todos: Vec::new(),
+                mcp: McpSession::empty(),
+                allow_all_high_risk: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+                request_permission: None,
             },
             messages: Vec::new(),
             max_turns: DEFAULT_NATIVE_MAX_TURNS as u32,
             context_char_limit: DEFAULT_CONTEXT_CHARS,
             on_event: None,
             on_usage: None,
+            extra_tools: Vec::new(),
             turns: 0,
             last_tool_key: None,
             last_tool_repeat: 0,
@@ -57,6 +64,16 @@ impl AgentRunner {
 
     pub fn cancel(&self) {
         self.ctx.cancel.cancel();
+    }
+
+    pub fn set_extra_tools(&mut self, tools: Vec<ToolSpec>) {
+        self.extra_tools = tools;
+    }
+
+    fn combined_tools(&self) -> Vec<ToolSpec> {
+        let mut tools = tool_specs();
+        tools.extend(self.extra_tools.clone());
+        tools
     }
 
     fn emit(&self, line: impl Into<String>) {
@@ -88,9 +105,9 @@ impl AgentRunner {
         images: Vec<NativeImage>,
     ) -> Result<String, String> {
         self.begin_user_turn(user, images)?;
-        let tools = tool_specs();
         loop {
             let last_turn = self.prepare_model_call()?;
+            let tools = self.combined_tools();
             let tools_now: &[ToolSpec] = if last_turn { &[] } else { &tools };
             let (assistant, usage) = client
                 .chat(ChatRequest {
@@ -322,7 +339,12 @@ mod tests {
         let root = std::env::temp_dir().join(format!("codex-ai-agent-{stamp}-{seq}"));
         fs::create_dir_all(&root).expect("mkdir");
         fs::write(root.join("hello.txt"), "hello world\n").expect("write");
-        (AgentRunner::new(LocalWorkspace::new(root.clone())), root)
+        let runner = AgentRunner::new(LocalWorkspace::new(root.clone()));
+        runner
+            .ctx
+            .allow_all_high_risk
+            .store(true, std::sync::atomic::Ordering::SeqCst);
+        (runner, root)
     }
 
     fn drain_events(rx: &mut mpsc::UnboundedReceiver<String>) -> Vec<String> {

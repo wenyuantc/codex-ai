@@ -454,7 +454,15 @@ mod tests {
 
     #[test]
     fn deepseek_thinking_toggle_is_explicit() {
-        let on = build_openai_body(&[], &[], "deepseek-v4-pro", Some("max"), Some(8192), true, true);
+        let on = build_openai_body(
+            &[],
+            &[],
+            "deepseek-v4-pro",
+            Some("max"),
+            Some(8192),
+            true,
+            true,
+        );
         assert_eq!(on["thinking"]["type"], "enabled");
         assert_eq!(on["reasoning_effort"], "max");
 

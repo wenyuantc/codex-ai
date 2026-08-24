@@ -15,6 +15,8 @@ const MAX_NATIVE_MAX_TURNS: i32 = 500;
 struct RawNativeSettings {
     #[serde(default)]
     max_turns: Option<i32>,
+    #[serde(default)]
+    confirm_high_risk: Option<bool>,
 }
 
 pub fn normalize_native_max_turns(value: Option<i32>) -> i32 {
@@ -37,12 +39,14 @@ fn settings_path<R: Runtime>(app: &AppHandle<R>) -> Result<PathBuf, String> {
 fn default_settings() -> NativeSettings {
     NativeSettings {
         max_turns: DEFAULT_NATIVE_MAX_TURNS,
+        confirm_high_risk: true,
     }
 }
 
 fn normalize_settings(raw: RawNativeSettings) -> NativeSettings {
     NativeSettings {
         max_turns: normalize_native_max_turns(raw.max_turns),
+        confirm_high_risk: raw.confirm_high_risk.unwrap_or(true),
     }
 }
 
@@ -74,6 +78,7 @@ fn save_native_settings<R: Runtime>(
     }
     let raw = RawNativeSettings {
         max_turns: Some(normalize_native_max_turns(Some(settings.max_turns))),
+        confirm_high_risk: Some(settings.confirm_high_risk),
     };
     let json = serde_json::to_string_pretty(&raw)
         .map_err(|error| format!("序列化内置 Agent 设置失败: {error}"))?;
@@ -97,13 +102,17 @@ async fn merge_native_settings<R: Runtime>(
     if let Some(max_turns) = updates.max_turns {
         next.max_turns = normalize_native_max_turns(Some(max_turns));
     }
+    if let Some(confirm_high_risk) = updates.confirm_high_risk {
+        next.confirm_high_risk = confirm_high_risk;
+    }
     save_native_settings(app, &next)?;
-    if previous.max_turns != next.max_turns {
+    if previous.max_turns != next.max_turns || previous.confirm_high_risk != next.confirm_high_risk
+    {
         if let Ok(pool) = sqlite_pool(app).await {
             let _ = insert_activity_log(
                 &pool,
                 "native_settings_updated",
-                &max_turns_activity_details(next.max_turns),
+                &native_settings_activity_details(&next),
                 None,
                 None,
                 None,
@@ -112,6 +121,24 @@ async fn merge_native_settings<R: Runtime>(
         }
     }
     Ok(next)
+}
+
+fn native_settings_activity_details(settings: &NativeSettings) -> String {
+    format!(
+        "{}；高风险确认：{}",
+        max_turns_activity_details(settings.max_turns),
+        if settings.confirm_high_risk {
+            "开启"
+        } else {
+            "关闭"
+        }
+    )
+}
+
+pub fn confirm_high_risk_enabled<R: Runtime>(app: &AppHandle<R>) -> bool {
+    load_native_settings(app)
+        .map(|settings| settings.confirm_high_risk)
+        .unwrap_or(true)
 }
 
 #[tauri::command]
@@ -140,6 +167,15 @@ mod tests {
     fn normalize_keeps_default_range() {
         assert_eq!(normalize_native_max_turns(Some(40)), 40);
         assert_eq!(normalize_native_max_turns(Some(500)), 500);
+    }
+
+    #[test]
+    fn missing_confirm_flag_defaults_on() {
+        let settings = normalize_settings(RawNativeSettings {
+            max_turns: Some(40),
+            confirm_high_risk: None,
+        });
+        assert!(settings.confirm_high_risk);
     }
 
     #[test]

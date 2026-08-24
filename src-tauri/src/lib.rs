@@ -310,6 +310,7 @@ pub fn run() {
             native::session::resume_native_session,
             native::session::send_native_input,
             native::session::finish_native_input,
+            native::session::resolve_native_tool_permission,
             native::settings::get_native_settings,
             native::settings::update_native_settings,
             opencode::get_opencode_settings,

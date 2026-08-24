@@ -69,6 +69,7 @@ Single source of truth: `app/database.rs::get_ai_provider_capabilities` (fronten
 | `start` / `stop` / `resume` | Per-engine session lifecycle (all **five** providers) |
 | `restart` | Stop live managed processes for the employee, then call that engine's `start_*` (**not** CLI resume of the old session id) |
 | `send_input` | Mid-session write to a **live** session. **Codex / Claude / OpenCode = true** (SDK bridge keeps stdin; NDJSON follow-ups). **Native = true** (in-process `mpsc` `NativeFollowup::Input`). **Grok = false** (B1: headless `-p` + `Stdio::null`). Do not set `true` without a verifiable write path; never advertise a capability that always fails. CLI-only Codex/Claude sessions may still reject at command time with a clear Chinese error. |
+| `mcp` | App-managed MCP from `mcp-servers.json` + `tasks.mcp_server_ids`. **Codex = true** (CLI `-c mcp_servers.*` on local and SSH). **Native = true** (stdio MCP tools injected into the in-process loop: local spawn on this machine, SSH spawn on the remote host via `build_ssh_command` / `spawn_ssh_stdio_command`; handshake failure skips that server and must **not** fall back to local MCP). **Claude / OpenCode / Grok = false** — Settings/task binding may still save the list, but UI must not claim those engines will run it. |
 
 UI rules: Settings shows the five-engine comparison; any control for restart/send_input must gate on the matrix (`can(provider, cap)`) with Chinese disabled reasons. Prefer fail-closed when the matrix fails to load. Git / one-shot **settings** dropdowns use `CLI_AI_PROVIDER_OPTIONS` (exclude `native`). That exclusion does **not** apply when a coordinator/tester **employee** is `native` — those one-shots use the employee's channel HTTP path.
 
@@ -103,7 +104,9 @@ Frontend wrappers: `send*` / `finish*` in `src/lib/{codex,claude,opencode,grok,n
   - Do **not** rely on `main()` return while stdin listeners are registered — always `exit(0)` after the chosen mode finishes.
 - **Stop path**: `EngineChild::kill` closes retained stdin (EOF to bridge wait loop) then kills the child; stop commands also `kill_process_group`.
 - **Grok B1**: headless `grok -p` + `Stdio::null`; matrix stays `false`; command returns Chinese reason (live vs no-session variants). Evidence: task `notes-b1-grok.md`.
-- **Native**: no `ChildStdin`. Follow-ups are `NativeFollowup::{Input, Finish}` on an mpsc. Task-linked start uses `await_followups=false` (exit after one turn). Free sessions wait on the channel. Images: local files read as base64 on the first user message (OpenAI `image_url` / Anthropic `image.source` / Responses `input_image`). SSH does **not** sync images to the remote host — the HTTP call stays on this machine. Cap 8 images / 8MB each; missing or oversized files are logged and skipped. Mid-session `send_input` is text-only.
+- **Native**: no `ChildStdin`. Follow-ups are `NativeFollowup::{Input, Finish}` on an mpsc. Task-linked start uses `await_followups=false` (exit after one turn). Free sessions wait on the channel. Images: local files read as base64 on the first user message (OpenAI `image_url` / Anthropic `image.source` / Responses `input_image`). SSH does **not** sync images to the remote host — the HTTP call stays on this machine. Cap 8 images / 8MB each; missing or oversized files are logged and skipped. Mid-session `send_input` is text-only. High-risk tools wait on `native-permission-request` (`allow_session | allow_once | deny`).
+- **Claude images**: local SDK keeps `claude_sdk_bridge.mjs` image blocks. Local CLI attaches images via `--input-format stream-json` (no `--image` flag). SSH Claude still skips images. High-risk tools (overwrite/delete/push/force git/MCP) emit `native-permission-request` and wait for `allow_session | allow_once | deny`.
+- **Claude images**: local SDK still uses `claude_sdk_bridge.mjs` image blocks. Local CLI uses `--input-format stream-json` with Anthropic `type:image` base64 content (no `--image` flag). SSH Claude still skips images and must keep the preflight warning.
 
 ### 4. Validation & Error Matrix
 | Case | Behavior |
@@ -260,7 +263,7 @@ When adding another **CLI** engine, prefer **Claude/Grok process shape** over Co
 | Commands | `start_native_session` `stop_native_session` `stop_native` `restart_native_session` `resume_native_session` `send_native_input` `finish_native_input` |
 | Internal start | Automation / run-queue drain call `start_native_with_manager` (bypasses gate). Restart-safe stop: `stop_native_for_automation_restart` |
 | Events | `native-stdout`, `native-session`, `native-exit` (no stderr event). First stdout line: `[内置 Agent] 启动会话 渠道=… 协议=… model=… effort=… thinking=on\|off` (Grok-style banner). Then `[USER_INPUT]`, Claude/Grok-compatible tool tags (`[读取]`/`[写入]`/`[编辑]`/`[命令]`/`[工具]`/`[工具结果]`/`[思考]`/`[待办]`), `[用量]`, assistant text, `[ERROR]`. `native-exit.line` is **null** (do not duplicate `[ERROR]` into the log). Tool-loop cap from `native-settings.json` `max_turns` (default **40**, **0** = unlimited, last turn sends no tools and asks for a final answer instead of failing the session). |
-| Settings | Local file `app_config_dir/native-settings.json`. Commands `get_native_settings` / `update_native_settings`. Not per-SSH-profile: the loop always runs on this machine. Activity key `native_settings_updated`. |
+| Settings | Local file `app_config_dir/native-settings.json`. Commands `get_native_settings` / `update_native_settings`. Fields: `max_turns` (default **40**, **0** = unlimited) and `confirm_high_risk` (default **true**; false skips the high-risk permission dialog for sessions started after the change). Not per-SSH-profile: the loop always runs on this machine. Activity key `native_settings_updated`. |
 | Frontend | Channel CRUD in `src/lib/backend.ts`; session IPC in `src/lib/native.ts`; start/stop via `aiEngine.ts` |
 | Settings UI | `AiChannelsSettingsTab`; employee dialogs bind enabled channels + `models` from `models_json` |
 
@@ -328,7 +331,7 @@ if let Some(delta) = parse_usage_value(&value) {
 - One-shot / AI-commit preferred provider lists live in Codex settings normalize (`SUPPORTED_ONE_SHOT_PROVIDERS` includes `grok`)
 - Local/remote one-shot **health channel resolution** must branch on preferred provider (`resolve_local_one_shot_runtime` / `resolve_remote_one_shot_runtime`) — missing branches silently show Codex status for other providers
 - Secrets use `codex/secret_store.rs` ref indirection — do not store raw passwords in SSH config rows beyond refs
-- MCP server config is file-backed (`codex/mcp.rs` → `mcp-servers.json` under app config dir)
+- MCP server config is file-backed (`codex/mcp.rs` → `mcp-servers.json` under app config dir). Codex consumes it at session launch. Native injects listed tools via `native/tools/mcp.rs` (local stdio or SSH remote stdio). Other engines must not silently ignore a UI that claims MCP is on.
 - Grok settings are separate (`grok/settings.rs`); do not fold Grok defaults into `codex-settings.json` except one-shot/git provider preference fields
 
 ## Task Automation Coupling
