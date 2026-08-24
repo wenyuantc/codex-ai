@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 
-import { filterTasksByVisibleProjects } from "@/stores/taskStore";
+import { filterTasksByVisibleProjects, resolveTaskListRefreshProjectId } from "@/stores/taskStore";
 
 const rows = [
   { id: "t1", project_id: "p1" },
@@ -30,5 +30,27 @@ describe("filterTasksByVisibleProjects", () => {
     const input = [...rows];
     filterTasksByVisibleProjects(input, new Set(["p2"]));
     expect(input).toEqual(rows);
+  });
+});
+
+describe("resolveTaskListRefreshProjectId", () => {
+  it("treats explicit undefined refresh as all-projects, not the last fetch scope", () => {
+    expect(resolveTaskListRefreshProjectId({ refreshProjectId: undefined }, "gb")).toBeUndefined();
+  });
+
+  it("uses an explicit project id even when a different scope is active", () => {
+    expect(resolveTaskListRefreshProjectId({ refreshProjectId: "gb" }, "other")).toBe("gb");
+  });
+
+  it("falls back to the active board scope when options omit refreshProjectId", () => {
+    expect(resolveTaskListRefreshProjectId(undefined, "gb")).toBe("gb");
+    expect(resolveTaskListRefreshProjectId({}, "gb")).toBe("gb");
+  });
+
+  it("keeps all-projects when both the option and the active scope are empty", () => {
+    expect(resolveTaskListRefreshProjectId(undefined, undefined)).toBeUndefined();
+    expect(
+      resolveTaskListRefreshProjectId({ refreshProjectId: undefined }, undefined),
+    ).toBeUndefined();
   });
 });

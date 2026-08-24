@@ -171,6 +171,20 @@ export function filterTasksByVisibleProjects<T extends { project_id: string }>(
   return rows.filter((row) => visibleProjectIds.has(row.project_id));
 }
 
+/**
+ * Board-scope refresh after a mutation. An explicit `refreshProjectId` (including
+ * `undefined` = all projects) wins; otherwise keep the last fetch scope.
+ */
+export function resolveTaskListRefreshProjectId(
+  options: { refreshProjectId?: string } | undefined,
+  activeProjectId: string | undefined,
+): string | undefined {
+  if (options && Object.prototype.hasOwnProperty.call(options, "refreshProjectId")) {
+    return options.refreshProjectId;
+  }
+  return activeProjectId;
+}
+
 export const useTaskStore = create<TaskStore>((set, get) => ({
   tasks: [],
   attachments: {},
@@ -245,7 +259,7 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
       milestone_id: data.milestone_id ?? null,
       attachment_source_paths: data.attachment_source_paths ?? [],
     });
-    await get().fetchTasks(options?.refreshProjectId ?? get().activeProjectId);
+    await get().fetchTasks(resolveTaskListRefreshProjectId(options, get().activeProjectId));
     return task;
   },
 

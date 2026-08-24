@@ -105,6 +105,7 @@ Keep pure display derivation in `src/lib/utils.ts` or small lib modules, not dup
 
 Store-owned scoping/derivation logic belongs in **exported pure functions in the store module**, called by the action — not inlined inside the `async` action body. This is what makes it testable (see [Quality Guidelines](./quality-guidelines.md) → Testing Expectations):
 - `filterTasksByVisibleProjects` (`taskStore.ts`) — project-scope filter shared by `fetchTasks` and `fetchTrashedTasks`
+- `resolveTaskListRefreshProjectId` (`taskStore.ts`) — after create, honor explicit `refreshProjectId` (including `undefined` = all projects); do not `??` through to `activeProjectId`
 - `resolveSelectedSshConfigId` (`projectStore.ts`) — SSH host selection precedence
 - `isInvalidDateRange` / `getKeywordMatchedActions` / `buildActivityScopeInput` (`dashboardStore.ts`) — activity feed filtering
 
@@ -114,5 +115,6 @@ When the same scoping rule is applied in two actions, extract once and call it t
 
 - Writing SQL `INSERT`/`UPDATE`/`DELETE` from stores.
 - Fetching the same collection independently in every dialog instead of using the store.
+- Calling `fetchTasks(selectedProjectId)` from a create/picker dialog. `fetchTasks` replaces the board cache and sets `activeProjectId`; when the header is all projects this hides every other project's tasks. Load picker candidates with local `listTasks` (`CreateTaskDialog`, `ArchiveManagementDialog`).
 - Storing full Monaco models or DOM nodes in Zustand.
 - Cloning backend response types into a second store-specific interface without need.

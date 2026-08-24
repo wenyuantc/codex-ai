@@ -18,6 +18,7 @@ import {
   getRemoteCodexSettings,
   listMilestones,
   listTags,
+  listTasks,
   setTaskTags,
 } from "@/lib/backend";
 import { getProjectWorkingDir } from "@/lib/projects";
@@ -56,7 +57,7 @@ export function CreateTaskDialog({
   onCreated,
 }: CreateTaskDialogProps) {
   const { t } = useTranslation(["tasks", "common", "kanban"]);
-  const { createTask, tasks, fetchTasks } = useTaskStore();
+  const { createTask } = useTaskStore();
   const { projects, fetchProjects } = useProjectStore();
   const { employees, fetchEmployees } = useEmployeeStore();
   const optimizePrompt = useAiOptimizePrompt(open);
@@ -72,6 +73,7 @@ export function CreateTaskDialog({
   const [milestoneId, setMilestoneId] = useState("");
   const [projectMilestones, setProjectMilestones] = useState<Milestone[]>([]);
   const [projectTags, setProjectTags] = useState<Tag[]>([]);
+  const [projectTasks, setProjectTasks] = useState<Task[]>([]);
   const [selectedTagIds, setSelectedTagIds] = useState<string[]>([]);
   const [dependencyTaskIds, setDependencyTaskIds] = useState<string[]>([]);
   const [attachmentPaths, setAttachmentPaths] = useState<string[]>([]);
@@ -84,9 +86,6 @@ export function CreateTaskDialog({
   const selectedProject = projects.find((project) => project.id === selectedProjectId);
   const coordinatorCandidates = employees.filter((employee) => employee.role === "coordinator");
   const reviewerCandidates = employees.filter((employee) => employee.role === "reviewer");
-  const projectTasks = tasks.filter(
-    (task: Task) => task.project_id === selectedProjectId && task.status !== "archived",
-  );
 
   useEffect(() => {
     if (open) {
@@ -148,6 +147,7 @@ export function CreateTaskDialog({
     if (!open || !selectedProjectId) {
       setProjectTags([]);
       setProjectMilestones([]);
+      setProjectTasks([]);
       return;
     }
 
@@ -176,12 +176,25 @@ export function CreateTaskDialog({
           setProjectMilestones([]);
         }
       });
-    void fetchTasks(selectedProjectId);
+    // Dependency picker only. fetchTasks(selectedProjectId) replaces the board cache
+    // and pins activeProjectId, hiding other projects when the header is "all".
+    void listTasks({ projectId: selectedProjectId })
+      .then((rows) => {
+        if (!cancelled) {
+          setProjectTasks(rows.filter((task) => task.status !== "archived"));
+        }
+      })
+      .catch((error) => {
+        console.error("Failed to load project tasks:", error);
+        if (!cancelled) {
+          setProjectTasks([]);
+        }
+      });
 
     return () => {
       cancelled = true;
     };
-  }, [open, selectedProjectId, fetchTasks]);
+  }, [open, selectedProjectId]);
 
   const handleOpen = (isOpen: boolean) => {
     // Block dismiss while create is in flight. Successful submits close via closeAfterSuccess().
