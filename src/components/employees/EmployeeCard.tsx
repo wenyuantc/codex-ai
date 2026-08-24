@@ -9,6 +9,7 @@ import {
   normalizeGrokModel,
   type Employee,
 } from "@/lib/types";
+import { mapBackendError } from "@/lib/i18n/mapBackendError";
 import { getReasoningEffortLabel } from "@/lib/utils";
 import { useEmployeeStore } from "@/stores/employeeStore";
 import { EmployeeStatusBadge } from "./EmployeeStatusBadge";
@@ -31,20 +32,27 @@ export function EmployeeCard({ employee, taskCount = 0, highlighted = false }: E
   const { t } = useTranslation(["employees", "common"]);
   const deleteEmployee = useEmployeeStore((s) => s.deleteEmployee);
   const updateEmployeeStatus = useEmployeeStore((s) => s.updateEmployeeStatus);
-  const runningSessions = useEmployeeStore((s) => s.employeeRuntime[employee.id]?.sessions ?? []);
+  const employeeRuntime = useEmployeeStore((s) => s.employeeRuntime[employee.id]);
+  const runningSessions = employeeRuntime?.sessions ?? [];
   const [showEdit, setShowEdit] = useState(false);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [showRunningDialog, setShowRunningDialog] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   const workload = Math.min((taskCount / MAX_TASKS) * 100, 100);
 
   const handleDelete = async () => {
     setDeleting(true);
+    setDeleteError(null);
     try {
       await updateEmployeeStatus(employee.id, "offline");
       await deleteEmployee(employee.id);
       setShowDeleteDialog(false);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setDeleteError(mapBackendError(message));
+      console.error("Failed to delete employee:", error);
     } finally {
       setDeleting(false);
     }
@@ -162,7 +170,10 @@ export function EmployeeCard({ employee, taskCount = 0, highlighted = false }: E
           <Pencil className="h-3.5 w-3.5" />
         </button>
         <button
-          onClick={() => setShowDeleteDialog(true)}
+          onClick={() => {
+            setDeleteError(null);
+            setShowDeleteDialog(true);
+          }}
           disabled={deleting}
           className="p-1 text-muted-foreground transition-colors hover:text-destructive disabled:opacity-50"
           title={t("deleteEmployeeTitle")}
@@ -183,10 +194,17 @@ export function EmployeeCard({ employee, taskCount = 0, highlighted = false }: E
       <DeleteEmployeeDialog
         open={showDeleteDialog}
         onOpenChange={(open) => {
-          if (!deleting) setShowDeleteDialog(open);
+          if (deleting) {
+            return;
+          }
+          if (!open) {
+            setDeleteError(null);
+          }
+          setShowDeleteDialog(open);
         }}
         employee={employee}
         deleting={deleting}
+        error={deleteError}
         onConfirm={handleDelete}
       />
     </div>

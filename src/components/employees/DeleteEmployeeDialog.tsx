@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import type { Employee } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import {
@@ -13,6 +14,7 @@ interface DeleteEmployeeDialogProps {
   open: boolean;
   employee: Employee | null;
   deleting?: boolean;
+  error?: string | null;
   onOpenChange: (open: boolean) => void;
   onConfirm: () => Promise<void> | void;
 }
@@ -21,19 +23,25 @@ export function DeleteEmployeeDialog({
   open,
   employee,
   deleting = false,
+  error = null,
   onOpenChange,
   onConfirm,
 }: DeleteEmployeeDialogProps) {
+  const { t } = useTranslation(["employees", "common"]);
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-md" showCloseButton={!deleting}>
         <DialogHeader>
-          <DialogTitle>确认删除员工</DialogTitle>
+          <DialogTitle>{t("deleteTitle")}</DialogTitle>
           <DialogDescription>
-            确认删除员工“{employee?.name ?? ""}
-            ”吗？该操作会解除其任务指派、保留历史日志并删除关联绩效数据，且无法恢复。
+            {t("deleteDescription", { name: employee?.name ?? "" })}
           </DialogDescription>
         </DialogHeader>
+
+        {error ? (
+          <p className="text-sm text-destructive">{t("deleteFailed", { message: error })}</p>
+        ) : null}
 
         <DialogFooter className="mt-2">
           <Button
@@ -42,7 +50,7 @@ export function DeleteEmployeeDialog({
             onClick={() => onOpenChange(false)}
             disabled={deleting}
           >
-            取消
+            {t("common:cancel")}
           </Button>
           <Button
             type="button"
@@ -50,7 +58,7 @@ export function DeleteEmployeeDialog({
             onClick={() => void onConfirm()}
             disabled={deleting}
           >
-            {deleting ? "删除中..." : "确认删除"}
+            {deleting ? t("deleting") : t("confirmDelete")}
           </Button>
         </DialogFooter>
       </DialogContent>

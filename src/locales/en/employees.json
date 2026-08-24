@@ -40,6 +40,9 @@
   "refreshModelsTitle": "Refresh model list",
   "deleteTitle": "Delete employee",
   "deleteDescription": "Delete employee “{{name}}”? This unassigns their tasks, keeps history logs, and deletes linked performance data. It cannot be undone.",
+  "deleteFailed": "Failed to delete employee: {{message}}",
+  "deleting": "Deleting...",
+  "confirmDelete": "Confirm delete",
   "runningDialog": {
     "title": "Running terminals",
     "description": "View terminal logs of all tasks currently running for employee “{{name}}”.",

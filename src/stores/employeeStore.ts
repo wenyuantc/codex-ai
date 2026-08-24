@@ -135,6 +135,23 @@ export function buildTaskLogKey(taskId: string, sessionKind: CodexSessionKind = 
   return `${taskId}::${sessionKind}`;
 }
 
+export function applyEmployeeDeleted(
+  state: {
+    employees: Employee[];
+    employeeRuntime: Record<string, EmployeeRuntimeStatus>;
+  },
+  id: string,
+): {
+  employees: Employee[];
+  employeeRuntime: Record<string, EmployeeRuntimeStatus>;
+} {
+  const { [id]: _removed, ...employeeRuntime } = state.employeeRuntime;
+  return {
+    employees: state.employees.filter((employee) => employee.id !== id),
+    employeeRuntime,
+  };
+}
+
 let syntheticSessionLogEventCounter = 0;
 
 function nextSyntheticSessionLogEventId() {
@@ -271,10 +288,7 @@ export const useEmployeeStore = create<EmployeeStore>((set, get) => ({
 
   deleteEmployee: async (id) => {
     await deleteEmployeeCommand(id);
-    set((state) => {
-      const { [id]: _runtime, ...employeeRuntime } = state.employeeRuntime;
-      return { employeeRuntime };
-    });
+    set((state) => applyEmployeeDeleted(state, id));
     await get().fetchEmployees();
   },
 

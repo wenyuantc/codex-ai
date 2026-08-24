@@ -32,6 +32,7 @@ pub(super) use super::{
 pub(super) use crate::db::models::GitPreferences;
 
 mod dashboard_report;
+mod employees;
 mod review_and_attachments;
 mod runtime_and_paths;
 mod sql_and_session;

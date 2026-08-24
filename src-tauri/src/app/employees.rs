@@ -514,28 +514,42 @@ pub async fn delete_employee<R: Runtime>(
     }
 
     let pool = sqlite_pool(&app).await?;
+    delete_employee_records(&pool, &id).await
+}
+
+pub(crate) async fn delete_employee_records(pool: &SqlitePool, id: &str) -> Result<(), String> {
     let mut tx = pool
         .begin()
         .await
         .map_err(|error| format!("Failed to start employee transaction: {}", error))?;
 
     sqlx::query("UPDATE tasks SET assignee_id = NULL WHERE assignee_id = $1")
-        .bind(&id)
+        .bind(id)
         .execute(&mut *tx)
         .await
         .map_err(|error| format!("Failed to clear employee assignments: {}", error))?;
+    sqlx::query("UPDATE tasks SET reviewer_id = NULL WHERE reviewer_id = $1")
+        .bind(id)
+        .execute(&mut *tx)
+        .await
+        .map_err(|error| format!("Failed to clear employee reviews: {}", error))?;
+    sqlx::query("UPDATE comments SET employee_id = NULL WHERE employee_id = $1")
+        .bind(id)
+        .execute(&mut *tx)
+        .await
+        .map_err(|error| format!("Failed to preserve employee comments: {}", error))?;
     sqlx::query("UPDATE activity_logs SET employee_id = NULL WHERE employee_id = $1")
-        .bind(&id)
+        .bind(id)
         .execute(&mut *tx)
         .await
         .map_err(|error| format!("Failed to preserve employee activity logs: {}", error))?;
     sqlx::query("DELETE FROM employee_metrics WHERE employee_id = $1")
-        .bind(&id)
+        .bind(id)
         .execute(&mut *tx)
         .await
         .map_err(|error| format!("Failed to delete employee metrics: {}", error))?;
     sqlx::query("DELETE FROM employees WHERE id = $1")
-        .bind(&id)
+        .bind(id)
         .execute(&mut *tx)
         .await
         .map_err(|error| format!("Failed to delete employee: {}", error))?;

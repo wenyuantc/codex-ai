@@ -40,6 +40,9 @@
   "refreshModelsTitle": "刷新模型列表",
   "deleteTitle": "确认删除员工",
   "deleteDescription": "确认删除员工“{{name}}”吗？该操作会解除其任务指派、保留历史日志并删除关联绩效数据，且无法恢复。",
+  "deleteFailed": "删除失败：{{message}}",
+  "deleting": "删除中...",
+  "confirmDelete": "确认删除",
   "runningDialog": {
     "title": "运行终端",
     "description": "查看员工“{{name}}”当前所有运行任务的终端日志。",
