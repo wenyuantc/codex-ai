@@ -1,6 +1,68 @@
 # 任务列表
 
-# 下一波 · 2026-08-20 可信 + 可运营 + 好找
+# 下一波 · 2026-08-24 五引擎时代：设备补齐 + 信任兑现（待排期）
+
+> 依据：本文件由 PM 视角代码实读（2026-08-24，v0.6.1 基线），每条附可复核证据；参考 `docs/analysis/09-product-gap-2026-08-20.md`（已全部落地）。
+> 主题一句话：**第五引擎内置 Agent（native）已跑通「模型→工具→会话」主循环，但它只有手脚没有装备（MCP / 子 Agent / 交互式权限 / Skills），而文档还停在四引擎时代。**
+
+## 背景：上一波之前的增量（已落地，08-20/21）
+
+- 08-20 「可信 + 可运营 + 好找」A1–C2 八项全部归档（员工状态语义、图片诚实、队列运营面、会话 token、启动检查更新、四引擎引导、i18n 两处、计时器去伪）。
+- 08-20/21 **内置 Agent（native）** 五子任务落地：AI 渠道 CRUD + 三协议（OpenAI/Anthropic/Responses）+ 10 个工具（Read/Write/Edit/Bash/Glob/Grep/TodoRead/TodoWrite/WebFetch/WebSearch）+ 本地/SSH 双工作区 + 模型目录 + token 用量 + 会话来源类型（执行/审核/编排）+ 链路缓存用量展示。
+- **主矛盾再换**：不再是「能不能跑」或「跑得起跑不起成本」，而是 **五个引擎能力是否一致、native 是否配得上「自研 Agent」的承诺、文档是否跟上**。
+
+## P0 · 引擎生态对齐（配了要能用，不能「配了=没配」）
+
+- [ ] **MCP 实际只服务 Codex ⭐⭐⭐**：MCP 引用全在 `codex/`（`codex/mcp.rs` + `codex/process` 共 87 处）；`claude/`、`grok/`、`opencode/`、`native/` 对 MCP **零命中**。设置页 `McpSettingsTab` 与任务级三态绑定（`TaskMcpBindingSection`）生成的 `mcp-servers.json` 只被 Codex 启动路径消费。→ 用户给 Claude/Grok/OpenCode/native 员工配 MCP 是假功能，违背上波「已交付能力要说真话」。方案二选一：A) UI 明确「MCP 仅 Codex」并禁选；B) **建议** native 工具目录加 MCP 工具注入（`tools/` 分发 + SSH 通道已就绪，成本可控），外部引擎逐步跟随。
+
+- [ ] **native 缺「自研 Agent 该有的装备」（native PRD Out of Scope 清单，全部仍缺）⭐⭐⭐**：
+  - **交互式权限确认**：工具执行全 yolo（`native/prompt/identity.md` 只约定「先说明风险」），Write/Bash/删除/推送无用户确认——与本产品「可信」主线正面冲突。建议先做「高风险工具（删除/覆盖/推送/强制 git 操作）确认」，成本低信任收益最大。
+  - **子 Agent**：工具目录只有 TodoRead/TodoWrite，无会话内委派/并行子 Agent。
+  - **plan 模式**：任务详情「AI 生成计划」是一次性文本（`useTaskAiActions.ts`），无「计划 → 用户确认 → 执行」工作流。
+  - **Skills / Hooks / ApplyPatch / Browser**：均无（已有 WebFetch/WebSearch，无浏览器自动化）。
+  - 建议优先级：交互式权限 > 子 Agent > plan 模式 > Skills。
+
+- [ ] **图片附件引擎间仍不对齐 ⭐⭐**：native 支持 ≤8 张（`native/images.rs`）；Codex/Grok/OpenCode 本地支持、SSH 跳过（已诚实提示）；**Claude CLI 本地也跳过**（`claude/process/mod.rs:1240-1250`）。→ Claude 本地图片补齐，或在员工绑定页面明确「该引擎不支持图片」。
+
+## P1 · 信任与运营深化
+
+- [ ] **无定时/计划执行 ⭐⭐**：全库 `cron/schedule` 零命中。「每日验收」「下班后自动审核」只能手动。此前明确不做；native + `run_queue` + `task_automation` 就绪后建议重估，MVP 只做「定时启动任务」（cron 表达式绑定看板任务），不做复杂触发器。
+- [ ] **无真实工时维度 ⭐⭐**：计时器上波去伪后已隐藏（`TaskPropertiesSidebar.tsx:123-137` 只读），员工绩效只有完成数/平均完成时间/成功率（README 员工绩效节），任务无「预估/实际工时」字段与工时报表。
+- [ ] **看板无迭代与依赖可视化 ⭐⭐**：5 列固定、无 Sprint/迭代/泳道/自定义列（全库 `sprint|gantt|泳道` 零命中）；`task_dependencies` 仅列表 UI（`TaskDeliverySection` 等），无依赖图/关键路径视图。
+- [ ] **通知不可外联 ⭐**：仅应用内 + 系统通知；无 Webhook/IM（企业微信/飞书/Slack/钉钉）推送，任务完成/审核待处理无法远程触达。可做成设置页可选渠道，低优先级。
+- [ ] **数据导入不完整 ⭐**：任务 JSON 导入已有（`importTasksJson`）+ CSV/JSON 导出；缺任务 CSV 导入与项目/员工导入，从 Jira/Excel/其他工具迁移冷启动困难。
+
+## P2 · 体验与可发现性
+
+- [ ] **无内置帮助中心**：页面与组件「帮助/文档」零命中；角色说明散落在员工页。→ 设置页「帮助」tab 或扩展现有 `⌘?`（`shortcuts.ts`）为产品手册入口。
+- [ ] **i18n 扫尾**：`08-10-p3-i18n/leftovers.md` 的触发条件（U1 send_input 落地）已满足；Git 对话框、设置正文、任务详情深面板仍大量硬编码中文。
+- [ ] **报表缺运营指标**：仪表盘已有趋势/燃尽（R1）；缺引擎维度对比（token/会话数）、队列等待时长、审核通过率/修复轮次等指标与导出。
+- [ ] **文档漂移已复发**：README 对 native 零命中、设置页章节仍写「6 个标签页」（实际 7，含 channels）、引擎矩阵 4 行缺 native；CLAUDE.md 仍称四引擎 / 227 命令（native 新增 15 个）/ 26 表 / 47 迁移 / 417 测试。08-11 刚校准过又漂 → 建议把「文档=真源」检查脚本化（数据点由代码生成，接入 CI）。
+
+## P3 · 技术债（沿用，未关闭且在涨）
+
+- [ ] 拆分 `TaskDetailDialog`（2014→**2022** 行）/ `TaskCard`（1989 行）
+- [ ] 后端热点：`app/tasks.rs` 3096 / `opencode/process/mod.rs` 2957 / `app/remote.rs` 2450（行数持续增长）
+- [ ] 前端 82 测试全在纯函数；组件与交互层零回归网；无 e2e
+
+## 建议排期（可拆子任务，一次一个）
+
+1. P0-1 MCP 对齐：先 native MCP 工具注入 + UI 能力声明（外部引擎随后）
+2. P0-2a native 高风险工具权限确认（删除/覆盖/推送）
+3. P0-3 Claude 图片声明/补齐（低成本）
+4. P1-4 定时启动 MVP（需用户拍板重估「定时 cron」不做项）
+5. P1-6 依赖图/关键路径视图（低成本高感知）
+6. P2-12 文档校准脚本化（随代码改动必跑）
+
+## 明确不做（沿用路线图，本轮不重开）
+
+微服务拆分 · 远程多端实时同步 · 完整 IDE（LSP/调试器）· Jira/GitHub Issues 双向同步 · token→金额换算 · hunk 级暂存 · Grok send_input（B1 豁免）· ChatGPT 网页 Codex 后端 · 定时 cron（P1-4 建议重估，需用户确认）
+
+> 说明：原「第五个 AI 引擎」不做项已被 08-20 内置 Agent 交付，从非目标清单移除。
+
+---
+
+# 上一波 · 2026-08-20 可信 + 可运营 + 好找
 
 > 依据：[docs/analysis/09-product-gap-2026-08-20.md](docs/analysis/09-product-gap-2026-08-20.md)
 > 主题：**已落地的能力要说真话、找得到、管得住**
@@ -128,6 +190,9 @@
 （无）
 
 # 已完成的
+- [x] 2026-08-24 产品缺口分析：五引擎时代（本文件顶部，待排期）
+- [x] 2026-08-21 会话来源类型（执行/审核/编排）与链路缓存用量（`08-21-session-origin-type`、`08-21-chain-token-usage`）
+- [x] 2026-08-20 内置 Agent（native）五子任务：渠道、模型客户端三协议、工具循环、引擎接入、UI（`08-20-native-agent*`）
 - [x] 2026-08-20 产品下一波：员工状态语义、图片附件诚实、队列运营面、会话 token、启动检查更新、四引擎引导、i18n 收口、计时器去伪（`08-20-product-trust-ops`）
 - [x] 2026-08-12 产品缺口下一波：token 用量、并发队列、日志导出、自动更新、任务模板、审查行级定位（`08-12-product-gap-wave` 已归档）
 - [x] 2026-08-10 P2/P3 收口：空态 CTA、CSV、CTA 拆分、虚拟化、权限收紧、测试网；send_input/i18n/Issues 诚实未做
