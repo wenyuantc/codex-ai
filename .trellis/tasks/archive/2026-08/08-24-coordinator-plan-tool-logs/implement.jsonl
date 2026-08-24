@@ -1,0 +1,9 @@
+{"file": ".trellis/spec/backend/ai-engines.md", "reason": "Native one-shot vs live session; coordinator may use read-only tools, tester stays HTTP no-tools"}
+{"file": ".trellis/spec/backend/command-guidelines.md", "reason": "Payload/command shape for optional request_id"}
+{"file": ".trellis/spec/backend/ssh-remote.md", "reason": "Native SSH tools and remote one-shot stdout"}
+{"file": ".trellis/spec/backend/testing.md", "reason": "Colocated Rust tests for allowlist and emit"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "UI event IPC engine working-dir SSH"}
+{"file": ".trellis/spec/guides/code-reuse-thinking-guide.md", "reason": "Reuse stream parsers, CodexTerminal color helpers, AgentRunner"}
+{"file": ".trellis/spec/frontend/hook-guidelines.md", "reason": "Feature hook for listen+generate shared by TaskCard and TaskDetail"}
+{"file": ".trellis/spec/frontend/state-management.md", "reason": "Do not mix ai-command-stdout into employeeStore taskLogs"}
+{"file": ".trellis/spec/frontend/component-guidelines.md", "reason": "CoordinatorPlanDialog coloring vs CodexTerminal"}

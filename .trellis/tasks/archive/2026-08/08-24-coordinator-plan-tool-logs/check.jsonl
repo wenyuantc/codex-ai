@@ -1,0 +1,6 @@
+{"file": ".trellis/spec/backend/ai-engines.md", "reason": "Tester one-shot must remain no-tools; native not in ProcessManager"}
+{"file": ".trellis/spec/backend/testing.md", "reason": "Clippy -D warnings and colocated tests"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "Local+SSH, no session_kind expansion, no automation hook"}
+{"file": ".trellis/spec/frontend/state-management.md", "reason": "Session stdout listeners must not receive coordinator progress"}
+{"file": ".trellis/spec/frontend/hook-guidelines.md", "reason": "Listener cleanup on unmount/finally"}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "format:check test:ci build"}
