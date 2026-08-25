@@ -625,3 +625,40 @@ i18next zh-CN/en framework, main-path extraction, activity single-source, leftov
 
 - 本地提交尚未 git push
 - 观察积极策略下真实委派率；plan 模式 / Skills 仍未做
+
+
+## Session 21: native 自定义子智能体
+
+**Date**: 2026-08-25
+**Task**: native 自定义子智能体
+**Branch**: `main`
+
+### Summary
+
+设置可配置自定义子智能体；任务可选绑定且必须经 Agent 委派；作用域默认所有项目，也可限定指定项目。
+
+### Main Changes
+
+- 设置「子智能体」Tab：JSON 目录 CRUD，弹窗新建/编辑，旁侧编辑按钮
+- 任务新建/详情可选绑定一个子智能体；执行时父循环必须 Agent(subagent_type=名称) 委派
+- 作用域默认所有项目，可指定项目；选择器与运行时目录按项目过滤，已绑定任务仍会委派
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `aaf593f` | (see git log) |
+
+### Testing
+
+- [OK] clippy -D warnings、format:check、test:ci、tsc --noEmit 通过
+- [OK] cargo test native::subagents::tests 10 项通过
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- tauri dev 冒烟：设置作用域、任务绑定、父循环必须委派
+- 本地提交尚未 git push
