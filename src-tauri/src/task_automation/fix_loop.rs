@@ -278,9 +278,16 @@ async fn start_automation_fix_round(
     let project = fetch_project_by_id(pool, &task.project_id).await?;
     let execution_context = resolve_automation_execution_context(pool, task, &project).await?;
     let attachments = fetch_task_attachments(pool, &task.id).await?;
+    let file_refs = crate::app::fetch_task_file_refs(pool, &task.id).await?;
     let subtasks = fetch_task_subtasks(pool, &task.id).await?;
-    let execution_input =
-        prompt::build_automation_fix_prompt(task, &subtasks, &attachments, review_report, verdict);
+    let execution_input = prompt::build_automation_fix_prompt(
+        task,
+        &subtasks,
+        &attachments,
+        &file_refs,
+        review_report,
+        verdict,
+    );
 
     update_task_status_internal(app, pool, task, "in_progress").await?;
     sqlx::query("UPDATE employees SET status = 'busy' WHERE id = $1")

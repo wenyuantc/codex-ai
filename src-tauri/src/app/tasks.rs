@@ -77,6 +77,127 @@ pub(crate) async fn fetch_task_attachments(
     .map_err(|error| format!("Failed to fetch task attachments: {}", error))
 }
 
+pub(crate) fn normalize_task_file_ref_path(value: &str) -> Result<String, String> {
+    let trimmed = value.trim().replace('\\', "/");
+    let without_dot = trimmed.trim_start_matches("./");
+    let segments: Vec<&str> = without_dot
+        .split('/')
+        .filter(|segment| !segment.is_empty() && *segment != ".")
+        .collect();
+    if segments.is_empty() {
+        return Err("项目文件引用路径不能为空".to_string());
+    }
+    if segments.contains(&"..") {
+        return Err("项目文件引用不能包含上级目录".to_string());
+    }
+    if without_dot.starts_with('/')
+        || (without_dot.len() >= 2 && without_dot.as_bytes()[1] == b':')
+        || without_dot.contains('\0')
+    {
+        return Err("项目文件引用必须是相对仓库根的路径".to_string());
+    }
+    Ok(segments.join("/"))
+}
+
+pub(crate) fn format_task_file_refs_prompt_section(paths: &[String]) -> Option<String> {
+    let lines: Vec<String> = paths
+        .iter()
+        .map(|path| path.trim())
+        .filter(|path| !path.is_empty())
+        .enumerate()
+        .map(|(index, path)| format!("{}. {}", index + 1, path))
+        .collect();
+    if lines.is_empty() {
+        return None;
+    }
+    Some(format!(
+        "项目文件引用:\n{}\n\n说明：以上路径相对项目仓库根目录。请优先阅读这些文件再动手。",
+        lines.join("\n")
+    ))
+}
+
+pub(crate) async fn fetch_task_file_refs(
+    pool: &SqlitePool,
+    task_id: &str,
+) -> Result<Vec<TaskFileRef>, String> {
+    sqlx::query_as::<_, TaskFileRef>(
+        "SELECT * FROM task_file_refs WHERE task_id = $1 ORDER BY sort_order, created_at",
+    )
+    .bind(task_id)
+    .fetch_all(pool)
+    .await
+    .map_err(|error| format!("Failed to fetch task file refs: {}", error))
+}
+
+async fn fetch_task_file_ref_by_id(pool: &SqlitePool, id: &str) -> Result<TaskFileRef, String> {
+    sqlx::query_as::<_, TaskFileRef>("SELECT * FROM task_file_refs WHERE id = $1 LIMIT 1")
+        .bind(id)
+        .fetch_one(pool)
+        .await
+        .map_err(|error| format!("Task file ref {} not found: {}", id, error))
+}
+
+fn build_task_file_refs_from_paths(
+    task_id: &str,
+    paths: &[String],
+    start_sort_order: i32,
+) -> Result<Vec<TaskFileRef>, String> {
+    let mut refs: Vec<TaskFileRef> = Vec::new();
+    let mut sort_order = start_sort_order;
+    for path in paths {
+        let relative_path = normalize_task_file_ref_path(path)?;
+        if refs.iter().any(|item| item.relative_path == relative_path) {
+            continue;
+        }
+        refs.push(TaskFileRef {
+            id: new_id(),
+            task_id: task_id.to_string(),
+            relative_path,
+            sort_order,
+            created_at: now_sqlite(),
+        });
+        sort_order += 1;
+    }
+    Ok(refs)
+}
+
+async fn resolve_next_task_file_ref_sort_order(
+    pool: &SqlitePool,
+    task_id: &str,
+) -> Result<i32, String> {
+    let next = sqlx::query_scalar::<_, Option<i64>>(
+        "SELECT COALESCE(MAX(sort_order), 0) + 1 FROM task_file_refs WHERE task_id = $1",
+    )
+    .bind(task_id)
+    .fetch_optional(pool)
+    .await
+    .map_err(|error| format!("Failed to resolve file ref order: {}", error))?
+    .flatten()
+    .unwrap_or(1);
+
+    Ok(next as i32)
+}
+
+async fn insert_task_file_refs(
+    tx: &mut sqlx::Transaction<'_, Sqlite>,
+    file_refs: &[TaskFileRef],
+) -> Result<(), String> {
+    for file_ref in file_refs {
+        sqlx::query(
+            "INSERT INTO task_file_refs (id, task_id, relative_path, sort_order, created_at) VALUES ($1, $2, $3, $4, $5)",
+        )
+        .bind(&file_ref.id)
+        .bind(&file_ref.task_id)
+        .bind(&file_ref.relative_path)
+        .bind(file_ref.sort_order)
+        .bind(&file_ref.created_at)
+        .execute(&mut **tx)
+        .await
+        .map_err(|error| format!("Failed to insert task file ref: {}", error))?;
+    }
+    Ok(())
+}
+
 pub(crate) async fn fetch_task_subtasks(
     pool: &SqlitePool,
     task_id: &str,
@@ -1007,6 +1128,34 @@ pub async fn create_task<R: Runtime>(
         Vec::new()
     };
 
+    let file_refs = if let Some(paths) = payload.file_ref_paths.as_ref() {
+        let file_refs = build_task_file_refs_from_paths(&task.id, paths, 1)?;
+        if let Err(error) = insert_task_file_refs(&mut tx, &file_refs).await {
+            cleanup_task_attachment_files(
+                &attachments
+                    .iter()
+                    .map(|attachment| attachment.stored_path.clone())
+                    .collect::<Vec<_>>(),
+            );
+            cleanup_empty_attachment_dir(&app, &task.id);
+            if project.project_type == PROJECT_TYPE_SSH {
+                if let Some(ssh_config_id) = project.ssh_config_id.as_deref() {
+                    cleanup_remote_task_attachment_paths(
+                        &app,
+                        ssh_config_id,
+                        &uploaded_remote_paths,
+                    )
+                    .await;
+                }
+            }
+            tx.rollback().await.ok();
+            return Err(error);
+        }
+        file_refs
+    } else {
+        Vec::new()
+    };
+
     if let Err(error) = tx.commit().await {
         cleanup_task_attachment_files(
             &attachments
@@ -1028,12 +1177,17 @@ pub async fn create_task<R: Runtime>(
         &pool,
         "task_created",
         &format!(
-            "{}{}{}",
+            "{}{}{}{}",
             task.title,
             if attachments.is_empty() {
                 "".to_string()
             } else {
                 format!("（含 {} 个附件）", attachments.len())
+            },
+            if file_refs.is_empty() {
+                "".to_string()
+            } else {
+                format!("（含 {} 个项目文件引用）", file_refs.len())
             },
             task.native_subagent_id
                 .as_deref()
@@ -2807,6 +2961,90 @@ pub async fn list_task_attachments<R: Runtime>(
 }
 
 #[tauri::command]
+pub async fn list_task_file_refs<R: Runtime>(
+    app: AppHandle<R>,
+    task_id: String,
+) -> Result<Vec<TaskFileRef>, String> {
+    let pool = sqlite_pool(&app).await?;
+    fetch_task_by_id(&pool, &task_id).await?;
+    fetch_task_file_refs(&pool, &task_id).await
+}
+
+#[tauri::command]
+pub async fn add_task_file_refs<R: Runtime>(
+    app: AppHandle<R>,
+    task_id: String,
+    paths: Vec<String>,
+) -> Result<Vec<TaskFileRef>, String> {
+    let pool = sqlite_pool(&app).await?;
+    let task = fetch_task_by_id(&pool, &task_id).await?;
+    if paths.is_empty() {
+        return fetch_task_file_refs(&pool, &task_id).await;
+    }
+
+    let existing = fetch_task_file_refs(&pool, &task_id).await?;
+    let start_sort_order = resolve_next_task_file_ref_sort_order(&pool, &task_id).await?;
+    let mut incoming = build_task_file_refs_from_paths(&task_id, &paths, start_sort_order)?;
+    incoming.retain(|item| {
+        !existing
+            .iter()
+            .any(|current| current.relative_path == item.relative_path)
+    });
+    if incoming.is_empty() {
+        return Ok(existing);
+    }
+
+    let mut tx = pool
+        .begin()
+        .await
+        .map_err(|error| format!("Failed to start file ref transaction: {}", error))?;
+    insert_task_file_refs(&mut tx, &incoming).await?;
+    tx.commit()
+        .await
+        .map_err(|error| format!("Failed to commit file refs: {}", error))?;
+
+    let preview = incoming
+        .iter()
+        .map(|item| item.relative_path.as_str())
+        .take(3)
+        .collect::<Vec<_>>()
+        .join("、");
+    insert_activity_log(
+        &pool,
+        "task_file_refs_added",
+        &format!("{}（{}）", task.title, preview),
+        None,
+        Some(&task.id),
+        Some(&task.project_id),
+    )
+    .await?;
+
+    fetch_task_file_refs(&pool, &task_id).await
+}
+
+#[tauri::command]
+pub async fn delete_task_file_ref<R: Runtime>(app: AppHandle<R>, id: String) -> Result<(), String> {
+    let pool = sqlite_pool(&app).await?;
+    let file_ref = fetch_task_file_ref_by_id(&pool, &id).await?;
+    let task = fetch_task_by_id(&pool, &file_ref.task_id).await?;
+    sqlx::query("DELETE FROM task_file_refs WHERE id = $1")
+        .bind(&id)
+        .execute(&pool)
+        .await
+        .map_err(|error| format!("Failed to delete task file ref: {}", error))?;
+    insert_activity_log(
+        &pool,
+        "task_file_ref_removed",
+        &format!("{}（{}）", task.title, file_ref.relative_path),
+        None,
+        Some(&task.id),
+        Some(&task.project_id),
+    )
+    .await?;
+    Ok(())
+}
+
+#[tauri::command]
 pub async fn list_task_subtasks<R: Runtime>(
     app: AppHandle<R>,
     task_id: String,
@@ -2833,6 +3071,32 @@ pub async fn list_task_comments<R: Runtime>(
 ) -> Result<Vec<Comment>, String> {
     let pool = sqlite_pool(&app).await?;
     fetch_task_comments(&pool, &task_id).await
+}
+
+#[cfg(test)]
+mod task_file_ref_path_tests {
+    use super::normalize_task_file_ref_path;
+
+    #[test]
+    fn normalizes_relative_posix_and_backslash_paths() {
+        assert_eq!(
+            normalize_task_file_ref_path(" src\\\\lib\\\\taskPrompt.ts ").unwrap(),
+            "src/lib/taskPrompt.ts"
+        );
+        assert_eq!(
+            normalize_task_file_ref_path("./src/lib/taskPrompt.ts").unwrap(),
+            "src/lib/taskPrompt.ts"
+        );
+    }
+
+    #[test]
+    fn rejects_parent_and_absolute_paths() {
+        assert!(normalize_task_file_ref_path("../secret.env").is_err());
+        assert!(normalize_task_file_ref_path("src/../../etc/passwd").is_err());
+        assert!(normalize_task_file_ref_path("/etc/passwd").is_err());
+        assert!(normalize_task_file_ref_path("C:/Windows/system32").is_err());
+        assert!(normalize_task_file_ref_path("   ").is_err());
+    }
 }
 
 #[cfg(test)]

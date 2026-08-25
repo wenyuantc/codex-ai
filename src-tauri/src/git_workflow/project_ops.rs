@@ -854,3 +854,34 @@ pub async fn commit_project_git_changes<R: Runtime>(
     Ok(result)
 }
 
+fn normalize_project_file_list_limit(limit: Option<usize>) -> usize {
+    limit
+        .unwrap_or(PROJECT_FILE_LIST_LIMIT_DEFAULT)
+        .clamp(1, PROJECT_FILE_LIST_LIMIT_MAX)
+}
+
+#[tauri::command]
+pub async fn list_project_files<R: Runtime>(
+    app: AppHandle<R>,
+    project_id: String,
+    query: Option<String>,
+    limit: Option<usize>,
+) -> Result<Vec<String>, String> {
+    let limit = normalize_project_file_list_limit(limit);
+    let (_pool, _project, runtime) =
+        resolve_project_runtime_for_git_overview(&app, &project_id).await?;
+    let query = query
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    git_runtime::list_repo_files(
+        &app,
+        &runtime.execution_target,
+        runtime.ssh_config_id.as_deref(),
+        &runtime.repo_path,
+        query,
+        limit,
+    )
+    .await
+}
+

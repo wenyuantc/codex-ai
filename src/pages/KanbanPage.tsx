@@ -50,7 +50,8 @@ const FILTER_UNASSIGNED = "__unassigned__";
 export function KanbanPage() {
   const { t } = useTranslation("kanban");
   const [searchParams, setSearchParams] = useSearchParams();
-  const { fetchTasks, fetchAttachments, fetchSubtasks, tasks, runQueue } = useTaskStore();
+  const { fetchTasks, fetchAttachments, fetchFileRefs, fetchSubtasks, tasks, runQueue } =
+    useTaskStore();
   const currentProjectId = useProjectStore((state) => state.currentProject?.id);
   const projects = useProjectStore((state) => state.projects);
   const environmentMode = useProjectStore((state) => state.environmentMode);
@@ -335,12 +336,13 @@ export function KanbanPage() {
         if (!assignee) {
           continue;
         }
-        await fetchAttachments(task.id);
+        await Promise.all([fetchAttachments(task.id), fetchFileRefs(task.id)]);
         const previewInput = buildTaskExecutionInput({
           title: task.title,
           description: task.description,
           subtasks: useTaskStore.getState().subtasks[task.id] ?? [],
           attachments: useTaskStore.getState().attachments[task.id] ?? [],
+          fileRefs: useTaskStore.getState().fileRefs[task.id] ?? [],
         });
         if (
           assignee.ai_provider === "claude" &&
@@ -395,12 +397,17 @@ export function KanbanPage() {
         }
 
         try {
-          await Promise.all([fetchSubtasks(task.id), fetchAttachments(task.id)]);
+          await Promise.all([
+            fetchSubtasks(task.id),
+            fetchAttachments(task.id),
+            fetchFileRefs(task.id),
+          ]);
           const executionInput = buildTaskExecutionInput({
             title: task.title,
             description: task.description,
             subtasks: useTaskStore.getState().subtasks[task.id] ?? [],
             attachments: useTaskStore.getState().attachments[task.id] ?? [],
+            fileRefs: useTaskStore.getState().fileRefs[task.id] ?? [],
           });
           const outcome = await startTaskRunSession({
             task,

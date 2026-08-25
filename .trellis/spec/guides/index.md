@@ -33,6 +33,7 @@ Most regressions in this repo come from boundary mistakes, not syntax:
 - [ ] `start_*` return value or run-queue / concurrency cap
 - [ ] Fifth engine / in-process native agent (`ai_channels`, `NativeAgentManager`, never `EngineChild`)
 - [ ] Task template apply (batch create + tags/subtasks, no `create_task` attachments)
+- [ ] Task project file refs (`task_file_refs` relative paths, git-bridge list, prompt injection)
 - [ ] Review findings (`<review_findings>` / latest-review payload / Monaco reveal)
 - [ ] Desktop auto-update (updater artifacts, `latest.json`, signing secrets)
 

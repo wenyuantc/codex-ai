@@ -39,6 +39,7 @@
 | [AI Engines](./ai-engines.md) | Codex/Claude/OpenCode/Grok process lifecycle + native in-process agent contracts |
 | [Run Queue](./run-queue.md) | Global concurrency gate, `StartSessionOutcome`, `task_run_queue` |
 | [Task Templates](./task-templates.md) | v47 `task_templates`, `{{ident}}` apply, batch create without attachments |
+| [Task File Refs](./task-file-refs.md) | v53 `task_file_refs` relative repo paths; not attachments; git-bridge list local+SSH |
 | [Review Findings](./review-findings.md) | `<review_findings>` event, `get_task_latest_review.findings`, Monaco line reveal |
 | [SSH Remote](./ssh-remote.md) | `build_ssh_command` multiplexing, askpass env, quit cleanup, remote SDK runtimes |
 | [Testing](./testing.md) | Integration/unit test patterns |

@@ -129,6 +129,11 @@ struct GitBridgeTextResult {
 }
 
 #[derive(Debug, Deserialize)]
+struct GitBridgePathsResult {
+    paths: Vec<String>,
+}
+
+#[derive(Debug, Deserialize)]
 struct GitBridgeReviewContextResult {
     context: String,
 }
@@ -497,6 +502,29 @@ pub(crate) async fn collect_git_overview<R: Runtime>(
         }),
     )
     .await
+}
+
+pub(crate) async fn list_repo_files<R: Runtime>(
+    app: &AppHandle<R>,
+    execution_target: &str,
+    ssh_config_id: Option<&str>,
+    repo_path: &str,
+    query: Option<&str>,
+    limit: usize,
+) -> Result<Vec<String>, String> {
+    let result: GitBridgePathsResult = call_bridge(
+        app,
+        execution_target,
+        ssh_config_id,
+        serde_json::json!({
+            "command": "list_files",
+            "repoPath": repo_path,
+            "query": query.unwrap_or(""),
+            "limit": limit,
+        }),
+    )
+    .await?;
+    Ok(result.paths)
 }
 
 pub(crate) async fn list_worktrees_porcelain<R: Runtime>(

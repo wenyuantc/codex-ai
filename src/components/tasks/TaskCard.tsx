@@ -240,6 +240,7 @@ function TaskCardComponent({
   const projectName = project?.name;
   const projectRepoPath = getProjectWorkingDir(project);
   const fetchAttachments = useTaskStore((s) => s.fetchAttachments);
+  const fetchFileRefs = useTaskStore((s) => s.fetchFileRefs);
   const fetchSubtasks = useTaskStore((s) => s.fetchSubtasks);
   const fetchTaskAutomationState = useTaskStore((s) => s.fetchTaskAutomationState);
   const persistedAutomationState = useTaskStore((s) => s.automationStates[task.id]);
@@ -277,13 +278,18 @@ function TaskCardComponent({
     projectRepoPath,
     projectType: project?.project_type,
     prepareExecutionInput: async (followUpPrompt, options) => {
-      await Promise.all([fetchSubtasks(task.id), fetchAttachments(task.id)]);
+      await Promise.all([
+        fetchSubtasks(task.id),
+        fetchAttachments(task.id),
+        fetchFileRefs(task.id),
+      ]);
       const executionInput = buildTaskExecutionInput({
         title: task.title,
         description: task.description,
         planContent: options?.planContent,
         subtasks: useTaskStore.getState().subtasks[task.id] ?? [],
         attachments: useTaskStore.getState().attachments[task.id] ?? [],
+        fileRefs: useTaskStore.getState().fileRefs[task.id] ?? [],
         followUpPrompt,
       });
 

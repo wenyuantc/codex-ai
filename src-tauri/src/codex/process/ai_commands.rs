@@ -10,8 +10,9 @@ use super::{
 };
 use crate::app::{
     fetch_employee_by_id, fetch_project_by_id, fetch_task_attachments, fetch_task_by_id,
-    fetch_task_subtasks, insert_activity_log, new_id, now_sqlite, sqlite_pool,
-    task_attachment_is_image, PROJECT_TYPE_SSH,
+    fetch_task_file_refs, fetch_task_subtasks, format_task_file_refs_prompt_section,
+    insert_activity_log, new_id, now_sqlite, sqlite_pool, task_attachment_is_image,
+    PROJECT_TYPE_SSH,
 };
 use crate::codex::{
     find_ai_prompt_template, load_ai_prompt_templates, load_codex_settings,
@@ -860,6 +861,7 @@ pub async fn ai_generate_coordinator_task_plan(
 
     let subtasks = fetch_task_subtasks(&pool, &task.id).await?;
     let attachments = fetch_task_attachments(&pool, &task.id).await?;
+    let file_refs = fetch_task_file_refs(&pool, &task.id).await?;
     let subtask_titles = subtasks
         .iter()
         .map(|subtask| subtask.title.clone())
@@ -898,9 +900,18 @@ pub async fn ai_generate_coordinator_task_plan(
         &attachment_items,
         plan_template,
     );
+    let file_ref_paths: Vec<String> = file_refs
+        .iter()
+        .map(|item| item.relative_path.trim().to_string())
+        .filter(|path| !path.is_empty())
+        .collect();
+    let file_ref_block = format_task_file_refs_prompt_section(&file_ref_paths)
+        .map(|section| format!("\n\n{section}"))
+        .unwrap_or_default();
     let prompt = format!(
-        "{}\n\n可用员工（请仅使用下列 id 作为 steps.employee_id）：\n{}\n任务负责人 assignee_id：{}",
+        "{}{}\n\n可用员工（请仅使用下列 id 作为 steps.employee_id）：\n{}\n任务负责人 assignee_id：{}",
         base_prompt,
+        file_ref_block,
         employee_lines,
         task.assignee_id.as_deref().unwrap_or("（未设置）")
     );

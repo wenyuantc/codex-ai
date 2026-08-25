@@ -204,6 +204,15 @@ pub struct TaskAttachment {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+pub struct TaskFileRef {
+    pub id: String,
+    pub task_id: String,
+    pub relative_path: String,
+    pub sort_order: i32,
+    pub created_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct Subtask {
     pub id: String,
     pub task_id: String,
@@ -957,6 +966,8 @@ pub struct CreateTask {
     pub milestone_id: Option<String>,
     pub native_subagent_id: Option<String>,
     pub attachment_source_paths: Option<Vec<String>>,
+    #[serde(default)]
+    pub file_ref_paths: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

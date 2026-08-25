@@ -24,6 +24,9 @@ describe("i18n locale preference", () => {
     expect(getActivityActionLabel("native_subagent_finished")).toBe("子 Agent 结束");
     expect(getActivityActionLabel("native_subagent_created")).toBe("创建子智能体");
     expect(getActivityActionLabel("task_native_subagent_updated")).toBe("更新任务子智能体");
+    expect(getActivityActionLabel("task_file_refs_added")).toBe("添加项目文件引用");
+    expect(getActivityActionLabel("task_file_ref_removed")).toBe("移除项目文件引用");
+    expect(i18n.t("tasks:createDialog.selectProjectFiles")).toBe("选择项目文件");
     expect(i18n.t("settings:tabs.subagents")).toBe("子智能体");
     expect(i18n.t("settings:subagents.dialogs.createTitle")).toBe("新建子智能体");
     expect(i18n.t("settings:subagents.dialogs.editTitle")).toBe("编辑子智能体");
@@ -64,6 +67,9 @@ describe("i18n locale preference", () => {
     expect(getActivityActionLabel("native_subagent_finished")).toBe("Sub-agent finished");
     expect(getActivityActionLabel("native_subagent_created")).toBe("Created sub-agent");
     expect(getActivityActionLabel("task_native_subagent_updated")).toBe("Updated task sub-agent");
+    expect(getActivityActionLabel("task_file_refs_added")).toBe("Added project file references");
+    expect(getActivityActionLabel("task_file_ref_removed")).toBe("Removed project file reference");
+    expect(i18n.t("tasks:createDialog.selectProjectFiles")).toBe("Select project files");
     expect(i18n.t("settings:tabs.subagents")).toBe("Sub-agents");
     expect(i18n.t("settings:subagents.dialogs.createTitle")).toBe("New sub-agent");
     expect(i18n.t("settings:subagents.dialogs.editTitle")).toBe("Edit sub-agent");

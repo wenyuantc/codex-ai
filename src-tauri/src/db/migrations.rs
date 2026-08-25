@@ -1229,6 +1229,25 @@ pub fn get_all_migrations() -> Vec<Migration> {
             "#,
             kind: tauri_plugin_sql::MigrationKind::Up,
         },
+        Migration {
+            version: 53,
+            description: "task project file references",
+            sql: r#"
+                CREATE TABLE task_file_refs (
+                    id TEXT PRIMARY KEY,
+                    task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+                    relative_path TEXT NOT NULL,
+                    sort_order INTEGER NOT NULL DEFAULT 0,
+                    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+                );
+
+                CREATE UNIQUE INDEX idx_task_file_refs_task_path
+                    ON task_file_refs(task_id, relative_path);
+                CREATE INDEX idx_task_file_refs_task_sort
+                    ON task_file_refs(task_id, sort_order, created_at);
+            "#,
+            kind: tauri_plugin_sql::MigrationKind::Up,
+        },
     ]
 }
 
@@ -1270,7 +1289,7 @@ mod tests {
 
     #[test]
     fn latest_migration_version_includes_session_events_retention_index() {
-        assert_eq!(latest_migration_version(), 52);
+        assert_eq!(latest_migration_version(), 53);
     }
 
     #[test]

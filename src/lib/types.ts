@@ -199,6 +199,14 @@ export interface TaskAttachment {
   created_at: string;
 }
 
+export interface TaskFileRef {
+  id: string;
+  task_id: string;
+  relative_path: string;
+  sort_order: number;
+  created_at: string;
+}
+
 export interface Subtask {
   id: string;
   task_id: string;

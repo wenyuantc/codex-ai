@@ -22,6 +22,7 @@ export interface CreateTaskPayload {
   milestone_id?: string | null;
   native_subagent_id?: string | null;
   attachment_source_paths?: string[];
+  file_ref_paths?: string[];
 }
 
 export interface CreateTaskForRunOptions {
@@ -121,14 +122,16 @@ export async function continueCreatedTaskRun(
     }
 
     progress.setPhase(taskId, "starting");
-    await taskStore.fetchAttachments(task.id);
+    await Promise.all([taskStore.fetchAttachments(task.id), taskStore.fetchFileRefs(task.id)]);
     const attachments = useTaskStore.getState().attachments[task.id] ?? [];
+    const fileRefs = useTaskStore.getState().fileRefs[task.id] ?? [];
     const executionInput = buildTaskExecutionInput({
       title: task.title,
       description: task.description,
       planContent,
       subtasks: useTaskStore.getState().subtasks[task.id] ?? [],
       attachments,
+      fileRefs,
     });
 
     await startTaskRunSession({

@@ -1266,6 +1266,41 @@ async function executeAction(repoPath, worktreePath, taskBranch, actionType, pay
   }
 }
 
+function splitNulPaths(raw) {
+  return String(raw || "")
+    .split("\0")
+    .map((item) => item.replace(/\\/g, "/").replace(/^\.\//, "").trim())
+    .filter(Boolean);
+}
+
+async function listRepoFiles(repoPath, query, limit) {
+  const cap = Math.min(Math.max(Number(limit) || 200, 1), 500);
+  const needle = typeof query === "string" ? query.trim().toLowerCase() : "";
+  const tracked = splitNulPaths(await gitCli(repoPath, ["ls-files", "-z"]));
+  let others = [];
+  try {
+    others = splitNulPaths(
+      await gitCli(repoPath, ["ls-files", "-z", "--others", "--exclude-standard"]),
+    );
+  } catch {
+    others = [];
+  }
+  const seen = new Set();
+  const merged = [];
+  for (const filePath of [...tracked, ...others]) {
+    if (seen.has(filePath) || filePath.split("/").includes("..")) {
+      continue;
+    }
+    if (needle && !filePath.toLowerCase().includes(needle)) {
+      continue;
+    }
+    seen.add(filePath);
+    merged.push(filePath);
+  }
+  merged.sort((left, right) => left.localeCompare(right));
+  return { paths: merged.slice(0, cap) };
+}
+
 async function executeCommand(input) {
   const repoPath = input.repoPath ? resolveRepoPath(input.repoPath) : null;
   if (repoPath) {
@@ -1467,6 +1502,12 @@ async function executeCommand(input) {
           : "Merge conflict resolved";
       await gitRaw(repoPath, ["commit", "--no-edit", "-m", message]);
       return { message: "已完成合并提交" };
+    }
+    case "list_files": {
+      if (!repoPath) {
+        throw new Error("list_files 需要 repoPath");
+      }
+      return await listRepoFiles(repoPath, input.query, input.limit);
     }
     default:
       throw new Error(`unsupported command: ${input.command}`);

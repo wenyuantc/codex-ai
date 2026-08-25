@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
-import { Loader2, Paperclip, Play, Sparkles, X } from "lucide-react";
+import { FolderTree, Loader2, Paperclip, Play, Sparkles, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { useTaskStore } from "@/stores/taskStore";
@@ -37,6 +37,7 @@ import {
 } from "@/components/ui/select";
 import { TaskAttachmentGrid } from "./TaskAttachmentGrid";
 import { NativeSubagentSelect } from "./NativeSubagentSelect";
+import { ProjectFileRefPicker } from "./ProjectFileRefPicker";
 
 const UNASSIGNED_VALUE = "__unassigned__";
 const NONE_VALUE = "__none__";
@@ -79,6 +80,8 @@ export function CreateTaskDialog({
   const [selectedTagIds, setSelectedTagIds] = useState<string[]>([]);
   const [dependencyTaskIds, setDependencyTaskIds] = useState<string[]>([]);
   const [attachmentPaths, setAttachmentPaths] = useState<string[]>([]);
+  const [fileRefPaths, setFileRefPaths] = useState<string[]>([]);
+  const [fileRefPickerOpen, setFileRefPickerOpen] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [defaultsLoading, setDefaultsLoading] = useState(false);
@@ -221,6 +224,8 @@ export function CreateTaskDialog({
       setSelectedTagIds([]);
       setDependencyTaskIds([]);
       setAttachmentPaths([]);
+      setFileRefPaths([]);
+      setFileRefPickerOpen(false);
       setCreateError(null);
     }
     onOpenChange(isOpen);
@@ -245,6 +250,7 @@ export function CreateTaskDialog({
     due_date: dueDate || null,
     milestone_id: milestoneId || null,
     attachment_source_paths: attachmentPaths,
+    file_ref_paths: fileRefPaths,
   });
 
   const validateCreateBase = (requireAssignee: boolean): string | null => {
@@ -515,6 +521,7 @@ export function CreateTaskDialog({
                   setSelectedTagIds([]);
                   setDependencyTaskIds([]);
                   setMilestoneId("");
+                  setFileRefPaths([]);
                   setCreateError(null);
                 }}
               >
@@ -908,6 +915,68 @@ export function CreateTaskDialog({
                 ))}
               </SelectContent>
             </Select>
+          </div>
+
+          <div className="space-y-2">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <label className="text-xs font-medium text-muted-foreground">
+                  {t("createDialog.fields.fileRefs")}
+                </label>
+                <p className="text-[11px] text-muted-foreground">
+                  {t("createDialog.fileRefsHint")}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setFileRefPickerOpen(true)}
+                disabled={!selectedProjectId || !isTauriRuntime() || saving}
+                className="flex items-center gap-1 rounded-md border border-input px-2.5 py-1.5 text-xs hover:bg-accent disabled:opacity-50"
+                title={
+                  selectedProjectId
+                    ? t("createDialog.selectProjectFilesTitle")
+                    : t("createDialog.selectProjectFilesNeedProject")
+                }
+              >
+                <FolderTree className="h-3.5 w-3.5" />
+                {t("createDialog.selectProjectFiles")}
+              </button>
+            </div>
+            {!selectedProjectId && (
+              <p className="text-[11px] text-muted-foreground">
+                {t("createDialog.selectProjectFilesNeedProject")}
+              </p>
+            )}
+            <div className="flex flex-wrap gap-1.5">
+              {fileRefPaths.length === 0 && (
+                <span className="text-[11px] text-muted-foreground">
+                  {t("createDialog.noFileRefsYet")}
+                </span>
+              )}
+              {fileRefPaths.map((path) => (
+                <Badge key={path} variant="outline" className="max-w-full gap-1 pr-1 font-mono">
+                  <span className="truncate" title={path}>
+                    {path}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setFileRefPaths((current) => current.filter((item) => item !== path))
+                    }
+                    className="rounded-full p-0.5 hover:bg-muted"
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
+                </Badge>
+              ))}
+            </div>
+            <ProjectFileRefPicker
+              open={fileRefPickerOpen}
+              onOpenChange={setFileRefPickerOpen}
+              projectId={selectedProjectId || null}
+              selectedPaths={fileRefPaths}
+              onConfirm={setFileRefPaths}
+            />
           </div>
 
           <div className="space-y-2">

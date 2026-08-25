@@ -32,6 +32,8 @@ describe("getActivityActionLabel", () => {
     expect(getActivityActionLabel("native_subagent_updated")).toBe("更新子智能体");
     expect(getActivityActionLabel("native_subagent_deleted")).toBe("删除子智能体");
     expect(getActivityActionLabel("task_native_subagent_updated")).toBe("更新任务子智能体");
+    expect(getActivityActionLabel("task_file_refs_added")).toBe("添加项目文件引用");
+    expect(getActivityActionLabel("task_file_ref_removed")).toBe("移除项目文件引用");
   });
 
   it("falls back to the raw key for unmapped actions", () => {

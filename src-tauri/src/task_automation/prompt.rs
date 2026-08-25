@@ -32,6 +32,7 @@ pub fn build_automation_fix_prompt(
     task: &Task,
     subtasks: &[Subtask],
     attachments: &[TaskAttachment],
+    file_refs: &[crate::db::models::TaskFileRef],
     review_report: &str,
     review_verdict: &ReviewVerdict,
 ) -> AutomationExecutionInput {
@@ -76,6 +77,15 @@ pub fn build_automation_fix_prompt(
             "任务附件:\n{}\n\n说明：以上附件已绑定到当前任务；其中图片会随本次任务一并附带给 Codex。",
             lines.join("\n")
         ));
+    }
+
+    let file_ref_paths: Vec<String> = file_refs
+        .iter()
+        .map(|item| item.relative_path.trim().to_string())
+        .filter(|path| !path.is_empty())
+        .collect();
+    if let Some(section) = crate::app::format_task_file_refs_prompt_section(&file_ref_paths) {
+        sections.push(section);
     }
 
     sections.push(format!(
@@ -168,10 +178,18 @@ mod tests {
             summary: "仍有 2 个阻断问题".to_string(),
         };
 
+        let file_refs = vec![crate::db::models::TaskFileRef {
+            id: "ref-1".to_string(),
+            task_id: task.id.clone(),
+            relative_path: "src/lib/taskPrompt.ts".to_string(),
+            sort_order: 1,
+            created_at: "2026-04-16 10:00:00".to_string(),
+        }];
         let result = build_automation_fix_prompt(
             &task,
             &subtasks,
             &attachments,
+            &file_refs,
             "## 阻断问题\n1. 缺 verdict\n2. 状态机未收口",
             &verdict,
         );
@@ -184,6 +202,9 @@ mod tests {
             .prompt
             .contains("子任务:\n1. [进行中] 修复 review verdict"));
         assert!(result.prompt.contains("任务附件:\n1. ui.png"));
+        assert!(result
+            .prompt
+            .contains("项目文件引用:\n1. src/lib/taskPrompt.ts"));
         assert!(result
             .prompt
             .contains("本次补充指令:\n请基于同一个原任务继续修复"));

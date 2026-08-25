@@ -11,6 +11,8 @@
     "task_tag_added": "添加任务标签",
     "task_dependency_added": "添加任务依赖",
     "task_dependency_removed": "移除任务依赖",
+    "task_file_refs_added": "添加项目文件引用",
+    "task_file_ref_removed": "移除项目文件引用",
     "milestone_created": "创建里程碑",
     "milestone_deleted": "删除里程碑",
     "tag_deleted": "删除标签",

@@ -39,7 +39,7 @@ src/
 | Kind of change | Put it here |
 |----------------|-------------|
 | New route screen | `src/pages/<Name>Page.tsx`, register in `src/App.tsx` |
-| Domain widget / dialog | `src/components/<domain>/` |
+| Domain widget / dialog | `src/components/<domain>/` (`ProjectFileRefPicker` for task project file refs) |
 | Reusable primitive | Prefer `src/components/ui/` (shadcn style) before inventing a new base |
 | Feature-only hook | `src/components/<domain>/hooks/useX.ts` |
 | Cross-page hook | `src/hooks/useX.ts` |

@@ -1,4 +1,4 @@
-import type { Subtask, TaskAttachment } from "@/lib/types";
+import type { Subtask, TaskAttachment, TaskFileRef } from "@/lib/types";
 import { isImageAttachment } from "@/lib/taskAttachments";
 
 const SUBTASK_STATUS_LABELS: Record<string, string> = {
@@ -15,6 +15,7 @@ interface BuildTaskExecutionPromptOptions {
   planContent?: string | null;
   subtasks?: Subtask[];
   attachments?: TaskAttachment[];
+  fileRefs?: Array<Pick<TaskFileRef, "relative_path"> | string>;
   followUpPrompt?: string;
 }
 
@@ -29,6 +30,7 @@ export function buildTaskExecutionInput({
   planContent,
   subtasks = [],
   attachments = [],
+  fileRefs = [],
   followUpPrompt,
 }: BuildTaskExecutionPromptOptions): TaskExecutionInput {
   const trimmedPlan = planContent?.trim();
@@ -57,6 +59,16 @@ export function buildTaskExecutionInput({
     );
     sections.push(
       `任务附件:\n${attachmentLines.join("\n")}\n\n说明：以上附件已绑定到当前任务；其中图片会随本次任务一并附带给 Codex。`,
+    );
+  }
+
+  const fileRefPaths = fileRefs
+    .map((item) => (typeof item === "string" ? item : item.relative_path).trim())
+    .filter((path) => path.length > 0);
+  if (fileRefPaths.length > 0) {
+    const fileRefLines = fileRefPaths.map((path, index) => `${index + 1}. ${path}`);
+    sections.push(
+      `项目文件引用:\n${fileRefLines.join("\n")}\n\n说明：以上路径相对项目仓库根目录。请优先阅读这些文件再动手。`,
     );
   }
 

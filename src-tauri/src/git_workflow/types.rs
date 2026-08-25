@@ -26,6 +26,10 @@ const PROJECT_GIT_COMMIT_HISTORY_PAGE_LIMIT_DEFAULT: usize = 20;
 
 const PROJECT_GIT_COMMIT_HISTORY_PAGE_LIMIT_MAX: usize = 50;
 
+const PROJECT_FILE_LIST_LIMIT_DEFAULT: usize = 200;
+
+const PROJECT_FILE_LIST_LIMIT_MAX: usize = 500;
+
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct TaskGitContextRecord {
     pub id: String,
@@ -366,4 +370,3 @@ impl GitProjectRuntimeContext {
         }
     }
 }
-

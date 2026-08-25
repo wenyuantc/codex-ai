@@ -63,6 +63,7 @@ import type {
   TaskAutomationState,
   TaskPipelineStep,
   TaskAttachment,
+  TaskFileRef,
   TaskDependency,
   TaskGitContext,
   TaskExecutionChangeHistoryItem,
@@ -275,6 +276,7 @@ export interface CreateTaskInput {
   milestone_id?: string | null;
   native_subagent_id?: string | null;
   attachment_source_paths?: string[];
+  file_ref_paths?: string[];
 }
 
 export interface UpdateTaskInput {
@@ -693,6 +695,30 @@ export async function listTasks(input?: ListTasksInput): Promise<Task[]> {
 
 export async function listTaskAttachments(taskId: string): Promise<TaskAttachment[]> {
   return invoke("list_task_attachments", { taskId });
+}
+
+export async function listTaskFileRefs(taskId: string): Promise<TaskFileRef[]> {
+  return invoke("list_task_file_refs", { taskId });
+}
+
+export async function addTaskFileRefs(taskId: string, paths: string[]): Promise<TaskFileRef[]> {
+  return invoke("add_task_file_refs", { taskId, paths });
+}
+
+export async function deleteTaskFileRef(id: string): Promise<void> {
+  return invoke("delete_task_file_ref", { id });
+}
+
+export async function listProjectFiles(
+  projectId: string,
+  query?: string | null,
+  limit?: number | null,
+): Promise<string[]> {
+  return invoke("list_project_files", {
+    projectId,
+    query: query ?? null,
+    limit: limit ?? null,
+  });
 }
 
 export async function listTaskSubtasks(taskId: string): Promise<Subtask[]> {

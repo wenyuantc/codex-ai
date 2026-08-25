@@ -58,6 +58,7 @@ export function CodexControls({
   const tasks = useTaskStore((state) => state.tasks);
   const fetchTasks = useTaskStore((state) => state.fetchTasks);
   const fetchAttachments = useTaskStore((state) => state.fetchAttachments);
+  const fetchFileRefs = useTaskStore((state) => state.fetchFileRefs);
   const fetchSubtasks = useTaskStore((state) => state.fetchSubtasks);
   const updateTask = useTaskStore((state) => state.updateTask);
   const projects = useProjectStore((state) => state.projects);
@@ -186,13 +187,18 @@ export function CodexControls({
         await updateTask(selectedTask.id, { assignee_id: employeeId });
       }
 
-      await Promise.all([fetchSubtasks(selectedTask.id), fetchAttachments(selectedTask.id)]);
+      await Promise.all([
+        fetchSubtasks(selectedTask.id),
+        fetchAttachments(selectedTask.id),
+        fetchFileRefs(selectedTask.id),
+      ]);
 
       const executionInput = buildTaskExecutionInput({
         title: selectedTask.title,
         description: selectedTask.description,
         subtasks: useTaskStore.getState().subtasks[selectedTask.id] ?? [],
         attachments: useTaskStore.getState().attachments[selectedTask.id] ?? [],
+        fileRefs: useTaskStore.getState().fileRefs[selectedTask.id] ?? [],
       });
       const storedAssignee = employees.find((employee) => employee.id === employeeId);
 

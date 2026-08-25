@@ -1,37 +1,50 @@
-import type { TaskAttachment } from "@/lib/types";
+import type { TaskAttachment, TaskFileRef } from "@/lib/types";
 import { useTranslation } from "react-i18next";
-import { ListTodo, Loader2, MessageSquare, Paperclip } from "lucide-react";
+import { FolderTree, ListTodo, Loader2, MessageSquare, Paperclip, X } from "lucide-react";
 
 import { useTaskStore } from "@/stores/taskStore";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { Button } from "@/components/ui/button";
 import { CommentList } from "@/components/tasks/CommentList";
 import { SubtaskList } from "@/components/tasks/SubtaskList";
+import { Badge } from "@/components/ui/badge";
 import { TaskAttachmentGrid } from "@/components/tasks/TaskAttachmentGrid";
 import { DetailSection } from "./DetailSection";
 
 interface TaskCollaborationPanelProps {
   taskId: string;
   attachments: TaskAttachment[];
+  fileRefs: TaskFileRef[];
   deletingAttachmentId: string | null;
   attachmentLoading: boolean;
   attachmentError: string | null;
+  fileRefError: string | null;
+  fileRefLoading: boolean;
+  deletingFileRefId: string | null;
   isTauriRuntime: boolean;
   onSelectAttachments: () => void;
   onOpenAttachment: (path: string) => void;
   onDeleteAttachment: (attachmentId: string) => void;
+  onSelectFileRefs: () => void;
+  onDeleteFileRef: (fileRefId: string) => void;
 }
 
 export function TaskCollaborationPanel({
   taskId,
   attachments,
+  fileRefs,
   deletingAttachmentId,
   attachmentLoading,
   attachmentError,
+  fileRefError,
+  fileRefLoading,
+  deletingFileRefId,
   isTauriRuntime,
   onSelectAttachments,
   onOpenAttachment,
   onDeleteAttachment,
+  onSelectFileRefs,
+  onDeleteFileRef,
 }: TaskCollaborationPanelProps) {
   const { t } = useTranslation("tasks");
   const subtasks = useTaskStore((state) => state.subtasks[taskId]);
@@ -42,6 +55,61 @@ export function TaskCollaborationPanel({
 
   return (
     <div className="space-y-4">
+      <DetailSection
+        icon={FolderTree}
+        title={t("detail.collaboration.fileRefs")}
+        description={t("detail.collaboration.fileRefsDesc")}
+        actions={
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={onSelectFileRefs}
+            disabled={!isTauriRuntime || fileRefLoading}
+            title={t("detail.collaboration.selectProjectFiles")}
+          >
+            {fileRefLoading ? <Loader2 className="animate-spin" /> : <FolderTree />}
+            {t("detail.collaboration.selectProjectFiles")}
+          </Button>
+        }
+      >
+        <div className="space-y-3">
+          {fileRefError && (
+            <div className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+              {fileRefError}
+            </div>
+          )}
+          {fileRefs.length === 0 ? (
+            <div className="rounded-md border border-dashed border-border px-3 py-6 text-center text-xs text-muted-foreground">
+              {t("detail.collaboration.noFileRefs")}
+            </div>
+          ) : (
+            <div className="flex flex-wrap gap-1.5">
+              {fileRefs.map((fileRef) => (
+                <Badge
+                  key={fileRef.id}
+                  variant="outline"
+                  className="max-w-full gap-1 pr-1 font-mono"
+                >
+                  <span className="truncate" title={fileRef.relative_path}>
+                    {fileRef.relative_path}
+                  </span>
+                  {deletingFileRefId !== fileRef.id && (
+                    <button
+                      type="button"
+                      onClick={() => onDeleteFileRef(fileRef.id)}
+                      className="rounded-full p-0.5 hover:bg-muted"
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  )}
+                </Badge>
+              ))}
+            </div>
+          )}
+        </div>
+      </DetailSection>
+
       <DetailSection
         icon={Paperclip}
         title={t("detail.collaboration.attachments")}

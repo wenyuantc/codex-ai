@@ -11,6 +11,8 @@
     "task_tag_added": "Added task tag",
     "task_dependency_added": "Added task dependency",
     "task_dependency_removed": "Removed task dependency",
+    "task_file_refs_added": "Added project file references",
+    "task_file_ref_removed": "Removed project file reference",
     "milestone_created": "Created milestone",
     "milestone_deleted": "Deleted milestone",
     "tag_deleted": "Deleted tag",

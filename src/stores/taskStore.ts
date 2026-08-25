@@ -3,6 +3,7 @@ import type {
   CodexSessionKind,
   Task,
   TaskAttachment,
+  TaskFileRef,
   TaskRunQueueItem,
   Subtask,
   Comment,
@@ -20,15 +21,18 @@ import { onGrokExit, type GrokExit } from "@/lib/grok";
 import { onOpenCodeExit, type OpenCodeExitEvent } from "@/lib/opencode";
 import {
   addTaskAttachments as addTaskAttachmentsCommand,
+  addTaskFileRefs as addTaskFileRefsCommand,
   createComment as createCommentCommand,
   createSubtask as createSubtaskCommand,
   createTask as createTaskCommand,
   deleteSubtask as deleteSubtaskCommand,
   deleteTaskAttachment as deleteTaskAttachmentCommand,
+  deleteTaskFileRef as deleteTaskFileRefCommand,
   deleteTask as deleteTaskCommand,
   permanentlyDeleteTask as permanentlyDeleteTaskCommand,
   restoreTask as restoreTaskCommand,
   listTaskAttachments as listTaskAttachmentsCommand,
+  listTaskFileRefs as listTaskFileRefsCommand,
   listTaskComments as listTaskCommentsCommand,
   listTaskSubtasks as listTaskSubtasksCommand,
   listTasks as listTasksCommand,
@@ -54,6 +58,7 @@ function normalizeSubtaskTitle(title: string): string {
 interface TaskStore {
   tasks: Task[];
   attachments: Record<string, TaskAttachment[]>;
+  fileRefs: Record<string, TaskFileRef[]>;
   subtasks: Record<string, Subtask[]>;
   comments: Record<string, Comment[]>;
   automationStates: Record<string, TaskAutomationState | null>;
@@ -62,6 +67,7 @@ interface TaskStore {
   loading: boolean;
   fetchTasks: (projectId?: string) => Promise<void>;
   fetchAttachments: (taskId: string) => Promise<void>;
+  fetchFileRefs: (taskId: string) => Promise<void>;
   fetchSubtasks: (taskId: string) => Promise<void>;
   fetchComments: (taskId: string) => Promise<void>;
   createTask: (
@@ -78,6 +84,7 @@ interface TaskStore {
       milestone_id?: string | null;
       native_subagent_id?: string | null;
       attachment_source_paths?: string[];
+      file_ref_paths?: string[];
     },
     options?: { refreshProjectId?: string },
   ) => Promise<Task>;
@@ -120,6 +127,8 @@ interface TaskStore {
   fetchTrashedTasks: () => Promise<void>;
   addTaskAttachments: (taskId: string, sourcePaths: string[]) => Promise<void>;
   deleteTaskAttachment: (taskId: string, attachmentId: string) => Promise<void>;
+  addTaskFileRefs: (taskId: string, paths: string[]) => Promise<void>;
+  deleteTaskFileRef: (taskId: string, fileRefId: string) => Promise<void>;
   addSubtask: (taskId: string, title: string) => Promise<void>;
   addSubtasks: (taskId: string, titles: string[]) => Promise<{ inserted: number; skipped: number }>;
   toggleSubtask: (subtaskId: string, status: string) => Promise<void>;
@@ -190,6 +199,7 @@ export function resolveTaskListRefreshProjectId(
 export const useTaskStore = create<TaskStore>((set, get) => ({
   tasks: [],
   attachments: {},
+  fileRefs: {},
   subtasks: {},
   comments: {},
   automationStates: {},
@@ -239,6 +249,11 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
     set((state) => ({ attachments: { ...state.attachments, [taskId]: attachments } }));
   },
 
+  fetchFileRefs: async (taskId) => {
+    const fileRefs = await listTaskFileRefsCommand(taskId);
+    set((state) => ({ fileRefs: { ...state.fileRefs, [taskId]: fileRefs } }));
+  },
+
   fetchSubtasks: async (taskId) => {
     const subtasks = await listTaskSubtasksCommand(taskId);
     set((state) => ({ subtasks: { ...state.subtasks, [taskId]: subtasks } }));
@@ -260,6 +275,7 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
       due_date: data.due_date ?? null,
       milestone_id: data.milestone_id ?? null,
       attachment_source_paths: data.attachment_source_paths ?? [],
+      file_ref_paths: data.file_ref_paths ?? [],
     });
     await get().fetchTasks(resolveTaskListRefreshProjectId(options, get().activeProjectId));
     return task;
@@ -352,10 +368,11 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
     }));
     set((state) => {
       const { [id]: _attachments, ...attachments } = state.attachments;
+      const { [id]: _fileRefs, ...fileRefs } = state.fileRefs;
       const { [id]: _subtasks, ...subtasks } = state.subtasks;
       const { [id]: _comments, ...comments } = state.comments;
       const { [id]: _automationState, ...automationStates } = state.automationStates;
-      return { attachments, subtasks, comments, automationStates };
+      return { attachments, fileRefs, subtasks, comments, automationStates };
     });
   },
 
@@ -406,6 +423,22 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
   deleteTaskAttachment: async (taskId, attachmentId) => {
     await deleteTaskAttachmentCommand(attachmentId);
     await get().fetchAttachments(taskId);
+  },
+
+  addTaskFileRefs: async (taskId, paths) => {
+    if (paths.length === 0) return;
+    const fileRefs = await addTaskFileRefsCommand(taskId, paths);
+    set((state) => ({
+      fileRefs: {
+        ...state.fileRefs,
+        [taskId]: fileRefs,
+      },
+    }));
+  },
+
+  deleteTaskFileRef: async (taskId, fileRefId) => {
+    await deleteTaskFileRefCommand(fileRefId);
+    await get().fetchFileRefs(taskId);
   },
 
   addSubtask: async (taskId, title) => {

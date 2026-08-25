@@ -87,8 +87,10 @@ import { TaskReviewPanel } from "./detail/TaskReviewPanel";
 import { TaskAiPanel } from "./detail/TaskAiPanel";
 import { TaskCollaborationPanel } from "./detail/TaskCollaborationPanel";
 import { TaskSessionChainPanel } from "./detail/TaskSessionChainPanel";
+import { ProjectFileRefPicker } from "./ProjectFileRefPicker";
 
 const EMPTY_ATTACHMENTS: never[] = [];
+const EMPTY_FILE_REFS: never[] = [];
 
 interface TaskDetailDialogProps {
   task: Task;
@@ -109,11 +111,14 @@ export function TaskDetailDialog({
     deleteTask,
     addComment,
     fetchAttachments,
+    fetchFileRefs,
     fetchSubtasks,
     fetchComments,
     fetchTaskAutomationState,
     addTaskAttachments,
+    addTaskFileRefs,
     deleteTaskAttachment,
+    deleteTaskFileRef,
     addSubtasks,
     createTask,
   } = useTaskStore();
@@ -134,6 +139,8 @@ export function TaskDetailDialog({
   const storeTasks = useTaskStore((s) => s.tasks);
   const attachmentMap = useTaskStore((state) => state.attachments);
   const attachments = attachmentMap[task.id] ?? EMPTY_ATTACHMENTS;
+  const fileRefMap = useTaskStore((state) => state.fileRefs);
+  const fileRefs = fileRefMap[task.id] ?? EMPTY_FILE_REFS;
   const project = projects.find((p) => p.id === task.project_id);
   const projectRepoPath = getProjectWorkingDir(project);
   const projectTasks = storeTasks.filter((item) => item.project_id === task.project_id);
@@ -166,6 +173,10 @@ export function TaskDetailDialog({
   const [attachmentLoading, setAttachmentLoading] = useState(false);
   const [attachmentError, setAttachmentError] = useState<string | null>(null);
   const [deletingAttachmentId, setDeletingAttachmentId] = useState<string | null>(null);
+  const [fileRefPickerOpen, setFileRefPickerOpen] = useState(false);
+  const [fileRefLoading, setFileRefLoading] = useState(false);
+  const [fileRefError, setFileRefError] = useState<string | null>(null);
+  const [deletingFileRefId, setDeletingFileRefId] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [reviewError, setReviewError] = useState<string | null>(null);
   const [reviewNotice, setReviewNotice] = useState<string | null>(null);
@@ -267,13 +278,18 @@ export function TaskDetailDialog({
     projectRepoPath,
     projectType: project?.project_type,
     prepareExecutionInput: async (followUpPrompt, options) => {
-      await Promise.all([fetchSubtasks(task.id), fetchAttachments(task.id)]);
+      await Promise.all([
+        fetchSubtasks(task.id),
+        fetchAttachments(task.id),
+        fetchFileRefs(task.id),
+      ]);
       const executionInput = buildTaskExecutionInput({
         title,
         description,
         planContent: options?.planContent,
         subtasks: useTaskStore.getState().subtasks[task.id] ?? [],
         attachments: useTaskStore.getState().attachments[task.id] ?? [],
+        fileRefs: useTaskStore.getState().fileRefs[task.id] ?? [],
         followUpPrompt,
       });
 
@@ -401,6 +417,7 @@ export function TaskDetailDialog({
     if (open) {
       fetchEmployees();
       void fetchAttachments(task.id);
+      void fetchFileRefs(task.id);
       void fetchTaskAutomationState(task.id);
       void listTaskDependencies(task.id)
         .then((deps) => {
@@ -447,6 +464,7 @@ export function TaskDetailDialog({
       setBlockedReason(task.blocked_reason ?? "");
       setPlanContent(task.plan_content ?? "");
       setAttachmentError(null);
+      setFileRefError(null);
       setSaveError(null);
       setReviewError(null);
       setReviewNotice(null);
@@ -455,7 +473,7 @@ export function TaskDetailDialog({
       void loadLatestReview();
       void loadExecutionChangeHistory();
     }
-  }, [fetchAttachments, fetchEmployees, open, task, fetchTaskAutomationState]);
+  }, [fetchAttachments, fetchFileRefs, fetchEmployees, open, task, fetchTaskAutomationState]);
 
   useEffect(() => {
     if (!open) {
@@ -755,6 +773,41 @@ export function TaskDetailDialog({
       setAttachmentError(error instanceof Error ? error.message : String(error));
     } finally {
       setDeletingAttachmentId(null);
+    }
+  };
+
+  const handleConfirmFileRefs = async (paths: string[]) => {
+    const next = new Set(paths);
+    const toAdd = paths.filter((path) => !fileRefs.some((item) => item.relative_path === path));
+    const toRemove = fileRefs.filter((item) => !next.has(item.relative_path));
+    if (toAdd.length === 0 && toRemove.length === 0) {
+      return;
+    }
+    setFileRefLoading(true);
+    setFileRefError(null);
+    try {
+      if (toAdd.length > 0) {
+        await addTaskFileRefs(task.id, toAdd);
+      }
+      for (const item of toRemove) {
+        await deleteTaskFileRef(task.id, item.id);
+      }
+    } catch (error) {
+      setFileRefError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setFileRefLoading(false);
+    }
+  };
+
+  const handleDeleteFileRef = async (fileRefId: string) => {
+    setDeletingFileRefId(fileRefId);
+    setFileRefError(null);
+    try {
+      await deleteTaskFileRef(task.id, fileRefId);
+    } catch (error) {
+      setFileRefError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setDeletingFileRefId(null);
     }
   };
 
@@ -1743,13 +1796,26 @@ export function TaskDetailDialog({
                   <TaskCollaborationPanel
                     taskId={task.id}
                     attachments={attachments}
+                    fileRefs={fileRefs}
                     deletingAttachmentId={deletingAttachmentId}
                     attachmentLoading={attachmentLoading}
                     attachmentError={attachmentError}
+                    fileRefError={fileRefError}
+                    fileRefLoading={fileRefLoading}
+                    deletingFileRefId={deletingFileRefId}
                     isTauriRuntime={isTauriRuntime()}
                     onSelectAttachments={() => void handleSelectAttachments()}
                     onOpenAttachment={(path) => void handleOpenAttachment(path)}
                     onDeleteAttachment={(attachmentId) => void handleDeleteAttachment(attachmentId)}
+                    onSelectFileRefs={() => setFileRefPickerOpen(true)}
+                    onDeleteFileRef={(fileRefId) => void handleDeleteFileRef(fileRefId)}
+                  />
+                  <ProjectFileRefPicker
+                    open={fileRefPickerOpen}
+                    onOpenChange={setFileRefPickerOpen}
+                    projectId={task.project_id}
+                    selectedPaths={fileRefs.map((item) => item.relative_path)}
+                    onConfirm={(paths) => void handleConfirmFileRefs(paths)}
                   />
                 </TabsContent>
               </div>
