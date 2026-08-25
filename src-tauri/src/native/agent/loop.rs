@@ -30,6 +30,8 @@ const DEFAULT_CONTEXT_CHARS: usize = 120_000;
 const REPEAT_TOOL_LIMIT: u32 = 3;
 const LAST_TURN_REMINDER: &str = "工具轮次已达上限。请立即给出最终结论，不要再调用工具。";
 const LAST_TURN_FALLBACK: &str = "已达到最大工具轮次，已根据已有工具结果停止。";
+const TOOL_RESULT_DISPLAY_MAX_LINES: usize = 2000;
+const TOOL_RESULT_DISPLAY_MAX_CHARS: usize = 65_536;
 
 #[derive(Clone)]
 struct ModelTurnCfg {
@@ -767,17 +769,39 @@ fn tool_result_line(name: &str, output: &str) -> String {
         "TodoWrite" if is_todo_list_output(output) => {
             format!("[工具结果] 已更新 {} 项", count_todo_item_lines(output))
         }
-        "TodoRead" if is_todo_list_output(output) => {
-            format!("[工具结果]\n{}", output.trim_end())
-        }
-        _ => {
-            let first = output
-                .lines()
-                .find(|line| !line.trim().is_empty())
-                .unwrap_or("");
-            format!("[工具结果] {}", truncate_chars(first.trim(), 200))
-        }
+        _ => format!("[工具结果]\n{}", cap_tool_result_display(output)),
     }
+}
+
+fn cap_tool_result_display(output: &str) -> String {
+    let trimmed = output.trim_end();
+    let line_count = trimmed.lines().count();
+    let char_count = trimmed.chars().count();
+    if line_count <= TOOL_RESULT_DISPLAY_MAX_LINES && char_count <= TOOL_RESULT_DISPLAY_MAX_CHARS {
+        return trimmed.to_string();
+    }
+    let mut prefix = String::new();
+    let mut used_chars = 0usize;
+    for line in trimmed.lines().take(TOOL_RESULT_DISPLAY_MAX_LINES) {
+        let extra = usize::from(!prefix.is_empty());
+        let line_chars = line.chars().count();
+        if used_chars + extra + line_chars > TOOL_RESULT_DISPLAY_MAX_CHARS {
+            let remaining = TOOL_RESULT_DISPLAY_MAX_CHARS.saturating_sub(used_chars + extra);
+            if remaining > 0 {
+                if extra == 1 {
+                    prefix.push('\n');
+                }
+                prefix.extend(line.chars().take(remaining));
+            }
+            break;
+        }
+        if extra == 1 {
+            prefix.push('\n');
+        }
+        prefix.push_str(line);
+        used_chars += extra + line_chars;
+    }
+    format!("{prefix}\n…（已截断，共 {line_count} 行 / {char_count} 字）")
 }
 
 fn is_todo_list_output(output: &str) -> bool {
@@ -967,8 +991,10 @@ mod tests {
             "missing read start: {lines:?}"
         );
         assert!(
-            lines.iter().any(|line| line.starts_with("[工具结果]")),
-            "missing tool result: {lines:?}"
+            lines
+                .iter()
+                .any(|line| line.starts_with("[工具结果]\n") && line.contains("hello world")),
+            "missing full tool result: {lines:?}"
         );
         assert!(
             lines.iter().any(|line| line == "done"),
@@ -1106,7 +1132,7 @@ mod tests {
         );
         assert_eq!(
             tool_result_line("TodoWrite", "todos 必须是数组"),
-            "[工具结果] todos 必须是数组"
+            "[工具结果]\ntodos 必须是数组"
         );
     }
 
@@ -1121,8 +1147,43 @@ mod tests {
     }
 
     #[test]
-    fn other_tool_result_still_uses_first_line() {
-        assert_eq!(tool_result_line("Read", "line1\nline2"), "[工具结果] line1");
+    fn other_tool_result_keeps_full_output() {
+        assert_eq!(
+            tool_result_line("Read", "line1\nline2"),
+            "[工具结果]\nline1\nline2"
+        );
+        assert_eq!(
+            tool_result_line("Grep", "a.rs:3:hit\nb.rs:9:hit"),
+            "[工具结果]\na.rs:3:hit\nb.rs:9:hit"
+        );
+    }
+
+    #[test]
+    fn tool_result_display_caps_lines_and_chars() {
+        let many_lines = (0..2001)
+            .map(|index| format!("L{index}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let line_result = tool_result_line("Read", &many_lines);
+        assert!(line_result.starts_with("[工具结果]\nL0\n"));
+        assert!(line_result.contains("L1999"));
+        assert!(!line_result.contains("L2000"));
+        assert!(line_result.contains("…（已截断，共 2001 行 / "));
+
+        let huge = "a".repeat(TOOL_RESULT_DISPLAY_MAX_CHARS + 1);
+        let char_result = tool_result_line("Bash", &huge);
+        assert!(char_result.starts_with("[工具结果]\n"));
+        assert!(
+            char_result.contains("…（已截断，共 1 行 / 65537 字）"),
+            "missing char cap notice: {}",
+            char_result.chars().rev().take(40).collect::<String>()
+        );
+        let body = char_result
+            .strip_prefix("[工具结果]\n")
+            .and_then(|text| text.strip_suffix("\n…（已截断，共 1 行 / 65537 字）"))
+            .expect("display wrapper");
+        assert_eq!(body.chars().count(), TOOL_RESULT_DISPLAY_MAX_CHARS);
+        assert!(body.chars().all(|ch| ch == 'a'));
     }
 
     #[tokio::test]

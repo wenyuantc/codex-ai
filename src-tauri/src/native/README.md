@@ -109,7 +109,7 @@ src-tauri/src/native/
 - `consume_assistant`：处理模型输出 —— 剥离空工具名、最后一轮强制清空工具调用、播报思考字数与文本、执行工具并把结果作为 `tool` 消息回填；无工具调用即返回最终文本。
 - 防重复调用：同一工具+相同参数连续调用 3 次（`REPEAT_TOOL_LIMIT`）后直接拒绝，避免死循环。
 - 子 Agent：连续 `Agent` 调用走 `JoinSet`（上限见设置）；子循环 `event_prefix` 为 `[子 Agent n(explore|general) - {description}] `（description 来自工具参数短标题，空白折叠、去括号、最长 32 字）；高风险确认 FIFO；MCP 经 `SharedMcp` Mutex 共享。
-- 事件输出：`[思考] `、`[读取] `、`[命令] `、`[工具结果] `、`[子 Agent] ` 等进度行通过 `on_event` 通道发出；用量通过 `on_usage` 通道发出。
+- 事件输出：`[思考] `、`[读取] `、`[命令] `、`[工具结果] `、`[子 Agent] ` 等进度行通过 `on_event` 通道发出；用量通过 `on_usage` 通道发出。`[工具结果]` 发完整工具输出（一条事件，可含换行），不是第一行摘要；TodoWrite 清单仍只报「已更新 N 项」。超过 2000 行或 65536 字时 UI 截断并附中文提示，模型仍拿全文。
 
 #### `agent/compact.rs`
 本地上下文压缩：当消息总字符数达到上限 85% 时，把最早的用户轮次分组汇总为一段「会话摘要」插入（保留 system 与最近一轮），不消耗模型调用。`total_chars` 计算占用、`should_compact` 判断阈值、`compact_local` 执行压缩。
