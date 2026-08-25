@@ -992,6 +992,97 @@ mod automation_guard_tests {
     }
 
     #[test]
+    fn execution_exit_facts_without_stopping_event_are_not_manual_stop() {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("build tokio runtime");
+
+        runtime.block_on(async {
+            let pool = setup_test_pool().await;
+            let task = build_task("task-exec-ok", "in_progress");
+            insert_project(&pool).await;
+            insert_task(&pool, &task).await;
+            insert_session(&pool, "session-exec-ok", &task.id, "execution").await;
+
+            let facts = fetch_session_exit_facts(&pool, "session-exec-ok")
+                .await
+                .expect("fetch exit facts")
+                .expect("facts present");
+            assert!(!facts.has_stopping_requested);
+            assert!(!facts.has_restart_requested);
+
+            pool.close().await;
+        });
+    }
+
+    #[test]
+    fn execution_exit_facts_with_stopping_event_are_manual_stop() {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("build tokio runtime");
+
+        runtime.block_on(async {
+            let pool = setup_test_pool().await;
+            let task = build_task("task-exec-stop", "in_progress");
+            insert_project(&pool).await;
+            insert_task(&pool, &task).await;
+            insert_session(&pool, "session-exec-stop", &task.id, "execution").await;
+            insert_session_event(
+                &pool,
+                "evt-stop",
+                "session-exec-stop",
+                "stopping_requested",
+                "收到停止请求",
+            )
+            .await;
+
+            let facts = fetch_session_exit_facts(&pool, "session-exec-stop")
+                .await
+                .expect("fetch exit facts")
+                .expect("facts present");
+            assert!(facts.has_stopping_requested);
+            assert!(!facts.has_restart_requested);
+
+            pool.close().await;
+        });
+    }
+
+    #[test]
+    fn execution_exit_facts_with_restart_event_are_restart() {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("build tokio runtime");
+
+        runtime.block_on(async {
+            let pool = setup_test_pool().await;
+            let task = build_task("task-exec-restart", "in_progress");
+            insert_project(&pool).await;
+            insert_task(&pool, &task).await;
+            insert_session(&pool, "session-exec-restart", &task.id, "execution").await;
+            insert_session_event(
+                &pool,
+                "evt-restart",
+                "session-exec-restart",
+                "automation_restart_requested",
+                "自动质控正在重启执行步骤",
+            )
+            .await;
+
+            let facts = fetch_session_exit_facts(&pool, "session-exec-restart")
+                .await
+                .expect("fetch exit facts")
+                .expect("facts present");
+            assert!(facts.has_restart_requested);
+            assert!(!facts.has_stopping_requested);
+
+            pool.close().await;
+        });
+    }
+
+    #[test]
     fn fix_restart_recovers_verdict_from_latest_review_when_consumed_is_execution() {
         let runtime = tokio::runtime::Builder::new_current_thread()
             .enable_all()

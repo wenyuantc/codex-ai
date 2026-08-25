@@ -217,8 +217,8 @@ fn extra_headers_map(raw: Option<&str>) -> HashMap<String, String> {
     serde_json::from_str::<HashMap<String, String>>(text).unwrap_or_default()
 }
 
-async fn emit_native_line(
-    app: &AppHandle,
+async fn emit_native_line<R: Runtime>(
+    app: &AppHandle<R>,
     session_record_id: &str,
     employee_id: &str,
     task_id: Option<&str>,
@@ -1329,17 +1329,45 @@ pub async fn list_live_native_employee_processes(
     state.lock().await.get_employee_processes(employee_id)
 }
 
-async fn stop_native_process(
+async fn stop_native_process<R: Runtime>(
+    app: &AppHandle<R>,
     manager_state: &Arc<Mutex<NativeAgentManager>>,
     session_record_id: &str,
+    event_type: &str,
+    message: &str,
 ) -> Result<bool, String> {
+    let info = {
+        let manager = manager_state.lock().await;
+        manager
+            .get_session(session_record_id)
+            .map(|item| item.info.clone())
+    };
+    let Some(info) = info else {
+        return Ok(false);
+    };
+
+    // Persist before cancel: handle_session_exit runs at the end of join and
+    // treats exited+0 without this event as successful execution → auto-review.
+    let pool = sqlite_pool(app).await?;
+    update_codex_session_record(app, session_record_id, Some("stopping"), None, None, None).await?;
+    insert_codex_session_event(&pool, session_record_id, event_type, Some(message)).await?;
+    emit_native_line(
+        app,
+        session_record_id,
+        &info.employee_id,
+        info.task_id.as_deref(),
+        &info.session_kind,
+        format!("[内置 Agent] {message}"),
+    )
+    .await;
+
     let session = {
         let mut manager = manager_state.lock().await;
         manager.deny_pending_permission(session_record_id);
         manager.remove_session(session_record_id)
     };
     let Some(session) = session else {
-        return Ok(false);
+        return Ok(true);
     };
     session.cancel.cancel();
     let _ = session.followup_tx.send(NativeFollowup::Finish).await;
@@ -1370,10 +1398,19 @@ pub async fn resolve_native_tool_permission(
 
 #[tauri::command]
 pub async fn stop_native_session(
+    app: AppHandle,
     state: State<'_, Arc<Mutex<NativeAgentManager>>>,
     session_record_id: String,
 ) -> Result<(), String> {
-    if !stop_native_process(state.inner(), &session_record_id).await? {
+    if !stop_native_process(
+        &app,
+        state.inner(),
+        &session_record_id,
+        "stopping_requested",
+        "收到停止请求",
+    )
+    .await?
+    {
         return Err(format!("未找到内置 Agent 会话 {session_record_id}"));
     }
     Ok(())
@@ -1381,12 +1418,20 @@ pub async fn stop_native_session(
 
 #[tauri::command]
 pub async fn stop_native(
+    app: AppHandle,
     state: State<'_, Arc<Mutex<NativeAgentManager>>>,
     employee_id: String,
 ) -> Result<(), String> {
     let processes = list_live_native_employee_processes(state.inner(), &employee_id).await;
     for process in processes {
-        let _ = stop_native_process(state.inner(), &process.session_record_id).await?;
+        let _ = stop_native_process(
+            &app,
+            state.inner(),
+            &process.session_record_id,
+            "stopping_requested",
+            "收到停止请求",
+        )
+        .await?;
     }
     Ok(())
 }
@@ -1395,7 +1440,7 @@ pub async fn stop_native_for_automation_restart<R: Runtime>(
     app: &AppHandle<R>,
     employee_id: &str,
     expected_session_record_id: Option<&str>,
-    _message: &str,
+    message: &str,
 ) -> Result<bool, String> {
     let Some(expected_session_record_id) = expected_session_record_id else {
         return Err("当前自动化步骤缺少会话标识，无法安全重启".to_string());
@@ -1419,7 +1464,14 @@ pub async fn stop_native_for_automation_restart<R: Runtime>(
     if running_employee != employee_id {
         return Err("当前员工正在执行其他任务，无法重启这条自动化步骤".to_string());
     }
-    stop_native_process(&manager_state, &session_id).await
+    stop_native_process(
+        app,
+        &manager_state,
+        &session_id,
+        "automation_restart_requested",
+        message,
+    )
+    .await
 }
 
 #[tauri::command]
@@ -1455,6 +1507,7 @@ pub async fn send_native_input(
 
 #[tauri::command]
 pub async fn finish_native_input(
+    app: AppHandle,
     state: State<'_, Arc<Mutex<NativeAgentManager>>>,
     employee_id: String,
 ) -> Result<(), String> {
@@ -1465,7 +1518,14 @@ pub async fn finish_native_input(
         ));
     }
     for process in processes {
-        let _ = stop_native_process(state.inner(), &process.session_record_id).await?;
+        let _ = stop_native_process(
+            &app,
+            state.inner(),
+            &process.session_record_id,
+            "stopping_requested",
+            "收到停止请求",
+        )
+        .await?;
     }
     Ok(())
 }
@@ -1485,7 +1545,7 @@ pub async fn restart_native_session(
     image_paths: Option<Vec<String>>,
     session_kind: Option<String>,
 ) -> Result<crate::run_queue::StartSessionOutcome, String> {
-    stop_native(state.clone(), employee_id.clone()).await?;
+    stop_native(app.clone(), state.clone(), employee_id.clone()).await?;
     start_native_session(
         app,
         state,
