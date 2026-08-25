@@ -662,3 +662,24 @@ i18next zh-CN/en framework, main-path extraction, activity single-source, leftov
 
 - tauri dev 冒烟：设置作用域、任务绑定、父循环必须委派
 - 本地提交尚未 git push
+
+
+## Session 22: 任务项目文件引用
+
+**Date**: 2026-08-25
+**Task**: 任务项目文件引用
+**Branch**: `main`
+
+### Summary
+
+新建任务和详情可引用项目仓库相对路径；git-bridge 覆盖本地与 SSH；运行/计划/自动修复提示词注入路径。未在桌面端冒烟选择器。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `3c11683` | (see git log) |
+
+### Status
+
+[OK] **Completed**
