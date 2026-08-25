@@ -719,3 +719,38 @@ i18next zh-CN/en framework, main-path extraction, activity single-source, leftov
 
 - tauri dev 冒烟：无歧义任务不问直接跑，有取舍弹窗，其他可自定义
 - 08-25-native-stop-no-review 仍 in_progress，确认后可归档
+
+
+## Session 24: 内置 Agent 终端显示完整工具结果
+
+**Date**: 2026-08-25
+**Task**: 内置 Agent 终端显示完整工具结果
+**Branch**: `main`
+
+### Summary
+
+内置 Agent 终端 [工具结果] 改为发出完整工具输出，不再只留第一行 200 字。
+
+### Main Changes
+
+- tool_result_line 发全文一条事件；TodoWrite 清单仍报项数；超长 2000 行/64KB 只截 UI
+- 同步 ai-engines.md 与 native README 的终端日志约定
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `4929015` | (see git log) |
+
+### Testing
+
+- [OK] cargo test --lib tool_result / todo_*_result / emits_tool_progress_lines
+- [OK] cargo clippy --all-targets -- -D warnings；npm run format:check
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 在桌面应用里跑一次内置 Agent Read+Grep，确认任务/会话日志能滚出完整块
