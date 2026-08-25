@@ -16,6 +16,7 @@ import {
   Dialog,
   DialogContent,
   DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
@@ -154,8 +155,8 @@ export function CoordinatorPlanDialog({
   return (
     <>
       <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent className="max-h-[min(92vh,52rem)] w-[min(94vw,56rem)] max-w-[min(94vw,56rem)] overflow-y-auto sm:max-w-[min(94vw,56rem)]">
-          <DialogHeader>
+        <DialogContent className="flex h-[min(92vh,52rem)] max-h-[min(92vh,52rem)] w-[min(94vw,56rem)] max-w-[min(94vw,56rem)] flex-col overflow-hidden sm:max-w-[min(94vw,56rem)]">
+          <DialogHeader className="shrink-0">
             <DialogTitle>协调员执行计划</DialogTitle>
             <DialogDescription>
               {coordinatorName
@@ -165,196 +166,200 @@ export function CoordinatorPlanDialog({
             </DialogDescription>
           </DialogHeader>
 
-          <div className="space-y-3">
-            <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border bg-muted/40 px-3 py-2">
-              <div className="flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
-                {busy ? (
-                  <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-primary" />
-                ) : (
-                  <Terminal className="h-3.5 w-3.5 shrink-0 text-primary" />
-                )}
-                <span className="truncate">{statusText}</span>
-              </div>
-              <button
-                type="button"
-                onClick={onToggleTerminal}
-                className="flex shrink-0 items-center gap-1 rounded-md border border-input px-2 py-1 text-xs hover:bg-accent"
-              >
-                {terminalVisible ? (
-                  <ChevronUp className="h-3.5 w-3.5" />
-                ) : (
-                  <ChevronDown className="h-3.5 w-3.5" />
-                )}
-                {terminalVisible ? "隐藏日志" : "显示日志"}
-              </button>
-            </div>
-
-            {terminalVisible && (
-              <div>
-                <div className="flex items-center justify-between rounded-t border-b border-zinc-800 bg-black/80 px-2 py-1">
-                  <span className="font-mono text-xs text-zinc-500">协调员终端日志</span>
-                  <button
-                    type="button"
-                    onClick={onClearTerminal}
-                    className="p-0.5 text-zinc-500 transition-colors hover:text-zinc-300"
-                    title="清空日志"
-                  >
-                    <Eraser className="h-3 w-3" />
-                  </button>
-                </div>
-                <ScrollArea className="h-48 overflow-hidden rounded-b bg-black">
-                  <div className="space-y-0.5 p-2 font-mono text-xs">
-                    {terminalLogs.length === 0 ? (
-                      <div className="text-zinc-600">等待运行日志...</div>
-                    ) : (
-                      terminalLogs.map((line, index) => (
-                        <div
-                          key={`${line}-${index}`}
-                          className={`whitespace-pre-wrap ${getLineColor(line)}`}
-                        >
-                          {formatTerminalLine(line)}
-                        </div>
-                      ))
-                    )}
-                    <div ref={terminalBottomRef} />
-                  </div>
-                </ScrollArea>
-              </div>
-            )}
-
-            {loading && !hasPlan ? (
-              <div className="flex min-h-52 items-center justify-center rounded-md border border-dashed bg-muted/30 text-sm text-muted-foreground">
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                正在生成计划中…
-              </div>
-            ) : (
-              <Suspense fallback={<MonacoEditorFallback />}>
-                <MonacoMarkdownEditor
-                  value={plan}
-                  onChange={onPlanChange}
-                  readOnly={planActionsDisabled}
-                  className="h-[280px]"
-                  placeholder="协调员生成的计划会显示在这里，可在执行前编辑。"
-                />
-              </Suspense>
-            )}
-
-            {pipelineSteps.length > 0 || pipelineLoading ? (
-              <TaskPipelineProgress
-                steps={pipelineSteps}
-                automation={pipelineAutomation}
-                employees={employees}
-                projectId={projectId}
-                loading={pipelineLoading}
-                error={pipelineError}
-                notice={pipelineNotice}
-                compact
-                showEmployeeSelect={Boolean(onPipelineEmployeeChange)}
-                actionsBusy={busy}
-                actionsLocked={actionsLocked}
-                onRefresh={onRefreshPipeline}
-                onRetry={onRetryPipeline}
-                onAbort={onAbortPipeline}
-                onResumeAuto={onResumeAutoPipeline}
-                onManualRunStep={onManualRunPipelineStep}
-                onManualStopStep={onManualStopPipelineStep}
-                onPipelineEmployeeChange={onPipelineEmployeeChange}
-                onOpenStepSession={(step) => {
-                  if (!step.session_id) {
-                    return;
-                  }
-                  const stepEmployee = employees.find((item) => item.id === step.employee_id);
-                  setStepLogTarget({
-                    sessionRecordId: step.session_id,
-                    stepTitle: step.title,
-                    employeeName: stepEmployee?.name ?? null,
-                  });
-                }}
-              />
-            ) : (
-              <section className="rounded-md border border-border/70 bg-muted/20 p-3">
-                <p className="text-sm font-medium">协调员编排（工作包）</p>
-                <p className="mt-1 text-[11px] text-muted-foreground">
-                  暂无工作包。请先「重新生成计划」，或直接点「按计划编排」自动生成后启动。
-                </p>
-                {pipelineError && <p className="mt-1 text-xs text-destructive">{pipelineError}</p>}
-              </section>
-            )}
-
-            {error && (
-              <div className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
-                {error}
-              </div>
-            )}
-
-            <div className="flex flex-wrap justify-end gap-2 pt-1">
-              <button
-                type="button"
-                onClick={() => onOpenChange(false)}
-                className="rounded-md border border-input px-3 py-1.5 text-sm hover:bg-accent disabled:opacity-50"
-              >
-                取消
-              </button>
-              <button
-                type="button"
-                onClick={onSave}
-                disabled={planActionsDisabled || !hasPlan}
-                title={actionsLocked ? "任务进行中，无法保存计划" : undefined}
-                className="flex items-center gap-1 rounded-md border border-input px-3 py-1.5 text-sm hover:bg-accent disabled:opacity-50"
-              >
-                {saving ? (
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                ) : (
-                  <Save className="h-3.5 w-3.5" />
-                )}
-                保存计划
-              </button>
-              <button
-                type="button"
-                onClick={onRegenerate}
-                disabled={planActionsDisabled}
-                title={actionsLocked ? "任务进行中，无法重新生成计划" : undefined}
-                className="flex items-center gap-1 rounded-md border border-input px-3 py-1.5 text-sm hover:bg-accent disabled:opacity-50"
-              >
-                {loading ? (
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                ) : (
-                  <RefreshCw className="h-3.5 w-3.5" />
-                )}
-                重新生成计划
-              </button>
-              {onStartPipeline && (
-                <button
-                  type="button"
-                  onClick={onStartPipeline}
-                  disabled={planActionsDisabled || !canStartPipeline}
-                  title={actionsLocked ? "任务进行中，无法启动编排" : undefined}
-                  className="flex items-center gap-1 rounded-md border border-primary/40 bg-primary/10 px-3 py-1.5 text-sm text-primary hover:bg-primary/15 disabled:opacity-50"
-                >
-                  {pipelineActionLoading ? (
-                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                  ) : (
-                    <GitBranch className="h-3.5 w-3.5" />
-                  )}
-                  按计划编排
-                </button>
+          <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 rounded-md border bg-muted/40 px-3 py-2">
+            <div className="flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
+              {busy ? (
+                <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-primary" />
+              ) : (
+                <Terminal className="h-3.5 w-3.5 shrink-0 text-primary" />
               )}
-              <button
-                type="button"
-                onClick={onExecute}
-                disabled={planActionsDisabled || !hasPlan || !canExecute}
-                title={actionsLocked ? "任务进行中，无法执行" : undefined}
-                className="flex items-center gap-1 rounded-md bg-primary px-3 py-1.5 text-sm text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
-              >
-                {executing ? (
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                ) : (
-                  <Play className="h-3.5 w-3.5" />
-                )}
-                执行
-              </button>
+              <span className="truncate">{statusText}</span>
+            </div>
+            <button
+              type="button"
+              onClick={onToggleTerminal}
+              className="flex shrink-0 items-center gap-1 rounded-md border border-input px-2 py-1 text-xs hover:bg-accent"
+            >
+              {terminalVisible ? (
+                <ChevronUp className="h-3.5 w-3.5" />
+              ) : (
+                <ChevronDown className="h-3.5 w-3.5" />
+              )}
+              {terminalVisible ? "隐藏日志" : "显示日志"}
+            </button>
+          </div>
+
+          <div className="min-h-0 flex-1 overflow-y-auto pr-1">
+            <div className="space-y-3 pb-6">
+              {terminalVisible && (
+                <div>
+                  <div className="flex items-center justify-between rounded-t border-b border-zinc-800 bg-black/80 px-2 py-1">
+                    <span className="font-mono text-xs text-zinc-500">协调员终端日志</span>
+                    <button
+                      type="button"
+                      onClick={onClearTerminal}
+                      className="p-0.5 text-zinc-500 transition-colors hover:text-zinc-300"
+                      title="清空日志"
+                    >
+                      <Eraser className="h-3 w-3" />
+                    </button>
+                  </div>
+                  <ScrollArea className="h-48 overflow-hidden rounded-b bg-black">
+                    <div className="space-y-0.5 p-2 font-mono text-xs">
+                      {terminalLogs.length === 0 ? (
+                        <div className="text-zinc-600">等待运行日志...</div>
+                      ) : (
+                        terminalLogs.map((line, index) => (
+                          <div
+                            key={`${line}-${index}`}
+                            className={`whitespace-pre-wrap ${getLineColor(line)}`}
+                          >
+                            {formatTerminalLine(line)}
+                          </div>
+                        ))
+                      )}
+                      <div ref={terminalBottomRef} />
+                    </div>
+                  </ScrollArea>
+                </div>
+              )}
+
+              {loading && !hasPlan ? (
+                <div className="flex min-h-52 items-center justify-center rounded-md border border-dashed bg-muted/30 text-sm text-muted-foreground">
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  正在生成计划中…
+                </div>
+              ) : (
+                <Suspense fallback={<MonacoEditorFallback />}>
+                  <MonacoMarkdownEditor
+                    value={plan}
+                    onChange={onPlanChange}
+                    readOnly={planActionsDisabled}
+                    className="h-[280px]"
+                    placeholder="协调员生成的计划会显示在这里，可在执行前编辑。"
+                  />
+                </Suspense>
+              )}
+
+              {pipelineSteps.length > 0 || pipelineLoading ? (
+                <TaskPipelineProgress
+                  steps={pipelineSteps}
+                  automation={pipelineAutomation}
+                  employees={employees}
+                  projectId={projectId}
+                  loading={pipelineLoading}
+                  error={pipelineError}
+                  notice={pipelineNotice}
+                  compact
+                  showEmployeeSelect={Boolean(onPipelineEmployeeChange)}
+                  actionsBusy={busy}
+                  actionsLocked={actionsLocked}
+                  onRefresh={onRefreshPipeline}
+                  onRetry={onRetryPipeline}
+                  onAbort={onAbortPipeline}
+                  onResumeAuto={onResumeAutoPipeline}
+                  onManualRunStep={onManualRunPipelineStep}
+                  onManualStopStep={onManualStopPipelineStep}
+                  onPipelineEmployeeChange={onPipelineEmployeeChange}
+                  onOpenStepSession={(step) => {
+                    if (!step.session_id) {
+                      return;
+                    }
+                    const stepEmployee = employees.find((item) => item.id === step.employee_id);
+                    setStepLogTarget({
+                      sessionRecordId: step.session_id,
+                      stepTitle: step.title,
+                      employeeName: stepEmployee?.name ?? null,
+                    });
+                  }}
+                />
+              ) : (
+                <section className="rounded-md border border-border/70 bg-muted/20 p-3">
+                  <p className="text-sm font-medium">协调员编排（工作包）</p>
+                  <p className="mt-1 text-[11px] text-muted-foreground">
+                    暂无工作包。请先「重新生成计划」，或直接点「按计划编排」自动生成后启动。
+                  </p>
+                  {pipelineError && (
+                    <p className="mt-1 text-xs text-destructive">{pipelineError}</p>
+                  )}
+                </section>
+              )}
             </div>
           </div>
+
+          {error && (
+            <div className="shrink-0 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+              {error}
+            </div>
+          )}
+
+          <DialogFooter className="relative z-10 shrink-0 flex-wrap">
+            <button
+              type="button"
+              onClick={() => onOpenChange(false)}
+              className="rounded-md border border-input px-3 py-1.5 text-sm hover:bg-accent disabled:opacity-50"
+            >
+              取消
+            </button>
+            <button
+              type="button"
+              onClick={onSave}
+              disabled={planActionsDisabled || !hasPlan}
+              title={actionsLocked ? "任务进行中，无法保存计划" : undefined}
+              className="flex items-center gap-1 rounded-md border border-input px-3 py-1.5 text-sm hover:bg-accent disabled:opacity-50"
+            >
+              {saving ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Save className="h-3.5 w-3.5" />
+              )}
+              保存计划
+            </button>
+            <button
+              type="button"
+              onClick={onRegenerate}
+              disabled={planActionsDisabled}
+              title={actionsLocked ? "任务进行中，无法重新生成计划" : undefined}
+              className="flex items-center gap-1 rounded-md border border-input px-3 py-1.5 text-sm hover:bg-accent disabled:opacity-50"
+            >
+              {loading ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <RefreshCw className="h-3.5 w-3.5" />
+              )}
+              重新生成计划
+            </button>
+            {onStartPipeline && (
+              <button
+                type="button"
+                onClick={onStartPipeline}
+                disabled={planActionsDisabled || !canStartPipeline}
+                title={actionsLocked ? "任务进行中，无法启动编排" : undefined}
+                className="flex items-center gap-1 rounded-md border border-primary/40 bg-primary/10 px-3 py-1.5 text-sm text-primary hover:bg-primary/15 disabled:opacity-50"
+              >
+                {pipelineActionLoading ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <GitBranch className="h-3.5 w-3.5" />
+                )}
+                按计划编排
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={onExecute}
+              disabled={planActionsDisabled || !hasPlan || !canExecute}
+              title={actionsLocked ? "任务进行中，无法执行" : undefined}
+              className="flex items-center gap-1 rounded-md bg-primary px-3 py-1.5 text-sm text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+            >
+              {executing ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Play className="h-3.5 w-3.5" />
+              )}
+              执行
+            </button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 

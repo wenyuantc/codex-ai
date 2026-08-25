@@ -77,7 +77,8 @@ export function TaskPipelineProgress({
   const projectEmployees = employees.filter(
     (employee) => !employee.project_id || !projectId || employee.project_id === projectId,
   );
-  const listMaxClass = compact ? "max-h-48" : "max-h-64";
+  // Dialog already scrolls; compact skips nested max-height so the last step is not clipped.
+  const listMaxClass = compact ? "" : "max-h-64 overflow-y-auto";
 
   return (
     <section className="space-y-2 rounded-lg border border-border/60 bg-background/60 p-4">
@@ -177,7 +178,7 @@ export function TaskPipelineProgress({
             ))}
           </div>
 
-          <div className={`${listMaxClass} space-y-2 overflow-y-auto pr-1`}>
+          <div className={`${listMaxClass} space-y-2 pr-1`}>
             {steps.map((step) => {
               const stepEmployee = employees.find((item) => item.id === step.employee_id);
               const stepBusy = step.status === "running" || step.status === "launching";
