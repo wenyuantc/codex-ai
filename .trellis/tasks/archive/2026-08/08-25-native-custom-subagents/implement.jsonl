@@ -1,0 +1,6 @@
+{"_example": "Fill with {\"file\": \"<path>\", \"reason\": \"<why>\"}. Put spec/research files only — no code paths. Run `python3 .trellis/scripts/get_context.py --mode packages` to list available specs. Delete this line once real entries are added."}
+{"file": ".trellis/spec/backend/ai-engines.md", "reason": "native agent spawn/tools/prompt contracts"}
+{"file": ".trellis/spec/backend/command-guidelines.md", "reason": "Tauri command shape and activity logs"}
+{"file": ".trellis/spec/frontend/i18n.md", "reason": "settings + activity i18n"}
+{"file": ".trellis/spec/frontend/component-guidelines.md", "reason": "settings tab + select labels"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "UI IPC JSON native loop"}
