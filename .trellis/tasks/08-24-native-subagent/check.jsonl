@@ -1,0 +1,7 @@
+{"file": ".trellis/spec/backend/ai-engines.md", "reason": "Tools row, permission mode, events, SSH, usage, no EngineChild"}
+{"file": ".trellis/spec/backend/testing.md", "reason": "Required tests exist and clippy is clean"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "Activity labels, SSH, capability honesty"}
+{"file": ".trellis/spec/frontend/i18n.md", "reason": "Both locales for new activity keys"}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "format/lint/test:ci/build gate"}
+{"file": ".trellis/spec/backend/run-queue.md", "reason": "Sub-agents must not count as extra live sessions"}
+{"file": ".trellis/spec/backend/ssh-remote.md", "reason": "SSH tools stay on remote host; no local MCP fallback"}

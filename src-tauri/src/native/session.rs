@@ -21,13 +21,16 @@ use crate::engine::context::resolve_session_execution_context;
 use crate::native::agent::r#loop::AgentRunner;
 use crate::native::channels::{fetch_channel_record, require_channel_api_key};
 use crate::native::manager::{
-    NativeAgentManager, NativeFollowup, NativeLiveSession, NativeSessionInfo,
+    NativeAgentManager, NativeFollowup, NativeLiveSession, NativeSessionInfo, PendingPermission,
+    PermissionRequest,
 };
 use crate::native::model::{ModelClient, ModelClientConfig, RetryConfig};
 use crate::native::model_catalog::{apply_catalog_defaults, fill_from_catalog};
 use crate::native::protocol::record_to_channel;
 use crate::native::tools::permission::{NativePermissionDecision, NativeToolRiskKind};
-use crate::native::tools::{connect_mcp_servers, local::LocalWorkspace, ssh::SshToolRuntime};
+use crate::native::tools::{
+    connect_mcp_servers, local::LocalWorkspace, ssh::SshToolRuntime, SharedMcp,
+};
 use serde::Serialize;
 
 const ENGINE_LABEL: &str = "内置 Agent";
@@ -62,6 +65,23 @@ fn native_kind_to_codex(kind: &str) -> CodexSessionKind {
 
 fn should_capture_native_execution_changes(kind: &str) -> bool {
     kind == "execution"
+}
+
+fn permission_event(
+    session_record_id: &str,
+    request: &PermissionRequest,
+) -> NativePermissionRequestEvent {
+    NativePermissionRequestEvent {
+        session_record_id: session_record_id.to_string(),
+        request_id: request.request_id.clone(),
+        employee_id: request.employee_id.clone(),
+        task_id: request.task_id.clone(),
+        session_kind: request.session_kind.clone(),
+        tool_name: request.tool_name.clone(),
+        kind: request.kind,
+        summary: request.summary.clone(),
+        remote: request.remote,
+    }
 }
 
 async fn capture_native_execution_change_baseline(
@@ -460,6 +480,9 @@ pub async fn run_native_read_only_one_shot(
     runner.set_read_only(true);
     runner.set_allowed_tools(crate::native::tools::READ_ONLY_NATIVE_TOOL_NAMES);
     runner.max_turns = crate::native::settings::effective_max_turns(app);
+    runner.max_concurrent_subagents =
+        crate::native::settings::effective_max_concurrent_subagents(app);
+    runner.subagent_policy = crate::native::settings::effective_subagent_policy(app);
     if let Some(context_tokens) = run.context_tokens {
         runner.context_char_limit = (context_tokens as usize).saturating_mul(3).max(8_000);
     }
@@ -479,6 +502,8 @@ pub async fn run_native_read_only_one_shot(
             crate::native::prompt::read_local_project_agents(&run_cwd)
         },
         employee_prompt: run.employee_system_prompt.clone().unwrap_or_default(),
+        max_concurrent_subagents: runner.max_concurrent_subagents,
+        subagent_policy: runner.subagent_policy.clone(),
     });
     runner
         .messages
@@ -709,6 +734,7 @@ pub async fn start_native_with_manager(
     let session_record_id = session_record.id.clone();
     let employee_id_spawn = employee_id.clone();
     let task_id_spawn = task_id.clone();
+    let project_id_spawn = session_record.project_id.clone();
     let kind_spawn = kind.clone();
     let manager_spawn = manager_state.clone();
     let app_spawn = app.clone();
@@ -731,6 +757,7 @@ pub async fn start_native_with_manager(
             session_record_id,
             employee_id_spawn,
             task_id_spawn,
+            project_id_spawn,
             kind_spawn,
             await_followups,
             image_paths,
@@ -750,7 +777,7 @@ pub async fn start_native_with_manager(
         followup_tx,
         join,
         allow_all_high_risk,
-        pending_permission: None,
+        pending_permission: std::collections::VecDeque::new(),
     });
     let _ = loop_ready_tx.send(());
 
@@ -794,6 +821,7 @@ async fn run_native_loop(
     session_record_id: String,
     employee_id: String,
     task_id: Option<String>,
+    project_id: Option<String>,
     kind: String,
     await_followups: bool,
     image_paths: Option<Vec<String>>,
@@ -831,21 +859,29 @@ async fn run_native_loop(
             let kind = kind_perm.clone();
             tauri::async_runtime::spawn(async move {
                 let request_id = uuid::Uuid::new_v4().to_string();
-                {
+                let request = PermissionRequest {
+                    request_id: request_id.clone(),
+                    employee_id: employee_id.clone(),
+                    task_id: task_id.clone(),
+                    session_kind: kind.clone(),
+                    tool_name: prompt.tool_name.clone(),
+                    kind: prompt.kind,
+                    summary: prompt.summary.clone(),
+                    remote: prompt.remote,
+                };
+                let should_emit = {
                     let mut manager = manager_state.lock().await;
-                    if let Some(session) = manager.get_session_mut(&session_record_id) {
-                        if let Some((_, old)) = session.pending_permission.take() {
-                            let _ = old.send(
-                                crate::native::tools::permission::NativePermissionDecision::Deny,
-                            );
-                        }
-                        session.pending_permission = Some((request_id.clone(), reply));
-                    } else {
-                        let _ = reply
-                            .send(crate::native::tools::permission::NativePermissionDecision::Deny);
-                        return;
+                    match manager.enqueue_permission(
+                        &session_record_id,
+                        PendingPermission {
+                            request: request.clone(),
+                            reply,
+                        },
+                    ) {
+                        Ok(should_emit) => should_emit,
+                        Err(_) => return,
                     }
-                }
+                };
                 let location = if prompt.remote {
                     "远程工作区"
                 } else {
@@ -863,24 +899,19 @@ async fn run_native_loop(
                     ),
                 )
                 .await;
-                let _ = app.emit(
-                    "native-permission-request",
-                    NativePermissionRequestEvent {
-                        session_record_id: session_record_id.clone(),
-                        request_id,
-                        employee_id,
-                        task_id,
-                        session_kind: kind,
-                        tool_name: prompt.tool_name,
-                        kind: prompt.kind,
-                        summary: prompt.summary,
-                        remote: prompt.remote,
-                    },
-                );
+                if should_emit {
+                    let _ = app.emit(
+                        "native-permission-request",
+                        permission_event(&session_record_id, &request),
+                    );
+                }
             });
         }));
     }
     runner.max_turns = crate::native::settings::effective_max_turns(&app);
+    runner.max_concurrent_subagents =
+        crate::native::settings::effective_max_concurrent_subagents(&app);
+    runner.subagent_policy = crate::native::settings::effective_subagent_policy(&app);
     if let Some(context_tokens) = run.context_tokens {
         runner.context_char_limit = (context_tokens as usize).saturating_mul(3).max(8_000);
     }
@@ -900,6 +931,8 @@ async fn run_native_loop(
             crate::native::prompt::read_local_project_agents(&run_cwd)
         },
         employee_prompt: run.employee_system_prompt.clone().unwrap_or_default(),
+        max_concurrent_subagents: runner.max_concurrent_subagents,
+        subagent_policy: runner.subagent_policy.clone(),
     });
     runner
         .messages
@@ -908,6 +941,12 @@ async fn run_native_loop(
     runner.on_event = Some(event_tx);
     let (usage_tx, mut usage_rx) = mpsc::unbounded_channel();
     runner.on_usage = Some(usage_tx);
+    let (activity_tx, mut activity_rx) = mpsc::unbounded_channel::<(String, String)>();
+    if task_id.is_some() {
+        runner.on_activity = Some(activity_tx);
+    } else {
+        drop(activity_tx);
+    }
     emit_native_line(
         &app,
         &session_record_id,
@@ -989,7 +1028,7 @@ async fn run_native_loop(
                     .await;
                 }
                 runner.set_extra_tools(connected.session.tool_specs());
-                runner.ctx.mcp = connected.session;
+                runner.ctx.mcp = SharedMcp::from_session(connected.session);
             }
             Err(error) => {
                 emit_native_line(
@@ -1028,6 +1067,25 @@ async fn run_native_loop(
         while let Some(delta) = usage_rx.recv().await {
             if let Ok(pool) = sqlite_pool(&usage_app).await {
                 let _ = apply_codex_session_usage(&pool, &usage_session, &delta).await;
+            }
+        }
+    });
+    let activity_app = app.clone();
+    let activity_employee = employee_id.clone();
+    let activity_task = task_id.clone();
+    let activity_project = project_id.clone();
+    let activity_join = tokio::spawn(async move {
+        while let Some((action, details)) = activity_rx.recv().await {
+            if let Ok(pool) = sqlite_pool(&activity_app).await {
+                let _ = insert_activity_log(
+                    &pool,
+                    &action,
+                    &details,
+                    Some(&activity_employee),
+                    activity_task.as_deref(),
+                    activity_project.as_deref(),
+                )
+                .await;
             }
         }
     });
@@ -1101,9 +1159,11 @@ async fn run_native_loop(
 
     runner.on_event.take();
     runner.on_usage.take();
+    runner.on_activity.take();
     runner.ctx.mcp.shutdown().await;
     let _ = emit_join.await;
     let _ = usage_join.await;
+    let _ = activity_join.await;
 
     if kind == "review" {
         if let Ok(pool) = sqlite_pool(&app).await {
@@ -1181,15 +1241,23 @@ async fn stop_native_process(
 
 #[tauri::command]
 pub async fn resolve_native_tool_permission(
+    app: AppHandle,
     state: State<'_, Arc<Mutex<NativeAgentManager>>>,
     session_record_id: String,
     request_id: String,
     decision: NativePermissionDecision,
 ) -> Result<(), String> {
-    state
+    let next = state
         .lock()
         .await
-        .resolve_permission(&session_record_id, &request_id, decision)
+        .resolve_permission(&session_record_id, &request_id, decision)?;
+    if let Some(request) = next {
+        let _ = app.emit(
+            "native-permission-request",
+            permission_event(&session_record_id, &request),
+        );
+    }
+    Ok(())
 }
 
 #[tauri::command]

@@ -98,11 +98,91 @@ Reference implementations:
 - User-facing strings are primarily Chinese.
 - Status/priority/activity labels come from `src/lib/utils.ts` helpers — reuse them instead of hardcoding divergent wording.
 
+## Scenario: Select trigger shows name, not stored key
+
+### 1. Scope / Trigger
+
+`src/components/ui/select.tsx` is **Base UI** (`@base-ui/react/select`), not Radix. `SelectItem` children go to `ItemText` (dropdown list only). The **closed trigger** is `SelectValue`. An empty `<SelectValue />` renders the stored `value` string.
+
+Trigger whenever `Select` `value` is a machine key that is not what the user should read: `aggressive`, `conservative`, `high`, UUID, protocol id, `FILTER_ALL`, etc.
+
+Evidence: Settings 界面与运行「子 Agent 策略」— list showed 保守/均衡/积极, trigger showed `aggressive`. Same contract as `KanbanPage` filters and `NativeChannelFields`.
+
+### 2. Signatures
+
+| Piece | Contract |
+|-------|----------|
+| Stored `value` | Machine key persisted / sent to Rust (`aggressive`, channel id, …) |
+| `SelectItem value` | That same key |
+| `SelectItem` children | Display **name** (`t(...)`, `getPriorityLabel`, `channel.name`) |
+| `SelectValue` children | `(value) => name` render function — **required** when key ≠ name |
+| Locales | zh-CN + en for every visible name |
+
+### 3. Contracts
+
+- Dropdown **and** closed trigger show the name in the active locale.
+- Changing locale remaps the trigger through `t` / label helpers; do not snapshot Chinese into state.
+- Keep storing the key. Do not persist 积极 / Aggressive as `subagent_policy`.
+- If `value` is not a string (placeholder / empty), return a placeholder name, not `String(value)`.
+
+### 4. Validation & Error Matrix
+
+| Case | Behavior |
+|------|----------|
+| key ≠ display name, empty `<SelectValue />` | Trigger shows `aggressive` / UUID — **invalid** |
+| key ≠ display name, `SelectValue` maps via `t` / helper | Trigger shows 积极 / Aggressive |
+| key already equals name (rare model ids) | Empty `SelectValue` is acceptable only if users should see that id |
+| Unknown key | Fallback name or placeholder, never dump the raw key if a label exists |
+
+### 5. Good / Base / Bad Cases
+
+- Good: `nativeSubagentPolicy` stays `"aggressive"`; trigger uses `t("settings:nativeAgent.subagentPolicyAggressive")` → 积极
+- Good: kanban priority filter `value="high"` + `getPriorityLabel` in `SelectValue`
+- Base: model id select where the visible text is the id
+- Bad: `<SelectValue />` for `subagent_policy` / status / channel id / priority
+
+### 6. Tests Required
+
+- i18n: both locales have the name keys (`locale.test.ts` pattern for `subagentPolicyBalanced`).
+- No component test required unless adding a pure mapper; then assert `aggressive` → 积极 and not `"aggressive"`.
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```tsx
+<SelectTrigger>
+  <SelectValue />
+</SelectTrigger>
+<SelectContent>
+  <SelectItem value="aggressive">{t("settings:nativeAgent.subagentPolicyAggressive")}</SelectItem>
+</SelectContent>
+```
+
+List is localized; closed trigger still shows `aggressive`.
+
+#### Correct
+
+```tsx
+<SelectTrigger>
+  <SelectValue>
+    {(value) => {
+      if (value === "conservative") return t("settings:nativeAgent.subagentPolicyConservative");
+      if (value === "aggressive") return t("settings:nativeAgent.subagentPolicyAggressive");
+      return t("settings:nativeAgent.subagentPolicyBalanced");
+    }}
+  </SelectValue>
+</SelectTrigger>
+```
+
+References: `src/pages/KanbanPage.tsx`, `src/components/employees/NativeChannelFields.tsx`, `src/components/settings/RuntimeSettingsTab.tsx` (子 Agent 策略).
+
 ## Anti-Patterns
 
 - Raw `invoke("some_command")` inside JSX event handlers.
 - Calling `Database.execute` / reintroducing frontend writes.
 - Hand-formatting timestamps with `new Date(...).toLocaleString` instead of `formatDate`.
 - Rebuilding Select/Dialog primitives instead of using `src/components/ui`.
+- Empty `<SelectValue />` when `value` is a machine key (`aggressive`, UUID, `high`) — closed trigger shows the key. Map to a name; see **Select trigger shows name, not stored key** above.
 - Giant inline forms that reimplement store mutation logic already on the store.
 - Wrapping `onOpenChangeDetail` as `(change) => handler(change)` and dropping the optional `{line, message}` — review findings then open the file but never reveal/highlight. Forward `options` through. See [review-findings.md](../backend/review-findings.md).

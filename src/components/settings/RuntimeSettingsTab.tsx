@@ -70,6 +70,11 @@ interface RuntimeSettingsTabProps {
   nativeMaxTurns: number;
   onNativeMaxTurnsChange: (value: number) => void;
   onNativeMaxTurnsCommit: (value: number) => void;
+  nativeMaxConcurrentSubagents: number;
+  onNativeMaxConcurrentSubagentsChange: (value: number) => void;
+  onNativeMaxConcurrentSubagentsCommit: (value: number) => void;
+  nativeSubagentPolicy: string;
+  onNativeSubagentPolicyChange: (value: string) => void;
   nativeConfirmHighRisk: boolean;
   onNativeConfirmHighRiskChange: (value: boolean) => void;
   onTaskSdkEnabledChange: (value: boolean) => void;
@@ -204,6 +209,11 @@ export function RuntimeSettingsTab({
   nativeMaxTurns,
   onNativeMaxTurnsChange,
   onNativeMaxTurnsCommit,
+  nativeMaxConcurrentSubagents,
+  onNativeMaxConcurrentSubagentsChange,
+  onNativeMaxConcurrentSubagentsCommit,
+  nativeSubagentPolicy,
+  onNativeSubagentPolicyChange,
   nativeConfirmHighRisk,
   onNativeConfirmHighRiskChange,
   onTaskSdkEnabledChange,
@@ -524,6 +534,75 @@ export function RuntimeSettingsTab({
               }}
             />
             <p className="text-xs text-muted-foreground">{t("settings:nativeAgent.hint")}</p>
+          </div>
+          <div className="mt-4 max-w-xs space-y-2">
+            <label htmlFor="native-max-concurrent-subagents" className="text-sm font-medium">
+              {t("settings:nativeAgent.maxConcurrentSubagentsLabel")}
+            </label>
+            <Input
+              id="native-max-concurrent-subagents"
+              type="number"
+              min={1}
+              max={16}
+              step={1}
+              value={nativeMaxConcurrentSubagents}
+              onChange={(event) => {
+                const parsed = Number.parseInt(event.target.value, 10);
+                onNativeMaxConcurrentSubagentsChange(
+                  Number.isNaN(parsed) ? 3 : Math.min(16, Math.max(1, parsed)),
+                );
+              }}
+              onBlur={(event) => {
+                const parsed = Number.parseInt(event.target.value, 10);
+                onNativeMaxConcurrentSubagentsCommit(
+                  Number.isNaN(parsed) ? 3 : Math.min(16, Math.max(1, parsed)),
+                );
+              }}
+            />
+            <p className="text-xs text-muted-foreground">
+              {t("settings:nativeAgent.maxConcurrentSubagentsHint")}
+            </p>
+          </div>
+          <div className="mt-4 max-w-xs space-y-2">
+            <label htmlFor="native-subagent-policy" className="text-sm font-medium">
+              {t("settings:nativeAgent.subagentPolicyLabel")}
+            </label>
+            <Select
+              value={nativeSubagentPolicy}
+              onValueChange={(value) => {
+                if (value) {
+                  onNativeSubagentPolicyChange(value);
+                }
+              }}
+            >
+              <SelectTrigger id="native-subagent-policy" className="bg-background">
+                <SelectValue>
+                  {(value) => {
+                    if (value === "conservative") {
+                      return t("settings:nativeAgent.subagentPolicyConservative");
+                    }
+                    if (value === "aggressive") {
+                      return t("settings:nativeAgent.subagentPolicyAggressive");
+                    }
+                    return t("settings:nativeAgent.subagentPolicyBalanced");
+                  }}
+                </SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="conservative">
+                  {t("settings:nativeAgent.subagentPolicyConservative")}
+                </SelectItem>
+                <SelectItem value="balanced">
+                  {t("settings:nativeAgent.subagentPolicyBalanced")}
+                </SelectItem>
+                <SelectItem value="aggressive">
+                  {t("settings:nativeAgent.subagentPolicyAggressive")}
+                </SelectItem>
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground">
+              {t("settings:nativeAgent.subagentPolicyHint")}
+            </p>
           </div>
           <label className="mt-4 flex items-start gap-3 rounded-md border border-border px-3 py-2">
             <input

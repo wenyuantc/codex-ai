@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::process::Stdio;
+use std::sync::Arc;
 use std::time::Duration;
 
 use serde_json::{json, Value};
@@ -53,6 +54,43 @@ pub struct McpConnectResult {
     pub session: McpSession,
     pub warnings: Vec<String>,
     pub connected: Vec<String>,
+}
+
+#[derive(Clone, Default)]
+pub struct SharedMcp {
+    inner: Option<Arc<tokio::sync::Mutex<McpSession>>>,
+}
+
+impl SharedMcp {
+    pub fn empty() -> Self {
+        Self { inner: None }
+    }
+
+    pub fn from_session(session: McpSession) -> Self {
+        Self {
+            inner: Some(Arc::new(tokio::sync::Mutex::new(session))),
+        }
+    }
+
+    pub async fn has_tool(&self, name: &str) -> bool {
+        match &self.inner {
+            Some(inner) => inner.lock().await.has_tool(name),
+            None => false,
+        }
+    }
+
+    pub async fn call(&self, name: &str, arguments: &str) -> Result<String, String> {
+        match &self.inner {
+            Some(inner) => inner.lock().await.call(name, arguments).await,
+            None => Err(format!("unknown tool: {name}")),
+        }
+    }
+
+    pub async fn shutdown(&self) {
+        if let Some(inner) = &self.inner {
+            inner.lock().await.shutdown().await;
+        }
+    }
 }
 
 pub fn sanitize_mcp_token(value: &str) -> String {

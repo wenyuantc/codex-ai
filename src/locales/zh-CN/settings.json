@@ -33,7 +33,14 @@
     "label": "最大工具轮次",
     "hint": "0 = 不限制，默认 40，最大 500",
     "confirmHighRiskLabel": "高风险工具需确认",
-    "confirmHighRiskHint": "开启后，内置 Agent 覆盖/删除/推送/强制 Git/MCP 会弹窗（本会话全部允许、仅允许一次、不允许）。关闭后恢复直接执行，立即生效于之后新开的会话。"
+    "confirmHighRiskHint": "开启后，内置 Agent 覆盖/删除/推送/强制 Git/MCP 会弹窗（本会话全部允许、仅允许一次、不允许）。关闭后恢复直接执行，立即生效于之后新开的会话。",
+    "maxConcurrentSubagentsLabel": "同轮子 Agent 上限",
+    "maxConcurrentSubagentsHint": "一次回复里最多并行多少个子 Agent。默认 3，范围 1–16。本地与 SSH 共用。改完对之后新开的会话生效。",
+    "subagentPolicyLabel": "子 Agent 策略",
+    "subagentPolicyHint": "控制父循环何时委派。子 Agent 仍只有 explore（只读）和 general（可写）两种。改完对之后新开的会话生效。",
+    "subagentPolicyConservative": "保守",
+    "subagentPolicyBalanced": "均衡",
+    "subagentPolicyAggressive": "积极"
   },
   "about": {
     "title": "关于与更新",

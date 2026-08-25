@@ -33,7 +33,14 @@
     "label": "Max tool turns",
     "hint": "0 = unlimited, default 40, max 500",
     "confirmHighRiskLabel": "Confirm high-risk tools",
-    "confirmHighRiskHint": "When on, the built-in Agent prompts before overwrite/delete/push/force git/MCP (allow all this session, allow once, or deny). Turn off to run those tools immediately. Applies to sessions started after you change it."
+    "confirmHighRiskHint": "When on, the built-in Agent prompts before overwrite/delete/push/force git/MCP (allow all this session, allow once, or deny). Turn off to run those tools immediately. Applies to sessions started after you change it.",
+    "maxConcurrentSubagentsLabel": "Sub-agents per turn",
+    "maxConcurrentSubagentsHint": "How many child agents may run in parallel in one model turn. Default 3, range 1–16. Shared by local and SSH. Applies to sessions started after you change it.",
+    "subagentPolicyLabel": "Sub-agent policy",
+    "subagentPolicyHint": "How eagerly the parent delegates. Child types stay explore (read-only) and general (can edit). Applies to sessions started after you change it.",
+    "subagentPolicyConservative": "Conservative",
+    "subagentPolicyBalanced": "Balanced",
+    "subagentPolicyAggressive": "Aggressive"
   },
   "about": {
     "title": "About & updates",

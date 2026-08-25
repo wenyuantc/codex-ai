@@ -1,7 +1,9 @@
 use std::collections::{HashSet, VecDeque};
+use std::sync::Arc;
 
 use serde_json::Value;
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, Semaphore};
+use tokio::task::JoinSet;
 
 use crate::engine::UsageDelta;
 use crate::native::model::client::{ChatRequest, ModelClient};
@@ -9,28 +11,50 @@ use crate::native::model::types::{Message, NativeImage, Role, ToolCall, ToolSpec
 use crate::native::model::usage_to_delta;
 use crate::native::settings::DEFAULT_NATIVE_MAX_TURNS;
 use crate::native::tools::{
-    execute_tool, tool_specs, CancelFlag, LocalWorkspace, McpSession, ToolCtx,
+    execute_tool, tool_specs, CancelFlag, LocalWorkspace, SharedMcp, ToolCtx,
 };
 
 use super::compact::{compact_local, should_compact};
+use super::subagent::{
+    child_max_turns, child_system_prompt, format_subagent_log_tag, format_subagent_result,
+    parse_subagent_args, SubagentKind, SubagentSpec,
+};
 use super::truncate::truncate_messages;
 const DEFAULT_CONTEXT_CHARS: usize = 120_000;
 const REPEAT_TOOL_LIMIT: u32 = 3;
 const LAST_TURN_REMINDER: &str = "工具轮次已达上限。请立即给出最终结论，不要再调用工具。";
 const LAST_TURN_FALLBACK: &str = "已达到最大工具轮次，已根据已有工具结果停止。";
 
+#[derive(Clone)]
+struct ModelTurnCfg {
+    model: String,
+    effort: Option<String>,
+    max_output_tokens: Option<u32>,
+    thinking_enabled: bool,
+}
+
+type SubagentStub = Arc<dyn Fn(&SubagentSpec) -> String + Send + Sync>;
+
 pub struct AgentRunner {
     pub ctx: ToolCtx,
     pub messages: Vec<Message>,
     pub max_turns: u32,
+    pub max_concurrent_subagents: u32,
+    pub subagent_policy: String,
     pub context_char_limit: usize,
     pub on_event: Option<mpsc::UnboundedSender<String>>,
     pub on_usage: Option<mpsc::UnboundedSender<UsageDelta>>,
+    pub on_activity: Option<mpsc::UnboundedSender<(String, String)>>,
+    pub subagent_stub: Option<SubagentStub>,
     extra_tools: Vec<ToolSpec>,
     allowed_tools: Option<HashSet<String>>,
     turns: u32,
     last_tool_key: Option<String>,
     last_tool_repeat: u32,
+    depth: u8,
+    event_prefix: String,
+    subagent_seq: u32,
+    model_turn: Option<ModelTurnCfg>,
 }
 
 enum TurnControl {
@@ -47,21 +71,30 @@ impl AgentRunner {
                 cancel: CancelFlag::new(),
                 read_files: HashSet::new(),
                 todos: Vec::new(),
-                mcp: McpSession::empty(),
+                mcp: SharedMcp::empty(),
                 allow_all_high_risk: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
                 request_permission: None,
                 read_only: false,
             },
             messages: Vec::new(),
             max_turns: DEFAULT_NATIVE_MAX_TURNS as u32,
+            max_concurrent_subagents: crate::native::agent::subagent::MAX_CONCURRENT_SUBAGENTS
+                as u32,
+            subagent_policy: crate::native::settings::DEFAULT_NATIVE_SUBAGENT_POLICY.to_string(),
             context_char_limit: DEFAULT_CONTEXT_CHARS,
             on_event: None,
             on_usage: None,
+            on_activity: None,
+            subagent_stub: None,
             extra_tools: Vec::new(),
             allowed_tools: None,
             turns: 0,
             last_tool_key: None,
             last_tool_repeat: 0,
+            depth: 0,
+            event_prefix: String::new(),
+            subagent_seq: 0,
+            model_turn: None,
         }
     }
 
@@ -83,6 +116,16 @@ impl AgentRunner {
 
     fn combined_tools(&self) -> Vec<ToolSpec> {
         let mut tools = tool_specs();
+        if self.depth > 0 || self.ctx.read_only {
+            tools.retain(|tool| tool.name != "Agent");
+        }
+        let cap = self.max_concurrent_subagents.max(1);
+        for tool in &mut tools {
+            if tool.name == "Agent" {
+                tool.description =
+                    crate::native::prompt::agent_tool_description(cap, &self.subagent_policy);
+            }
+        }
         tools.extend(self.extra_tools.clone());
         if let Some(allowed) = &self.allowed_tools {
             tools.retain(|tool| allowed.contains(&tool.name));
@@ -90,9 +133,27 @@ impl AgentRunner {
         tools
     }
 
+    pub fn tool_names(&self) -> Vec<String> {
+        self.combined_tools()
+            .into_iter()
+            .map(|tool| tool.name)
+            .collect()
+    }
+
     fn emit(&self, line: impl Into<String>) {
         if let Some(tx) = &self.on_event {
-            let _ = tx.send(line.into());
+            let line = line.into();
+            let _ = tx.send(if self.event_prefix.is_empty() {
+                line
+            } else {
+                format!("{}{line}", self.event_prefix)
+            });
+        }
+    }
+
+    fn emit_activity(&self, action: &str, details: &str) {
+        if let Some(tx) = &self.on_activity {
+            let _ = tx.send((action.to_string(), details.to_string()));
         }
     }
 
@@ -118,6 +179,12 @@ impl AgentRunner {
         thinking_enabled: bool,
         images: Vec<NativeImage>,
     ) -> Result<String, String> {
+        self.model_turn = Some(ModelTurnCfg {
+            model: model.to_string(),
+            effort: effort.map(ToOwned::to_owned),
+            max_output_tokens,
+            thinking_enabled,
+        });
         self.begin_user_turn(user, images)?;
         loop {
             let last_turn = self.prepare_model_call()?;
@@ -134,7 +201,42 @@ impl AgentRunner {
                 })
                 .await?;
             self.emit_usage(usage);
-            match self.consume_assistant(assistant, last_turn).await? {
+            match self
+                .consume_assistant(assistant, last_turn, Some(client))
+                .await?
+            {
+                TurnControl::Stop(text) => return Ok(text),
+                TurnControl::Continue => {}
+            }
+        }
+    }
+
+    async fn run_child_with_client(
+        &mut self,
+        client: &ModelClient,
+        user: &str,
+        model: &str,
+        effort: Option<&str>,
+        max_output_tokens: Option<u32>,
+        thinking_enabled: bool,
+    ) -> Result<String, String> {
+        self.begin_user_turn(user, Vec::new())?;
+        loop {
+            let last_turn = self.prepare_model_call()?;
+            let tools = self.combined_tools();
+            let tools_now: &[ToolSpec] = if last_turn { &[] } else { &tools };
+            let (assistant, usage) = client
+                .chat(ChatRequest {
+                    messages: &self.messages,
+                    tools: tools_now,
+                    model,
+                    effort,
+                    max_output_tokens,
+                    thinking_enabled,
+                })
+                .await?;
+            self.emit_usage(usage);
+            match self.consume_assistant_serial(assistant, last_turn).await? {
                 TurnControl::Stop(text) => return Ok(text),
                 TurnControl::Continue => {}
             }
@@ -153,7 +255,7 @@ impl AgentRunner {
             let assistant = queue
                 .pop_front()
                 .ok_or_else(|| "scripted model exhausted".to_string())?;
-            match self.consume_assistant(assistant, last_turn).await? {
+            match self.consume_assistant(assistant, last_turn, None).await? {
                 TurnControl::Stop(text) => return Ok(text),
                 TurnControl::Continue => {}
             }
@@ -200,6 +302,44 @@ impl AgentRunner {
         &mut self,
         mut assistant: Message,
         last_turn: bool,
+        client: Option<&ModelClient>,
+    ) -> Result<TurnControl, String> {
+        if self.ctx.cancel.is_cancelled() {
+            return Err("已取消".to_string());
+        }
+        assistant
+            .tool_calls
+            .retain(|call| !call.name.trim().is_empty());
+        if last_turn {
+            assistant.tool_calls.clear();
+        }
+        if !assistant.reasoning_content.is_empty() {
+            let chars = assistant.reasoning_content.chars().count();
+            self.emit(format!("[思考] 已生成 {chars} 字"));
+        }
+        let text = assistant.content.clone();
+        let tool_calls = assistant.tool_calls.clone();
+        if !text.trim().is_empty() {
+            self.emit(text.clone());
+        }
+        self.messages.push(assistant);
+        if tool_calls.is_empty() {
+            let text = if text.trim().is_empty() && last_turn {
+                self.emit(LAST_TURN_FALLBACK.to_string());
+                LAST_TURN_FALLBACK.to_string()
+            } else {
+                text
+            };
+            return Ok(TurnControl::Stop(text));
+        }
+        self.execute_tool_calls(tool_calls, client).await?;
+        Ok(TurnControl::Continue)
+    }
+
+    async fn consume_assistant_serial(
+        &mut self,
+        mut assistant: Message,
+        last_turn: bool,
     ) -> Result<TurnControl, String> {
         if self.ctx.cancel.is_cancelled() {
             return Err("已取消".to_string());
@@ -233,6 +373,10 @@ impl AgentRunner {
             if self.ctx.cancel.is_cancelled() {
                 return Err("已取消".to_string());
             }
+            if call.name == "Agent" {
+                self.push_tool_output(&call, "子 Agent 不能再委派子 Agent".to_string());
+                continue;
+            }
             self.emit(tool_start_line(&call.name, &call.arguments));
             let output = self.execute_logged_tool(&call).await;
             self.emit(tool_result_line(&call.name, &output));
@@ -262,6 +406,197 @@ impl AgentRunner {
             Err(error) => error,
         }
     }
+
+    async fn execute_tool_calls(
+        &mut self,
+        calls: Vec<ToolCall>,
+        client: Option<&ModelClient>,
+    ) -> Result<(), String> {
+        let mut index = 0;
+        while index < calls.len() {
+            if self.ctx.cancel.is_cancelled() {
+                return Err("已取消".to_string());
+            }
+            if calls[index].name == "Agent" {
+                let mut end = index + 1;
+                while end < calls.len() && calls[end].name == "Agent" {
+                    end += 1;
+                }
+                self.run_agent_batch(&calls[index..end], client).await?;
+                index = end;
+            } else {
+                let call = &calls[index];
+                self.emit(tool_start_line(&call.name, &call.arguments));
+                let output = self.execute_logged_tool(call).await;
+                self.emit(tool_result_line(&call.name, &output));
+                let mut message = Message::tool_result(&call.id, output);
+                message.name = call.name.clone();
+                self.messages.push(message);
+                index += 1;
+            }
+        }
+        Ok(())
+    }
+
+    fn spawn_child_runner(&self, spec: &SubagentSpec, index: u32) -> AgentRunner {
+        let mut child = AgentRunner::new(self.ctx.workspace.clone());
+        child.ctx.ssh = self.ctx.ssh.clone();
+        child.ctx.cancel = self.ctx.cancel.clone();
+        child.ctx.allow_all_high_risk = self.ctx.allow_all_high_risk.clone();
+        child.ctx.request_permission = self.ctx.request_permission.clone();
+        child.depth = self.depth.saturating_add(1);
+        child.event_prefix = format!(
+            "{} ",
+            format_subagent_log_tag(index, spec.kind, &spec.description)
+        );
+        child.max_turns = child_max_turns(self.max_turns);
+        child.max_concurrent_subagents = self.max_concurrent_subagents;
+        child.subagent_policy = self.subagent_policy.clone();
+        child.context_char_limit = self.context_char_limit;
+        child.on_event = self.on_event.clone();
+        child.on_usage = self.on_usage.clone();
+        match spec.kind {
+            SubagentKind::Explore => {
+                child.ctx.read_only = true;
+                child.set_allowed_tools(crate::native::tools::READ_ONLY_NATIVE_TOOL_NAMES);
+            }
+            SubagentKind::General => {
+                child.ctx.mcp = self.ctx.mcp.clone();
+                child.set_extra_tools(self.extra_tools.clone());
+            }
+        }
+        let parent_system = self
+            .messages
+            .iter()
+            .find(|message| message.role == Role::System)
+            .map(|message| message.content.clone());
+        child.messages.push(Message::system(child_system_prompt(
+            parent_system.as_deref(),
+            spec,
+        )));
+        child
+    }
+
+    async fn run_agent_batch(
+        &mut self,
+        calls: &[ToolCall],
+        client: Option<&ModelClient>,
+    ) -> Result<(), String> {
+        if self.depth > 0 {
+            for call in calls {
+                let output = "子 Agent 不能再委派子 Agent".to_string();
+                self.push_tool_output(call, output);
+            }
+            return Ok(());
+        }
+        let mut slot: Vec<Option<(ToolCall, String)>> = vec![None; calls.len()];
+        struct Job {
+            call: ToolCall,
+            spec: SubagentSpec,
+            index: u32,
+        }
+        let mut jobs = Vec::new();
+        for (pos, call) in calls.iter().enumerate() {
+            match parse_subagent_args(&call.arguments) {
+                Ok(spec) => {
+                    self.subagent_seq = self.subagent_seq.saturating_add(1);
+                    jobs.push((
+                        pos,
+                        Job {
+                            call: call.clone(),
+                            spec,
+                            index: self.subagent_seq,
+                        },
+                    ));
+                }
+                Err(error) => slot[pos] = Some((call.clone(), error)),
+            }
+        }
+        let semaphore = Arc::new(Semaphore::new(self.max_concurrent_subagents.max(1) as usize));
+        let mut join_set = JoinSet::new();
+        let stub = self.subagent_stub.clone();
+        let model_turn = self.model_turn.clone();
+        let client_owned = client.cloned();
+        for (pos, job) in jobs {
+            self.emit(tool_start_line("Agent", &job.call.arguments));
+            self.emit(format!(
+                "{} 启动（{}）",
+                format_subagent_log_tag(job.index, job.spec.kind, &job.spec.description),
+                job.spec.kind.as_str()
+            ));
+            self.emit_activity(
+                "native_subagent_started",
+                &format!("{}（{}）", job.spec.description, job.spec.kind.as_str()),
+            );
+            let permit = semaphore.clone();
+            let stub = stub.clone();
+            let client_owned = client_owned.clone();
+            let model_turn = model_turn.clone();
+            let mut child = self.spawn_child_runner(&job.spec, job.index);
+            join_set.spawn(async move {
+                let outcome = async {
+                    let _permit = permit
+                        .acquire_owned()
+                        .await
+                        .map_err(|_| "子 Agent 并发许可已关闭".to_string())?;
+                    if let Some(stub) = stub {
+                        Ok(stub(&job.spec))
+                    } else if let (Some(client), Some(cfg)) = (client_owned.as_ref(), model_turn) {
+                        child
+                            .run_child_with_client(
+                                client,
+                                &job.spec.prompt,
+                                &cfg.model,
+                                cfg.effort.as_deref(),
+                                cfg.max_output_tokens,
+                                cfg.thinking_enabled,
+                            )
+                            .await
+                    } else {
+                        Err("子 Agent 需要模型客户端".to_string())
+                    }
+                }
+                .await;
+                (pos, job, outcome)
+            });
+        }
+        while let Some(joined) = join_set.join_next().await {
+            let (pos, job, outcome) =
+                joined.map_err(|error| format!("子 Agent 任务失败: {error}"))?;
+            let output = match &outcome {
+                Ok(report) => format_subagent_result(&job.spec, Ok(report)),
+                Err(error) => format_subagent_result(&job.spec, Err(error)),
+            };
+            let status = if outcome.is_ok() { "成功" } else { "失败" };
+            self.emit(format!(
+                "{} 结束 {status}",
+                format_subagent_log_tag(job.index, job.spec.kind, &job.spec.description)
+            ));
+            self.emit_activity(
+                "native_subagent_finished",
+                &format!(
+                    "{}（{}）{status}",
+                    job.spec.description,
+                    job.spec.kind.as_str()
+                ),
+            );
+            slot[pos] = Some((job.call, output));
+        }
+        for item in slot.into_iter().flatten() {
+            self.push_tool_output(&item.0, item.1);
+        }
+        Ok(())
+    }
+
+    fn push_tool_output(&mut self, call: &ToolCall, output: String) {
+        if !output.starts_with("子 Agent（") {
+            self.emit(tool_start_line(&call.name, &call.arguments));
+        }
+        self.emit(tool_result_line(&call.name, &output));
+        let mut message = Message::tool_result(&call.id, output);
+        message.name = call.name.clone();
+        self.messages.push(message);
+    }
 }
 
 fn append_last_turn_reminder(messages: &mut Vec<Message>) {
@@ -288,6 +623,7 @@ fn tool_start_line(name: &str, arguments: &str) -> String {
         "Grep" => format!("[工具] Grep {}", json_string(&args, "pattern")),
         "TodoRead" => "[待办] 读取任务清单".to_string(),
         "TodoWrite" => format_todo_write_start(&args),
+        "Agent" => format!("[子 Agent] {}", json_string(&args, "description")),
         other => format!("[工具] {other}"),
     }
 }
@@ -402,8 +738,9 @@ mod tests {
     use super::*;
     use crate::native::model::types::Message;
     use std::fs;
-    use std::sync::atomic::{AtomicU64, Ordering};
-    use std::time::{SystemTime, UNIX_EPOCH};
+    use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
+    use std::sync::Arc;
+    use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
     static TEMP_SEQ: AtomicU64 = AtomicU64::new(0);
 
@@ -730,6 +1067,197 @@ mod tests {
         assert!(
             lines.iter().any(|line| line == "[工具结果] 已更新 3 项"),
             "missing todo result count: {lines:?}"
+        );
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn parent_has_agent_child_and_readonly_do_not() {
+        let (runner, root) = temp_runner();
+        assert!(runner.tool_names().iter().any(|name| name == "Agent"));
+        let general = parse_subagent_args(r#"{"prompt":"go","description":"改文件"}"#).unwrap();
+        let child = runner.spawn_child_runner(&general, 1);
+        assert!(!child.tool_names().iter().any(|name| name == "Agent"));
+        assert!(!child.ctx.read_only);
+        assert_eq!(child.event_prefix, "[子 Agent 1(general) - 改文件] ");
+        let explore = parse_subagent_args(r#"{"prompt":"go","subagent_type":"explore"}"#).unwrap();
+        let explore_child = runner.spawn_child_runner(&explore, 2);
+        assert!(explore_child.ctx.read_only);
+        assert!(!explore_child
+            .tool_names()
+            .iter()
+            .any(|name| name == "Agent"));
+        assert!(!explore_child
+            .tool_names()
+            .iter()
+            .any(|name| name == "Write"));
+        let mut readonly = AgentRunner::new(LocalWorkspace::new(root.clone()));
+        readonly.set_read_only(true);
+        readonly.set_allowed_tools(crate::native::tools::READ_ONLY_NATIVE_TOOL_NAMES);
+        assert!(!readonly.tool_names().iter().any(|name| name == "Agent"));
+        runner.cancel();
+        assert!(child.ctx.cancel.is_cancelled());
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[tokio::test]
+    async fn agent_missing_prompt_keeps_loop_going() {
+        let (mut runner, root) = temp_runner();
+        let text = runner
+            .run_scripted(
+                "go",
+                vec![
+                    assistant_tool_call("c1", "Agent", r#"{"description":"x"}"#),
+                    Message::assistant_text("ok"),
+                ],
+            )
+            .await
+            .expect("run");
+        assert_eq!(text, "ok");
+        assert!(runner
+            .messages
+            .iter()
+            .any(|message| message.content.contains("prompt 不能为空")));
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn parallel_agent_stubs_overlap() {
+        let (mut runner, root) = temp_runner();
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        runner.on_event = Some(tx);
+        let live = Arc::new(AtomicU32::new(0));
+        let max = Arc::new(AtomicU32::new(0));
+        let live_clone = live.clone();
+        let max_clone = max.clone();
+        runner.subagent_stub = Some(Arc::new(move |spec: &SubagentSpec| {
+            let now = live_clone.fetch_add(1, Ordering::SeqCst) + 1;
+            max_clone.fetch_max(now, Ordering::SeqCst);
+            std::thread::sleep(Duration::from_millis(80));
+            live_clone.fetch_sub(1, Ordering::SeqCst);
+            format!("done {}", spec.description)
+        }));
+        let mut assistant = Message::assistant_text("");
+        assistant.content.clear();
+        assistant.tool_calls = vec![
+            ToolCall {
+                id: "a1".to_string(),
+                name: "Agent".to_string(),
+                arguments: r#"{"description":"one","prompt":"p1"}"#.to_string(),
+            },
+            ToolCall {
+                id: "a2".to_string(),
+                name: "Agent".to_string(),
+                arguments: r#"{"description":"two","prompt":"p2"}"#.to_string(),
+            },
+        ];
+        let text = runner
+            .run_scripted(
+                "go",
+                vec![assistant, Message::assistant_text("parent done")],
+            )
+            .await
+            .expect("run");
+        assert_eq!(text, "parent done");
+        assert!(
+            max.load(Ordering::SeqCst) >= 2,
+            "expected overlapping stubs, max={}",
+            max.load(Ordering::SeqCst)
+        );
+        let lines = drain_events(&mut rx);
+        assert!(lines
+            .iter()
+            .any(|line| line.contains("[子 Agent 1(general) - one] 启动")));
+        assert!(lines
+            .iter()
+            .any(|line| line.contains("[子 Agent 2(general) - two] 启动")));
+        assert!(runner
+            .messages
+            .iter()
+            .any(|message| message.content.contains("done one")));
+        assert!(runner
+            .messages
+            .iter()
+            .any(|message| message.content.contains("done two")));
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn agent_tool_description_uses_runner_cap() {
+        let (mut runner, root) = temp_runner();
+        runner.max_concurrent_subagents = 4;
+        runner.subagent_policy = "aggressive".to_string();
+        let agent = runner
+            .combined_tools()
+            .into_iter()
+            .find(|tool| tool.name == "Agent")
+            .expect("Agent tool");
+        assert!(
+            agent.description.contains("max 4"),
+            "description should include cap: {}",
+            agent.description
+        );
+        assert!(agent.description.contains("Policy aggressive"));
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn subagent_cap_one_does_not_overlap() {
+        let (mut runner, root) = temp_runner();
+        runner.max_concurrent_subagents = 1;
+        let live = Arc::new(AtomicU32::new(0));
+        let max = Arc::new(AtomicU32::new(0));
+        let live_clone = live.clone();
+        let max_clone = max.clone();
+        runner.subagent_stub = Some(Arc::new(move |spec: &SubagentSpec| {
+            let now = live_clone.fetch_add(1, Ordering::SeqCst) + 1;
+            max_clone.fetch_max(now, Ordering::SeqCst);
+            std::thread::sleep(Duration::from_millis(50));
+            live_clone.fetch_sub(1, Ordering::SeqCst);
+            format!("done {}", spec.description)
+        }));
+        let mut assistant = Message::assistant_text("");
+        assistant.content.clear();
+        assistant.tool_calls = vec![
+            ToolCall {
+                id: "a1".to_string(),
+                name: "Agent".to_string(),
+                arguments: r#"{"description":"one","prompt":"p1"}"#.to_string(),
+            },
+            ToolCall {
+                id: "a2".to_string(),
+                name: "Agent".to_string(),
+                arguments: r#"{"description":"two","prompt":"p2"}"#.to_string(),
+            },
+        ];
+        let _ = runner
+            .run_scripted(
+                "go",
+                vec![assistant, Message::assistant_text("parent done")],
+            )
+            .await
+            .expect("run");
+        assert_eq!(max.load(Ordering::SeqCst), 1, "cap 1 should not overlap");
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[tokio::test]
+    async fn explore_child_rejects_write() {
+        let (runner, root) = temp_runner();
+        let spec = parse_subagent_args(r#"{"prompt":"look","subagent_type":"explore"}"#).unwrap();
+        let mut child = runner.spawn_child_runner(&spec, 1);
+        child.ctx.allow_all_high_risk.store(true, Ordering::SeqCst);
+        let error = crate::native::tools::execute_tool(
+            &mut child.ctx,
+            "Write",
+            r#"{"file_path":"hello.txt","content":"changed"}"#,
+        )
+        .await
+        .expect_err("explore write");
+        assert!(error.contains("只读规划模式禁止调用工具 Write"));
+        assert_eq!(
+            fs::read_to_string(root.join("hello.txt")).expect("read"),
+            "hello world\n"
         );
         let _ = fs::remove_dir_all(root);
     }

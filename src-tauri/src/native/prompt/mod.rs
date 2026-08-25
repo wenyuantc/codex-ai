@@ -5,6 +5,9 @@ use std::process::Command;
 use tauri::{AppHandle, Runtime};
 
 use crate::codex::{find_ai_prompt_template, load_ai_prompt_templates};
+use crate::native::settings::{
+    normalize_subagent_policy, SUBAGENT_POLICY_AGGRESSIVE, SUBAGENT_POLICY_CONSERVATIVE,
+};
 use crate::native::tools::ssh::SshToolRuntime;
 
 const IDENTITY: &str = include_str!("identity.md");
@@ -27,11 +30,17 @@ pub struct NativePromptParts {
     pub global_template: String,
     pub project_agents: String,
     pub employee_prompt: String,
+    pub max_concurrent_subagents: u32,
+    pub subagent_policy: String,
 }
 
 pub fn compose_system(parts: &NativePromptParts) -> String {
     let mut blocks = Vec::new();
     blocks.push(IDENTITY.trim().to_string());
+    let policy_block = subagent_policy_block(&parts.subagent_policy);
+    if !policy_block.is_empty() {
+        blocks.push(policy_block);
+    }
     blocks.push(environment_block(parts));
     if let Some(git) = parts.git.as_ref() {
         let git_block = git_block(git);
@@ -61,6 +70,14 @@ fn environment_block(parts: &NativePromptParts) -> String {
         format!("- Platform: {}", parts.platform),
         format!("- Date: {}", chrono::Local::now().format("%Y-%m-%d")),
         "- Permission mode: confirm-high-risk".to_string(),
+        format!(
+            "- Max concurrent sub-agents: {}",
+            parts.max_concurrent_subagents.max(1)
+        ),
+        format!(
+            "- Sub-agent policy: {}",
+            normalize_subagent_policy(Some(parts.subagent_policy.as_str()))
+        ),
     ];
     if !parts.model.trim().is_empty() {
         lines.push(format!(
@@ -69,6 +86,34 @@ fn environment_block(parts: &NativePromptParts) -> String {
         ));
     }
     lines.join("\n")
+}
+
+pub fn subagent_policy_block(policy: &str) -> String {
+    let policy = normalize_subagent_policy(Some(policy));
+    match policy.as_str() {
+        SUBAGENT_POLICY_CONSERVATIVE => "# 子 Agent 策略（conservative）\n尽量自己用 Read / Glob / Grep / Edit 完成。仅当两块工作互不依赖、且各自需要较多探索或改动时，才在同一轮多次调用 Agent。单文件小改、后一步依赖前一步结果时不要委派。".to_string(),
+        SUBAGENT_POLICY_AGGRESSIVE => "# 子 Agent 策略（aggressive）\n默认先拆。第一轮优先用 Agent 并行摸底（explore）或按块实现（general），不要自己先把 Glob/Read 做完再决定是否委派。只有改动明确只有一个已知文件时才跳过 Agent。同一轮尽量为独立工作流各调一次 Agent，不超过 Max concurrent sub-agents。".to_string(),
+        _ => "# 子 Agent 策略（balanced）\n任务涉及两个以上模块/目录，或用户输入含多步执行计划时：同一轮至少委派 2 个 Agent（可并行的摸底用 explore，可并行的改动用 general）。仅当目标就是改一个已知文件、改动闭包很小，才自己 Read/Edit。不要把强依赖的步骤并行拆开。".to_string(),
+    }
+}
+
+pub fn agent_tool_description(cap: u32, policy: &str) -> String {
+    let policy = normalize_subagent_policy(Some(policy));
+    let cap = cap.max(1);
+    let policy_hint = match policy.as_str() {
+        SUBAGENT_POLICY_CONSERVATIVE => {
+            "Policy conservative: delegate only when two workstreams are independent and each needs substantial exploration or edits."
+        }
+        SUBAGENT_POLICY_AGGRESSIVE => {
+            "Policy aggressive: default to spawning parallel Agents this turn unless the change is a single known file."
+        }
+        _ => {
+            "Policy balanced: spawn at least two Agents in one turn when the task spans 2+ modules or includes a multi-step plan."
+        }
+    };
+    format!(
+        "Delegate a self-contained subtask to a child agent. Multiple calls in one turn run in parallel (max {cap}). The child does not see this conversation. Use explore for read-only research and general for edits. {policy_hint}"
+    )
 }
 
 fn git_block(git: &NativeGitInfo) -> String {
@@ -220,9 +265,16 @@ mod tests {
             global_template: "全局规则".to_string(),
             project_agents: "## AGENTS.md\n用 2 空格缩进".to_string(),
             employee_prompt: "角色：reviewer".to_string(),
+            max_concurrent_subagents: 5,
+            subagent_policy: "aggressive".to_string(),
         });
         assert!(text.contains("内置编程 Agent"));
         assert!(text.contains("confirm-high-risk"));
+        assert!(text.contains("Max concurrent sub-agents: 5"));
+        assert!(text.contains("Sub-agent policy: aggressive"));
+        assert!(text.contains("子 Agent 策略（aggressive）"));
+        assert!(text.contains("explore"));
+        assert!(text.contains("general"));
         assert!(!text.contains("yolo"));
         assert!(text.contains("Working directory: /repo"));
         assert!(text.contains("Branch: main"));
@@ -230,6 +282,15 @@ mod tests {
         assert!(text.contains("用 2 空格缩进"));
         assert!(text.contains("角色：reviewer"));
         assert!(!text.contains("任务标题"));
+    }
+
+    #[test]
+    fn balanced_policy_asks_for_two_agents_on_multi_step_work() {
+        let block = subagent_policy_block("balanced");
+        assert!(block.contains("至少委派 2 个 Agent"));
+        let description = agent_tool_description(4, "balanced");
+        assert!(description.contains("max 4"));
+        assert!(description.contains("Policy balanced"));
     }
 
     #[test]

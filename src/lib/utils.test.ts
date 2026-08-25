@@ -26,6 +26,8 @@ describe("getActivityActionLabel", () => {
     expect(getActivityActionLabel("task_run_queue_cancelled")).toBe("取消运行排队");
     expect(getActivityActionLabel("task_run_dequeue_failed")).toBe("排队任务启动失败");
     expect(getActivityActionLabel("native_settings_updated")).toBe("更新内置 Agent 设置");
+    expect(getActivityActionLabel("native_subagent_started")).toBe("启动子 Agent");
+    expect(getActivityActionLabel("native_subagent_finished")).toBe("子 Agent 结束");
   });
 
   it("falls back to the raw key for unmapped actions", () => {

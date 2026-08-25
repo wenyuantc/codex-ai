@@ -151,6 +151,19 @@ pub fn tool_specs() -> Vec<ToolSpec> {
                 "required": ["query"]
             }),
         ),
+        spec(
+            "Agent",
+            "Delegate a self-contained subtask to a child agent. Multiple calls in one turn run in parallel up to the session cap (see Max concurrent sub-agents). The child does not see this conversation. Use explore for read-only research and general for edits. Do not use this for a single Read or Grep.",
+            json!({
+                "type": "object",
+                "properties": {
+                    "description": {"type": "string"},
+                    "prompt": {"type": "string"},
+                    "subagent_type": {"type": "string", "enum": ["general", "explore"]}
+                },
+                "required": ["description", "prompt"]
+            }),
+        ),
     ]
 }
 
@@ -174,6 +187,7 @@ mod tests {
         assert!(!is_read_only_native_tool("Write"));
         assert!(!is_read_only_native_tool("Edit"));
         assert!(!is_read_only_native_tool("Bash"));
+        assert!(!is_read_only_native_tool("Agent"));
     }
 
     #[test]
@@ -190,6 +204,7 @@ mod tests {
             "TodoWrite",
             "WebFetch",
             "WebSearch",
+            "Agent",
         ] {
             assert!(names.contains(&expected.to_string()), "missing {expected}");
         }

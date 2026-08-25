@@ -929,12 +929,16 @@ pub struct ListAiChannelModelsResult {
 pub struct NativeSettings {
     pub max_turns: i32,
     pub confirm_high_risk: bool,
+    pub max_concurrent_subagents: i32,
+    pub subagent_policy: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UpdateNativeSettings {
     pub max_turns: Option<i32>,
     pub confirm_high_risk: Option<bool>,
+    pub max_concurrent_subagents: Option<i32>,
+    pub subagent_policy: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

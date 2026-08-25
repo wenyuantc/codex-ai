@@ -46,6 +46,7 @@ Also open the closest existing feature and mirror it.
 | Project scope / env mode | `src/lib/projects.ts` + `projectStore` |
 | Task execution/review actions | `src/components/tasks/hooks/*` |
 | UI primitives | `src/components/ui/*` |
+| Select whose value is a machine key | `SelectValue` render fn → name (`KanbanPage`, `NativeChannelFields`, Settings 子 Agent 策略). Empty `<SelectValue />` shows `aggressive` / UUID |
 | Icons | `lucide-react` only |
 | Error UI shell | `ErrorBoundary` |
 | IDs / timestamps / path validation (Rust) | `app/shared.rs` |

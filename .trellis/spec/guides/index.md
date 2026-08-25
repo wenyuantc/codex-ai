@@ -44,6 +44,7 @@ Most regressions in this repo come from boundary mistakes, not syntax:
 - [ ] New date formatting / status color / priority helper
 - [ ] New dialog that mutates tasks/projects/employees
 - [ ] New normalize/parse for backend payload fields
+- [ ] New `Select` whose `value` is a machine key (status, policy, UUID) — trigger must show name, not key
 
 → Read [Code Reuse Thinking Guide](./code-reuse-thinking-guide.md)
 

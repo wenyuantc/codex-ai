@@ -150,14 +150,20 @@ export async function resolveNativeToolPermission(
   });
 }
 
+export type NativeSubagentPolicy = "conservative" | "balanced" | "aggressive";
+
 export interface NativeSettings {
   max_turns: number;
   confirm_high_risk: boolean;
+  max_concurrent_subagents: number;
+  subagent_policy: NativeSubagentPolicy | string;
 }
 
 export interface UpdateNativeSettings {
   max_turns?: number;
   confirm_high_risk?: boolean;
+  max_concurrent_subagents?: number;
+  subagent_policy?: NativeSubagentPolicy | string;
 }
 
 export async function getNativeSettings(): Promise<NativeSettings> {

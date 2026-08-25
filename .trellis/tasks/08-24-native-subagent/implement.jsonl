@@ -1,0 +1,8 @@
+{"file": ".trellis/spec/backend/ai-engines.md", "reason": "Native in-process agent contracts, tools list, events, SSH, usage persist"}
+{"file": ".trellis/spec/backend/directory-structure.md", "reason": "native/agent and native/tools ownership; do not put this in CLI engines"}
+{"file": ".trellis/spec/backend/testing.md", "reason": "Colocated Rust tests; Chinese error strings as contracts"}
+{"file": ".trellis/spec/backend/error-handling.md", "reason": "User-facing Chinese Result<T, String>"}
+{"file": ".trellis/spec/backend/run-queue.md", "reason": "Child loops must not occupy extra run-queue slots"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "Activity keys, native events, SSH dual path, no frontend SQL"}
+{"file": ".trellis/spec/frontend/i18n.md", "reason": "activity:actions keys zh-CN+en via getActivityActionLabel"}
+{"file": ".trellis/spec/guides/code-reuse-thinking-guide.md", "reason": "Reuse READ_ONLY_NATIVE_TOOL_NAMES, AgentRunner, permission dialog"}

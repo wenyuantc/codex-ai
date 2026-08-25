@@ -1,11 +1,11 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 
 use tokio::sync::{mpsc, oneshot};
 use tokio::task::JoinHandle;
 
-use crate::native::tools::permission::NativePermissionDecision;
+use crate::native::tools::permission::{NativePermissionDecision, NativeToolRiskKind};
 use crate::native::tools::CancelFlag;
 
 #[derive(Debug, Clone)]
@@ -21,13 +21,30 @@ pub enum NativeFollowup {
     Finish,
 }
 
+#[derive(Debug, Clone)]
+pub struct PermissionRequest {
+    pub request_id: String,
+    pub employee_id: String,
+    pub task_id: Option<String>,
+    pub session_kind: String,
+    pub tool_name: String,
+    pub kind: NativeToolRiskKind,
+    pub summary: String,
+    pub remote: bool,
+}
+
+pub struct PendingPermission {
+    pub request: PermissionRequest,
+    pub reply: oneshot::Sender<NativePermissionDecision>,
+}
+
 pub struct NativeLiveSession {
     pub info: NativeSessionInfo,
     pub cancel: CancelFlag,
     pub followup_tx: mpsc::Sender<NativeFollowup>,
     pub join: JoinHandle<()>,
     pub allow_all_high_risk: Arc<AtomicBool>,
-    pub pending_permission: Option<(String, oneshot::Sender<NativePermissionDecision>)>,
+    pub pending_permission: VecDeque<PendingPermission>,
 }
 
 #[derive(Default)]
@@ -53,16 +70,26 @@ impl NativeAgentManager {
         self.sessions.get(session_record_id)
     }
 
-    pub fn get_session_mut(&mut self, session_record_id: &str) -> Option<&mut NativeLiveSession> {
-        self.sessions.get_mut(session_record_id)
-    }
-
     pub fn deny_pending_permission(&mut self, session_record_id: &str) {
         if let Some(session) = self.sessions.get_mut(session_record_id) {
-            if let Some((_, tx)) = session.pending_permission.take() {
-                let _ = tx.send(NativePermissionDecision::Deny);
+            while let Some(pending) = session.pending_permission.pop_front() {
+                let _ = pending.reply.send(NativePermissionDecision::Deny);
             }
         }
+    }
+
+    pub fn enqueue_permission(
+        &mut self,
+        session_record_id: &str,
+        pending: PendingPermission,
+    ) -> Result<bool, String> {
+        let session = self
+            .sessions
+            .get_mut(session_record_id)
+            .ok_or_else(|| "没有运行中的内置 Agent 会话".to_string())?;
+        let should_emit = session.pending_permission.is_empty();
+        session.pending_permission.push_back(pending);
+        Ok(should_emit)
     }
 
     pub fn resolve_permission(
@@ -70,17 +97,17 @@ impl NativeAgentManager {
         session_record_id: &str,
         request_id: &str,
         decision: NativePermissionDecision,
-    ) -> Result<(), String> {
+    ) -> Result<Option<PermissionRequest>, String> {
         let session = self
             .sessions
             .get_mut(session_record_id)
             .ok_or_else(|| "没有运行中的内置 Agent 会话".to_string())?;
         let pending = session
             .pending_permission
-            .take()
+            .pop_front()
             .ok_or_else(|| "没有待确认的高风险操作".to_string())?;
-        if pending.0 != request_id {
-            session.pending_permission = Some(pending);
+        if pending.request.request_id != request_id {
+            session.pending_permission.push_front(pending);
             return Err("权限确认请求已过期".to_string());
         }
         if decision == NativePermissionDecision::AllowSession {
@@ -89,9 +116,13 @@ impl NativeAgentManager {
                 .store(true, std::sync::atomic::Ordering::SeqCst);
         }
         pending
-            .1
+            .reply
             .send(decision)
-            .map_err(|_| "权限确认通道已关闭".to_string())
+            .map_err(|_| "权限确认通道已关闭".to_string())?;
+        Ok(session
+            .pending_permission
+            .front()
+            .map(|item| item.request.clone()))
     }
 
     pub fn len(&self) -> usize {
@@ -146,7 +177,7 @@ mod tests {
             followup_tx: tx,
             join: tokio::spawn(async {}),
             allow_all_high_risk: Arc::new(AtomicBool::new(false)),
-            pending_permission: None,
+            pending_permission: VecDeque::new(),
         });
         assert!(manager.has_employee_processes("emp-1"));
         assert!(manager
@@ -155,5 +186,101 @@ mod tests {
         assert_eq!(manager.len(), 1);
         manager.remove_session("sess-1");
         assert_eq!(manager.len(), 0);
+    }
+
+    fn live_session(id: &str) -> NativeLiveSession {
+        let (tx, _rx) = mpsc::channel(1);
+        NativeLiveSession {
+            info: NativeSessionInfo {
+                employee_id: "emp-1".to_string(),
+                task_id: Some("task-1".to_string()),
+                session_kind: "execution".to_string(),
+                session_record_id: id.to_string(),
+            },
+            cancel: CancelFlag::new(),
+            followup_tx: tx,
+            join: tokio::spawn(async {}),
+            allow_all_high_risk: Arc::new(AtomicBool::new(false)),
+            pending_permission: VecDeque::new(),
+        }
+    }
+
+    fn pending(
+        request_id: &str,
+        tool: &str,
+    ) -> (
+        PendingPermission,
+        oneshot::Receiver<NativePermissionDecision>,
+    ) {
+        let (reply, rx) = oneshot::channel();
+        (
+            PendingPermission {
+                request: PermissionRequest {
+                    request_id: request_id.to_string(),
+                    employee_id: "emp-1".to_string(),
+                    task_id: Some("task-1".to_string()),
+                    session_kind: "execution".to_string(),
+                    tool_name: tool.to_string(),
+                    kind: NativeToolRiskKind::Overwrite,
+                    summary: format!("覆盖 {tool}"),
+                    remote: false,
+                },
+                reply,
+            },
+            rx,
+        )
+    }
+
+    #[tokio::test]
+    async fn permission_queue_does_not_deny_previous() {
+        let mut manager = NativeAgentManager::new();
+        manager.add_session(live_session("sess-1"));
+        let (first, mut first_rx) = pending("r1", "Write");
+        let (second, mut second_rx) = pending("r2", "Bash");
+        assert!(manager.enqueue_permission("sess-1", first).expect("first"));
+        assert!(!manager
+            .enqueue_permission("sess-1", second)
+            .expect("second"));
+        assert!(first_rx.try_recv().is_err());
+        assert!(second_rx.try_recv().is_err());
+        let next = manager
+            .resolve_permission("sess-1", "r1", NativePermissionDecision::AllowOnce)
+            .expect("resolve first");
+        assert_eq!(
+            next.as_ref().map(|item| item.request_id.as_str()),
+            Some("r2")
+        );
+        assert_eq!(
+            first_rx.try_recv().expect("first decision"),
+            NativePermissionDecision::AllowOnce
+        );
+        assert!(second_rx.try_recv().is_err());
+        let next = manager
+            .resolve_permission("sess-1", "r2", NativePermissionDecision::Deny)
+            .expect("resolve second");
+        assert!(next.is_none());
+        assert_eq!(
+            second_rx.try_recv().expect("second decision"),
+            NativePermissionDecision::Deny
+        );
+    }
+
+    #[tokio::test]
+    async fn deny_pending_permission_drains_queue() {
+        let mut manager = NativeAgentManager::new();
+        manager.add_session(live_session("sess-1"));
+        let (first, first_rx) = pending("r1", "Write");
+        let (second, second_rx) = pending("r2", "Bash");
+        let _ = manager.enqueue_permission("sess-1", first);
+        let _ = manager.enqueue_permission("sess-1", second);
+        manager.deny_pending_permission("sess-1");
+        assert_eq!(
+            first_rx.await.expect("first"),
+            NativePermissionDecision::Deny
+        );
+        assert_eq!(
+            second_rx.await.expect("second"),
+            NativePermissionDecision::Deny
+        );
     }
 }

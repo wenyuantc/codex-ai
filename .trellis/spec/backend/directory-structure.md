@@ -36,7 +36,7 @@ src-tauri/
     │   ├── protocol.rs         # openai | anthropic | codex URL/header/model JSON
     │   ├── model/              # SSE clients for Chat Completions / Messages / Responses
     │   ├── tools/              # Read/Write/Edit/Bash/Glob/Grep/Todo/Web + local/SSH
-    │   ├── agent/              # multi-turn loop + truncation + compact
+    │   ├── agent/              # multi-turn loop + truncation + compact + in-session Agent subagent
     │   ├── prompt/             # identity.md + AGENTS/CLAUDE load + global template
     │   ├── manager.rs          # HashMap of live tokio sessions (not EngineChild)
     │   ├── session.rs          # start/stop/restart/resume/send_input Tauri commands

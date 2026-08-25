@@ -37,6 +37,7 @@ pub struct ChatRequest<'a> {
     pub thinking_enabled: bool,
 }
 
+#[derive(Clone)]
 pub struct ModelClient {
     http: reqwest::Client,
     config: ModelClientConfig,

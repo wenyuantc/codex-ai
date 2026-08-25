@@ -62,7 +62,7 @@ import {
   type OpenCodeModelInfo,
   type RemoteOpenCodeHealthCheck,
 } from "@/lib/opencode";
-import { getNativeSettings, updateNativeSettings } from "@/lib/native";
+import { getNativeSettings, updateNativeSettings, type NativeSettings } from "@/lib/native";
 import { changeAppLocale } from "@/lib/i18n";
 import { getLocalePreference, type AppLocale } from "@/lib/i18n/locale";
 import { getEnvironmentModeLabel } from "@/lib/projects";
@@ -181,6 +181,8 @@ export function SettingsPage() {
   const [locale, setLocale] = useState<AppLocale>(getLocalePreference);
   const [maxConcurrentSessions, setMaxConcurrentSessions] = useState(3);
   const [nativeMaxTurns, setNativeMaxTurns] = useState(40);
+  const [nativeMaxConcurrentSubagents, setNativeMaxConcurrentSubagents] = useState(3);
+  const [nativeSubagentPolicy, setNativeSubagentPolicy] = useState("balanced");
   const [nativeConfirmHighRisk, setNativeConfirmHighRisk] = useState(true);
   const [codexHealth, setCodexHealth] = useState<CodexHealthCheck | RemoteCodexHealthCheck | null>(
     null,
@@ -385,11 +387,16 @@ export function SettingsPage() {
     }
   }
 
+  function applyNativeSettings(settings: NativeSettings) {
+    setNativeMaxTurns(settings.max_turns ?? 40);
+    setNativeMaxConcurrentSubagents(settings.max_concurrent_subagents ?? 3);
+    setNativeSubagentPolicy(settings.subagent_policy || "balanced");
+    setNativeConfirmHighRisk(settings.confirm_high_risk !== false);
+  }
+
   async function loadNativeMaxTurns() {
     try {
-      const settings = await getNativeSettings();
-      setNativeMaxTurns(settings.max_turns ?? 40);
-      setNativeConfirmHighRisk(settings.confirm_high_risk !== false);
+      applyNativeSettings(await getNativeSettings());
     } catch (error) {
       console.error("Failed to load native agent max turns:", error);
     }
@@ -399,11 +406,30 @@ export function SettingsPage() {
     const normalized = Number.isFinite(value) ? Math.min(500, Math.max(0, Math.trunc(value))) : 40;
     setNativeMaxTurns(normalized);
     try {
-      const next = await updateNativeSettings({ max_turns: normalized });
-      setNativeMaxTurns(next.max_turns);
-      setNativeConfirmHighRisk(next.confirm_high_risk !== false);
+      applyNativeSettings(await updateNativeSettings({ max_turns: normalized }));
     } catch (error) {
       console.error("Failed to save native agent max turns:", error);
+      await loadNativeMaxTurns();
+    }
+  }
+
+  async function persistNativeMaxConcurrentSubagents(value: number) {
+    const normalized = Number.isFinite(value) ? Math.min(16, Math.max(1, Math.trunc(value))) : 3;
+    setNativeMaxConcurrentSubagents(normalized);
+    try {
+      applyNativeSettings(await updateNativeSettings({ max_concurrent_subagents: normalized }));
+    } catch (error) {
+      console.error("Failed to save native sub-agent concurrency:", error);
+      await loadNativeMaxTurns();
+    }
+  }
+
+  async function persistNativeSubagentPolicy(value: string) {
+    setNativeSubagentPolicy(value);
+    try {
+      applyNativeSettings(await updateNativeSettings({ subagent_policy: value }));
+    } catch (error) {
+      console.error("Failed to save native sub-agent policy:", error);
       await loadNativeMaxTurns();
     }
   }
@@ -411,9 +437,7 @@ export function SettingsPage() {
   async function persistNativeConfirmHighRisk(value: boolean) {
     setNativeConfirmHighRisk(value);
     try {
-      const next = await updateNativeSettings({ confirm_high_risk: value });
-      setNativeMaxTurns(next.max_turns);
-      setNativeConfirmHighRisk(next.confirm_high_risk !== false);
+      applyNativeSettings(await updateNativeSettings({ confirm_high_risk: value }));
     } catch (error) {
       console.error("Failed to save native high-risk confirmation:", error);
       await loadNativeMaxTurns();
@@ -1261,6 +1285,13 @@ export function SettingsPage() {
             nativeMaxTurns={nativeMaxTurns}
             onNativeMaxTurnsChange={setNativeMaxTurns}
             onNativeMaxTurnsCommit={(value) => void persistNativeMaxTurns(value)}
+            nativeMaxConcurrentSubagents={nativeMaxConcurrentSubagents}
+            onNativeMaxConcurrentSubagentsChange={setNativeMaxConcurrentSubagents}
+            onNativeMaxConcurrentSubagentsCommit={(value) =>
+              void persistNativeMaxConcurrentSubagents(value)
+            }
+            nativeSubagentPolicy={nativeSubagentPolicy}
+            onNativeSubagentPolicyChange={(value) => void persistNativeSubagentPolicy(value)}
             nativeConfirmHighRisk={nativeConfirmHighRisk}
             onNativeConfirmHighRiskChange={(value) => void persistNativeConfirmHighRisk(value)}
             onTaskSdkEnabledChange={setTaskSdkEnabled}

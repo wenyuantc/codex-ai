@@ -21,7 +21,8 @@ src-tauri/src/native/
 │   └── identity.md           # 内置 Agent 身份与工作方式设定
 ├── agent/
 │   ├── mod.rs                # 模块声明
-│   ├── loop.rs               # AgentRunner 主循环（模型调用/工具执行/轮次控制）
+│   ├── loop.rs               # AgentRunner 主循环（模型调用/工具执行/轮次控制/子 Agent 批次）
+│   ├── subagent.rs           # Agent 工具参数、类型、并发/轮次上限、子循环提示词
 │   ├── compact.rs            # 上下文压缩（超阈值时本地摘要旧轮次）
 │   └── truncate.rs           # 超长工具结果截断
 ├── model/
@@ -107,7 +108,8 @@ src-tauri/src/native/
 - `run_scripted`：测试专用，用预置的回复序列替代模型调用。
 - `consume_assistant`：处理模型输出 —— 剥离空工具名、最后一轮强制清空工具调用、播报思考字数与文本、执行工具并把结果作为 `tool` 消息回填；无工具调用即返回最终文本。
 - 防重复调用：同一工具+相同参数连续调用 3 次（`REPEAT_TOOL_LIMIT`）后直接拒绝，避免死循环。
-- 事件输出：`[思考] `、`[读取] `、`[命令] `、`[工具结果] ` 等进度行通过 `on_event` 通道发出；用量通过 `on_usage` 通道发出。
+- 子 Agent：连续 `Agent` 调用走 `JoinSet`（上限见设置）；子循环 `event_prefix` 为 `[子 Agent n(explore|general) - {description}] `（description 来自工具参数短标题，空白折叠、去括号、最长 32 字）；高风险确认 FIFO；MCP 经 `SharedMcp` Mutex 共享。
+- 事件输出：`[思考] `、`[读取] `、`[命令] `、`[工具结果] `、`[子 Agent] ` 等进度行通过 `on_event` 通道发出；用量通过 `on_usage` 通道发出。
 
 #### `agent/compact.rs`
 本地上下文压缩：当消息总字符数达到上限 85% 时，把最早的用户轮次分组汇总为一段「会话摘要」插入（保留 system 与最近一轮），不消耗模型调用。`total_chars` 计算占用、`should_compact` 判断阈值、`compact_local` 执行压缩。
@@ -156,7 +158,7 @@ OpenAI Responses（codex）协议：`build_responses_body`（instructions/input�
 模块声明，重导出 `CancelFlag`、`tool_specs`、`execute_tool`、`ToolCtx`、`LocalWorkspace`。
 
 #### `tools/catalog.rs`
-工具声明 `tool_specs()`：Read、Write、Edit、Bash、Glob、Grep、TodoRead、TodoWrite、WebFetch、WebSearch 十个工具的 JSON Schema（`ToolSpec`），随每次请求声明给模型。
+工具声明 `tool_specs()`：Read、Write、Edit、Bash、Glob、Grep、TodoRead、TodoWrite、WebFetch、WebSearch、Agent。`Agent` 仅父循环（depth=0 且非只读）注入，用于会话内委派；`explore` 只读，`general` 可写。同一轮连续 `Agent` 调用并行，上限为 `native-settings.json` 的 `max_concurrent_subagents`（默认 3）。委派勤快程度由 `subagent_policy`（conservative / balanced / aggressive，默认 balanced）写入系统提示，不强制调工具。子 Agent 类型仍只有 explore / general。子循环不占 run_queue、不新建 `codex_sessions`。
 
 #### `tools/dispatch.rs` — `execute_tool` 分发
 `ToolCtx` 保存会话工具状态：工作区（本地或 SSH）、取消标志、已读文件集合（先读后写校验）、待办列表。`execute_tool` 按名称分发到具体实现；每个工具都先判取消、解析 JSON 参数（`parse_args` / `string_arg`），并区分本地（`LocalWorkspace`）与 SSH（`SshToolRuntime`）两条执行路径；写/编辑类工具要求目标文件已先被 Read。

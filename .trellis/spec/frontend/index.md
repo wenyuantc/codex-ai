@@ -27,6 +27,7 @@
 4. **Display dates with `formatDate()` from `src/lib/utils.ts`.** Do not hand-roll locale formatting.
 5. **User-visible copy goes through i18n** (`t` / `i18n.t`). New activity actions need **zh-CN + en** keys under `activity:actions.*` via `getActivityActionLabel()` — no parallel hardcoded label maps. See [i18n](./i18n.md).
 6. **Local and SSH modes are first-class.** UI that starts sessions, opens repos, or captures artifacts must respect `environmentMode` / `project_type`.
+7. **Select trigger shows the name, not the stored key.** Base UI `<SelectValue />` with no children renders `value` (`aggressive`, UUID). When key ≠ label, pass a `(value) => name` child. See [Component Guidelines](./component-guidelines.md) «Select trigger shows name, not stored key».
 
 ## Guidelines Index
 

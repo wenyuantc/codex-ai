@@ -20,6 +20,8 @@ describe("i18n locale preference", () => {
     expect(getActivityActionLabel("ai_channel_created")).toBe("新增 AI 渠道");
     expect(getActivityActionLabel("ai_channel_models_fetched")).toBe("拉取 AI 渠道模型");
     expect(getActivityActionLabel("native_settings_updated")).toBe("更新内置 Agent 设置");
+    expect(getActivityActionLabel("native_subagent_started")).toBe("启动子 Agent");
+    expect(getActivityActionLabel("native_subagent_finished")).toBe("子 Agent 结束");
     expect(getStatusLabel("todo")).toBe("待办");
     expect(getStatusLabel("offline")).toBe("空闲");
     expect(getStatusLabel("busy")).toBe("运行中");
@@ -33,6 +35,9 @@ describe("i18n locale preference", () => {
     expect(i18n.t("errors:capability.mcp")).toBe("MCP");
     expect(i18n.t("tasks:nativePermission.allowSession")).toBe("本会话全部允许");
     expect(i18n.t("settings:nativeAgent.confirmHighRiskLabel")).toBe("高风险工具需确认");
+    expect(i18n.t("settings:nativeAgent.maxConcurrentSubagentsLabel")).toBe("同轮子 Agent 上限");
+    expect(i18n.t("settings:nativeAgent.subagentPolicyLabel")).toBe("子 Agent 策略");
+    expect(i18n.t("settings:nativeAgent.subagentPolicyBalanced")).toBe("均衡");
     expect(i18n.t("settings:page.engineCapabilities.notes.claude")).toContain(
       "本地 CLI/SDK 可附带图片",
     );
@@ -47,6 +52,8 @@ describe("i18n locale preference", () => {
     expect(getActivityActionLabel("native_settings_updated")).toBe(
       "Updated built-in Agent settings",
     );
+    expect(getActivityActionLabel("native_subagent_started")).toBe("Started sub-agent");
+    expect(getActivityActionLabel("native_subagent_finished")).toBe("Sub-agent finished");
     expect(getStatusLabel("todo")).toBe("To do");
     expect(getStatusLabel("offline")).toBe("Idle");
     expect(getStatusLabel("busy")).toBe("Running");
@@ -60,6 +67,9 @@ describe("i18n locale preference", () => {
     expect(i18n.t("errors:capability.mcp")).toBe("MCP");
     expect(i18n.t("tasks:nativePermission.allowOnce")).toBe("Allow once");
     expect(i18n.t("settings:nativeAgent.confirmHighRiskLabel")).toBe("Confirm high-risk tools");
+    expect(i18n.t("settings:nativeAgent.maxConcurrentSubagentsLabel")).toBe("Sub-agents per turn");
+    expect(i18n.t("settings:nativeAgent.subagentPolicyLabel")).toBe("Sub-agent policy");
+    expect(i18n.t("settings:nativeAgent.subagentPolicyBalanced")).toBe("Balanced");
     expect(i18n.t("settings:page.engineCapabilities.notes.claude")).toContain(
       "Local CLI/SDK can attach images",
     );

@@ -5,7 +5,7 @@ use serde_json::Value;
 
 use super::cancel::CancelFlag;
 use super::local::{apply_edit, format_read, LocalWorkspace};
-use super::mcp::McpSession;
+use super::mcp::SharedMcp;
 use super::paths::resolve_under_workspace;
 use super::permission::{
     classify_native_tool_risk, NativePermissionDecision, NativeToolRisk, NativeToolRiskKind,
@@ -41,7 +41,7 @@ pub struct ToolCtx {
     pub cancel: CancelFlag,
     pub read_files: HashSet<String>,
     pub todos: Vec<TodoItem>,
-    pub mcp: McpSession,
+    pub mcp: SharedMcp,
     pub allow_all_high_risk: Arc<std::sync::atomic::AtomicBool>,
     pub request_permission: Option<PermissionRequester>,
     pub read_only: bool,
@@ -70,7 +70,7 @@ pub async fn execute_tool(
         "TodoWrite" => call_todo_write(ctx, arguments),
         "WebFetch" => super::web::web_fetch(arguments).await,
         "WebSearch" => super::web::web_search(arguments).await,
-        other if ctx.mcp.has_tool(other) => ctx.mcp.call(other, arguments).await,
+        other if ctx.mcp.has_tool(other).await => ctx.mcp.call(other, arguments).await,
         other => Err(format!("unknown tool: {other}")),
     }
 }
@@ -84,7 +84,7 @@ async fn confirm_if_high_risk(
         "Write" => write_target_exists(ctx, arguments).await,
         _ => None,
     };
-    let is_mcp = ctx.mcp.has_tool(name) || name.starts_with("mcp_");
+    let is_mcp = ctx.mcp.has_tool(name).await || name.starts_with("mcp_");
     match classify_native_tool_risk(name, arguments, exists, is_mcp) {
         NativeToolRisk::Low => Ok(()),
         NativeToolRisk::High { kind, summary } => {
@@ -356,7 +356,7 @@ mod tests {
             cancel: CancelFlag::new(),
             read_files: HashSet::new(),
             todos: Vec::new(),
-            mcp: McpSession::empty(),
+            mcp: SharedMcp::empty(),
             allow_all_high_risk: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             request_permission: Some(Arc::new(
                 |_prompt, tx: oneshot::Sender<NativePermissionDecision>| {
@@ -395,7 +395,7 @@ mod tests {
             cancel: CancelFlag::new(),
             read_files: HashSet::new(),
             todos: Vec::new(),
-            mcp: McpSession::empty(),
+            mcp: SharedMcp::empty(),
             allow_all_high_risk: Arc::new(std::sync::atomic::AtomicBool::new(true)),
             request_permission: None,
             read_only: true,

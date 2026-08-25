@@ -163,6 +163,8 @@
     "ai_channel_deleted": "删除 AI 渠道",
     "ai_channel_tested": "测通 AI 渠道",
     "ai_channel_models_fetched": "拉取 AI 渠道模型",
-    "native_settings_updated": "更新内置 Agent 设置"
+    "native_settings_updated": "更新内置 Agent 设置",
+    "native_subagent_started": "启动子 Agent",
+    "native_subagent_finished": "子 Agent 结束"
   }
 }
