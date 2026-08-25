@@ -152,6 +152,7 @@ pub struct Task {
     pub last_acceptance_status: Option<String>,
     /// NULL = inherit global enabled; JSON array string e.g. `[]` or `["id"]` = override.
     pub mcp_server_ids: Option<String>,
+    pub native_subagent_id: Option<String>,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -954,6 +955,7 @@ pub struct CreateTask {
     pub plan_content: Option<String>,
     pub due_date: Option<String>,
     pub milestone_id: Option<String>,
+    pub native_subagent_id: Option<String>,
     pub attachment_source_paths: Option<Vec<String>>,
 }
 
@@ -988,6 +990,8 @@ pub struct UpdateTask {
     pub milestone_id: Option<Option<String>>,
     #[serde(default, deserialize_with = "deserialize_explicit_nullable")]
     pub acceptance_checklist: Option<Option<String>>,
+    #[serde(default, deserialize_with = "deserialize_explicit_nullable")]
+    pub native_subagent_id: Option<Option<String>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]

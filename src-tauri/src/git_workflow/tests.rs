@@ -108,6 +108,7 @@ async fn insert_project_and_task(pool: &SqlitePool, repo_path: &str) -> (Project
         acceptance_checklist: None,
         last_acceptance_status: None,
         mcp_server_ids: None,
+        native_subagent_id: None,
         created_at: now_sqlite(),
         updated_at: now_sqlite(),
     };

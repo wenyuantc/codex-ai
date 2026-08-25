@@ -1,4 +1,6 @@
 use std::collections::{HashSet, VecDeque};
+use std::future::Future;
+use std::pin::Pin;
 use std::sync::Arc;
 
 use serde_json::Value;
@@ -10,14 +12,18 @@ use crate::native::model::client::{ChatRequest, ModelClient};
 use crate::native::model::types::{Message, NativeImage, Role, ToolCall, ToolSpec};
 use crate::native::model::usage_to_delta;
 use crate::native::settings::DEFAULT_NATIVE_MAX_TURNS;
+use crate::native::subagents::{
+    custom_tools_are_read_only, effective_custom_tools, find_native_subagent, ChildModelSettings,
+    NativeSubagent, MODEL_MODE_CHANNEL, TOOL_MODE_ALL,
+};
 use crate::native::tools::{
     execute_tool, tool_specs, CancelFlag, LocalWorkspace, SharedMcp, ToolCtx,
 };
 
 use super::compact::{compact_local, should_compact};
 use super::subagent::{
-    child_max_turns, child_system_prompt, format_subagent_log_tag, format_subagent_result,
-    parse_subagent_args, SubagentKind, SubagentSpec,
+    child_max_turns, child_system_prompt, custom_child_system_prompt, format_subagent_log_tag,
+    format_subagent_result, parse_subagent_args_with, SubagentKind, SubagentSpec,
 };
 use super::truncate::truncate_messages;
 const DEFAULT_CONTEXT_CHARS: usize = 120_000;
@@ -34,6 +40,15 @@ struct ModelTurnCfg {
 }
 
 type SubagentStub = Arc<dyn Fn(&SubagentSpec) -> String + Send + Sync>;
+pub(crate) type CustomSubagentReloader = Arc<dyn Fn() -> Vec<NativeSubagent> + Send + Sync>;
+pub(crate) type ChildModelLoader = Arc<
+    dyn Fn(
+            String,
+            String,
+        ) -> Pin<Box<dyn Future<Output = Result<ChildModelSettings, String>> + Send>>
+        + Send
+        + Sync,
+>;
 
 pub struct AgentRunner {
     pub ctx: ToolCtx,
@@ -46,6 +61,12 @@ pub struct AgentRunner {
     pub on_usage: Option<mpsc::UnboundedSender<UsageDelta>>,
     pub on_activity: Option<mpsc::UnboundedSender<(String, String)>>,
     pub subagent_stub: Option<SubagentStub>,
+    pub custom_subagents: Vec<NativeSubagent>,
+    pub reload_custom_subagents: Option<CustomSubagentReloader>,
+    pub child_model_loader: Option<ChildModelLoader>,
+    pub workspace_context: String,
+    pub project_agents: String,
+    pub required_subagent_type: Option<String>,
     extra_tools: Vec<ToolSpec>,
     allowed_tools: Option<HashSet<String>>,
     turns: u32,
@@ -86,6 +107,12 @@ impl AgentRunner {
             on_usage: None,
             on_activity: None,
             subagent_stub: None,
+            custom_subagents: Vec::new(),
+            reload_custom_subagents: None,
+            child_model_loader: None,
+            workspace_context: String::new(),
+            project_agents: String::new(),
+            required_subagent_type: None,
             extra_tools: Vec::new(),
             allowed_tools: None,
             turns: 0,
@@ -122,8 +149,12 @@ impl AgentRunner {
         let cap = self.max_concurrent_subagents.max(1);
         for tool in &mut tools {
             if tool.name == "Agent" {
-                tool.description =
-                    crate::native::prompt::agent_tool_description(cap, &self.subagent_policy);
+                tool.description = crate::native::prompt::agent_tool_description(
+                    cap,
+                    &self.subagent_policy,
+                    &self.custom_subagents,
+                    self.required_subagent_type.as_deref(),
+                );
             }
         }
         tools.extend(self.extra_tools.clone());
@@ -447,7 +478,7 @@ impl AgentRunner {
         child.depth = self.depth.saturating_add(1);
         child.event_prefix = format!(
             "{} ",
-            format_subagent_log_tag(index, spec.kind, &spec.description)
+            format_subagent_log_tag(index, &spec.kind, &spec.description)
         );
         child.max_turns = child_max_turns(self.max_turns);
         child.max_concurrent_subagents = self.max_concurrent_subagents;
@@ -455,7 +486,15 @@ impl AgentRunner {
         child.context_char_limit = self.context_char_limit;
         child.on_event = self.on_event.clone();
         child.on_usage = self.on_usage.clone();
-        match spec.kind {
+        child.workspace_context = self.workspace_context.clone();
+        child.project_agents = self.project_agents.clone();
+        let custom_def = match &spec.kind {
+            SubagentKind::Custom(name) => {
+                find_native_subagent(&self.custom_subagents, name).cloned()
+            }
+            _ => None,
+        };
+        match &spec.kind {
             SubagentKind::Explore => {
                 child.ctx.read_only = true;
                 child.set_allowed_tools(crate::native::tools::READ_ONLY_NATIVE_TOOL_NAMES);
@@ -464,16 +503,33 @@ impl AgentRunner {
                 child.ctx.mcp = self.ctx.mcp.clone();
                 child.set_extra_tools(self.extra_tools.clone());
             }
+            SubagentKind::Custom(_) => {
+                if let Some(def) = custom_def.as_ref() {
+                    if def.tool_mode == TOOL_MODE_ALL {
+                        child.ctx.mcp = self.ctx.mcp.clone();
+                        child.set_extra_tools(self.extra_tools.clone());
+                    } else {
+                        let tools = effective_custom_tools(&def.tools);
+                        let names: Vec<&str> = tools.iter().map(String::as_str).collect();
+                        child.set_allowed_tools(&names);
+                        if custom_tools_are_read_only(&tools) {
+                            child.ctx.read_only = true;
+                        }
+                    }
+                }
+            }
         }
         let parent_system = self
             .messages
             .iter()
             .find(|message| message.role == Role::System)
             .map(|message| message.content.clone());
-        child.messages.push(Message::system(child_system_prompt(
-            parent_system.as_deref(),
-            spec,
-        )));
+        let system = if let Some(def) = custom_def.as_ref() {
+            custom_child_system_prompt(spec, def, &self.workspace_context, &self.project_agents)
+        } else {
+            child_system_prompt(parent_system.as_deref(), spec)
+        };
+        child.messages.push(Message::system(system));
         child
     }
 
@@ -489,6 +545,9 @@ impl AgentRunner {
             }
             return Ok(());
         }
+        if let Some(reload) = &self.reload_custom_subagents {
+            self.custom_subagents = reload();
+        }
         let mut slot: Vec<Option<(ToolCall, String)>> = vec![None; calls.len()];
         struct Job {
             call: ToolCall,
@@ -497,7 +556,7 @@ impl AgentRunner {
         }
         let mut jobs = Vec::new();
         for (pos, call) in calls.iter().enumerate() {
-            match parse_subagent_args(&call.arguments) {
+            match parse_subagent_args_with(&call.arguments, &self.custom_subagents) {
                 Ok(spec) => {
                     self.subagent_seq = self.subagent_seq.saturating_add(1);
                     jobs.push((
@@ -521,7 +580,7 @@ impl AgentRunner {
             self.emit(tool_start_line("Agent", &job.call.arguments));
             self.emit(format!(
                 "{} 启动（{}）",
-                format_subagent_log_tag(job.index, job.spec.kind, &job.spec.description),
+                format_subagent_log_tag(job.index, &job.spec.kind, &job.spec.description),
                 job.spec.kind.as_str()
             ));
             self.emit_activity(
@@ -532,6 +591,13 @@ impl AgentRunner {
             let stub = stub.clone();
             let client_owned = client_owned.clone();
             let model_turn = model_turn.clone();
+            let child_model_loader = self.child_model_loader.clone();
+            let custom_override = match &job.spec.kind {
+                SubagentKind::Custom(name) => find_native_subagent(&self.custom_subagents, name)
+                    .filter(|item| item.model_mode == MODEL_MODE_CHANNEL)
+                    .and_then(|item| Some((item.channel_id.clone()?, item.model.clone()?))),
+                _ => None,
+            };
             let mut child = self.spawn_child_runner(&job.spec, job.index);
             join_set.spawn(async move {
                 let outcome = async {
@@ -541,6 +607,21 @@ impl AgentRunner {
                         .map_err(|_| "子 Agent 并发许可已关闭".to_string())?;
                     if let Some(stub) = stub {
                         Ok(stub(&job.spec))
+                    } else if let Some((channel_id, model)) = custom_override {
+                        let Some(loader) = child_model_loader else {
+                            return Err("子 Agent 需要模型客户端".to_string());
+                        };
+                        let settings = loader(channel_id, model).await?;
+                        child
+                            .run_child_with_client(
+                                &settings.client,
+                                &job.spec.prompt,
+                                &settings.model,
+                                settings.effort.as_deref(),
+                                settings.max_output_tokens,
+                                settings.thinking_enabled,
+                            )
+                            .await
                     } else if let (Some(client), Some(cfg)) = (client_owned.as_ref(), model_turn) {
                         child
                             .run_child_with_client(
@@ -570,7 +651,7 @@ impl AgentRunner {
             let status = if outcome.is_ok() { "成功" } else { "失败" };
             self.emit(format!(
                 "{} 结束 {status}",
-                format_subagent_log_tag(job.index, job.spec.kind, &job.spec.description)
+                format_subagent_log_tag(job.index, &job.spec.kind, &job.spec.description)
             ));
             self.emit_activity(
                 "native_subagent_finished",
@@ -735,6 +816,7 @@ pub fn assistant_tool_call(id: &str, name: &str, arguments: &str) -> Message {
 
 #[cfg(test)]
 mod tests {
+    use super::super::subagent::parse_subagent_args;
     use super::*;
     use crate::native::model::types::Message;
     use std::fs;
@@ -1091,6 +1173,42 @@ mod tests {
             .tool_names()
             .iter()
             .any(|name| name == "Write"));
+        let mut custom_runner = AgentRunner::new(LocalWorkspace::new(root.clone()));
+        custom_runner.custom_subagents = vec![NativeSubagent {
+            id: "1".to_string(),
+            name: "reviewer".to_string(),
+            description: "review".to_string(),
+            model_mode: "inherit".to_string(),
+            channel_id: None,
+            model: None,
+            tool_mode: "custom".to_string(),
+            tools: vec!["Read".to_string(), "Grep".to_string()],
+            system_prompt: "你是审查员".to_string(),
+            inject_agents_md: false,
+            scope: "all".to_string(),
+            project_ids: Vec::new(),
+        }];
+        custom_runner.workspace_context = "Working directory: /repo".to_string();
+        custom_runner.project_agents = "secret agents".to_string();
+        let custom = parse_subagent_args_with(
+            r#"{"prompt":"go","subagent_type":"reviewer","description":"审"}"#,
+            &custom_runner.custom_subagents,
+        )
+        .unwrap();
+        let custom_child = custom_runner.spawn_child_runner(&custom, 3);
+        assert!(custom_child.ctx.read_only);
+        assert!(custom_child.tool_names().iter().any(|name| name == "Read"));
+        assert!(!custom_child.tool_names().iter().any(|name| name == "Write"));
+        assert!(!custom_child.tool_names().iter().any(|name| name == "Agent"));
+        let system = custom_child
+            .messages
+            .iter()
+            .find(|message| message.role == Role::System)
+            .map(|message| message.content.clone())
+            .unwrap_or_default();
+        assert!(system.contains("你是审查员"));
+        assert!(system.contains("Working directory: /repo"));
+        assert!(!system.contains("secret agents"));
         let mut readonly = AgentRunner::new(LocalWorkspace::new(root.clone()));
         readonly.set_read_only(true);
         readonly.set_allowed_tools(crate::native::tools::READ_ONLY_NATIVE_TOOL_NAMES);

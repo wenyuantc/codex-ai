@@ -142,7 +142,7 @@ pub(crate) async fn insert_task_record(
     task: &Task,
 ) -> Result<(), String> {
     sqlx::query(
-        "INSERT INTO tasks (id, title, description, status, priority, project_id, use_worktree, assignee_id, reviewer_id, coordinator_id, ai_suggestion, plan_content, automation_mode, time_started_at, time_spent_seconds, completed_at, due_date, blocked_reason, milestone_id, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)",
+        "INSERT INTO tasks (id, title, description, status, priority, project_id, use_worktree, assignee_id, reviewer_id, coordinator_id, ai_suggestion, plan_content, automation_mode, time_started_at, time_spent_seconds, completed_at, due_date, blocked_reason, milestone_id, native_subagent_id, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22)",
     )
     .bind(&task.id)
     .bind(&task.title)
@@ -163,6 +163,7 @@ pub(crate) async fn insert_task_record(
     .bind(&task.due_date)
     .bind(&task.blocked_reason)
     .bind(&task.milestone_id)
+    .bind(&task.native_subagent_id)
     .bind(&task.created_at)
     .bind(&task.updated_at)
     .execute(&mut **tx)
@@ -853,6 +854,11 @@ pub async fn create_task<R: Runtime>(
     let milestone_id = normalize_optional_text(payload.milestone_id.as_deref());
     ensure_milestone_belongs_to_project(&pool, milestone_id.as_deref(), &payload.project_id)
         .await?;
+    let native_subagent_id = crate::native::subagents::validate_native_subagent_id(
+        &app,
+        payload.native_subagent_id.as_deref(),
+        Some(payload.project_id.as_str()),
+    )?;
     let project = fetch_project_by_id(&pool, &payload.project_id).await?;
     let settings = resolve_project_task_default_settings(
         &project.project_type,
@@ -902,6 +908,7 @@ pub async fn create_task<R: Runtime>(
         acceptance_checklist: None,
         last_acceptance_status: None,
         mcp_server_ids: None,
+        native_subagent_id,
         created_at: now_sqlite(),
         updated_at: now_sqlite(),
     };
@@ -1021,13 +1028,17 @@ pub async fn create_task<R: Runtime>(
         &pool,
         "task_created",
         &format!(
-            "{}{}",
+            "{}{}{}",
             task.title,
             if attachments.is_empty() {
                 "".to_string()
             } else {
                 format!("（含 {} 个附件）", attachments.len())
-            }
+            },
+            task.native_subagent_id
+                .as_deref()
+                .map(|id| format!("（子智能体：{id}）"))
+                .unwrap_or_default()
         ),
         None,
         Some(&task.id),
@@ -1345,6 +1356,25 @@ pub async fn update_task<R: Runtime>(
         ensure_milestone_belongs_to_project(&pool, milestone_id.as_deref(), &current.project_id)
             .await?;
     }
+    let normalized_native_subagent_id = match updates.native_subagent_id.as_ref() {
+        Some(value) => {
+            let incoming = value
+                .as_deref()
+                .map(str::trim)
+                .filter(|item| !item.is_empty());
+            let same = incoming == current.native_subagent_id.as_deref();
+            Some(crate::native::subagents::validate_native_subagent_id(
+                &app,
+                value.as_deref(),
+                if same {
+                    None
+                } else {
+                    Some(current.project_id.as_str())
+                },
+            )?)
+        }
+        None => None,
+    };
     let normalized_plan_content = updates.plan_content.as_ref().map(|value| {
         value
             .as_deref()
@@ -1452,6 +1482,12 @@ pub async fn update_task<R: Runtime>(
         separated
             .push("last_review_session_id = ")
             .push_bind_unseparated(last_review_session_id);
+        touched = true;
+    }
+    if let Some(native_subagent_id) = normalized_native_subagent_id.clone() {
+        separated
+            .push("native_subagent_id = ")
+            .push_bind_unseparated(native_subagent_id);
         touched = true;
     }
     if let Some(due_date) = normalized_due_date.clone() {
@@ -1568,6 +1604,24 @@ pub async fn update_task<R: Runtime>(
         }
     }
 
+    if let Some(updated_native_subagent_id) = normalized_native_subagent_id.clone() {
+        if current.native_subagent_id != updated_native_subagent_id {
+            insert_activity_log(
+                &pool,
+                "task_native_subagent_updated",
+                &format!(
+                    "{}（子智能体：{}）",
+                    current.title,
+                    updated_native_subagent_id.as_deref().unwrap_or("已清除")
+                ),
+                None,
+                Some(&id),
+                Some(&current.project_id),
+            )
+            .await?;
+        }
+    }
+
     if let Some(updated_due_date) = normalized_due_date {
         if current.due_date != updated_due_date {
             insert_activity_log(
@@ -1676,6 +1730,7 @@ pub async fn update_task_status<R: Runtime>(
             blocked_reason: None,
             milestone_id: None,
             acceptance_checklist: None,
+            native_subagent_id: None,
         },
     )
     .await
@@ -1744,6 +1799,7 @@ pub async fn batch_update_tasks<R: Runtime>(
             blocked_reason: None,
             milestone_id: None,
             acceptance_checklist: None,
+            native_subagent_id: None,
         };
 
         if payload.clear_assignee == Some(true) {
@@ -2424,6 +2480,7 @@ pub(crate) async fn import_tasks_json_with_pool(
             acceptance_checklist: None,
             last_acceptance_status: None,
             mcp_server_ids: None,
+            native_subagent_id: None,
             created_at: now.clone(),
             updated_at: now.clone(),
         };

@@ -159,7 +159,7 @@ pub fn tool_specs() -> Vec<ToolSpec> {
                 "properties": {
                     "description": {"type": "string"},
                     "prompt": {"type": "string"},
-                    "subagent_type": {"type": "string", "enum": ["general", "explore"]}
+                    "subagent_type": {"type": "string"}
                 },
                 "required": ["description", "prompt"]
             }),

@@ -130,6 +130,7 @@ fn review_prompt_uses_explicit_remote_working_dir_for_ssh_projects() {
         acceptance_checklist: None,
         last_acceptance_status: None,
         mcp_server_ids: None,
+        native_subagent_id: None,
         created_at: "2026-04-16 10:00:00".to_string(),
         updated_at: "2026-04-16 10:00:00".to_string(),
     };
@@ -187,6 +188,7 @@ fn review_prompt_marks_local_projects_as_local_workspace() {
         acceptance_checklist: None,
         last_acceptance_status: None,
         mcp_server_ids: None,
+        native_subagent_id: None,
         created_at: "2026-04-16 10:00:00".to_string(),
         updated_at: "2026-04-16 10:00:00".to_string(),
     };
@@ -312,6 +314,7 @@ fn local_review_context_prefers_latest_execution_worktree() {
             acceptance_checklist: None,
             last_acceptance_status: None,
             mcp_server_ids: None,
+            native_subagent_id: None,
             created_at: "2026-04-16 10:00:00".to_string(),
             updated_at: "2026-04-16 10:00:00".to_string(),
         };

@@ -25,6 +25,7 @@ function task(partial: Partial<Task> & Pick<Task, "id" | "title" | "status">): T
     time_started_at: null,
     time_spent_seconds: 0,
     mcp_server_ids: null,
+    native_subagent_id: null,
     last_acceptance_status: null,
     completed_at: null,
     deleted_at: null,

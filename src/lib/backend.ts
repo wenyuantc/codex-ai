@@ -273,6 +273,7 @@ export interface CreateTaskInput {
   plan_content?: string | null;
   due_date?: string | null;
   milestone_id?: string | null;
+  native_subagent_id?: string | null;
   attachment_source_paths?: string[];
 }
 
@@ -293,6 +294,7 @@ export interface UpdateTaskInput {
   blocked_reason?: string | null;
   milestone_id?: string | null;
   acceptance_checklist?: string | null;
+  native_subagent_id?: string | null;
 }
 
 export interface CreateMilestoneInput {

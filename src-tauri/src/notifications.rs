@@ -759,6 +759,7 @@ mod tests {
             acceptance_checklist: None,
             last_acceptance_status: None,
             mcp_server_ids: None,
+            native_subagent_id: None,
             created_at: "2026-04-20 10:00:00".to_string(),
             updated_at: "2026-04-20 10:00:00".to_string(),
         }

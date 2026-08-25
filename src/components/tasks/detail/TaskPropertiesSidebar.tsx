@@ -27,6 +27,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { NativeSubagentSelect } from "../NativeSubagentSelect";
 import { TaskDeliverySection } from "./TaskDeliverySection";
 import { TokenUsageBreakdown } from "./TokenUsageBreakdown";
 
@@ -65,6 +66,7 @@ interface TaskPropertiesSidebarProps {
   status: string;
   priority: string;
   assigneeId: string;
+  nativeSubagentId: string;
   reviewerId: string;
   coordinatorId: string;
   dueDate: string;
@@ -81,6 +83,7 @@ interface TaskPropertiesSidebarProps {
   onStatusChange: (value: TaskStatus) => void;
   onPriorityChange: (value: string) => void;
   onAssigneeChange: (value: string) => void;
+  onNativeSubagentChange: (value: string) => void;
   onReviewerChange: (value: string) => void;
   onCoordinatorChange: (value: string) => void;
   onDueDateChange: (value: string) => void;
@@ -96,6 +99,7 @@ export function TaskPropertiesSidebar({
   status,
   priority,
   assigneeId,
+  nativeSubagentId,
   reviewerId,
   coordinatorId,
   dueDate,
@@ -112,6 +116,7 @@ export function TaskPropertiesSidebar({
   onStatusChange,
   onPriorityChange,
   onAssigneeChange,
+  onNativeSubagentChange,
   onReviewerChange,
   onCoordinatorChange,
   onDueDateChange,
@@ -221,6 +226,15 @@ export function TaskPropertiesSidebar({
               ))}
             </SelectContent>
           </Select>
+        </SidebarField>
+
+        <SidebarField label={t("detail.sidebar.nativeSubagent")}>
+          <NativeSubagentSelect
+            value={nativeSubagentId}
+            projectId={task.project_id}
+            triggerClassName="h-8 w-full rounded-md px-2 text-xs"
+            onChange={onNativeSubagentChange}
+          />
         </SidebarField>
 
         <SidebarField label={t("detail.sidebar.reviewer")}>

@@ -21,6 +21,7 @@
 - [ ] **native 缺「自研 Agent 该有的装备」（其余项仍缺）⭐⭐⭐**：
   - [x] **交互式权限确认**（本波只做这一项：`08-24-p0-native-tool-permission`）：工具执行全 yolo（`native/prompt/identity.md` 只约定「先说明风险」），Write/Bash/删除/推送无用户确认——与本产品「可信」主线正面冲突。建议先做「高风险工具（删除/覆盖/推送/强制 git 操作）确认」，成本低信任收益最大。
   - [x] **子 Agent**（`08-24-native-subagent`）：会话内 `Agent` 工具（`general` / `explore`），同轮连续调用并行（上限 3），depth=1，不新建会话、不占队列。
+  - [x] **自定义子智能体**（`08-25-native-custom-subagents`）：设置 Tab 配置名称/模型/工具/系统提示词/AGENTS.md；`subagent_type=<名称>` 委派。
   - **plan 模式**：任务详情「AI 生成计划」是一次性文本（`useTaskAiActions.ts`），无「计划 → 用户确认 → 执行」工作流。
   - **Skills / Hooks / ApplyPatch / Browser**：均无（已有 WebFetch/WebSearch，无浏览器自动化）。
   - 建议优先级：交互式权限 > 子 Agent > plan 模式 > Skills。
@@ -193,6 +194,7 @@
 （无）
 
 # 已完成的
+- [x] 2026-08-25 native 自定义子智能体（`08-25-native-custom-subagents`）：设置 Tab + `subagent_type` 委派
 - [x] 2026-08-24 native 会话内子 Agent（`08-24-native-subagent`）：`Agent` 工具 general/explore，同轮并行上限 3，depth=1
 - [x] 2026-08-24 产品缺口分析：五引擎时代（本文件顶部，待排期）
 - [x] 2026-08-21 会话来源类型（执行/审核/编排）与链路缓存用量（`08-21-session-origin-type`、`08-21-chain-token-usage`）

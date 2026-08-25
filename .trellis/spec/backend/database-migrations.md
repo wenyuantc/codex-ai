@@ -33,9 +33,11 @@ File: `src-tauri/src/db/migrations.rs`
 - Each entry has `description` + SQL string
 - Applied at app startup by `tauri-plugin-sql` in `lib.rs`
 - After adding a version, update the `latest_migration_version()` assertion in `migrations.rs` tests
-- Current latest: **51** (`codex_sessions.session_origin`). Do not rewrite published versions; empty unused channels are fine.
+- Current latest: **52** (`tasks.native_subagent_id`). Do not rewrite published versions; empty unused channels are fine.
 
 Version 48 adds `ai_channels` + `employees.ai_channel_id`. Version 49 adds nullable `cached_tokens` on `codex_sessions` (NULL = unknown, same as v45). Version 50 adds `ai_channels.api_key` (plaintext channel config; `api_key_ref` kept only as a one-time keyring migrate hint). Version 51 adds `codex_sessions.session_origin` (`direct` | `pipeline`, default `direct`; backfill from `task_pipeline_steps.session_id`). Display type is still derived: `session_kind=review` → 审核, else `session_origin=pipeline` → 编排, else 执行. Do not extend `session_kind` with `pipeline`.
+
+Version 52 adds nullable `tasks.native_subagent_id` (optional custom built-in-Agent sub-agent binding). Missing/NULL = employee defaults. Unknown id is rejected on create/update; a deleted catalog entry is ignored at session start.
 
 ### Adding A Migration
 

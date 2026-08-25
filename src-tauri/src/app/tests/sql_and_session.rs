@@ -323,6 +323,7 @@ fn list_tasks_applies_global_limit_and_project_scope() {
                 acceptance_checklist: None,
                 last_acceptance_status: None,
                 mcp_server_ids: None,
+                native_subagent_id: None,
                 created_at: format!("2026-04-21 00:00:0{index}"),
                 updated_at: format!("2026-04-21 00:00:0{index}"),
             };

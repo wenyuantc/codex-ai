@@ -165,6 +165,10 @@
     "ai_channel_models_fetched": "Fetched AI channel models",
     "native_settings_updated": "Updated built-in Agent settings",
     "native_subagent_started": "Started sub-agent",
-    "native_subagent_finished": "Sub-agent finished"
+    "native_subagent_finished": "Sub-agent finished",
+    "native_subagent_created": "Created sub-agent",
+    "native_subagent_updated": "Updated sub-agent",
+    "native_subagent_deleted": "Deleted sub-agent",
+    "task_native_subagent_updated": "Updated task sub-agent"
   }
 }

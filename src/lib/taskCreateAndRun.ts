@@ -20,6 +20,7 @@ export interface CreateTaskPayload {
   coordinator_id?: string;
   due_date?: string | null;
   milestone_id?: string | null;
+  native_subagent_id?: string | null;
   attachment_source_paths?: string[];
 }
 

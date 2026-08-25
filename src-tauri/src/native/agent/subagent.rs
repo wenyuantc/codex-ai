@@ -1,20 +1,24 @@
 use serde_json::Value;
 
+use crate::native::subagents::{find_native_subagent, NativeSubagent};
+
 pub const MAX_CONCURRENT_SUBAGENTS: usize = 3;
 pub const SUBAGENT_MAX_TURNS: u32 = 20;
 pub const SUBAGENT_RESULT_CHARS: usize = 16_000;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SubagentKind {
     General,
     Explore,
+    Custom(String),
 }
 
 impl SubagentKind {
-    pub fn as_str(self) -> &'static str {
+    pub fn as_str(&self) -> &str {
         match self {
             Self::General => "general",
             Self::Explore => "explore",
+            Self::Custom(name) => name.as_str(),
         }
     }
 }
@@ -27,6 +31,13 @@ pub struct SubagentSpec {
 }
 
 pub fn parse_subagent_args(arguments: &str) -> Result<SubagentSpec, String> {
+    parse_subagent_args_with(arguments, &[])
+}
+
+pub fn parse_subagent_args_with(
+    arguments: &str,
+    custom: &[NativeSubagent],
+) -> Result<SubagentSpec, String> {
     let value: Value = if arguments.trim().is_empty() {
         Value::Object(serde_json::Map::new())
     } else {
@@ -45,18 +56,22 @@ pub fn parse_subagent_args(arguments: &str) -> Result<SubagentSpec, String> {
         .map(str::trim)
         .filter(|item| !item.is_empty())
         .unwrap_or("子任务");
-    let kind = match value
+    let type_name = value
         .get("subagent_type")
         .and_then(Value::as_str)
         .map(str::trim)
-        .unwrap_or("general")
-    {
+        .unwrap_or("general");
+    let kind = match type_name {
         "" | "general" => SubagentKind::General,
         "explore" => SubagentKind::Explore,
         other => {
-            return Err(format!(
-                "未知 subagent_type：{other}，应为 general 或 explore"
-            ))
+            if let Some(def) = find_native_subagent(custom, other) {
+                SubagentKind::Custom(def.name.clone())
+            } else {
+                return Err(format!(
+                    "未知 subagent_type：{other}，应为 general、explore 或已配置的子智能体名称"
+                ));
+            }
         }
     };
     Ok(SubagentSpec {
@@ -68,7 +83,7 @@ pub fn parse_subagent_args(arguments: &str) -> Result<SubagentSpec, String> {
 
 const SUBAGENT_LABEL_CHARS: usize = 32;
 
-pub fn format_subagent_log_tag(index: u32, kind: SubagentKind, description: &str) -> String {
+pub fn format_subagent_log_tag(index: u32, kind: &SubagentKind, description: &str) -> String {
     format!(
         "[子 Agent {index}({}) - {}]",
         kind.as_str(),
@@ -118,16 +133,43 @@ pub fn truncate_report(text: &str) -> String {
     format!("{prefix}…")
 }
 
-pub fn child_system_prompt(parent_system: Option<&str>, spec: &SubagentSpec) -> String {
-    let appendix = format!(
+fn subagent_appendix(spec: &SubagentSpec) -> String {
+    format!(
         "# 子 Agent\n你是父会话委派的子 Agent，类型：{}。\n- 只完成交给你的任务，不要再委派子 Agent。\n- 完成后用简洁中文报告：做了什么、改了哪些文件、如何验证；未验证要写明。\n- 不要假装已经改过文件。\n任务标题：{}",
         spec.kind.as_str(),
         spec.description
-    );
+    )
+}
+
+pub fn child_system_prompt(parent_system: Option<&str>, spec: &SubagentSpec) -> String {
+    let appendix = subagent_appendix(spec);
     match parent_system.map(str::trim).filter(|item| !item.is_empty()) {
         Some(system) => format!("{system}\n\n{appendix}"),
         None => appendix,
     }
+}
+
+pub fn custom_child_system_prompt(
+    spec: &SubagentSpec,
+    def: &NativeSubagent,
+    workspace_context: &str,
+    project_agents: &str,
+) -> String {
+    let mut blocks = Vec::new();
+    if !def.system_prompt.trim().is_empty() {
+        blocks.push(def.system_prompt.trim().to_string());
+    }
+    if !workspace_context.trim().is_empty() {
+        blocks.push(workspace_context.trim().to_string());
+    }
+    if def.inject_agents_md && !project_agents.trim().is_empty() {
+        blocks.push(format!(
+            "# 项目指令（AGENTS.md / CLAUDE.md）\n{}",
+            project_agents.trim()
+        ));
+    }
+    blocks.push(subagent_appendix(spec));
+    blocks.join("\n\n")
 }
 
 pub fn format_subagent_result(spec: &SubagentSpec, outcome: Result<&str, &str>) -> String {
@@ -166,6 +208,35 @@ mod tests {
             parse_subagent_args(r#"{"prompt":"go","subagent_type":"explore"}"#).expect("explore");
         assert_eq!(spec.kind, SubagentKind::Explore);
         assert_eq!(spec.description, "子任务");
+        let custom = NativeSubagent {
+            id: "1".to_string(),
+            name: "代码审查".to_string(),
+            description: "审查".to_string(),
+            model_mode: "inherit".to_string(),
+            channel_id: None,
+            model: None,
+            tool_mode: "all".to_string(),
+            tools: Vec::new(),
+            system_prompt: "审查员".to_string(),
+            inject_agents_md: true,
+            scope: "all".to_string(),
+            project_ids: Vec::new(),
+        };
+        let spec = parse_subagent_args_with(
+            r#"{"prompt":"go","subagent_type":"代码审查"}"#,
+            std::slice::from_ref(&custom),
+        )
+        .expect("custom");
+        assert_eq!(spec.kind, SubagentKind::Custom("代码审查".to_string()));
+        let prompt = custom_child_system_prompt(&spec, &custom, "cwd=/repo", "## AGENTS.md\n规则");
+        assert!(prompt.contains("审查员"));
+        assert!(prompt.contains("cwd=/repo"));
+        assert!(prompt.contains("规则"));
+        let mut no_agents = custom.clone();
+        no_agents.inject_agents_md = false;
+        let prompt =
+            custom_child_system_prompt(&spec, &no_agents, "cwd=/repo", "## AGENTS.md\n规则");
+        assert!(!prompt.contains("规则"));
     }
 
     #[test]
@@ -187,14 +258,14 @@ mod tests {
     #[test]
     fn log_tag_includes_index_kind_and_name() {
         assert_eq!(
-            format_subagent_log_tag(2, SubagentKind::Explore, "摸底 RuleService 与 VO"),
+            format_subagent_log_tag(2, &SubagentKind::Explore, "摸底 RuleService 与 VO"),
             "[子 Agent 2(explore) - 摸底 RuleService 与 VO]"
         );
         assert_eq!(
-            format_subagent_log_tag(1, SubagentKind::General, "  查\n规则  "),
+            format_subagent_log_tag(1, &SubagentKind::General, "  查\n规则  "),
             "[子 Agent 1(general) - 查 规则]"
         );
-        let long = format_subagent_log_tag(1, SubagentKind::Explore, &"测".repeat(40));
+        let long = format_subagent_log_tag(1, &SubagentKind::Explore, &"测".repeat(40));
         assert!(long.starts_with("[子 Agent 1(explore) - "));
         assert!(long.contains('…'));
         assert!(!long.contains("测".repeat(40).as_str()));

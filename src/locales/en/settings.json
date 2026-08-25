@@ -5,6 +5,7 @@
     "prompts": "Prompt templates",
     "mcp": "MCP",
     "channels": "AI channels",
+    "subagents": "Sub-agents",
     "ssh": "SSH",
     "database": "Database"
   },
@@ -37,7 +38,7 @@
     "maxConcurrentSubagentsLabel": "Sub-agents per turn",
     "maxConcurrentSubagentsHint": "How many child agents may run in parallel in one model turn. Default 3, range 1–16. Shared by local and SSH. Applies to sessions started after you change it.",
     "subagentPolicyLabel": "Sub-agent policy",
-    "subagentPolicyHint": "How eagerly the parent delegates. Child types stay explore (read-only) and general (can edit). Applies to sessions started after you change it.",
+    "subagentPolicyHint": "How eagerly the parent delegates. Types come from the Agent tool: built-in explore / general plus custom types from the Sub-agents tab. Applies to sessions started after you change it.",
     "subagentPolicyConservative": "Conservative",
     "subagentPolicyBalanced": "Balanced",
     "subagentPolicyAggressive": "Aggressive"
@@ -852,6 +853,63 @@
       "updated": "Channel updated",
       "deleted": "Channel deleted",
       "modelsFetched": "Fetched {{count}} models. Save to keep them."
+    }
+  },
+  "subagents": {
+    "title": "Sub-agents",
+    "description": "Configure custom child agents for the built-in Agent. Codex / Claude / Grok / OpenCode sessions do not use these.",
+    "howToCall": "How to call: the parent uses the Agent tool and sets subagent_type to the name. You can also write “use <name> to review/explore”. Built-in types general (can edit) and explore (read-only) stay available.",
+    "actions": {
+      "new": "New",
+      "edit": "Edit",
+      "create": "Create",
+      "cancel": "Cancel",
+      "save": "Save",
+      "delete": "Delete"
+    },
+    "list": {
+      "loading": "Loading…",
+      "empty": "No custom sub-agents yet",
+      "selectHint": "Use Edit beside a custom sub-agent, or click New."
+    },
+    "builtin": {
+      "general": "Built-in · full tools including MCP, can edit",
+      "explore": "Built-in · read-only research, cannot edit"
+    },
+    "fields": {
+      "name": "Name (used as subagent_type)",
+      "description": "Description (the parent uses this to decide when to delegate)",
+      "modelMode": "Model",
+      "modelInherit": "Inherit default (this employee’s built-in Agent model)",
+      "modelChannel": "Specific channel model",
+      "modelHint": "Inherit uses the employee channel and model for this session. A specific channel only changes local HTTP; SSH file tools still use the remote workspace.",
+      "channel": "Channel",
+      "model": "Model",
+      "toolMode": "Tools",
+      "toolAll": "All permissions",
+      "toolCustom": "Custom tools",
+      "systemPrompt": "System prompt",
+      "systemPromptPlaceholder": "Describe this sub-agent’s role, constraints, and output format",
+      "injectAgentsMd": "Inject AGENTS.md",
+      "injectAgentsMdHint": "When on, project AGENTS.md / CLAUDE.md is added to the child system prompt. On by default.",
+      "scope": "Scope",
+      "scopeAll": "All projects",
+      "scopeProjects": "Specific projects",
+      "scopeHint": "Available to tasks in every project by default. Limit to selected projects to show it only there.",
+      "scopeProjectsEmpty": "No projects yet. Create a project first.",
+      "scopeProjectsCount": "{{count}} project(s)",
+      "scopePickProjects": "Choose projects"
+    },
+    "dialogs": {
+      "createTitle": "New sub-agent",
+      "editTitle": "Edit sub-agent",
+      "deleteTitle": "Delete sub-agent",
+      "deleteConfirm": "Delete sub-agent \"{{name}}\"?"
+    },
+    "messages": {
+      "created": "Sub-agent created",
+      "updated": "Sub-agent updated",
+      "deleted": "Sub-agent deleted"
     }
   }
 }

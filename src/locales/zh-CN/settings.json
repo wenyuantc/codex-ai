@@ -5,6 +5,7 @@
     "prompts": "提示词模板",
     "mcp": "MCP 管理",
     "channels": "AI 渠道",
+    "subagents": "子智能体",
     "ssh": "SSH 配置",
     "database": "数据库维护"
   },
@@ -37,7 +38,7 @@
     "maxConcurrentSubagentsLabel": "同轮子 Agent 上限",
     "maxConcurrentSubagentsHint": "一次回复里最多并行多少个子 Agent。默认 3，范围 1–16。本地与 SSH 共用。改完对之后新开的会话生效。",
     "subagentPolicyLabel": "子 Agent 策略",
-    "subagentPolicyHint": "控制父循环何时委派。子 Agent 仍只有 explore（只读）和 general（可写）两种。改完对之后新开的会话生效。",
+    "subagentPolicyHint": "控制父循环何时委派。类型仍由 Agent 工具列出：内置 explore / general，以及「子智能体」Tab 里的自定义类型。改完对之后新开的会话生效。",
     "subagentPolicyConservative": "保守",
     "subagentPolicyBalanced": "均衡",
     "subagentPolicyAggressive": "积极"
@@ -852,6 +853,63 @@
       "updated": "渠道已更新",
       "deleted": "渠道已删除",
       "modelsFetched": "已获取 {{count}} 个模型，保存后生效"
+    }
+  },
+  "subagents": {
+    "title": "子智能体",
+    "description": "为内置 Agent 配置自定义子智能体。Codex / Claude / Grok / OpenCode 会话不会使用这些配置。",
+    "howToCall": "调用方式：父模型使用 Agent 工具，把名称填进 subagent_type。也可在对话里写「用 <名称> 审查/摸底」。内置类型 general（可写）与 explore（只读）始终可用。",
+    "actions": {
+      "new": "新建",
+      "edit": "编辑",
+      "create": "创建",
+      "cancel": "取消",
+      "save": "保存",
+      "delete": "删除"
+    },
+    "list": {
+      "loading": "加载中…",
+      "empty": "还没有自定义子智能体",
+      "selectHint": "点击右侧编辑修改自定义子智能体，或点新建。"
+    },
+    "builtin": {
+      "general": "内置 · 全部工具（含 MCP），可改文件",
+      "explore": "内置 · 只读摸底，不能改文件"
+    },
+    "fields": {
+      "name": "名称（即 subagent_type）",
+      "description": "描述（父模型据此决定何时委派）",
+      "modelMode": "模型",
+      "modelInherit": "继承默认（当前员工的内置 Agent 模型）",
+      "modelChannel": "指定渠道模型",
+      "modelHint": "继承默认使用这次会话员工绑定的渠道和模型。指定渠道只换本机 HTTP，SSH 项目的文件工具仍走远程工作区。",
+      "channel": "渠道",
+      "model": "模型",
+      "toolMode": "可用工具",
+      "toolAll": "默认所有权限",
+      "toolCustom": "自定义可用工具",
+      "systemPrompt": "系统提示词",
+      "systemPromptPlaceholder": "描述这个子智能体的角色、约束和输出格式",
+      "injectAgentsMd": "注入 AGENTS.md",
+      "injectAgentsMdHint": "开启后把项目 AGENTS.md / CLAUDE.md 写入子智能体系统提示。默认开启。",
+      "scope": "作用域",
+      "scopeAll": "所有项目",
+      "scopeProjects": "指定项目",
+      "scopeHint": "默认所有项目的任务都可选并委派该子智能体。指定项目后，仅这些项目的任务会出现该选项。",
+      "scopeProjectsEmpty": "还没有项目，请先创建项目。",
+      "scopeProjectsCount": "指定 {{count}} 个项目",
+      "scopePickProjects": "选择项目"
+    },
+    "dialogs": {
+      "createTitle": "新建子智能体",
+      "editTitle": "编辑子智能体",
+      "deleteTitle": "删除子智能体",
+      "deleteConfirm": "确定删除子智能体「{{name}}」？"
+    },
+    "messages": {
+      "created": "子智能体已创建",
+      "updated": "子智能体已更新",
+      "deleted": "子智能体已删除"
     }
   }
 }

@@ -8,6 +8,7 @@ use crate::codex::{find_ai_prompt_template, load_ai_prompt_templates};
 use crate::native::settings::{
     normalize_subagent_policy, SUBAGENT_POLICY_AGGRESSIVE, SUBAGENT_POLICY_CONSERVATIVE,
 };
+use crate::native::subagents::{NativeSubagent, TOOL_MODE_ALL};
 use crate::native::tools::ssh::SshToolRuntime;
 
 const IDENTITY: &str = include_str!("identity.md");
@@ -32,21 +33,25 @@ pub struct NativePromptParts {
     pub employee_prompt: String,
     pub max_concurrent_subagents: u32,
     pub subagent_policy: String,
+    pub identity_override: String,
+    pub required_subagent_name: String,
+    pub required_subagent_description: String,
 }
 
 pub fn compose_system(parts: &NativePromptParts) -> String {
     let mut blocks = Vec::new();
-    blocks.push(IDENTITY.trim().to_string());
+    if parts.identity_override.trim().is_empty() {
+        blocks.push(IDENTITY.trim().to_string());
+    } else {
+        blocks.push(parts.identity_override.trim().to_string());
+    }
     let policy_block = subagent_policy_block(&parts.subagent_policy);
     if !policy_block.is_empty() {
         blocks.push(policy_block);
     }
-    blocks.push(environment_block(parts));
-    if let Some(git) = parts.git.as_ref() {
-        let git_block = git_block(git);
-        if !git_block.is_empty() {
-            blocks.push(git_block);
-        }
+    let context = workspace_context_block(parts);
+    if !context.is_empty() {
+        blocks.push(context);
     }
     if !parts.global_template.trim().is_empty() {
         blocks.push(format!("# 全局提示词\n{}", parts.global_template.trim()));
@@ -59,6 +64,40 @@ pub fn compose_system(parts: &NativePromptParts) -> String {
     }
     if !parts.employee_prompt.trim().is_empty() {
         blocks.push(format!("# 员工设定\n{}", parts.employee_prompt.trim()));
+    }
+    if !parts.required_subagent_name.trim().is_empty() {
+        blocks.push(required_subagent_block(
+            parts.required_subagent_name.trim(),
+            parts.required_subagent_description.trim(),
+        ));
+    }
+    blocks.join("\n\n")
+}
+
+pub fn required_subagent_block(name: &str, description: &str) -> String {
+    let desc = if description.is_empty() {
+        String::new()
+    } else {
+        format!("用途：{description}\n")
+    };
+    format!(
+        "# 任务指定子智能体（必须遵守）\n本任务已指定子智能体 `{name}`。{desc}- 第一轮必须调用 Agent，且 subagent_type 必须是 `{name}`（不要用 explore 或 general 代替）。\n- Agent.prompt 必须自包含完整任务，子 Agent 看不到本对话。\n- 在该子 Agent 返回报告之前，不要自己 Read/Edit/Write 去做实现。\n- 子 Agent 返回后，你再核对、补漏或收尾。"
+    )
+}
+
+pub fn wrap_prompt_for_required_subagent(prompt: &str, name: &str) -> String {
+    format!(
+        "【必须先委派】立即调用 Agent：subagent_type=`{name}`，description 用 3–5 个字概括任务，prompt 放入下面的完整任务说明。不要先自己摸底或改文件。\n\n{prompt}"
+    )
+}
+
+pub fn workspace_context_block(parts: &NativePromptParts) -> String {
+    let mut blocks = vec![environment_block(parts)];
+    if let Some(git) = parts.git.as_ref() {
+        let git_text = git_block(git);
+        if !git_text.is_empty() {
+            blocks.push(git_text);
+        }
     }
     blocks.join("\n\n")
 }
@@ -97,7 +136,12 @@ pub fn subagent_policy_block(policy: &str) -> String {
     }
 }
 
-pub fn agent_tool_description(cap: u32, policy: &str) -> String {
+pub fn agent_tool_description(
+    cap: u32,
+    policy: &str,
+    custom: &[NativeSubagent],
+    required_type: Option<&str>,
+) -> String {
     let policy = normalize_subagent_policy(Some(policy));
     let cap = cap.max(1);
     let policy_hint = match policy.as_str() {
@@ -111,9 +155,36 @@ pub fn agent_tool_description(cap: u32, policy: &str) -> String {
             "Policy balanced: spawn at least two Agents in one turn when the task spans 2+ modules or includes a multi-step plan."
         }
     };
-    format!(
-        "Delegate a self-contained subtask to a child agent. Multiple calls in one turn run in parallel (max {cap}). The child does not see this conversation. Use explore for read-only research and general for edits. {policy_hint}"
-    )
+    let mut lines = vec![
+        format!(
+            "Delegate a self-contained subtask to a child agent. Multiple calls in one turn run in parallel (max {cap}). The child does not see this conversation. {policy_hint}"
+        ),
+        "When using the Agent tool, set subagent_type to one of the types below. If omitted, general is used.".to_string(),
+    ];
+    if let Some(required) = required_type.map(str::trim).filter(|item| !item.is_empty()) {
+        lines.push(format!(
+            "REQUIRED this turn: subagent_type={required}. Do not use explore or general instead of {required}."
+        ));
+    }
+    lines.extend([
+        "Available agent types:".to_string(),
+        "- general: full tools including MCP; can edit files. (Tools: *)".to_string(),
+        "- explore: read-only research. (Tools: Read, Glob, Grep, TodoRead, TodoWrite, WebFetch, WebSearch)".to_string(),
+    ]);
+    for item in custom {
+        let tools = if item.tool_mode == TOOL_MODE_ALL {
+            "*".to_string()
+        } else if item.tools.is_empty() {
+            "custom".to_string()
+        } else {
+            item.tools.join(", ")
+        };
+        lines.push(format!(
+            "- {}: {} (Tools: {tools})",
+            item.name, item.description
+        ));
+    }
+    lines.join("\n")
 }
 
 fn git_block(git: &NativeGitInfo) -> String {
@@ -267,6 +338,9 @@ mod tests {
             employee_prompt: "角色：reviewer".to_string(),
             max_concurrent_subagents: 5,
             subagent_policy: "aggressive".to_string(),
+            identity_override: String::new(),
+            required_subagent_name: String::new(),
+            required_subagent_description: String::new(),
         });
         assert!(text.contains("内置编程 Agent"));
         assert!(text.contains("confirm-high-risk"));
@@ -275,6 +349,7 @@ mod tests {
         assert!(text.contains("子 Agent 策略（aggressive）"));
         assert!(text.contains("explore"));
         assert!(text.contains("general"));
+        assert!(text.contains("自定义类型"));
         assert!(!text.contains("yolo"));
         assert!(text.contains("Working directory: /repo"));
         assert!(text.contains("Branch: main"));
@@ -282,15 +357,56 @@ mod tests {
         assert!(text.contains("用 2 空格缩进"));
         assert!(text.contains("角色：reviewer"));
         assert!(!text.contains("任务标题"));
+        let overridden = compose_system(&NativePromptParts {
+            cwd: "/repo".to_string(),
+            identity_override: "你是审查员".to_string(),
+            ..NativePromptParts::default()
+        });
+        assert!(overridden.contains("你是审查员"));
+        assert!(!overridden.contains("内置编程 Agent"));
     }
 
     #[test]
     fn balanced_policy_asks_for_two_agents_on_multi_step_work() {
         let block = subagent_policy_block("balanced");
         assert!(block.contains("至少委派 2 个 Agent"));
-        let description = agent_tool_description(4, "balanced");
+        let description = agent_tool_description(4, "balanced", &[], None);
         assert!(description.contains("max 4"));
         assert!(description.contains("Policy balanced"));
+        let custom = NativeSubagent {
+            id: "1".to_string(),
+            name: "code-reviewer".to_string(),
+            description: "Review diffs".to_string(),
+            model_mode: "inherit".to_string(),
+            channel_id: None,
+            model: None,
+            tool_mode: "custom".to_string(),
+            tools: vec!["Read".to_string(), "Grep".to_string()],
+            system_prompt: String::new(),
+            inject_agents_md: true,
+            scope: "all".to_string(),
+            project_ids: Vec::new(),
+        };
+        let with_custom =
+            agent_tool_description(3, "balanced", std::slice::from_ref(&custom), None);
+        assert!(with_custom.contains("code-reviewer"));
+        assert!(with_custom.contains("Read, Grep"));
+        let required = agent_tool_description(
+            3,
+            "balanced",
+            std::slice::from_ref(&custom),
+            Some("code-reviewer"),
+        );
+        assert!(required.contains("REQUIRED this turn: subagent_type=code-reviewer"));
+        let bound = compose_system(&NativePromptParts {
+            required_subagent_name: "code-reviewer".to_string(),
+            required_subagent_description: "Review diffs".to_string(),
+            ..NativePromptParts::default()
+        });
+        assert!(bound.contains("subagent_type 必须是 `code-reviewer`"));
+        assert!(bound.contains("不要用 explore 或 general 代替"));
+        assert!(wrap_prompt_for_required_subagent("做任务", "code-reviewer")
+            .contains("subagent_type=`code-reviewer`"));
     }
 
     #[test]

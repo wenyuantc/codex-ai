@@ -1221,6 +1221,14 @@ pub fn get_all_migrations() -> Vec<Migration> {
             "#,
             kind: tauri_plugin_sql::MigrationKind::Up,
         },
+        Migration {
+            version: 52,
+            description: "optional native subagent binding on tasks",
+            sql: r#"
+                ALTER TABLE tasks ADD COLUMN native_subagent_id TEXT;
+            "#,
+            kind: tauri_plugin_sql::MigrationKind::Up,
+        },
     ]
 }
 
@@ -1262,7 +1270,7 @@ mod tests {
 
     #[test]
     fn latest_migration_version_includes_session_events_retention_index() {
-        assert_eq!(latest_migration_version(), 51);
+        assert_eq!(latest_migration_version(), 52);
     }
 
     #[test]

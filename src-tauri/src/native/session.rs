@@ -8,10 +8,10 @@ use tokio::sync::{mpsc, Mutex};
 
 use crate::app::{
     apply_codex_session_usage, fetch_employee_by_id, fetch_ssh_config_record_by_id,
-    insert_activity_log, insert_codex_session_event, insert_codex_session_event_with_id,
-    insert_codex_session_record, now_sqlite, persist_review_session_events_from_session_logs,
-    sqlite_pool, update_codex_session_record, validate_runtime_working_dir, EXECUTION_TARGET_LOCAL,
-    EXECUTION_TARGET_SSH,
+    fetch_task_by_id, insert_activity_log, insert_codex_session_event,
+    insert_codex_session_event_with_id, insert_codex_session_record, now_sqlite,
+    persist_review_session_events_from_session_logs, sqlite_pool, update_codex_session_record,
+    validate_runtime_working_dir, EXECUTION_TARGET_LOCAL, EXECUTION_TARGET_SSH,
 };
 use crate::codex::mcp::{mcp_summary_line, resolve_effective_mcp_for_task};
 use crate::codex::{CodexExecutionProvider, CodexSessionKind, ExecutionChangeBaseline};
@@ -164,6 +164,52 @@ async fn capture_native_execution_change_baseline(
     }
 }
 
+fn apply_bound_subagent(
+    runner: &mut AgentRunner,
+    parts: &mut crate::native::prompt::NativePromptParts,
+    bound: Option<&crate::native::subagents::NativeSubagent>,
+) {
+    let Some(def) = bound else {
+        return;
+    };
+    parts.required_subagent_name = def.name.clone();
+    parts.required_subagent_description = def.description.clone();
+    runner.required_subagent_type = Some(def.name.clone());
+}
+
+fn attach_subagent_runtime(
+    app: &AppHandle,
+    runner: &mut AgentRunner,
+    parts: &crate::native::prompt::NativePromptParts,
+    project_id: Option<&str>,
+    bound: Option<&crate::native::subagents::NativeSubagent>,
+) {
+    runner.workspace_context = crate::native::prompt::workspace_context_block(parts);
+    runner.project_agents = parts.project_agents.clone();
+    let loaded = crate::native::subagents::load_native_subagents(app).unwrap_or_default();
+    runner.custom_subagents =
+        crate::native::subagents::catalog_for_session(&loaded, project_id, bound);
+    let app_reload = app.clone();
+    let project_id_owned = project_id.map(ToOwned::to_owned);
+    let bound_owned = bound.cloned();
+    runner.reload_custom_subagents = Some(std::sync::Arc::new(move || {
+        let loaded =
+            crate::native::subagents::load_native_subagents(&app_reload).unwrap_or_default();
+        crate::native::subagents::catalog_for_session(
+            &loaded,
+            project_id_owned.as_deref(),
+            bound_owned.as_ref(),
+        )
+    }));
+    let app_load = app.clone();
+    runner.child_model_loader = Some(std::sync::Arc::new(move |channel_id, model| {
+        let app = app_load.clone();
+        Box::pin(async move {
+            crate::native::subagents::resolve_child_model(&app, &channel_id, &model).await
+        })
+    }));
+}
+
 fn extra_headers_map(raw: Option<&str>) -> HashMap<String, String> {
     let Some(text) = raw.filter(|item| !item.trim().is_empty()) else {
         return HashMap::new();
@@ -210,6 +256,8 @@ struct NativeRunSettings {
     employee_system_prompt: Option<String>,
     protocol: String,
     channel_name: String,
+    bound_subagent: Option<crate::native::subagents::NativeSubagent>,
+    catalog_project_id: Option<String>,
 }
 
 fn native_startup_banner(
@@ -303,6 +351,8 @@ async fn load_native_client(
         employee_system_prompt: None,
         protocol: channel.protocol.clone(),
         channel_name: channel.name.clone(),
+        bound_subagent: None,
+        catalog_project_id: None,
     })
 }
 
@@ -486,7 +536,7 @@ pub async fn run_native_read_only_one_shot(
     if let Some(context_tokens) = run.context_tokens {
         runner.context_char_limit = (context_tokens as usize).saturating_mul(3).max(8_000);
     }
-    let system = crate::native::prompt::compose_system(&crate::native::prompt::NativePromptParts {
+    let mut parts = crate::native::prompt::NativePromptParts {
         cwd: run_cwd.clone(),
         model: run.model.clone(),
         platform: std::env::consts::OS.to_string(),
@@ -504,7 +554,19 @@ pub async fn run_native_read_only_one_shot(
         employee_prompt: run.employee_system_prompt.clone().unwrap_or_default(),
         max_concurrent_subagents: runner.max_concurrent_subagents,
         subagent_policy: runner.subagent_policy.clone(),
-    });
+        identity_override: String::new(),
+        required_subagent_name: String::new(),
+        required_subagent_description: String::new(),
+    };
+    attach_subagent_runtime(
+        app,
+        &mut runner,
+        &parts,
+        run.catalog_project_id.as_deref(),
+        run.bound_subagent.as_ref(),
+    );
+    apply_bound_subagent(&mut runner, &mut parts, run.bound_subagent.as_ref());
+    let system = crate::native::prompt::compose_system(&parts);
     runner
         .messages
         .push(crate::native::model::types::Message::system(system));
@@ -670,7 +732,27 @@ pub async fn start_native_with_manager(
         .map(str::trim)
         .filter(|item| !item.is_empty())
         .map(ToOwned::to_owned);
-    let prompt = task_description;
+    if let Some(task_id) = task_id.as_deref() {
+        if let Ok(task) = fetch_task_by_id(&pool, task_id).await {
+            run.catalog_project_id = Some(task.project_id.clone());
+            if kind == "execution" {
+                if let Some(bound_id) = task.native_subagent_id.as_deref() {
+                    let catalog =
+                        crate::native::subagents::load_native_subagents(&app).unwrap_or_default();
+                    if let Some(def) =
+                        crate::native::subagents::find_native_subagent_by_id(&catalog, bound_id)
+                    {
+                        run.bound_subagent = Some(def.clone());
+                    }
+                }
+            }
+        }
+    }
+    let prompt = if let Some(def) = run.bound_subagent.as_ref() {
+        crate::native::prompt::wrap_prompt_for_required_subagent(&task_description, &def.name)
+    } else {
+        task_description
+    };
 
     let session_record = insert_codex_session_record(
         &app,
@@ -915,7 +997,7 @@ async fn run_native_loop(
     if let Some(context_tokens) = run.context_tokens {
         runner.context_char_limit = (context_tokens as usize).saturating_mul(3).max(8_000);
     }
-    let system = crate::native::prompt::compose_system(&crate::native::prompt::NativePromptParts {
+    let mut parts = crate::native::prompt::NativePromptParts {
         cwd: run_cwd.clone(),
         model: run.model.clone(),
         platform: std::env::consts::OS.to_string(),
@@ -933,7 +1015,19 @@ async fn run_native_loop(
         employee_prompt: run.employee_system_prompt.clone().unwrap_or_default(),
         max_concurrent_subagents: runner.max_concurrent_subagents,
         subagent_policy: runner.subagent_policy.clone(),
-    });
+        identity_override: String::new(),
+        required_subagent_name: String::new(),
+        required_subagent_description: String::new(),
+    };
+    attach_subagent_runtime(
+        &app,
+        &mut runner,
+        &parts,
+        run.catalog_project_id.as_deref(),
+        run.bound_subagent.as_ref(),
+    );
+    apply_bound_subagent(&mut runner, &mut parts, run.bound_subagent.as_ref());
+    let system = crate::native::prompt::compose_system(&parts);
     runner
         .messages
         .push(crate::native::model::types::Message::system(system));
@@ -962,6 +1056,20 @@ async fn run_native_loop(
         ),
     )
     .await;
+    if let Some(def) = run.bound_subagent.as_ref() {
+        emit_native_line(
+            &app,
+            &session_record_id,
+            &employee_id,
+            task_id.as_deref(),
+            &kind,
+            format!(
+                "[子智能体] 本任务必须委派 {}（Agent.subagent_type={}）",
+                def.name, def.name
+            ),
+        )
+        .await;
+    }
     if let Ok(pool) = sqlite_pool(&app).await {
         match resolve_effective_mcp_for_task(&app, &pool, task_id.as_deref()).await {
             Ok(resolved) => {

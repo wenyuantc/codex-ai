@@ -71,6 +71,7 @@ mod automation_working_dir_tests {
             acceptance_checklist: None,
             last_acceptance_status: None,
             mcp_server_ids: None,
+            native_subagent_id: None,
             created_at: "2026-04-17 00:00:00".to_string(),
             updated_at: "2026-04-17 00:00:00".to_string(),
         }
@@ -419,6 +420,7 @@ mod automation_guard_tests {
             acceptance_checklist: None,
             last_acceptance_status: None,
             mcp_server_ids: None,
+            native_subagent_id: None,
             created_at: "2026-04-21 00:00:00".to_string(),
             updated_at: "2026-04-21 00:00:00".to_string(),
         }

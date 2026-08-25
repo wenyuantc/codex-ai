@@ -10,6 +10,7 @@ import { PromptSettingsTab } from "@/components/settings/PromptSettingsTab";
 import { RuntimeSettingsTab } from "@/components/settings/RuntimeSettingsTab";
 import { SshSettingsTab } from "@/components/settings/SshSettingsTab";
 import { AiChannelsSettingsTab } from "@/components/settings/AiChannelsSettingsTab";
+import { SubagentsSettingsTab } from "@/components/settings/SubagentsSettingsTab";
 import { EngineCapabilityBadges } from "@/components/ai/EngineCapabilityBadges";
 import {
   EMPTY_SSH_CONFIG_FORM,
@@ -99,6 +100,7 @@ const SETTINGS_TAB_KEYS: Array<{ value: SettingsTabValue; labelKey: string }> = 
   { value: "prompts", labelKey: "settings:tabs.prompts" },
   { value: "mcp", labelKey: "settings:tabs.mcp" },
   { value: "channels", labelKey: "settings:tabs.channels" },
+  { value: "subagents", labelKey: "settings:tabs.subagents" },
   { value: "ssh", labelKey: "settings:tabs.ssh" },
   { value: "database", labelKey: "settings:tabs.database" },
 ];
@@ -1455,6 +1457,10 @@ export function SettingsPage() {
 
         <TabsContent value="channels">
           <AiChannelsSettingsTab />
+        </TabsContent>
+
+        <TabsContent value="subagents">
+          <SubagentsSettingsTab />
         </TabsContent>
 
         <TabsContent value="database">

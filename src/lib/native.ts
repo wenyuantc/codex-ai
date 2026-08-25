@@ -1,6 +1,9 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import type { CodexSessionKind, StartSessionOutcome } from "./types";
+import type { NativeSubagentScope } from "./nativeSubagentScope";
+
+export type { NativeSubagentScope } from "./nativeSubagentScope";
 
 export interface NativeOutput {
   employee_id: string;
@@ -172,4 +175,82 @@ export async function getNativeSettings(): Promise<NativeSettings> {
 
 export async function updateNativeSettings(updates: UpdateNativeSettings): Promise<NativeSettings> {
   return invoke<NativeSettings>("update_native_settings", { updates });
+}
+
+export const NATIVE_SUBAGENT_CUSTOM_TOOLS = [
+  "Read",
+  "Grep",
+  "Glob",
+  "Bash",
+  "Edit",
+  "Write",
+  "WebFetch",
+  "WebSearch",
+  "TodoWrite",
+] as const;
+
+export type NativeSubagentCustomTool = (typeof NATIVE_SUBAGENT_CUSTOM_TOOLS)[number];
+export type NativeSubagentModelMode = "inherit" | "channel";
+export type NativeSubagentToolMode = "all" | "custom";
+
+export interface NativeSubagent {
+  id: string;
+  name: string;
+  description: string;
+  model_mode: NativeSubagentModelMode | string;
+  channel_id: string | null;
+  model: string | null;
+  tool_mode: NativeSubagentToolMode | string;
+  tools: string[];
+  system_prompt: string;
+  inject_agents_md: boolean;
+  scope: NativeSubagentScope | string;
+  project_ids: string[];
+}
+
+export interface CreateNativeSubagent {
+  name: string;
+  description: string;
+  model_mode?: NativeSubagentModelMode | string;
+  channel_id?: string | null;
+  model?: string | null;
+  tool_mode?: NativeSubagentToolMode | string;
+  tools?: string[];
+  system_prompt?: string;
+  inject_agents_md?: boolean;
+  scope?: NativeSubagentScope | string;
+  project_ids?: string[];
+}
+
+export interface UpdateNativeSubagent {
+  name?: string;
+  description?: string;
+  model_mode?: NativeSubagentModelMode | string;
+  channel_id?: string | null;
+  model?: string | null;
+  tool_mode?: NativeSubagentToolMode | string;
+  tools?: string[];
+  system_prompt?: string;
+  inject_agents_md?: boolean;
+  scope?: NativeSubagentScope | string;
+  project_ids?: string[];
+}
+
+export async function listNativeSubagents(): Promise<NativeSubagent[]> {
+  return invoke<NativeSubagent[]>("list_native_subagents");
+}
+
+export async function createNativeSubagent(payload: CreateNativeSubagent): Promise<NativeSubagent> {
+  return invoke<NativeSubagent>("create_native_subagent", { payload });
+}
+
+export async function updateNativeSubagent(
+  id: string,
+  payload: UpdateNativeSubagent,
+): Promise<NativeSubagent> {
+  return invoke<NativeSubagent>("update_native_subagent", { id, payload });
+}
+
+export async function deleteNativeSubagent(id: string): Promise<void> {
+  await invoke("delete_native_subagent", { id });
 }

@@ -633,6 +633,7 @@ pub(crate) async fn apply_task_template_with_pool(
             acceptance_checklist: None,
             last_acceptance_status: None,
             mcp_server_ids: None,
+            native_subagent_id: None,
             created_at: now.clone(),
             updated_at: now.clone(),
         };

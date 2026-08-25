@@ -134,6 +134,7 @@ export interface Task {
   milestone_id: string | null;
   /** NULL/missing = inherit global enabled; JSON array string when overridden */
   mcp_server_ids: string | null;
+  native_subagent_id: string | null;
   acceptance_checklist: string | null;
   last_acceptance_status: string | null;
   created_at: string;

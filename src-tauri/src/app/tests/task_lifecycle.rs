@@ -29,6 +29,7 @@ fn archived_task_rejects_enabling_automation() {
         acceptance_checklist: None,
         last_acceptance_status: None,
         mcp_server_ids: None,
+        native_subagent_id: None,
         created_at: "2026-04-21 00:00:00".to_string(),
         updated_at: "2026-04-21 00:00:00".to_string(),
     };
@@ -122,6 +123,7 @@ fn archiving_task_clears_pending_automation_state_and_logs_disable_activity() {
             acceptance_checklist: None,
             last_acceptance_status: None,
             mcp_server_ids: None,
+            native_subagent_id: None,
             created_at: "2026-04-21 00:00:00".to_string(),
             updated_at: "2026-04-21 00:00:00".to_string(),
         };
@@ -239,6 +241,7 @@ fn insert_task_record_persists_reviewer_id() {
             acceptance_checklist: None,
             last_acceptance_status: None,
             mcp_server_ids: None,
+            native_subagent_id: None,
             created_at: "2026-04-16 10:00:00".to_string(),
             updated_at: "2026-04-16 10:00:00".to_string(),
         };
@@ -302,6 +305,7 @@ fn start_task_timer_is_idempotent_and_logs_once() {
             acceptance_checklist: None,
             last_acceptance_status: None,
             mcp_server_ids: None,
+            native_subagent_id: None,
             created_at: "2026-04-16 10:00:00".to_string(),
             updated_at: "2026-04-16 10:00:00".to_string(),
         };
@@ -373,6 +377,7 @@ fn stop_task_timer_accumulates_without_marking_completed() {
             acceptance_checklist: None,
             last_acceptance_status: None,
             mcp_server_ids: None,
+            native_subagent_id: None,
             created_at: "2026-04-16 09:00:00".to_string(),
             updated_at: "2026-04-16 10:00:00".to_string(),
         };
@@ -433,6 +438,7 @@ fn completion_timer_update_accumulates_elapsed_time_and_reopen_clears_completion
         acceptance_checklist: None,
         last_acceptance_status: None,
         mcp_server_ids: None,
+        native_subagent_id: None,
         created_at: "2026-04-16 09:00:00".to_string(),
         updated_at: "2026-04-16 10:00:00".to_string(),
     };
@@ -493,6 +499,7 @@ fn completion_metric_uses_tracked_task_time_when_available() {
             acceptance_checklist: None,
             last_acceptance_status: None,
             mcp_server_ids: None,
+            native_subagent_id: None,
             created_at: "2026-04-16 10:00:00".to_string(),
             updated_at: "2026-04-16 11:01:01".to_string(),
         };

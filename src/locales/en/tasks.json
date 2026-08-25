@@ -9,6 +9,10 @@
   "noEligibleTasks": "No matching tasks",
   "assigned": "Assigned",
   "unassigned": "Unassigned",
+  "nativeSubagent": {
+    "unspecified": "Not set",
+    "missing": "Config removed"
+  },
   "alreadyRunningHint": "This task already has a running session of the same type and cannot be started again.",
   "reviewerHint": "Will start a code review for this task as the current reviewer.",
   "reassignReviewerHint": "Starting will auto-reassign this task to the current reviewer and start a code review.",
@@ -66,6 +70,8 @@
       "noDependenciesSelected": "No dependencies selected",
       "selectDependency": "Select dependency",
       "assignee": "Assign to",
+      "nativeSubagent": "Sub-agent (optional)",
+      "nativeSubagentHint": "Used only when the built-in Agent runs this task: the parent must delegate via the Agent tool with this subagent_type. Leave unset to let the model choose.",
       "reviewer": "Reviewer",
       "unspecified": "Not set",
       "coordinator": "Coordinator",
@@ -125,6 +131,7 @@
       "priority": "Priority",
       "selectPriority": "Select priority",
       "assignee": "Assignee",
+      "nativeSubagent": "Sub-agent",
       "reviewer": "Reviewer",
       "unspecified": "Not set",
       "coordinator": "Coordinator",

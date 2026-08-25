@@ -76,6 +76,7 @@ interface TaskStore {
       coordinator_id?: string;
       due_date?: string | null;
       milestone_id?: string | null;
+      native_subagent_id?: string | null;
       attachment_source_paths?: string[];
     },
     options?: { refreshProjectId?: string },
@@ -101,6 +102,7 @@ interface TaskStore {
         | "due_date"
         | "blocked_reason"
         | "milestone_id"
+        | "native_subagent_id"
       >
     >,
   ) => Promise<void>;

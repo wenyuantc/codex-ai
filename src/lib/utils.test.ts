@@ -28,6 +28,10 @@ describe("getActivityActionLabel", () => {
     expect(getActivityActionLabel("native_settings_updated")).toBe("更新内置 Agent 设置");
     expect(getActivityActionLabel("native_subagent_started")).toBe("启动子 Agent");
     expect(getActivityActionLabel("native_subagent_finished")).toBe("子 Agent 结束");
+    expect(getActivityActionLabel("native_subagent_created")).toBe("创建子智能体");
+    expect(getActivityActionLabel("native_subagent_updated")).toBe("更新子智能体");
+    expect(getActivityActionLabel("native_subagent_deleted")).toBe("删除子智能体");
+    expect(getActivityActionLabel("task_native_subagent_updated")).toBe("更新任务子智能体");
   });
 
   it("falls back to the raw key for unmapped actions", () => {

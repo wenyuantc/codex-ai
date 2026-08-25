@@ -142,6 +142,7 @@ export function TaskDetailDialog({
   const [priority, setPriority] = useState(task.priority);
   const [status, setStatus] = useState(task.status);
   const [assigneeId, setAssigneeId] = useState(task.assignee_id ?? "");
+  const [nativeSubagentId, setNativeSubagentId] = useState(task.native_subagent_id ?? "");
   const [reviewerId, setReviewerId] = useState(task.reviewer_id ?? "");
   const [coordinatorId, setCoordinatorId] = useState(task.coordinator_id ?? "");
   const [dueDate, setDueDate] = useState(task.due_date ?? "");
@@ -438,6 +439,7 @@ export function TaskDetailDialog({
       setPriority(task.priority);
       setStatus(task.status);
       setAssigneeId(task.assignee_id ?? "");
+      setNativeSubagentId(task.native_subagent_id ?? "");
       setReviewerId(task.reviewer_id ?? "");
       setCoordinatorId(task.coordinator_id ?? "");
       setDueDate(task.due_date ?? "");
@@ -649,6 +651,8 @@ export function TaskDetailDialog({
         }
       } else if (field === "assignee_id") {
         await updateTask(task.id, { assignee_id: value || null });
+      } else if (field === "native_subagent_id") {
+        await updateTask(task.id, { native_subagent_id: value || null });
       } else if (field === "reviewer_id") {
         await updateTask(task.id, { reviewer_id: value || null });
       } else if (field === "coordinator_id") {
@@ -1757,6 +1761,7 @@ export function TaskDetailDialog({
                   status={status}
                   priority={priority}
                   assigneeId={assigneeId}
+                  nativeSubagentId={nativeSubagentId}
                   reviewerId={reviewerId}
                   coordinatorId={coordinatorId}
                   dueDate={dueDate}
@@ -1786,6 +1791,10 @@ export function TaskDetailDialog({
                   onAssigneeChange={(value) => {
                     setAssigneeId(value);
                     void handleSave("assignee_id", value);
+                  }}
+                  onNativeSubagentChange={(value) => {
+                    setNativeSubagentId(value);
+                    void handleSave("native_subagent_id", value);
                   }}
                   onReviewerChange={(value) => {
                     setReviewerId(value);

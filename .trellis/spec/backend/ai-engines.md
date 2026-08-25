@@ -54,6 +54,12 @@ Settings Git / one-shot dropdowns still use `CLI_AI_PROVIDER_OPTIONS` (exclude `
 
 Native employees **must** bind `employees.ai_channel_id` to an enabled `ai_channels` row. Other providers store `ai_channel_id = NULL`.
 
+### Native custom sub-agents
+
+App-global catalog in `native-subagents.json` (not SQLite). Settings tab CRUD: `list/create/update/delete_native_subagent`. Name is `Agent.subagent_type` and stays globally unique. Built-in `general` / `explore` stay reserved. `model_mode=inherit` uses the parent session client; `channel` builds a new `ModelClient` from that `ai_channels` row (HTTP stays on this machine; SSH file tools still use the parent workspace). `tool_mode=all` matches `general` (built-in tools minus `Agent` + parent MCP). `tool_mode=custom` is the 9-tool whitelist; `TodoWrite` implies `TodoRead`; no MCP. Custom system prompt replaces parent identity; env/Git always inject; `inject_agents_md` (default true) controls project AGENTS.md. Depth remains 1. Coordinator read-only one-shot still has no `Agent` tool.
+
+Scope: `scope=all` (default; missing JSON field deserializes as all) is visible to every project. `scope=projects` plus non-empty `project_ids` (live `projects.id` where `deleted_at IS NULL`) limits the task picker and the parent Agent catalog to those projects. Sessions without a task only see `all`. An explicit task bind still runs (and stays in the catalog) if the agent is later edited out of that project. New binds must currently match the task's project.
+
 `normalize_employee_reasoning_effort` **must not** reuse Grok's `low|medium|high` whitelist for `native`. Built-in Agent thinking levels come from the model catalog (`none` / `no_think` / `minimal` / `low` / `medium` / `high` / `xhigh` / `max`). Grouping `native` with Grok silently maps `xhigh`/`max` to `high`, so employee "最高/极高" saves have no effect. Session HTTP already forwards `xhigh`/`max` (`openai::normalize_effort`, Anthropic budget map). Frontend `normalizeReasoningEffortForProvider` must keep the same split.
 
 ## Shared Session Model

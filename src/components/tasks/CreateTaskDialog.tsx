@@ -36,6 +36,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { TaskAttachmentGrid } from "./TaskAttachmentGrid";
+import { NativeSubagentSelect } from "./NativeSubagentSelect";
 
 const UNASSIGNED_VALUE = "__unassigned__";
 const NONE_VALUE = "__none__";
@@ -67,6 +68,7 @@ export function CreateTaskDialog({
   const [useWorktree, setUseWorktree] = useState("false");
   const [selectedProjectId, setSelectedProjectId] = useState(projectId ?? "");
   const [assigneeId, setAssigneeId] = useState("");
+  const [nativeSubagentId, setNativeSubagentId] = useState("");
   const [reviewerId, setReviewerId] = useState("");
   const [coordinatorId, setCoordinatorId] = useState("");
   const [dueDate, setDueDate] = useState("");
@@ -211,6 +213,7 @@ export function CreateTaskDialog({
       setUseWorktree("false");
       setSelectedProjectId(projectId ?? "");
       setAssigneeId("");
+      setNativeSubagentId("");
       setReviewerId("");
       setCoordinatorId("");
       setDueDate("");
@@ -236,6 +239,7 @@ export function CreateTaskDialog({
     project_id: selectedProjectId,
     use_worktree: useWorktree === "true",
     assignee_id: assigneeId || undefined,
+    native_subagent_id: nativeSubagentId || undefined,
     reviewer_id: reviewerId || undefined,
     coordinator_id: coordinatorId || undefined,
     due_date: dueDate || null,
@@ -800,6 +804,25 @@ export function CreateTaskDialog({
                 ))}
               </SelectContent>
             </Select>
+          </div>
+
+          <div>
+            <label className="text-xs font-medium text-muted-foreground">
+              {t("createDialog.fields.nativeSubagent")}
+            </label>
+            <NativeSubagentSelect
+              value={nativeSubagentId}
+              projectId={selectedProjectId}
+              clearIfOutOfScope
+              disabled={busy}
+              onChange={(value) => {
+                setCreateError(null);
+                setNativeSubagentId(value);
+              }}
+            />
+            <p className="mt-1 text-xs text-muted-foreground">
+              {t("createDialog.fields.nativeSubagentHint")}
+            </p>
           </div>
 
           <div>
