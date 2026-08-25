@@ -683,3 +683,39 @@ i18next zh-CN/en framework, main-path extraction, activity single-source, leftov
 ### Status
 
 [OK] **Completed**
+
+
+## Session 23: native 看板计划运行
+
+**Date**: 2026-08-25
+**Task**: native 看板计划运行
+**Branch**: `main`
+
+### Summary
+
+内置 Agent 看板「计划运行」：只读规划，缺决策提问（可选其他自定义），无问题则同一会话自动执行。
+
+### Main Changes
+
+- 看板右键计划运行仅 native 执行人可见，排队透传 plan_mode
+- 计划轮只读；AskQuestion 阻塞提问；可选模型选项或「其他」自定义输入
+- 无提问则计划轮结束自动执行；不替代协调员、不写 plan_content
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `2448bba` | (see git log) |
+
+### Testing
+
+- [OK] clippy -D warnings；cargo test native::；format:check；test:ci；npm run build
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- tauri dev 冒烟：无歧义任务不问直接跑，有取舍弹窗，其他可自定义
+- 08-25-native-stop-no-review 仍 in_progress，确认后可归档
