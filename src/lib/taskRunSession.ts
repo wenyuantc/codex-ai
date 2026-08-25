@@ -32,6 +32,7 @@ export interface StartTaskRunSessionParams {
   executionInput: PreparedTaskRunInput;
   clearTaskOutput?: boolean;
   imageSkipConfirmed?: boolean;
+  planMode?: boolean;
 }
 
 /**
@@ -46,6 +47,7 @@ export async function startTaskRunSession({
   executionInput,
   clearTaskOutput = false,
   imageSkipConfirmed = false,
+  planMode = false,
 }: StartTaskRunSessionParams): Promise<StartSessionOutcome> {
   if (!assigneeId) {
     throw new Error("请先指定执行员工，再执行任务。");
@@ -121,6 +123,7 @@ export async function startTaskRunSession({
     taskGitContextId,
     resumeSessionId: executionInput.resumeSessionId,
     imagePaths: executionInput.imagePaths,
+    planMode: planMode || undefined,
   };
 
   const outcome = asStartSessionOutcome(

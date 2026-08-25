@@ -17,6 +17,7 @@ interface PreparedExecutionInput {
 
 interface PrepareExecutionInputOptions {
   planContent?: string;
+  planMode?: boolean;
 }
 
 interface UseTaskExecutionActionsOptions {
@@ -95,6 +96,7 @@ export function useTaskExecutionActions({
         clearTaskOutput:
           (action === "run" && clearTaskOutputOnRun) ||
           (action === "continue" && clearTaskOutputOnContinue),
+        planMode: options?.planMode === true,
       });
       onStarted?.(action);
     } catch (error) {
@@ -107,8 +109,8 @@ export function useTaskExecutionActions({
     }
   };
 
-  const runTask = async (planContent?: string) => {
-    await startExecution("run", undefined, { planContent });
+  const runTask = async (planContent?: string, planMode?: boolean) => {
+    await startExecution("run", undefined, { planContent, planMode });
   };
 
   const continueTask = async (followUpPrompt: string) => {

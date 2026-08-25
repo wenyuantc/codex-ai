@@ -375,6 +375,7 @@ async fn start_automation_fix_round(
             None,
             Some(execution_input.image_paths),
             Some("execution".to_string()),
+            false,
         )
         .await
     } else {

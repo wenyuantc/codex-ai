@@ -315,6 +315,7 @@ pub fn run() {
             native::session::send_native_input,
             native::session::finish_native_input,
             native::session::resolve_native_tool_permission,
+            native::session::answer_native_plan_question,
             native::settings::get_native_settings,
             native::settings::update_native_settings,
             native::subagents::list_native_subagents,

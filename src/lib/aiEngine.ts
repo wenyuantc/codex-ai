@@ -15,6 +15,7 @@ export interface RestartEngineOptions {
   resumeSessionId?: string;
   sessionKind?: CodexSessionKind;
   imagePaths?: string[];
+  planMode?: boolean;
 }
 
 /** Thin unified restart entry; fails closed for unknown providers. */

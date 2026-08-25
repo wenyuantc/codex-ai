@@ -10,6 +10,7 @@ use super::paths::resolve_under_workspace;
 use super::permission::{
     classify_native_tool_risk, NativePermissionDecision, NativeToolRisk, NativeToolRiskKind,
 };
+use super::question::{format_ask_question_result, parse_ask_question_args, PlanQuestionAnswer};
 use super::ssh::SshToolRuntime;
 use std::sync::Arc;
 use tokio::sync::oneshot;
@@ -35,6 +36,9 @@ pub struct PermissionPrompt {
 pub type PermissionRequester =
     Arc<dyn Fn(PermissionPrompt, oneshot::Sender<NativePermissionDecision>) + Send + Sync>;
 
+pub type QuestionRequester =
+    Arc<dyn Fn(Vec<super::PlanQuestion>, oneshot::Sender<PlanQuestionAnswer>) + Send + Sync>;
+
 pub struct ToolCtx {
     pub workspace: LocalWorkspace,
     pub ssh: Option<SshToolRuntime>,
@@ -44,6 +48,7 @@ pub struct ToolCtx {
     pub mcp: SharedMcp,
     pub allow_all_high_risk: Arc<std::sync::atomic::AtomicBool>,
     pub request_permission: Option<PermissionRequester>,
+    pub request_question: Option<QuestionRequester>,
     pub read_only: bool,
 }
 
@@ -70,9 +75,41 @@ pub async fn execute_tool(
         "TodoWrite" => call_todo_write(ctx, arguments),
         "WebFetch" => super::web::web_fetch(arguments).await,
         "WebSearch" => super::web::web_search(arguments).await,
+        "AskQuestion" => call_ask_question(ctx, arguments).await,
         other if ctx.mcp.has_tool(other).await => ctx.mcp.call(other, arguments).await,
         other => Err(format!("unknown tool: {other}")),
     }
+}
+
+async fn call_ask_question(ctx: &mut ToolCtx, arguments: &str) -> Result<String, String> {
+    let questions = parse_ask_question_args(arguments)?;
+    let Some(requester) = ctx.request_question.clone() else {
+        return Err("当前不是计划提问阶段，不能向用户提问".to_string());
+    };
+    let (tx, rx) = oneshot::channel();
+    requester(questions.clone(), tx);
+    let answer = tokio::select! {
+        biased;
+        _ = async {
+            loop {
+                if ctx.cancel.is_cancelled() {
+                    break;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+            }
+        } => return Err("已取消".to_string()),
+        result = rx => result.map_err(|_| "已取消".to_string())?,
+    };
+    if ctx.cancel.is_cancelled() {
+        return Err("已取消".to_string());
+    }
+    if !answer.skipped && answer.answers.len() != questions.len() {
+        return Err("回答数量与问题数量不一致".to_string());
+    }
+    if !answer.skipped && answer.answers.iter().any(|item| item.trim().is_empty()) {
+        return Err("每个问题都需要回答".to_string());
+    }
+    Ok(format_ask_question_result(&questions, &answer))
 }
 
 async fn confirm_if_high_risk(
@@ -363,6 +400,7 @@ mod tests {
                     let _ = tx.send(NativePermissionDecision::Deny);
                 },
             )),
+            request_question: None,
             read_only: false,
         };
         let err = execute_tool(
@@ -398,6 +436,7 @@ mod tests {
             mcp: SharedMcp::empty(),
             allow_all_high_risk: Arc::new(std::sync::atomic::AtomicBool::new(true)),
             request_permission: None,
+            request_question: None,
             read_only: true,
         };
         let err = execute_tool(
@@ -409,6 +448,65 @@ mod tests {
         .expect_err("read-only write");
         assert!(err.contains("只读规划模式禁止调用工具 Write"));
         assert_eq!(std::fs::read_to_string(&path).expect("read"), "original");
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[tokio::test]
+    async fn ask_question_without_channel_errors() {
+        let root = std::env::temp_dir().join("codex-ai-ask-none");
+        let _ = std::fs::create_dir_all(&root);
+        let mut ctx = ToolCtx {
+            workspace: LocalWorkspace::new(root.clone()),
+            ssh: None,
+            cancel: CancelFlag::new(),
+            read_files: HashSet::new(),
+            todos: Vec::new(),
+            mcp: SharedMcp::empty(),
+            allow_all_high_risk: Arc::new(std::sync::atomic::AtomicBool::new(true)),
+            request_permission: None,
+            request_question: None,
+            read_only: true,
+        };
+        let err = execute_tool(
+            &mut ctx,
+            "AskQuestion",
+            r#"{"questions":[{"prompt":"用哪个？"}]}"#,
+        )
+        .await
+        .expect_err("no channel");
+        assert!(err.contains("计划提问"));
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[tokio::test]
+    async fn ask_question_returns_user_answers() {
+        let root = std::env::temp_dir().join("codex-ai-ask-ok");
+        let _ = std::fs::create_dir_all(&root);
+        let mut ctx = ToolCtx {
+            workspace: LocalWorkspace::new(root.clone()),
+            ssh: None,
+            cancel: CancelFlag::new(),
+            read_files: HashSet::new(),
+            todos: Vec::new(),
+            mcp: SharedMcp::empty(),
+            allow_all_high_risk: Arc::new(std::sync::atomic::AtomicBool::new(true)),
+            request_permission: None,
+            request_question: Some(Arc::new(|_questions, tx| {
+                let _ = tx.send(PlanQuestionAnswer {
+                    skipped: false,
+                    answers: vec!["用 A".to_string()],
+                });
+            })),
+            read_only: true,
+        };
+        let result = execute_tool(
+            &mut ctx,
+            "AskQuestion",
+            r#"{"questions":[{"prompt":"用哪个？"}]}"#,
+        )
+        .await
+        .expect("ask");
+        assert!(result.contains("用 A"));
         let _ = std::fs::remove_dir_all(root);
     }
 }

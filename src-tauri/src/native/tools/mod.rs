@@ -9,11 +9,15 @@ pub mod local;
 pub mod mcp;
 pub mod paths;
 pub mod permission;
+pub mod question;
 pub mod ssh;
 pub mod web;
 
 pub use cancel::CancelFlag;
-pub use catalog::{is_read_only_native_tool, tool_specs, READ_ONLY_NATIVE_TOOL_NAMES};
+pub use catalog::{
+    ask_question_spec, is_read_only_native_tool, tool_specs, READ_ONLY_NATIVE_TOOL_NAMES,
+};
 pub use dispatch::{execute_tool, ToolCtx};
 pub use local::LocalWorkspace;
 pub use mcp::{connect_mcp_servers, SharedMcp};
+pub use question::PlanQuestion;

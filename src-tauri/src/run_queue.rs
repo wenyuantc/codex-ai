@@ -64,6 +64,8 @@ pub struct QueuedTaskRun {
     pub task_git_context_id: Option<String>,
     #[serde(default)]
     pub image_paths: Option<Vec<String>>,
+    #[serde(default)]
+    pub plan_mode: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -359,6 +361,7 @@ async fn replay_task_run(
                 None,
                 run.image_paths.clone(),
                 Some("execution".to_string()),
+                run.plan_mode,
             )
             .await
         }
@@ -576,7 +579,17 @@ mod tests {
             working_dir: Some("/tmp/repo".to_string()),
             task_git_context_id: None,
             image_paths: None,
+            plan_mode: false,
         }
+    }
+
+    #[test]
+    fn queued_task_run_plan_mode_defaults_false() {
+        let run: QueuedTaskRun = serde_json::from_str(
+            r#"{"provider":"native","employee_id":"e","task_description":"t"}"#,
+        )
+        .expect("parse");
+        assert!(!run.plan_mode);
     }
 
     #[test]

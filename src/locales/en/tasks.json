@@ -31,6 +31,15 @@
     "continue": "Run anyway",
     "cancel": "Cancel"
   },
+  "nativePlanQuestion": {
+    "title": "Plan needs a decision",
+    "description": "The built-in Agent needs your call before it implements. After you answer it will finish the plan and run; skip to let it assume.",
+    "answerPlaceholder": "Type an answer",
+    "other": "Other",
+    "otherPlaceholder": "Type your own answer",
+    "submit": "Continue",
+    "skip": "Skip and assume"
+  },
   "nativePermission": {
     "title": "Confirm high-risk action",
     "summary": "{{location}} · {{kind}} · {{tool}}: {{summary}}",
@@ -504,6 +513,7 @@
     "archivedCannotComplete": "Archived tasks cannot be marked completed",
     "markCompletedTitle": "Mark the task completed and move it to Done",
     "continueConversation": "Continue conversation",
+    "planRun": "Plan and run",
     "coordinatorPlan": "Coordinator plan",
     "generatingAcceptance": "Generating…",
     "generateAcceptance": "Generate acceptance list",

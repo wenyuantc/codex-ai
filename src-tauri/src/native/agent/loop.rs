@@ -17,7 +17,7 @@ use crate::native::subagents::{
     NativeSubagent, MODEL_MODE_CHANNEL, TOOL_MODE_ALL,
 };
 use crate::native::tools::{
-    execute_tool, tool_specs, CancelFlag, LocalWorkspace, SharedMcp, ToolCtx,
+    ask_question_spec, execute_tool, tool_specs, CancelFlag, LocalWorkspace, SharedMcp, ToolCtx,
 };
 
 use super::compact::{compact_local, should_compact};
@@ -69,6 +69,7 @@ pub struct AgentRunner {
     pub required_subagent_type: Option<String>,
     extra_tools: Vec<ToolSpec>,
     allowed_tools: Option<HashSet<String>>,
+    plan_mode: bool,
     turns: u32,
     last_tool_key: Option<String>,
     last_tool_repeat: u32,
@@ -95,6 +96,7 @@ impl AgentRunner {
                 mcp: SharedMcp::empty(),
                 allow_all_high_risk: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
                 request_permission: None,
+                request_question: None,
                 read_only: false,
             },
             messages: Vec::new(),
@@ -115,6 +117,7 @@ impl AgentRunner {
             required_subagent_type: None,
             extra_tools: Vec::new(),
             allowed_tools: None,
+            plan_mode: false,
             turns: 0,
             last_tool_key: None,
             last_tool_repeat: 0,
@@ -141,6 +144,10 @@ impl AgentRunner {
         self.ctx.read_only = read_only;
     }
 
+    pub fn set_plan_mode(&mut self, plan_mode: bool) {
+        self.plan_mode = plan_mode;
+    }
+
     fn combined_tools(&self) -> Vec<ToolSpec> {
         let mut tools = tool_specs();
         if self.depth > 0 || self.ctx.read_only {
@@ -160,6 +167,12 @@ impl AgentRunner {
         tools.extend(self.extra_tools.clone());
         if let Some(allowed) = &self.allowed_tools {
             tools.retain(|tool| allowed.contains(&tool.name));
+        }
+        if self.ctx.read_only {
+            tools.retain(|tool| crate::native::tools::is_read_only_native_tool(&tool.name));
+        }
+        if self.plan_mode && !tools.iter().any(|tool| tool.name == "AskQuestion") {
+            tools.push(ask_question_spec());
         }
         tools
     }
@@ -1213,6 +1226,28 @@ mod tests {
         readonly.set_read_only(true);
         readonly.set_allowed_tools(crate::native::tools::READ_ONLY_NATIVE_TOOL_NAMES);
         assert!(!readonly.tool_names().iter().any(|name| name == "Agent"));
+        let mut extra = AgentRunner::new(LocalWorkspace::new(root.clone()));
+        extra.set_read_only(true);
+        extra.set_extra_tools(vec![ToolSpec {
+            name: "mcp_fs_write".to_string(),
+            description: "mcp".to_string(),
+            parameters: serde_json::json!({}),
+        }]);
+        let extra_names = extra.tool_names();
+        assert!(extra_names.iter().any(|name| name == "Read"));
+        assert!(!extra_names.iter().any(|name| name == "Write"));
+        assert!(!extra_names.iter().any(|name| name == "Agent"));
+        assert!(!extra_names.iter().any(|name| name == "mcp_fs_write"));
+        extra.set_read_only(false);
+        assert!(extra.tool_names().iter().any(|name| name == "Write"));
+        let mut plan = AgentRunner::new(LocalWorkspace::new(root.clone()));
+        plan.set_read_only(true);
+        plan.set_plan_mode(true);
+        let plan_names = plan.tool_names();
+        assert!(plan_names.iter().any(|name| name == "AskQuestion"));
+        assert!(!plan_names.iter().any(|name| name == "Write"));
+        plan.set_plan_mode(false);
+        assert!(!plan.tool_names().iter().any(|name| name == "AskQuestion"));
         runner.cancel();
         assert!(child.ctx.cancel.is_cancelled());
         let _ = fs::remove_dir_all(root);

@@ -35,11 +35,11 @@ src-tauri/
     │   ├── secret_store.rs     # legacy keyring migrate for `codex-ai-channel`; new keys live in `ai_channels.api_key`
     │   ├── protocol.rs         # openai | anthropic | codex URL/header/model JSON
     │   ├── model/              # SSE clients for Chat Completions / Messages / Responses
-    │   ├── tools/              # Read/Write/Edit/Bash/Glob/Grep/Todo/Web + local/SSH
+    │   ├── tools/              # Read/Write/Edit/Bash/Glob/Grep/Todo/Web/AskQuestion + local/SSH
     │   ├── agent/              # multi-turn loop + truncation + compact + in-session Agent subagent
     │   ├── prompt/             # identity.md + AGENTS/CLAUDE load + global template
     │   ├── manager.rs          # HashMap of live tokio sessions (not EngineChild)
-    │   ├── session.rs          # start/stop/restart/resume/send_input Tauri commands
+    │   ├── session.rs          # start/stop/restart/resume/send_input; `plan_mode` two-turn auto-execute
     │   ├── settings.rs         # native-settings.json (`max_turns`, `confirm_high_risk`, subagent policy)
     │   ├── subagents.rs        # native-subagents.json custom child-agent CRUD
     │   └── images.rs           # local image load → base64 for model requests

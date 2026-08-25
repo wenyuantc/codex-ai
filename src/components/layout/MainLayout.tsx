@@ -5,6 +5,7 @@ import { SshTrustBanner } from "./SshTrustBanner";
 import { StartupUpdateBanner } from "./StartupUpdateBanner";
 import { ImageSkipConfirmDialog } from "@/components/tasks/ImageSkipConfirmDialog";
 import { NativePermissionDialog } from "@/components/tasks/NativePermissionDialog";
+import { NativePlanQuestionDialog } from "@/components/tasks/NativePlanQuestionDialog";
 import { useEmployeeStore } from "@/stores/employeeStore";
 import { useProjectStore } from "@/stores/projectStore";
 import { useNotificationStore } from "@/stores/notificationStore";
@@ -93,6 +94,7 @@ export function MainLayout() {
       </div>
       <ImageSkipConfirmDialog />
       <NativePermissionDialog />
+      <NativePlanQuestionDialog />
     </div>
   );
 }

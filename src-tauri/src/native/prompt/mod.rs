@@ -36,6 +36,7 @@ pub struct NativePromptParts {
     pub identity_override: String,
     pub required_subagent_name: String,
     pub required_subagent_description: String,
+    pub permission_mode: String,
 }
 
 pub fn compose_system(parts: &NativePromptParts) -> String {
@@ -103,12 +104,17 @@ pub fn workspace_context_block(parts: &NativePromptParts) -> String {
 }
 
 fn environment_block(parts: &NativePromptParts) -> String {
+    let permission_mode = if parts.permission_mode.trim().is_empty() {
+        "confirm-high-risk"
+    } else {
+        parts.permission_mode.trim()
+    };
     let mut lines = vec![
         "You have been invoked in the following environment:".to_string(),
         format!("- Working directory: {}", parts.cwd),
         format!("- Platform: {}", parts.platform),
         format!("- Date: {}", chrono::Local::now().format("%Y-%m-%d")),
-        "- Permission mode: confirm-high-risk".to_string(),
+        format!("- Permission mode: {permission_mode}"),
         format!(
             "- Max concurrent sub-agents: {}",
             parts.max_concurrent_subagents.max(1)
@@ -118,6 +124,12 @@ fn environment_block(parts: &NativePromptParts) -> String {
             normalize_subagent_policy(Some(parts.subagent_policy.as_str()))
         ),
     ];
+    if permission_mode == "plan" {
+        lines.push(
+            "- Plan mode: only Read/Glob/Grep/TodoRead/TodoWrite/WebFetch/WebSearch/AskQuestion. Do not edit files. If a user decision is required, call AskQuestion; if the plan is ready, output it and stop. The system will start implementation automatically after this plan turn."
+                .to_string(),
+        );
+    }
     if !parts.model.trim().is_empty() {
         lines.push(format!(
             "- You are powered by the model named {}.",
@@ -341,6 +353,7 @@ mod tests {
             identity_override: String::new(),
             required_subagent_name: String::new(),
             required_subagent_description: String::new(),
+            permission_mode: String::new(),
         });
         assert!(text.contains("内置编程 Agent"));
         assert!(text.contains("confirm-high-risk"));
@@ -407,6 +420,17 @@ mod tests {
         assert!(bound.contains("不要用 explore 或 general 代替"));
         assert!(wrap_prompt_for_required_subagent("做任务", "code-reviewer")
             .contains("subagent_type=`code-reviewer`"));
+    }
+
+    #[test]
+    fn plan_permission_mode_is_stated_in_environment() {
+        let text = compose_system(&NativePromptParts {
+            permission_mode: "plan".to_string(),
+            ..NativePromptParts::default()
+        });
+        assert!(text.contains("Permission mode: plan"));
+        assert!(text.contains("start implementation automatically"));
+        assert!(!text.contains("Permission mode: confirm-high-risk"));
     }
 
     #[test]

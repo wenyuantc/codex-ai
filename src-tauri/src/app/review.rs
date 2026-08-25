@@ -1277,6 +1277,7 @@ pub(crate) async fn start_task_code_review_internal(
             None,
             None,
             Some("review".to_string()),
+            false,
         )
         .await?;
     } else {

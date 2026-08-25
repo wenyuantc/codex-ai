@@ -48,7 +48,9 @@ export function getLineColor(line: string): string {
     return "text-cyan-400";
   }
   if (line.startsWith("[子 Agent]")) return "text-teal-400";
-  if (line.startsWith("[计划]") || line.startsWith("[待办]")) return "text-violet-400";
+  if (line.startsWith("[计划]") || line.startsWith("[PLAN]") || line.startsWith("[待办]")) {
+    return "text-violet-400";
+  }
   if (line.startsWith("[用量]")) return "text-zinc-500";
   if (line.startsWith("[STDERR]")) return "text-orange-400";
   return "text-green-400";

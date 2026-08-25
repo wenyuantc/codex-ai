@@ -31,6 +31,15 @@
     "continue": "仍要运行",
     "cancel": "取消"
   },
+  "nativePlanQuestion": {
+    "title": "计划需要确认",
+    "description": "内置 Agent 在动手前需要你拍板。答完后它会继续完善计划并自动执行；跳过则按它的假设继续。",
+    "answerPlaceholder": "请输入回答",
+    "other": "其他",
+    "otherPlaceholder": "输入你想要的答案",
+    "submit": "继续",
+    "skip": "跳过，按假设继续"
+  },
   "nativePermission": {
     "title": "确认高风险操作",
     "summary": "{{location}} · {{kind}} · {{tool}}：{{summary}}",
@@ -504,6 +513,7 @@
     "archivedCannotComplete": "已归档任务不能标记为已完成",
     "markCompletedTitle": "将任务标记为已完成，自动移动到已完成列",
     "continueConversation": "继续对话",
+    "planRun": "计划运行",
     "coordinatorPlan": "协调员计划",
     "generatingAcceptance": "生成中…",
     "generateAcceptance": "生成验收清单",

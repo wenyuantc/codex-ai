@@ -6,6 +6,7 @@ use tokio::sync::{mpsc, oneshot};
 use tokio::task::JoinHandle;
 
 use crate::native::tools::permission::{NativePermissionDecision, NativeToolRiskKind};
+use crate::native::tools::question::{PlanQuestion, PlanQuestionAnswer};
 use crate::native::tools::CancelFlag;
 
 #[derive(Debug, Clone)]
@@ -38,6 +39,20 @@ pub struct PendingPermission {
     pub reply: oneshot::Sender<NativePermissionDecision>,
 }
 
+#[derive(Debug, Clone)]
+pub struct PlanQuestionRequest {
+    pub request_id: String,
+    pub employee_id: String,
+    pub task_id: Option<String>,
+    pub session_kind: String,
+    pub questions: Vec<PlanQuestion>,
+}
+
+pub struct PendingPlanQuestion {
+    pub request: PlanQuestionRequest,
+    pub reply: oneshot::Sender<PlanQuestionAnswer>,
+}
+
 pub struct NativeLiveSession {
     pub info: NativeSessionInfo,
     pub cancel: CancelFlag,
@@ -45,6 +60,7 @@ pub struct NativeLiveSession {
     pub join: JoinHandle<()>,
     pub allow_all_high_risk: Arc<AtomicBool>,
     pub pending_permission: VecDeque<PendingPermission>,
+    pub pending_question: VecDeque<PendingPlanQuestion>,
 }
 
 #[derive(Default)]
@@ -75,6 +91,7 @@ impl NativeAgentManager {
             while let Some(pending) = session.pending_permission.pop_front() {
                 let _ = pending.reply.send(NativePermissionDecision::Deny);
             }
+            session.pending_question.clear();
         }
     }
 
@@ -121,6 +138,48 @@ impl NativeAgentManager {
             .map_err(|_| "权限确认通道已关闭".to_string())?;
         Ok(session
             .pending_permission
+            .front()
+            .map(|item| item.request.clone()))
+    }
+
+    pub fn enqueue_question(
+        &mut self,
+        session_record_id: &str,
+        pending: PendingPlanQuestion,
+    ) -> Result<bool, String> {
+        let session = self
+            .sessions
+            .get_mut(session_record_id)
+            .ok_or_else(|| "没有运行中的内置 Agent 会话".to_string())?;
+        let should_emit = session.pending_question.is_empty();
+        session.pending_question.push_back(pending);
+        Ok(should_emit)
+    }
+
+    pub fn resolve_question(
+        &mut self,
+        session_record_id: &str,
+        request_id: &str,
+        answer: PlanQuestionAnswer,
+    ) -> Result<Option<PlanQuestionRequest>, String> {
+        let session = self
+            .sessions
+            .get_mut(session_record_id)
+            .ok_or_else(|| "没有运行中的内置 Agent 会话".to_string())?;
+        let pending = session
+            .pending_question
+            .pop_front()
+            .ok_or_else(|| "没有待回答的计划提问".to_string())?;
+        if pending.request.request_id != request_id {
+            session.pending_question.push_front(pending);
+            return Err("计划提问已过期".to_string());
+        }
+        pending
+            .reply
+            .send(answer)
+            .map_err(|_| "计划提问通道已关闭".to_string())?;
+        Ok(session
+            .pending_question
             .front()
             .map(|item| item.request.clone()))
     }
@@ -178,6 +237,7 @@ mod tests {
             join: tokio::spawn(async {}),
             allow_all_high_risk: Arc::new(AtomicBool::new(false)),
             pending_permission: VecDeque::new(),
+            pending_question: VecDeque::new(),
         });
         assert!(manager.has_employee_processes("emp-1"));
         assert!(manager
@@ -202,6 +262,7 @@ mod tests {
             join: tokio::spawn(async {}),
             allow_all_high_risk: Arc::new(AtomicBool::new(false)),
             pending_permission: VecDeque::new(),
+            pending_question: VecDeque::new(),
         }
     }
 

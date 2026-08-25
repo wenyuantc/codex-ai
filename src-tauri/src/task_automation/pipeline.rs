@@ -445,6 +445,7 @@ async fn start_employee_execution_session(
             None,
             image_paths,
             Some("execution".to_string()),
+            false,
         )
         .await
     } else {

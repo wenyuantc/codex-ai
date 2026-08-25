@@ -22,18 +22,21 @@ use crate::native::agent::r#loop::AgentRunner;
 use crate::native::channels::{fetch_channel_record, require_channel_api_key};
 use crate::native::manager::{
     NativeAgentManager, NativeFollowup, NativeLiveSession, NativeSessionInfo, PendingPermission,
-    PermissionRequest,
+    PendingPlanQuestion, PermissionRequest, PlanQuestionRequest,
 };
 use crate::native::model::{ModelClient, ModelClientConfig, RetryConfig};
 use crate::native::model_catalog::{apply_catalog_defaults, fill_from_catalog};
 use crate::native::protocol::record_to_channel;
 use crate::native::tools::permission::{NativePermissionDecision, NativeToolRiskKind};
+use crate::native::tools::question::PlanQuestionAnswer;
 use crate::native::tools::{
     connect_mcp_servers, local::LocalWorkspace, ssh::SshToolRuntime, SharedMcp,
 };
 use serde::Serialize;
 
 const ENGINE_LABEL: &str = "内置 Agent";
+const EXECUTE_AFTER_PLAN: &str =
+    "计划阶段已结束，写工具现已可用。按你刚才输出的方案立即实施，不要重新规划。";
 
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -81,6 +84,31 @@ fn permission_event(
         kind: request.kind,
         summary: request.summary.clone(),
         remote: request.remote,
+    }
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct NativePlanQuestionEvent {
+    session_record_id: String,
+    request_id: String,
+    employee_id: String,
+    task_id: Option<String>,
+    session_kind: String,
+    questions: Vec<crate::native::tools::PlanQuestion>,
+}
+
+fn question_event(
+    session_record_id: &str,
+    request: &PlanQuestionRequest,
+) -> NativePlanQuestionEvent {
+    NativePlanQuestionEvent {
+        session_record_id: session_record_id.to_string(),
+        request_id: request.request_id.clone(),
+        employee_id: request.employee_id.clone(),
+        task_id: request.task_id.clone(),
+        session_kind: request.session_kind.clone(),
+        questions: request.questions.clone(),
     }
 }
 
@@ -557,6 +585,7 @@ pub async fn run_native_read_only_one_shot(
         identity_override: String::new(),
         required_subagent_name: String::new(),
         required_subagent_description: String::new(),
+        permission_mode: String::new(),
     };
     attach_subagent_runtime(
         app,
@@ -616,6 +645,7 @@ pub async fn start_native_session(
     resume_session_id: Option<String>,
     image_paths: Option<Vec<String>>,
     session_kind: Option<String>,
+    plan_mode: Option<bool>,
 ) -> Result<crate::run_queue::StartSessionOutcome, String> {
     let mut reservation = None;
     if crate::run_queue::should_gate_task_run(
@@ -634,6 +664,7 @@ pub async fn start_native_session(
             working_dir: working_dir.clone(),
             task_git_context_id: task_git_context_id.clone(),
             image_paths: image_paths.clone(),
+            plan_mode: plan_mode.unwrap_or(false),
         };
         match crate::run_queue::gate_or_enqueue(&app, &gated_task_id, run).await? {
             crate::run_queue::GateOutcome::Queued { position } => {
@@ -657,6 +688,7 @@ pub async fn start_native_session(
         resume_session_id,
         image_paths,
         session_kind,
+        plan_mode.unwrap_or(false),
     )
     .await;
     drop(reservation);
@@ -678,6 +710,7 @@ pub async fn start_native_with_manager(
     resume_session_id: Option<String>,
     image_paths: Option<Vec<String>>,
     session_kind_arg: Option<String>,
+    plan_mode: bool,
 ) -> Result<(), String> {
     let kind = session_kind(session_kind_arg.as_deref());
     {
@@ -748,7 +781,9 @@ pub async fn start_native_with_manager(
             }
         }
     }
-    let prompt = if let Some(def) = run.bound_subagent.as_ref() {
+    let prompt = if plan_mode {
+        task_description
+    } else if let Some(def) = run.bound_subagent.as_ref() {
         crate::native::prompt::wrap_prompt_for_required_subagent(&task_description, &def.name)
     } else {
         task_description
@@ -823,6 +858,7 @@ pub async fn start_native_with_manager(
     let await_followups = task_id.is_none();
     let cancel_run = cancel.clone();
     let allow_all_run = allow_all_high_risk.clone();
+    let plan_mode_run = plan_mode;
     let (loop_ready_tx, loop_ready_rx) = tokio::sync::oneshot::channel();
     let join = tokio::spawn(async move {
         let _ = loop_ready_rx.await;
@@ -844,6 +880,7 @@ pub async fn start_native_with_manager(
             await_followups,
             image_paths,
             execution_change_baseline,
+            plan_mode_run,
         )
         .await;
     });
@@ -860,6 +897,7 @@ pub async fn start_native_with_manager(
         join,
         allow_all_high_risk,
         pending_permission: std::collections::VecDeque::new(),
+        pending_question: std::collections::VecDeque::new(),
     });
     let _ = loop_ready_tx.send(());
 
@@ -884,6 +922,17 @@ pub async fn start_native_with_manager(
             session_record.project_id.as_deref(),
         )
         .await;
+        if plan_mode {
+            let _ = insert_activity_log(
+                &pool,
+                "native_plan_mode_entered",
+                "内置 Agent 计划运行：先只读规划，本轮结束后自动执行",
+                Some(&employee_id),
+                Some(task_id),
+                session_record.project_id.as_deref(),
+            )
+            .await;
+        }
     }
 
     Ok(())
@@ -908,11 +957,16 @@ async fn run_native_loop(
     await_followups: bool,
     image_paths: Option<Vec<String>>,
     execution_change_baseline: Option<ExecutionChangeBaseline>,
+    plan_mode: bool,
 ) {
     let mut runner = AgentRunner::new(LocalWorkspace::new(PathBuf::from(&run_cwd)));
     runner.ctx.ssh = ssh;
     runner.ctx.cancel = cancel.clone();
     runner.ctx.allow_all_high_risk = allow_all_high_risk;
+    if plan_mode {
+        runner.set_read_only(true);
+        runner.set_plan_mode(true);
+    }
     let confirm_high_risk = crate::native::settings::confirm_high_risk_enabled(&app);
     if !confirm_high_risk {
         emit_native_line(
@@ -990,6 +1044,80 @@ async fn run_native_loop(
             });
         }));
     }
+    if plan_mode {
+        let app_q = app.clone();
+        let manager_q = manager_state.clone();
+        let session_q = session_record_id.clone();
+        let employee_q = employee_id.clone();
+        let task_q = task_id.clone();
+        let kind_q = kind.clone();
+        let project_q = project_id.clone();
+        runner.ctx.request_question = Some(std::sync::Arc::new(move |questions, reply| {
+            let app = app_q.clone();
+            let manager_state = manager_q.clone();
+            let session_record_id = session_q.clone();
+            let employee_id = employee_q.clone();
+            let task_id = task_q.clone();
+            let kind = kind_q.clone();
+            let project_id = project_q.clone();
+            tauri::async_runtime::spawn(async move {
+                let request_id = uuid::Uuid::new_v4().to_string();
+                let request = PlanQuestionRequest {
+                    request_id: request_id.clone(),
+                    employee_id: employee_id.clone(),
+                    task_id: task_id.clone(),
+                    session_kind: kind.clone(),
+                    questions: questions.clone(),
+                };
+                let should_emit = {
+                    let mut manager = manager_state.lock().await;
+                    match manager.enqueue_question(
+                        &session_record_id,
+                        PendingPlanQuestion {
+                            request: request.clone(),
+                            reply,
+                        },
+                    ) {
+                        Ok(should_emit) => should_emit,
+                        Err(_) => return,
+                    }
+                };
+                let summary = questions
+                    .iter()
+                    .map(|item| item.prompt.as_str())
+                    .collect::<Vec<_>>()
+                    .join("；");
+                emit_native_line(
+                    &app,
+                    &session_record_id,
+                    &employee_id,
+                    task_id.as_deref(),
+                    &kind,
+                    format!("[PLAN] 等待用户回答：{summary}"),
+                )
+                .await;
+                if let Some(task_id) = task_id.as_deref() {
+                    if let Ok(pool) = sqlite_pool(&app).await {
+                        let _ = insert_activity_log(
+                            &pool,
+                            "native_plan_question_asked",
+                            &format!("计划提问 {} 项", questions.len()),
+                            Some(&employee_id),
+                            Some(task_id),
+                            project_id.as_deref(),
+                        )
+                        .await;
+                    }
+                }
+                if should_emit {
+                    let _ = app.emit(
+                        "native-plan-question",
+                        question_event(&session_record_id, &request),
+                    );
+                }
+            });
+        }));
+    }
     runner.max_turns = crate::native::settings::effective_max_turns(&app);
     runner.max_concurrent_subagents =
         crate::native::settings::effective_max_concurrent_subagents(&app);
@@ -1018,6 +1146,11 @@ async fn run_native_loop(
         identity_override: String::new(),
         required_subagent_name: String::new(),
         required_subagent_description: String::new(),
+        permission_mode: if plan_mode {
+            "plan".to_string()
+        } else {
+            String::new()
+        },
     };
     attach_subagent_runtime(
         &app,
@@ -1026,7 +1159,9 @@ async fn run_native_loop(
         run.catalog_project_id.as_deref(),
         run.bound_subagent.as_ref(),
     );
-    apply_bound_subagent(&mut runner, &mut parts, run.bound_subagent.as_ref());
+    if !plan_mode {
+        apply_bound_subagent(&mut runner, &mut parts, run.bound_subagent.as_ref());
+    }
     let system = crate::native::prompt::compose_system(&parts);
     runner
         .messages
@@ -1063,10 +1198,28 @@ async fn run_native_loop(
             &employee_id,
             task_id.as_deref(),
             &kind,
-            format!(
-                "[子智能体] 本任务必须委派 {}（Agent.subagent_type={}）",
-                def.name, def.name
-            ),
+            if plan_mode {
+                format!(
+                    "[PLAN] 执行阶段将委派子智能体 {}（Agent.subagent_type={}）",
+                    def.name, def.name
+                )
+            } else {
+                format!(
+                    "[子智能体] 本任务必须委派 {}（Agent.subagent_type={}）",
+                    def.name, def.name
+                )
+            },
+        )
+        .await;
+    }
+    if plan_mode {
+        emit_native_line(
+            &app,
+            &session_record_id,
+            &employee_id,
+            task_id.as_deref(),
+            &kind,
+            "[PLAN] 已进入计划模式：只读摸底，本轮结束后自动开始执行".to_string(),
         )
         .await;
     }
@@ -1214,6 +1367,7 @@ async fn run_native_loop(
 
     let mut next = Some(first_prompt);
     let mut last_error: Option<String> = None;
+    let mut plan_pending = plan_mode;
     while let Some(prompt) = next.take() {
         emit_native_line(
             &app,
@@ -1255,6 +1409,47 @@ async fn run_native_loop(
                 }
                 break;
             }
+        }
+        if plan_pending {
+            if cancel.is_cancelled() {
+                break;
+            }
+            plan_pending = false;
+            runner.set_read_only(false);
+            runner.set_plan_mode(false);
+            runner.ctx.request_question = None;
+            emit_native_line(
+                &app,
+                &session_record_id,
+                &employee_id,
+                task_id.as_deref(),
+                &kind,
+                "[PLAN] 开始执行".to_string(),
+            )
+            .await;
+            if let Some(task_id) = task_id.as_deref() {
+                if let Ok(pool) = sqlite_pool(&app).await {
+                    let _ = insert_activity_log(
+                        &pool,
+                        "native_plan_mode_executed",
+                        "内置 Agent 计划完成，开始执行",
+                        Some(&employee_id),
+                        Some(task_id),
+                        project_id.as_deref(),
+                    )
+                    .await;
+                }
+            }
+            next = Some(if let Some(def) = run.bound_subagent.as_ref() {
+                runner.required_subagent_type = Some(def.name.clone());
+                crate::native::prompt::wrap_prompt_for_required_subagent(
+                    EXECUTE_AFTER_PLAN,
+                    &def.name,
+                )
+            } else {
+                EXECUTE_AFTER_PLAN.to_string()
+            });
+            continue;
         }
         if !await_followups || cancel.is_cancelled() {
             break;
@@ -1391,6 +1586,29 @@ pub async fn resolve_native_tool_permission(
         let _ = app.emit(
             "native-permission-request",
             permission_event(&session_record_id, &request),
+        );
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn answer_native_plan_question(
+    app: AppHandle,
+    state: State<'_, Arc<Mutex<NativeAgentManager>>>,
+    session_record_id: String,
+    request_id: String,
+    skipped: bool,
+    answers: Vec<String>,
+) -> Result<(), String> {
+    let next = state.lock().await.resolve_question(
+        &session_record_id,
+        &request_id,
+        PlanQuestionAnswer { skipped, answers },
+    )?;
+    if let Some(request) = next {
+        let _ = app.emit(
+            "native-plan-question",
+            question_event(&session_record_id, &request),
         );
     }
     Ok(())
@@ -1560,6 +1778,7 @@ pub async fn restart_native_session(
         None,
         image_paths,
         session_kind,
+        None,
     )
     .await
 }
@@ -1593,6 +1812,7 @@ pub async fn resume_native_session(
         Some(resume_session_id),
         None,
         session_kind,
+        None,
     )
     .await
 }

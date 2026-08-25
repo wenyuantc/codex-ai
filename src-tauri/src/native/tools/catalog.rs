@@ -15,7 +15,41 @@ pub const READ_ONLY_NATIVE_TOOL_NAMES: &[&str] = &[
 pub fn is_read_only_native_tool(name: &str) -> bool {
     matches!(
         name,
-        "Read" | "Glob" | "Grep" | "TodoRead" | "TodoWrite" | "WebFetch" | "WebSearch"
+        "Read"
+            | "Glob"
+            | "Grep"
+            | "TodoRead"
+            | "TodoWrite"
+            | "WebFetch"
+            | "WebSearch"
+            | "AskQuestion"
+    )
+}
+
+pub fn ask_question_spec() -> ToolSpec {
+    spec(
+        "AskQuestion",
+        "Ask the user blocking questions when a decision cannot be inferred from the repo. Use only during plan mode. Do not ask facts you can Read/Grep/Glob. If the plan is ready, do not call this tool — output the plan and stop.",
+        json!({
+            "type": "object",
+            "properties": {
+                "questions": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "prompt": {"type": "string"},
+                            "options": {
+                                "type": "array",
+                                "items": {"type": "string"}
+                            }
+                        },
+                        "required": ["prompt"]
+                    }
+                }
+            },
+            "required": ["questions"]
+        }),
     )
 }
 
@@ -184,6 +218,7 @@ mod tests {
         assert!(is_read_only_native_tool("Read"));
         assert!(is_read_only_native_tool("Grep"));
         assert!(is_read_only_native_tool("TodoWrite"));
+        assert!(is_read_only_native_tool("AskQuestion"));
         assert!(!is_read_only_native_tool("Write"));
         assert!(!is_read_only_native_tool("Edit"));
         assert!(!is_read_only_native_tool("Bash"));
@@ -208,5 +243,6 @@ mod tests {
         ] {
             assert!(names.contains(&expected.to_string()), "missing {expected}");
         }
+        assert!(!names.contains(&"AskQuestion".to_string()));
     }
 }

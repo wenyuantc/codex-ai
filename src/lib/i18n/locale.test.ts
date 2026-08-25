@@ -26,6 +26,12 @@ describe("i18n locale preference", () => {
     expect(getActivityActionLabel("task_native_subagent_updated")).toBe("更新任务子智能体");
     expect(getActivityActionLabel("task_file_refs_added")).toBe("添加项目文件引用");
     expect(getActivityActionLabel("task_file_ref_removed")).toBe("移除项目文件引用");
+    expect(getActivityActionLabel("native_plan_mode_entered")).toBe("内置 Agent 计划运行");
+    expect(getActivityActionLabel("native_plan_mode_executed")).toBe("内置 Agent 开始执行计划");
+    expect(getActivityActionLabel("native_plan_question_asked")).toBe("内置 Agent 计划提问");
+    expect(i18n.t("tasks:card.planRun")).toBe("计划运行");
+    expect(i18n.t("tasks:nativePlanQuestion.submit")).toBe("继续");
+    expect(i18n.t("tasks:nativePlanQuestion.other")).toBe("其他");
     expect(i18n.t("tasks:createDialog.selectProjectFiles")).toBe("选择项目文件");
     expect(i18n.t("settings:tabs.subagents")).toBe("子智能体");
     expect(i18n.t("settings:subagents.dialogs.createTitle")).toBe("新建子智能体");
@@ -69,6 +75,18 @@ describe("i18n locale preference", () => {
     expect(getActivityActionLabel("task_native_subagent_updated")).toBe("Updated task sub-agent");
     expect(getActivityActionLabel("task_file_refs_added")).toBe("Added project file references");
     expect(getActivityActionLabel("task_file_ref_removed")).toBe("Removed project file reference");
+    expect(getActivityActionLabel("native_plan_mode_entered")).toBe(
+      "Started built-in Agent plan run",
+    );
+    expect(getActivityActionLabel("native_plan_mode_executed")).toBe(
+      "Built-in Agent started executing plan",
+    );
+    expect(getActivityActionLabel("native_plan_question_asked")).toBe(
+      "Built-in Agent asked a plan question",
+    );
+    expect(i18n.t("tasks:card.planRun")).toBe("Plan and run");
+    expect(i18n.t("tasks:nativePlanQuestion.submit")).toBe("Continue");
+    expect(i18n.t("tasks:nativePlanQuestion.other")).toBe("Other");
     expect(i18n.t("tasks:createDialog.selectProjectFiles")).toBe("Select project files");
     expect(i18n.t("settings:tabs.subagents")).toBe("Sub-agents");
     expect(i18n.t("settings:subagents.dialogs.createTitle")).toBe("New sub-agent");

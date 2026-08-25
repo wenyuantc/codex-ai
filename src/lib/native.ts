@@ -42,6 +42,7 @@ interface StartNativeOptions {
   resumeSessionId?: string;
   sessionKind?: CodexSessionKind;
   imagePaths?: string[];
+  planMode?: boolean;
 }
 
 export async function startNative(
@@ -61,6 +62,7 @@ export async function startNative(
     resumeSessionId: options.resumeSessionId ?? null,
     imagePaths: options.imagePaths ?? null,
     sessionKind: options.sessionKind ?? null,
+    planMode: options.planMode === true,
   });
 }
 
@@ -150,6 +152,42 @@ export async function resolveNativeToolPermission(
     sessionRecordId,
     requestId,
     decision,
+  });
+}
+
+export interface NativePlanQuestionItem {
+  prompt: string;
+  options: string[];
+}
+
+export interface NativePlanQuestionRequest {
+  sessionRecordId: string;
+  requestId: string;
+  employeeId: string;
+  taskId: string | null;
+  sessionKind: string;
+  questions: NativePlanQuestionItem[];
+}
+
+export function onNativePlanQuestion(
+  callback: (request: NativePlanQuestionRequest) => void,
+): Promise<() => void> {
+  return listen<NativePlanQuestionRequest>("native-plan-question", (event) => {
+    callback(event.payload);
+  });
+}
+
+export async function answerNativePlanQuestion(
+  sessionRecordId: string,
+  requestId: string,
+  skipped: boolean,
+  answers: string[],
+): Promise<void> {
+  await invoke("answer_native_plan_question", {
+    sessionRecordId,
+    requestId,
+    skipped,
+    answers,
   });
 }
 

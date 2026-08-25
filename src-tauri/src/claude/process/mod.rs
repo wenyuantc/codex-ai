@@ -849,6 +849,7 @@ pub async fn start_claude(
             working_dir: working_dir.clone(),
             task_git_context_id: task_git_context_id.clone(),
             image_paths: image_paths.clone(),
+            plan_mode: false,
         };
         match crate::run_queue::gate_or_enqueue(&app, &gated_task_id, run).await? {
             crate::run_queue::GateOutcome::Queued { position } => {

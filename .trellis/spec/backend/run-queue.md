@@ -29,7 +29,7 @@ Settings: local `CodexSettings.max_concurrent_sessions: i32` (default **3**, **0
 ## 3. Contracts
 
 - Count: four CLI engine process tables + `NativeAgentManager` live HashMap + in-flight reservations (`RunQueueGate`). Drain replay must branch `native` → `start_native_with_manager` (never fall through to Codex).
-- Enqueue: unique `task_id`; payload is `QueuedTaskRun` JSON (provider, employee, prompt, model, working_dir, git context, images). Resume is always `None` on replay.
+- Enqueue: unique `task_id`; payload is `QueuedTaskRun` JSON (provider, employee, prompt, model, working_dir, git context, images, `plan_mode` default false). Resume is always `None` on replay. Native drain must pass `plan_mode` into `start_native_with_manager`.
 - Enqueue does **not** set employee busy, task `in_progress`, or timer.
 - Drain (`spawn_drain` after session exit / `spawn_resume` on app start): replay via `*_with_manager` (bypasses gate). Success → `in_progress` + busy + `start_task_timer_internal`. Failure → drop row + `task_run_dequeue_failed`.
 - Activity: `task_run_queued` / `task_run_dequeued` / `task_run_queue_cancelled` / `task_run_dequeue_failed`.

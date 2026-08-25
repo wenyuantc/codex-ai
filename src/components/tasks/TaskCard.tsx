@@ -14,7 +14,11 @@ import type {
   TaskGitContext,
   TaskPipelineStep,
 } from "@/lib/types";
-import { formatEmployeeRuntimeLabel, formatPlanUsageLogLine } from "@/lib/types";
+import {
+  formatEmployeeRuntimeLabel,
+  formatPlanUsageLogLine,
+  normalizeAiProvider,
+} from "@/lib/types";
 import {
   abortTaskPipeline,
   aiCommitTaskChanges,
@@ -68,6 +72,7 @@ import {
   GitBranch,
   GripVertical,
   Link2,
+  ListTree,
   ListX,
   Loader2,
   MessageSquarePlus,
@@ -673,6 +678,26 @@ function TaskCardComponent({
 
     onOpenLog?.(task.id, "execution");
     await executionActions.runTask();
+  };
+
+  const canPlanRun =
+    normalizeAiProvider(assignee?.ai_provider) === "native" && Boolean(task.assignee_id);
+  const planRunDisabled =
+    !canPlanRun ||
+    primaryCta.kind !== "run" ||
+    primaryCta.disabled ||
+    isActionLoading ||
+    isRunning ||
+    isReviewRunning;
+
+  const handlePlanRun = async (e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    setContextMenu(null);
+    if (planRunDisabled) {
+      return;
+    }
+    onOpenLog?.(task.id, "execution");
+    await executionActions.runTask(undefined, true);
   };
 
   const handleStop = async (e?: React.MouseEvent) => {
@@ -1635,6 +1660,23 @@ function TaskCardComponent({
                   {primaryCta.kind === "review" && !isReviewRunning
                     ? t("detail.secondary.reviewCode")
                     : primaryCta.label}
+                </button>
+              )}
+              {canPlanRun && (
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => void handlePlanRun()}
+                  disabled={planRunDisabled}
+                  title={planRunDisabled ? (primaryCta.reason ?? primaryCta.label) : undefined}
+                  className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-left hover:bg-accent hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-50"
+                >
+                  {executionActions.loading === "run" ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <ListTree className="h-4 w-4" />
+                  )}
+                  {t("card.planRun")}
                 </button>
               )}
               {canMarkCompleted && (
