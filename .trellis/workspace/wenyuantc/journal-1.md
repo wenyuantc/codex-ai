@@ -587,3 +587,41 @@ i18next zh-CN/en framework, main-path extraction, activity single-source, leftov
 ### Status
 
 [OK] **Completed**
+
+
+## Session 20: native 会话内子 Agent
+
+**Date**: 2026-08-25
+**Task**: native 会话内子 Agent
+**Branch**: `main`
+
+### Summary
+
+内置 Agent 增加会话内委派与同轮并行子 Agent；设置可调并发上限和委派策略；终端前缀带类型与短标题。
+
+### Main Changes
+
+- 新增 Agent 工具（explore 只读 / general 可写），同一轮连续调用并行，depth=1，不占 run_queue
+- 并行前置：高风险确认 FIFO 队列，MCP stdio Mutex，ModelClient Clone
+- 设置「界面与运行」：同轮子 Agent 上限 1–16、策略 conservative/balanced/aggressive；Select 触发器显示中文名称
+- 终端前缀 [子 Agent n(explore|general) - 短标题]
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `6e19672` | (see git log) |
+
+### Testing
+
+- [OK] cargo test native::；clippy -D warnings
+- [OK] npm run format:check、test:ci、build
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 本地提交尚未 git push
+- 观察积极策略下真实委派率；plan 模式 / Skills 仍未做

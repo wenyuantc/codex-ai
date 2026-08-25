@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 19
-- **Last Active**: 2026-08-24
+- **Total Sessions**: 20
+- **Last Active**: 2026-08-25
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~589 | Active |
+| `journal-1.md` | ~627 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 20 | 2026-08-25 | native 会话内子 Agent | `6e19672` | `main` |
 | 19 | 2026-08-24 | 协调员计划日志补齐工具过程 | `635ddea` | `main` |
 | 18 | 2026-08-24 | P0 引擎生态对齐 | `be6eeba` | `main` |
 | 17 | 2026-08-21 | 对话管理补齐执行/审核/编排类型 | `bc8433b` | `main` |
