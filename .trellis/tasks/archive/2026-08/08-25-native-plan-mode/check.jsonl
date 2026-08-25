@@ -1,0 +1,5 @@
+{"file": ".trellis/spec/backend/ai-engines.md", "reason": "Native plan two-turn contract vs await_followups"}
+{"file": ".trellis/spec/backend/run-queue.md", "reason": "plan_mode serde default and native drain"}
+{"file": ".trellis/spec/frontend/i18n.md", "reason": "activity:actions keys"}
+{"file": ".trellis/spec/frontend/directory-structure.md", "reason": "TaskCard menu, native.ts IPC"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "IPC start options through queue"}

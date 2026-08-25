@@ -1,0 +1,6 @@
+{"file": ".trellis/spec/backend/ai-engines.md", "reason": "Native in-process loop, send_input, SSH, activity"}
+{"file": ".trellis/spec/backend/run-queue.md", "reason": "QueuedTaskRun payload must carry plan_mode"}
+{"file": ".trellis/spec/backend/testing.md", "reason": "Colocated Rust tests"}
+{"file": ".trellis/spec/frontend/i18n.md", "reason": "activity keys zh-CN+en"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "start_* payload, activity, SSH"}
+{"file": ".trellis/spec/guides/code-reuse-thinking-guide.md", "reason": "Reuse read_only + startTaskRunSession"}
