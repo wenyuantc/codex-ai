@@ -31,6 +31,8 @@ describe("i18n locale preference", () => {
     expect(getActivityActionLabel("native_plan_question_asked")).toBe("内置 Agent 计划提问");
     expect(getActivityActionLabel("native_plan_content_saved")).toBe("保存计划运行内容");
     expect(i18n.t("tasks:card.planRun")).toBe("计划运行");
+    expect(i18n.t("tasks:detail.overview.openCoordinatorPlan")).toBe("打开协调员计划");
+    expect(i18n.t("tasks:detail.overview.viewCoordinatorPlanProgress")).toBe("查看生成进度");
     expect(i18n.t("tasks:nativePlanRunConfirm.continueExisting")).toBe("按已有计划继续");
     expect(i18n.t("tasks:nativePlanQuestion.submit")).toBe("继续");
     expect(i18n.t("tasks:nativePlanQuestion.other")).toBe("其他");
@@ -88,6 +90,10 @@ describe("i18n locale preference", () => {
     );
     expect(getActivityActionLabel("native_plan_content_saved")).toBe("Saved plan-run content");
     expect(i18n.t("tasks:card.planRun")).toBe("Plan and run");
+    expect(i18n.t("tasks:detail.overview.openCoordinatorPlan")).toBe("Open coordinator plan");
+    expect(i18n.t("tasks:detail.overview.viewCoordinatorPlanProgress")).toBe(
+      "View generation progress",
+    );
     expect(i18n.t("tasks:nativePlanRunConfirm.continueExisting")).toBe("Continue with saved plan");
     expect(i18n.t("tasks:nativePlanQuestion.submit")).toBe("Continue");
     expect(i18n.t("tasks:nativePlanQuestion.other")).toBe("Other");

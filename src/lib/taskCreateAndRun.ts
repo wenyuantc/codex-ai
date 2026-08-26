@@ -1,4 +1,5 @@
 import { aiGenerateCoordinatorTaskPlan, addTaskDependency, setTaskTags } from "@/lib/backend";
+import { runExclusiveCoordinatorPlanGenerate } from "@/lib/coordinatorPlanSession";
 import { getProjectWorkingDir } from "@/lib/projects";
 import { buildTaskExecutionInput } from "@/lib/taskPrompt";
 import { isImageSkipCancelled } from "@/lib/imageAttachmentSkip";
@@ -44,21 +45,23 @@ export async function generateAndPersistCoordinatorPlan(params: {
   coordinatorId: string;
   workingDir: string | null;
 }): Promise<string> {
-  const plan = await aiGenerateCoordinatorTaskPlan({
-    task_id: params.task.id,
-    coordinator_id: params.coordinatorId,
-    title: params.task.title,
-    description: params.task.description,
-    status: params.task.status,
-    priority: params.task.priority,
-    working_dir: params.workingDir,
+  return runExclusiveCoordinatorPlanGenerate(params.task.id, async () => {
+    const plan = await aiGenerateCoordinatorTaskPlan({
+      task_id: params.task.id,
+      coordinator_id: params.coordinatorId,
+      title: params.task.title,
+      description: params.task.description,
+      status: params.task.status,
+      priority: params.task.priority,
+      working_dir: params.workingDir,
+    });
+    const trimmedPlan = plan.markdown.trim();
+    if (!trimmedPlan) {
+      throw new Error("协调员未返回可用计划。");
+    }
+    await useTaskStore.getState().updateTask(params.task.id, { plan_content: trimmedPlan });
+    return trimmedPlan;
   });
-  const trimmedPlan = plan.markdown.trim();
-  if (!trimmedPlan) {
-    throw new Error("协调员未返回可用计划。");
-  }
-  await useTaskStore.getState().updateTask(params.task.id, { plan_content: trimmedPlan });
-  return trimmedPlan;
 }
 
 /** Create task + tags/deps only. Caller closes dialog, then continues in background. */

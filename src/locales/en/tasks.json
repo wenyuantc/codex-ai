@@ -208,6 +208,8 @@
       "planNotSavedNote": "No saved coordinator plan yet.",
       "orchestrationNote": "Use the orchestration panel for full retry / handoff-to-manual / reassign.",
       "openOrchestration": "Open orchestration panel",
+      "openCoordinatorPlan": "Open coordinator plan",
+      "viewCoordinatorPlanProgress": "View generation progress",
       "viewCoordinatorPlan": "View coordinator plan",
       "generateCoordinatorPlan": "Generate coordinator plan",
       "testerAcceptance": "Test acceptance",

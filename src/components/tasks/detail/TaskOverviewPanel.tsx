@@ -74,6 +74,7 @@ interface TaskOverviewPanelProps {
   onBlockedReasonChange: (value: string) => void;
   onBlockedReasonBlur: () => void;
   onOpenCoordinatorPlan?: () => void;
+  coordinatorPlanGenerating?: boolean;
   onGenerateTesterAcceptance?: () => void;
   onPlanEditStart: () => void;
   onPlanEditCancel: () => void;
@@ -130,6 +131,7 @@ export function TaskOverviewPanel({
   onBlockedReasonChange,
   onBlockedReasonBlur,
   onOpenCoordinatorPlan,
+  coordinatorPlanGenerating = false,
   onGenerateTesterAcceptance,
   onPlanEditStart,
   onPlanEditCancel,
@@ -289,11 +291,13 @@ export function TaskOverviewPanel({
           actions={
             <Button type="button" variant="outline" size="sm" onClick={onOpenCoordinatorPlan}>
               <Network />
-              {pipelineSteps.length > 0
-                ? t("detail.overview.openOrchestration")
-                : planContent.trim()
-                  ? t("detail.overview.viewCoordinatorPlan")
-                  : t("detail.overview.generateCoordinatorPlan")}
+              {coordinatorPlanGenerating
+                ? t("detail.overview.viewCoordinatorPlanProgress")
+                : pipelineSteps.length > 0
+                  ? t("detail.overview.openOrchestration")
+                  : planContent.trim()
+                    ? t("detail.overview.viewCoordinatorPlan")
+                    : t("detail.overview.openCoordinatorPlan")}
             </Button>
           }
         />

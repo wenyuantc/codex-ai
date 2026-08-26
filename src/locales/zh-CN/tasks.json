@@ -208,6 +208,8 @@
       "planNotSavedNote": "当前还没有保存的协调员计划。",
       "orchestrationNote": "完整重试/转人工/改执行人请在编排面板中操作。",
       "openOrchestration": "打开编排面板",
+      "openCoordinatorPlan": "打开协调员计划",
+      "viewCoordinatorPlanProgress": "查看生成进度",
       "viewCoordinatorPlan": "查看协调员计划",
       "generateCoordinatorPlan": "生成协调员计划",
       "testerAcceptance": "测试验收",

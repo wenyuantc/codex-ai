@@ -14,16 +14,10 @@ import type {
   TaskGitContext,
   TaskPipelineStep,
 } from "@/lib/types";
-import {
-  formatEmployeeRuntimeLabel,
-  formatPlanUsageLogLine,
-  normalizeAiProvider,
-} from "@/lib/types";
+import { formatEmployeeRuntimeLabel, normalizeAiProvider } from "@/lib/types";
 import {
   abortTaskPipeline,
   aiCommitTaskChanges,
-  aiGenerateCoordinatorTaskPlan,
-  withCoordinatorPlanLogStream,
   aiGenerateTesterAcceptance,
   aiResolveTaskGitConflicts,
   getTaskCommitActionState,
@@ -61,6 +55,10 @@ import { mapAutomationNote } from "@/lib/i18n/mapAutomationNote";
 import { countStageableGitFiles } from "@/lib/gitWorkingTree";
 import { buildTaskExecutionInput } from "@/lib/taskPrompt";
 import { hasSavedTaskPlan } from "@/lib/taskPlanRun";
+import {
+  generateCoordinatorPlanForTask,
+  prepareCoordinatorPlanOpen,
+} from "@/lib/coordinatorPlanSession";
 import {
   AlertTriangle,
   Archive,
@@ -107,6 +105,7 @@ import {
   getTaskBackgroundRunLabel,
   useTaskBackgroundRunStore,
 } from "@/stores/taskBackgroundRunStore";
+import { getCoordinatorPlanSession, useCoordinatorPlanStore } from "@/stores/coordinatorPlanStore";
 import {
   getTaskAiCommitLabel,
   isTaskAiCommitBusy,
@@ -213,13 +212,8 @@ function TaskCardComponent({
   const [automationRestarting, setAutomationRestarting] = useState(false);
   const [coordinatorPlanDialogOpen, setCoordinatorPlanDialogOpen] = useState(false);
   const [showPlanRunConfirm, setShowPlanRunConfirm] = useState(false);
-  const [coordinatorPlanDraft, setCoordinatorPlanDraft] = useState("");
-  const [coordinatorPlanLoading, setCoordinatorPlanLoading] = useState(false);
   const [coordinatorPlanSaving, setCoordinatorPlanSaving] = useState(false);
   const [coordinatorPlanExecuting, setCoordinatorPlanExecuting] = useState(false);
-  const [coordinatorPlanError, setCoordinatorPlanError] = useState<string | null>(null);
-  const [coordinatorPlanLogs, setCoordinatorPlanLogs] = useState<string[]>([]);
-  const [coordinatorPlanTerminalVisible, setCoordinatorPlanTerminalVisible] = useState(false);
   const [pipelineSteps, setPipelineSteps] = useState<TaskPipelineStep[]>([]);
   const [pipelineLoading, setPipelineLoading] = useState(false);
   const [pipelineActionLoading, setPipelineActionLoading] = useState(false);
@@ -273,8 +267,19 @@ function TaskCardComponent({
   const reviewerIsTester = Boolean(reviewer && reviewer.role === "tester");
   const canGenerateTesterAcceptance = reviewerIsTester || projectTesters.length > 0;
   const automationState = getTaskAutomationDisplayState(task, persistedAutomationState ?? null);
+  const coordinatorPlanEntry = useCoordinatorPlanStore((state) => state.byTaskId[task.id]);
+  const coordinatorPlanSession = getCoordinatorPlanSession(coordinatorPlanEntry);
+  const coordinatorPlanDraft = coordinatorPlanSession.draft;
+  const coordinatorPlanLoading = coordinatorPlanSession.loading;
+  const coordinatorPlanError = coordinatorPlanSession.error;
+  const coordinatorPlanLogs = coordinatorPlanSession.logs;
+  const coordinatorPlanTerminalVisible = coordinatorPlanSession.terminalVisible;
+  const patchCoordinatorPlan = useCoordinatorPlanStore((state) => state.patch);
   const appendCoordinatorPlanLog = (line: string) => {
-    setCoordinatorPlanLogs((current) => [...current.slice(-199), line]);
+    useCoordinatorPlanStore.getState().appendLog(task.id, line);
+  };
+  const setCoordinatorPlanError = (message: string | null) => {
+    patchCoordinatorPlan(task.id, { error: message });
   };
 
   const getCoordinatorPlanRuntimeLabel = () => formatEmployeeRuntimeLabel(coordinator);
@@ -325,10 +330,14 @@ function TaskCardComponent({
     status: task.status,
   });
   const backgroundRun = useTaskBackgroundRunStore((state) => state.byTaskId[task.id]);
-  const backgroundRunLabel = getTaskBackgroundRunLabel(backgroundRun);
-  const isBackgroundPlanning = backgroundRun?.phase === "planning";
+  const isCoordinatorPlanning = coordinatorPlanLoading;
+  const isBackgroundPlanning = backgroundRun?.phase === "planning" || isCoordinatorPlanning;
   const isBackgroundStarting = backgroundRun?.phase === "starting";
   const isBackgroundRunBusy = isBackgroundPlanning || isBackgroundStarting;
+  const backgroundRunLabel =
+    isCoordinatorPlanning && backgroundRun?.phase !== "starting" && backgroundRun?.phase !== "error"
+      ? "协调员生成计划中"
+      : getTaskBackgroundRunLabel(backgroundRun);
   const aiCommitEntry = useTaskAiCommitStore((state) => state.byTaskId[task.id]);
   const setAiCommitPhase = useTaskAiCommitStore((state) => state.setPhase);
   const clearAiCommitPhase = useTaskAiCommitStore((state) => state.clear);
@@ -676,7 +685,7 @@ function TaskCardComponent({
       return;
     }
     if (task.coordinator_id) {
-      await openCoordinatorPlanFlow();
+      await openCoordinatorPlanFlow({ autoGenerate: true });
       return;
     }
 
@@ -941,53 +950,19 @@ function TaskCardComponent({
   };
 
   const generateCoordinatorPlan = async () => {
-    setCoordinatorPlanTerminalVisible(true);
-    const coordinatorId = task.coordinator_id;
-    if (!coordinatorId) {
-      appendCoordinatorPlanLog("[ERROR] 当前任务未指定协调员，无法生成计划。");
-      setCoordinatorPlanError("请先指定协调员。");
-      return;
-    }
-
-    setCoordinatorPlanLoading(true);
-    setCoordinatorPlanError(null);
-    appendCoordinatorPlanLog(`[计划] 准备调用协调员：${coordinator?.name ?? coordinatorId}`);
-    appendCoordinatorPlanLog(`[计划] 运行配置：${getCoordinatorPlanRuntimeLabel()}`);
-    appendCoordinatorPlanLog(`[计划] 工作目录：${projectRepoPath ?? "未配置"}`);
-    appendCoordinatorPlanLog("[计划] 正在生成协调员执行计划，可能需要一点时间...");
-    try {
-      const plan = await withCoordinatorPlanLogStream(appendCoordinatorPlanLog, (requestId) =>
-        aiGenerateCoordinatorTaskPlan({
-          task_id: task.id,
-          coordinator_id: coordinatorId,
-          title: task.title,
-          description: task.description,
-          status: task.status,
-          priority: task.priority,
-          working_dir: projectRepoPath ?? null,
-          request_id: requestId,
-        }),
-      );
-      const trimmedPlan = plan.markdown.trim();
-      if (!trimmedPlan) {
-        appendCoordinatorPlanLog("[WARN] 协调员返回了空计划。");
-        setCoordinatorPlanError("协调员未返回可用计划。");
-        return;
-      }
-      setCoordinatorPlanDraft(trimmedPlan);
-      const usageLog = formatPlanUsageLogLine(plan.usage_line);
-      if (usageLog) {
-        appendCoordinatorPlanLog(usageLog);
-      }
-      appendCoordinatorPlanLog(`[计划] 已收到协调员计划，共 ${trimmedPlan.length} 字。`);
-      appendCoordinatorPlanLog("[计划] 结构化工作包已落库，可在本弹窗「按计划编排」。");
+    const plan = await generateCoordinatorPlanForTask({
+      taskId: task.id,
+      coordinatorId: task.coordinator_id,
+      coordinatorName: coordinator?.name,
+      runtimeLabel: getCoordinatorPlanRuntimeLabel(),
+      title: task.title,
+      description: task.description,
+      status: task.status,
+      priority: task.priority,
+      workingDir: projectRepoPath ?? null,
+    });
+    if (plan) {
       await refreshPipelineSteps();
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      appendCoordinatorPlanLog(`[ERROR] ${message}`);
-      setCoordinatorPlanError(message);
-    } finally {
-      setCoordinatorPlanLoading(false);
     }
   };
 
@@ -995,7 +970,7 @@ function TaskCardComponent({
     setPipelineActionLoading(true);
     setPipelineError(null);
     setPipelineNotice(null);
-    setCoordinatorPlanTerminalVisible(true);
+    patchCoordinatorPlan(task.id, { terminalVisible: true });
     appendCoordinatorPlanLog("[编排] 准备按计划编排...");
     try {
       let steps = pipelineSteps;
@@ -1118,19 +1093,17 @@ function TaskCardComponent({
     }
   };
 
-  const openCoordinatorPlanFlow = async () => {
-    const existingPlan = task.plan_content?.trim() ?? "";
-    setCoordinatorPlanError(null);
+  const openCoordinatorPlanFlow = async (options?: { autoGenerate?: boolean }) => {
     setPipelineError(null);
     setPipelineNotice(null);
-    setCoordinatorPlanDraft(existingPlan);
-    setCoordinatorPlanLogs(
-      existingPlan ? [`[计划] 已加载任务中保存的协调员计划，共 ${existingPlan.length} 字。`] : [],
+    const { shouldGenerate } = prepareCoordinatorPlanOpen(
+      task.id,
+      task.plan_content ?? "",
+      Boolean(options?.autoGenerate),
     );
-    setCoordinatorPlanTerminalVisible(!existingPlan);
     setCoordinatorPlanDialogOpen(true);
     await refreshPipelineSteps();
-    if (!existingPlan) {
+    if (shouldGenerate) {
       await generateCoordinatorPlan();
     }
   };
@@ -1166,7 +1139,7 @@ function TaskCardComponent({
 
     setCoordinatorPlanSaving(true);
     setCoordinatorPlanError(null);
-    setCoordinatorPlanTerminalVisible(true);
+    patchCoordinatorPlan(task.id, { terminalVisible: true });
     appendCoordinatorPlanLog(`[计划] 正在保存协调员计划，共 ${plan.length} 字。`);
     try {
       await updateTask(task.id, { plan_content: plan });
@@ -1187,7 +1160,7 @@ function TaskCardComponent({
       return;
     }
     if (!task.assignee_id) {
-      setCoordinatorPlanTerminalVisible(true);
+      patchCoordinatorPlan(task.id, { terminalVisible: true });
       appendCoordinatorPlanLog("[ERROR] 当前任务未指定执行员工，无法执行计划。");
       setCoordinatorPlanError("请先指定执行员工，再执行计划。");
       return;
@@ -1196,7 +1169,7 @@ function TaskCardComponent({
     setCoordinatorPlanExecuting(true);
     setCoordinatorPlanError(null);
     executionStartErrorRef.current = null;
-    setCoordinatorPlanTerminalVisible(true);
+    patchCoordinatorPlan(task.id, { terminalVisible: true });
     appendCoordinatorPlanLog(
       `[执行] 正在把计划交给执行员工：${assignee?.name ?? task.assignee_id}`,
     );
@@ -1419,26 +1392,28 @@ function TaskCardComponent({
                   {gitContextBadge.label}
                 </span>
               )}
-              {backgroundRunLabel && (
+              {backgroundRunLabel && backgroundRun?.phase === "error" && (
                 <span
-                  className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] ${
-                    backgroundRun?.phase === "error"
-                      ? "bg-destructive/10 text-destructive"
-                      : "bg-violet-500/10 text-violet-700 dark:text-violet-200"
-                  }`}
-                  title={
-                    backgroundRun?.phase === "error"
-                      ? (backgroundRun.error ?? backgroundRunLabel)
-                      : backgroundRunLabel
-                  }
+                  className="inline-flex items-center gap-1 rounded-full bg-destructive/10 px-2 py-0.5 text-[11px] text-destructive"
+                  title={backgroundRun.error ?? backgroundRunLabel}
                 >
-                  {backgroundRun?.phase === "error" ? (
-                    <Network className="h-3 w-3" />
-                  ) : (
-                    <Loader2 className="h-3 w-3 animate-spin" />
-                  )}
+                  <Network className="h-3 w-3" />
                   {backgroundRunLabel}
                 </span>
+              )}
+              {backgroundRunLabel && backgroundRun?.phase !== "error" && (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    void openCoordinatorPlanFlow();
+                  }}
+                  className="inline-flex items-center gap-1 rounded-full bg-violet-500/10 px-2 py-0.5 text-[11px] text-violet-700 hover:bg-violet-500/15 dark:text-violet-200"
+                  title={backgroundRunLabel}
+                >
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                  {backgroundRunLabel}
+                </button>
               )}
               {aiCommitLabel && (
                 <span
@@ -1996,7 +1971,7 @@ function TaskCardComponent({
           employees={employees}
           projectId={task.project_id}
           onOpenChange={setCoordinatorPlanDialogOpen}
-          onPlanChange={setCoordinatorPlanDraft}
+          onPlanChange={(value) => patchCoordinatorPlan(task.id, { draft: value })}
           onExecute={() => void handleExecuteCoordinatorPlan()}
           onStartPipeline={() => void handleStartPipeline()}
           onRetryPipeline={() => void handleRetryPipeline()}
@@ -2010,8 +1985,12 @@ function TaskCardComponent({
           }
           onRegenerate={() => void generateCoordinatorPlan()}
           onSave={() => void handleSaveCoordinatorPlan()}
-          onToggleTerminal={() => setCoordinatorPlanTerminalVisible((visible) => !visible)}
-          onClearTerminal={() => setCoordinatorPlanLogs([])}
+          onToggleTerminal={() =>
+            patchCoordinatorPlan(task.id, {
+              terminalVisible: !coordinatorPlanTerminalVisible,
+            })
+          }
+          onClearTerminal={() => useCoordinatorPlanStore.getState().clearLogs(task.id)}
         />
       )}
       {!isOverlay && showDeleteDialog && (
