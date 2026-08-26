@@ -37,6 +37,7 @@ describe("getActivityActionLabel", () => {
     expect(getActivityActionLabel("native_plan_mode_entered")).toBe("内置 Agent 计划运行");
     expect(getActivityActionLabel("native_plan_mode_executed")).toBe("内置 Agent 开始执行计划");
     expect(getActivityActionLabel("native_plan_question_asked")).toBe("内置 Agent 计划提问");
+    expect(getActivityActionLabel("native_plan_content_saved")).toBe("保存计划运行内容");
   });
 
   it("falls back to the raw key for unmapped actions", () => {

@@ -31,6 +31,14 @@
     "continue": "仍要运行",
     "cancel": "取消"
   },
+  "nativePlanRunConfirm": {
+    "title": "已有计划内容",
+    "description": "任务「{{title}}」已保存计划。是否按这份计划继续运行？选「重新生成」会覆盖原计划。",
+    "cancel": "取消",
+    "regenerate": "重新生成",
+    "continueExisting": "按已有计划继续",
+    "starting": "启动中..."
+  },
   "nativePlanQuestion": {
     "title": "计划需要确认",
     "description": "内置 Agent 在动手前需要你拍板。答完后它会继续完善计划并自动执行；跳过则按它的假设继续。",

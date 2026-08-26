@@ -10,7 +10,11 @@ import type {
   TaskLatestReview,
   TaskPipelineStep,
 } from "@/lib/types";
-import { formatEmployeeRuntimeLabel, formatPlanUsageLogLine } from "@/lib/types";
+import {
+  formatEmployeeRuntimeLabel,
+  formatPlanUsageLogLine,
+  normalizeAiProvider,
+} from "@/lib/types";
 import {
   abortTaskPipeline,
   aiGenerateCoordinatorTaskPlan,
@@ -54,6 +58,7 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { buildTaskExecutionInput } from "@/lib/taskPrompt";
+import { hasSavedTaskPlan } from "@/lib/taskPlanRun";
 import { dedupePaths, isTauriRuntime, normalizeDialogSelection } from "@/lib/taskAttachments";
 import { onTaskAutomationStateChanged } from "@/lib/codex";
 import { startTaskRunSession } from "@/lib/taskRunSession";
@@ -73,6 +78,7 @@ import { DeleteTaskDialog } from "./DeleteTaskDialog";
 import { InsertPlanConfirmDialog } from "./InsertPlanConfirmDialog";
 import { ReviewFixConfirmDialog } from "./ReviewFixConfirmDialog";
 import { CoordinatorPlanDialog } from "./CoordinatorPlanDialog";
+import { NativePlanRunConfirmDialog } from "./NativePlanRunConfirmDialog";
 import { TaskGitCommitDialog } from "./TaskGitCommitDialog";
 import { TaskPrimaryActionBar } from "./TaskPrimaryActionBar";
 import { useTaskExecutionActions } from "./hooks/useTaskExecutionActions";
@@ -162,6 +168,7 @@ export function TaskDetailDialog({
   const [planContentDraft, setPlanContentDraft] = useState(task.plan_content ?? "");
   const [planContentEditing, setPlanContentEditing] = useState(false);
   const [planContentSaving, setPlanContentSaving] = useState(false);
+  const [showPlanRunConfirm, setShowPlanRunConfirm] = useState(false);
   const [pipelineSteps, setPipelineSteps] = useState<TaskPipelineStep[]>([]);
   const [pipelineLoading, setPipelineLoading] = useState(false);
   const [pipelineActionLoading, setPipelineActionLoading] = useState(false);
@@ -1553,7 +1560,42 @@ export function TaskDetailDialog({
     }
   };
 
+  const canPlanRun = normalizeAiProvider(assignee?.ai_provider) === "native" && Boolean(assigneeId);
+  const planRunDisabled =
+    !canPlanRun ||
+    primaryCta.kind !== "run" ||
+    primaryCta.disabled ||
+    primaryActionLoading ||
+    isRunning ||
+    isReviewRunning;
+
+  const startPlanRun = async (planMode: boolean, existingPlan?: string) => {
+    setDetailTab("execution");
+    await executionActions.runTask(existingPlan, planMode);
+  };
+
+  const handlePlanRun = async () => {
+    if (planRunDisabled) {
+      return;
+    }
+    if (hasSavedTaskPlan(planContent) || hasSavedTaskPlan(task.plan_content)) {
+      setShowPlanRunConfirm(true);
+      return;
+    }
+    await startPlanRun(true);
+  };
+
   const primarySecondaryActions = [
+    canPlanRun
+      ? {
+          key: "planRun",
+          label: t("card.planRun"),
+          disabled: planRunDisabled,
+          onSelect: () => {
+            void handlePlanRun();
+          },
+        }
+      : null,
     canCommitTaskCode && primaryCta.kind !== "commit"
       ? {
           key: "commit",
@@ -2049,6 +2091,21 @@ export function TaskDetailDialog({
           if (!nextOpen) {
             setPipelineStepLogTarget(null);
           }
+        }}
+      />
+      <NativePlanRunConfirmDialog
+        open={showPlanRunConfirm}
+        taskTitle={title.trim() || task.title}
+        starting={executionActions.loading === "run"}
+        onOpenChange={setShowPlanRunConfirm}
+        onContinueExisting={async () => {
+          setShowPlanRunConfirm(false);
+          const existingPlan = (planContent || task.plan_content || "").trim() || undefined;
+          await startPlanRun(false, existingPlan);
+        }}
+        onRegenerate={async () => {
+          setShowPlanRunConfirm(false);
+          await startPlanRun(true);
         }}
       />
       {reviewFixDialogOpen && assignee && (

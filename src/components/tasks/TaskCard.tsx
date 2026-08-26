@@ -60,6 +60,7 @@ import { resolveTaskPrimaryCta } from "@/lib/taskPrimaryCta";
 import { mapAutomationNote } from "@/lib/i18n/mapAutomationNote";
 import { countStageableGitFiles } from "@/lib/gitWorkingTree";
 import { buildTaskExecutionInput } from "@/lib/taskPrompt";
+import { hasSavedTaskPlan } from "@/lib/taskPlanRun";
 import {
   AlertTriangle,
   Archive,
@@ -90,6 +91,7 @@ import { SaveTaskAsTemplateDialog } from "./SaveTaskAsTemplateDialog";
 import { DeleteTaskWorktreeDialog } from "./DeleteTaskWorktreeDialog";
 import { TaskGitCommitDialog } from "./TaskGitCommitDialog";
 import { CoordinatorPlanDialog } from "./CoordinatorPlanDialog";
+import { NativePlanRunConfirmDialog } from "./NativePlanRunConfirmDialog";
 import { TaskElapsedSummary } from "./TaskElapsedSummary";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { ProjectGitActionDialog } from "@/components/projects/ProjectGitActionDialog";
@@ -210,6 +212,7 @@ function TaskCardComponent({
   const [automationSubmitting, setAutomationSubmitting] = useState(false);
   const [automationRestarting, setAutomationRestarting] = useState(false);
   const [coordinatorPlanDialogOpen, setCoordinatorPlanDialogOpen] = useState(false);
+  const [showPlanRunConfirm, setShowPlanRunConfirm] = useState(false);
   const [coordinatorPlanDraft, setCoordinatorPlanDraft] = useState("");
   const [coordinatorPlanLoading, setCoordinatorPlanLoading] = useState(false);
   const [coordinatorPlanSaving, setCoordinatorPlanSaving] = useState(false);
@@ -691,14 +694,22 @@ function TaskCardComponent({
     isRunning ||
     isReviewRunning;
 
+  const startPlanRun = async (planMode: boolean, existingPlan?: string) => {
+    onOpenLog?.(task.id, "execution");
+    await executionActions.runTask(existingPlan, planMode);
+  };
+
   const handlePlanRun = async (e?: React.MouseEvent) => {
     e?.stopPropagation();
     setContextMenu(null);
     if (planRunDisabled) {
       return;
     }
-    onOpenLog?.(task.id, "execution");
-    await executionActions.runTask(undefined, true);
+    if (hasSavedTaskPlan(task.plan_content)) {
+      setShowPlanRunConfirm(true);
+      return;
+    }
+    await startPlanRun(true);
   };
 
   const handleStop = async (e?: React.MouseEvent) => {
@@ -1939,6 +1950,22 @@ function TaskCardComponent({
           submitting={executionActions.loading === "continue"}
           onOpenChange={setShowContinueDialog}
           onConfirm={handleContinueConversation}
+        />
+      )}
+      {!isOverlay && (
+        <NativePlanRunConfirmDialog
+          open={showPlanRunConfirm}
+          taskTitle={task.title}
+          starting={executionActions.loading === "run"}
+          onOpenChange={setShowPlanRunConfirm}
+          onContinueExisting={async () => {
+            setShowPlanRunConfirm(false);
+            await startPlanRun(false, task.plan_content?.trim() || undefined);
+          }}
+          onRegenerate={async () => {
+            setShowPlanRunConfirm(false);
+            await startPlanRun(true);
+          }}
         />
       )}
       {!isOverlay && (

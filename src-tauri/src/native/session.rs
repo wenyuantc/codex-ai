@@ -38,6 +38,23 @@ const ENGINE_LABEL: &str = "内置 Agent";
 const EXECUTE_AFTER_PLAN: &str =
     "计划阶段已结束，写工具现已可用。按你刚才输出的方案立即实施，不要重新规划。";
 
+fn usable_native_plan_text(text: &str) -> Option<&str> {
+    let trimmed = text.trim();
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed)
+    }
+}
+
+fn format_native_plan_saved_details(task_title: &str, plan_content: &str) -> String {
+    format!(
+        "{}（计划长度：{} 字）",
+        task_title,
+        plan_content.chars().count()
+    )
+}
+
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct NativePermissionRequestEvent {
@@ -1379,7 +1396,7 @@ async fn run_native_loop(
         )
         .await;
         let images = std::mem::take(&mut pending_images);
-        match runner
+        let plan_text = match runner
             .run_with_client(
                 &run.client,
                 &prompt,
@@ -1391,7 +1408,7 @@ async fn run_native_loop(
             )
             .await
         {
-            Ok(_) => {}
+            Ok(text) => text,
             Err(error) => {
                 last_error = Some(error.clone());
                 if let Some(tx) = &runner.on_event {
@@ -1409,8 +1426,18 @@ async fn run_native_loop(
                 }
                 break;
             }
-        }
+        };
         if plan_pending {
+            persist_native_plan_content(
+                &app,
+                task_id.as_deref(),
+                &employee_id,
+                project_id.as_deref(),
+                &session_record_id,
+                &kind,
+                &plan_text,
+            )
+            .await;
             if cancel.is_cancelled() {
                 break;
             }
@@ -1515,6 +1542,89 @@ async fn run_native_loop(
         .remove_session(&session_record_id);
     crate::task_automation::handle_session_exit_blocking(app.clone(), session_record_id).await;
     crate::run_queue::spawn_drain(app);
+}
+
+async fn persist_native_plan_content(
+    app: &AppHandle,
+    task_id: Option<&str>,
+    employee_id: &str,
+    project_id: Option<&str>,
+    session_record_id: &str,
+    kind: &str,
+    plan_text: &str,
+) {
+    let Some(task_id) = task_id else {
+        return;
+    };
+    let Some(plan_content) = usable_native_plan_text(plan_text) else {
+        return;
+    };
+    let Ok(pool) = sqlite_pool(app).await else {
+        emit_native_line(
+            app,
+            session_record_id,
+            employee_id,
+            Some(task_id),
+            kind,
+            "[PLAN] 保存计划失败：无法打开数据库".to_string(),
+        )
+        .await;
+        return;
+    };
+    let Ok(task) = fetch_task_by_id(&pool, task_id).await else {
+        emit_native_line(
+            app,
+            session_record_id,
+            employee_id,
+            Some(task_id),
+            kind,
+            "[PLAN] 保存计划失败：任务不存在".to_string(),
+        )
+        .await;
+        return;
+    };
+    let updated_at = now_sqlite();
+    if let Err(error) = sqlx::query(
+        "UPDATE tasks SET plan_content = $1, updated_at = $2 WHERE id = $3 AND deleted_at IS NULL",
+    )
+    .bind(plan_content)
+    .bind(&updated_at)
+    .bind(task_id)
+    .execute(&pool)
+    .await
+    {
+        emit_native_line(
+            app,
+            session_record_id,
+            employee_id,
+            Some(task_id),
+            kind,
+            format!("[PLAN] 保存计划失败：{error}"),
+        )
+        .await;
+        return;
+    }
+    let _ = insert_activity_log(
+        &pool,
+        "native_plan_content_saved",
+        &format_native_plan_saved_details(&task.title, plan_content),
+        Some(employee_id),
+        Some(task_id),
+        project_id.or(Some(task.project_id.as_str())),
+    )
+    .await;
+    emit_native_line(
+        app,
+        session_record_id,
+        employee_id,
+        Some(task_id),
+        kind,
+        format!(
+            "[PLAN] 计划已保存到任务详情（{} 字）",
+            plan_content.chars().count()
+        ),
+    )
+    .await;
 }
 
 pub async fn list_live_native_employee_processes(
@@ -1861,6 +1971,21 @@ mod tests {
         let error = super::native_one_shot_text(&message).unwrap_err();
         assert!(error.contains("思考内容"));
         assert!(error.contains("没有正文"));
+    }
+
+    #[test]
+    fn usable_native_plan_text_requires_non_empty_body() {
+        assert_eq!(super::usable_native_plan_text("  目标与范围  "), Some("目标与范围"));
+        assert_eq!(super::usable_native_plan_text("   \n\t"), None);
+        assert_eq!(super::usable_native_plan_text(""), None);
+    }
+
+    #[test]
+    fn format_native_plan_saved_details_counts_chars() {
+        assert_eq!(
+            super::format_native_plan_saved_details("修复登录", "计划内容"),
+            "修复登录（计划长度：4 字）"
+        );
     }
 
     #[test]

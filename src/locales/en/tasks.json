@@ -31,6 +31,14 @@
     "continue": "Run anyway",
     "cancel": "Cancel"
   },
+  "nativePlanRunConfirm": {
+    "title": "A plan is already saved",
+    "description": "Task “{{title}}” already has a saved plan. Continue with it, or regenerate and overwrite the current plan?",
+    "cancel": "Cancel",
+    "regenerate": "Regenerate",
+    "continueExisting": "Continue with saved plan",
+    "starting": "Starting..."
+  },
   "nativePlanQuestion": {
     "title": "Plan needs a decision",
     "description": "The built-in Agent needs your call before it implements. After you answer it will finish the plan and run; skip to let it assume.",
