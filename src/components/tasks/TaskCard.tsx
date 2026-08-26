@@ -353,7 +353,7 @@ function TaskCardComponent({
   const hasActiveSession = isRunning || isReviewRunning;
   const isActionLoading =
     executionActions.loading !== null ||
-    reviewActions.loading ||
+    reviewActions.loading !== null ||
     automationSubmitting ||
     automationRestarting ||
     openingCommitDialog ||
@@ -421,6 +421,7 @@ function TaskCardComponent({
     executionActive: isRunning,
     reviewActive: isReviewRunning,
     canStopProcess: executionActions.isRunning || pipelineRunning,
+    canStopReview: reviewActions.isRunning,
     backgroundPlanning: isBackgroundPlanning,
     backgroundStarting: isBackgroundStarting,
     hasAssignee: Boolean(task.assignee_id),
@@ -720,7 +721,13 @@ function TaskCardComponent({
       }
       return;
     }
-    await executionActions.stopTask();
+    if (executionActions.isRunning) {
+      await executionActions.stopTask();
+      return;
+    }
+    if (reviewActions.isRunning) {
+      await reviewActions.stopReview();
+    }
   };
 
   const handleDelete = async () => {
@@ -790,7 +797,7 @@ function TaskCardComponent({
   const primaryCtaButtonClass = taskCardPrimaryCtaButtonClass(primaryCta.tone);
   const primaryCtaIcon = renderTaskCardPrimaryCtaIcon({
     primaryCta,
-    stopLoading: executionActions.loading === "stop",
+    stopLoading: executionActions.loading === "stop" || reviewActions.loading === "stop",
     reviewLoading: Boolean(reviewActions.loading),
     reviewRunning: isReviewRunning,
     commitLoading: openingCommitDialog,

@@ -36,6 +36,8 @@ export interface ResolveTaskPrimaryCtaInput {
   reviewActive: boolean;
   /** Local process is actually running and can be stopped by the user. */
   canStopProcess: boolean;
+  /** Reviewer has a live review session for this task that can be stopped. */
+  canStopReview?: boolean;
   backgroundPlanning?: boolean;
   backgroundStarting?: boolean;
   hasAssignee: boolean;
@@ -108,6 +110,7 @@ export function resolveTaskPrimaryCta(input: ResolveTaskPrimaryCtaInput): TaskPr
     executionActive,
     reviewActive,
     canStopProcess,
+    canStopReview = false,
     backgroundPlanning = false,
     backgroundStarting = false,
     hasAssignee,
@@ -132,6 +135,17 @@ export function resolveTaskPrimaryCta(input: ResolveTaskPrimaryCtaInput): TaskPr
       label: ct("stop.label"),
       disabled: false,
       reason: pipelineActive ? ct("stop.reasonPipeline") : ct("stop.reasonSession"),
+      tone: "danger",
+    };
+  }
+
+  // 1b. Live review session can be stopped from the same primary CTA.
+  if (canStopReview) {
+    return {
+      kind: "stop",
+      label: ct("stop.label"),
+      disabled: false,
+      reason: ct("stop.reasonReview"),
       tone: "danger",
     };
   }

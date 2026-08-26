@@ -25,6 +25,56 @@ describe("resolveTaskPrimaryCta", () => {
     expect(cta.disabled).toBe(false);
   });
 
+  it("shows stop when a live review session can be stopped", () => {
+    const cta = resolveTaskPrimaryCta({
+      ...base,
+      status: "review",
+      reviewActive: true,
+      hasReviewer: true,
+      canStopReview: true,
+    });
+    expect(cta.kind).toBe("stop");
+    expect(cta.label).toBe("停止");
+    expect(cta.disabled).toBe(false);
+    expect(cta.reason).toBe("停止当前审核会话");
+  });
+
+  it("prefers stopping execution over stopping review", () => {
+    const cta = resolveTaskPrimaryCta({
+      ...base,
+      status: "review",
+      reviewActive: true,
+      canStopProcess: true,
+      canStopReview: true,
+    });
+    expect(cta.kind).toBe("stop");
+    expect(cta.reason).toBe("停止当前运行会话");
+  });
+
+  it("locks with 审核中 when review is active but not stoppable", () => {
+    const cta = resolveTaskPrimaryCta({
+      ...base,
+      status: "review",
+      reviewActive: true,
+      hasReviewer: true,
+    });
+    expect(cta.kind).toBe("review");
+    expect(cta.label).toBe("审核中");
+    expect(cta.disabled).toBe(true);
+  });
+
+  it("prefers stopping review over queued", () => {
+    const cta = resolveTaskPrimaryCta({
+      ...base,
+      status: "review",
+      reviewActive: true,
+      canStopReview: true,
+      queued: true,
+    });
+    expect(cta.kind).toBe("stop");
+    expect(cta.disabled).toBe(false);
+  });
+
   it("locks with 运行中 when this task execution is active but not stoppable", () => {
     const cta = resolveTaskPrimaryCta({
       ...base,

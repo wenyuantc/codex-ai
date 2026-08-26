@@ -399,7 +399,9 @@
       "description": "Start a reviewer session and inspect code diffs from the Codex file-change records below.",
       "start": "Review code",
       "inProgress": "Reviewing",
+      "stop": "Stop review",
       "titleInProgress": "Review in progress",
+      "titleStop": "Stop the current review session",
       "titleWrongStatus": "Code review is only available for tasks in “Review” status",
       "titleNoReviewer": "Assign a reviewer first",
       "titleStart": "Start code review",
@@ -598,7 +600,8 @@
     "stop": {
       "label": "Stop",
       "reasonPipeline": "Stop the current orchestration step and hand off to manual",
-      "reasonSession": "Stop the current running session"
+      "reasonSession": "Stop the current running session",
+      "reasonReview": "Stop the current review session"
     },
     "starting": {
       "planningLabel": "Generating plan",

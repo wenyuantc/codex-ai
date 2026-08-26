@@ -322,6 +322,11 @@ export function TaskDetailDialog({
     onError: (message) => {
       setReviewError(message);
     },
+    onStopped: () => {
+      setReviewError(null);
+      setReviewNotice(null);
+      void loadLatestReview();
+    },
   });
   const backgroundRun = useTaskBackgroundRunStore((state) => state.byTaskId[task.id]);
   const isBackgroundPlanning = backgroundRun?.phase === "planning";
@@ -374,6 +379,7 @@ export function TaskDetailDialog({
     executionActive: isRunning,
     reviewActive: isReviewRunning,
     canStopProcess: executionActions.isRunning || pipelineRunning,
+    canStopReview: reviewActions.isRunning,
     backgroundPlanning: isBackgroundPlanning,
     backgroundStarting: isBackgroundStarting,
     hasAssignee: Boolean(assigneeId),
@@ -394,7 +400,7 @@ export function TaskDetailDialog({
   });
   const primaryActionLoading =
     executionActions.loading !== null ||
-    reviewActions.loading ||
+    reviewActions.loading !== null ||
     testerAcceptanceLoading ||
     openingCommitDialog ||
     isBackgroundRunBusy ||
@@ -411,7 +417,7 @@ export function TaskDetailDialog({
   const output = executionActions.output;
   const reviewOutput = reviewActions.output;
   const codexLoading = executionActions.loading !== null;
-  const reviewLoading = reviewActions.loading;
+  const reviewLoading = reviewActions.loading !== null;
 
   useEffect(() => {
     if (open) {
@@ -1243,7 +1249,13 @@ export function TaskDetailDialog({
       }
       return;
     }
-    await executionActions.stopTask();
+    if (executionActions.isRunning) {
+      await executionActions.stopTask();
+      return;
+    }
+    if (reviewActions.isRunning) {
+      await reviewActions.stopReview();
+    }
   };
 
   const openCommitDialog = async () => {
@@ -1280,7 +1292,9 @@ export function TaskDetailDialog({
 
     switch (primaryCta.kind) {
       case "stop":
-        setDetailTab("execution");
+        setDetailTab(
+          reviewActions.isRunning && !executionActions.isRunning ? "review" : "execution",
+        );
         await handleStopCodex();
         return;
       case "run":
@@ -1747,6 +1761,7 @@ export function TaskDetailDialog({
                     reviewerId={reviewerId}
                     reviewerName={reviewer?.name}
                     isReviewActive={isReviewRunning}
+                    canStopReview={reviewActions.isRunning}
                     reviewLoading={reviewLoading}
                     reviewError={reviewError}
                     reviewNotice={reviewNotice}
@@ -1756,6 +1771,7 @@ export function TaskDetailDialog({
                     assigneeId={assigneeId}
                     reviewFixSubmitting={reviewFixSubmitting}
                     onStartReview={() => void handleStartCodeReview()}
+                    onStopReview={() => void reviewActions.stopReview()}
                     onRefreshReview={() => void loadLatestReview()}
                     onCopyReview={() => void handleCopyReviewReport()}
                     onOpenReviewFix={() => setReviewFixDialogOpen(true)}

@@ -399,7 +399,9 @@
       "description": "发起审查员 reviewer 会话，结合下方 Codex 改动文件记录逐个查看代码 diff。",
       "start": "审核代码",
       "inProgress": "审核中",
+      "stop": "停止审核",
       "titleInProgress": "审核进行中",
+      "titleStop": "停止当前审核会话",
       "titleWrongStatus": "仅“审核中”任务支持代码审核",
       "titleNoReviewer": "请先指定审查员",
       "titleStart": "启动代码审核",
@@ -598,7 +600,8 @@
     "stop": {
       "label": "停止",
       "reasonPipeline": "停止当前编排步骤并转人工",
-      "reasonSession": "停止当前运行会话"
+      "reasonSession": "停止当前运行会话",
+      "reasonReview": "停止当前审核会话"
     },
     "starting": {
       "planningLabel": "生成计划中",

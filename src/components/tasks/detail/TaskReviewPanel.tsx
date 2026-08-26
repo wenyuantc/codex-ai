@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Copy, FileText, Loader2, Play, ScrollText, Wrench } from "lucide-react";
+import { Copy, FileText, Loader2, Play, ScrollText, Square, Wrench } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import type {
@@ -26,6 +26,7 @@ interface TaskReviewPanelProps {
   reviewerId: string;
   reviewerName?: string;
   isReviewActive: boolean;
+  canStopReview?: boolean;
   reviewLoading: boolean;
   reviewError: string | null;
   reviewNotice: string | null;
@@ -35,6 +36,7 @@ interface TaskReviewPanelProps {
   assigneeId: string;
   reviewFixSubmitting: boolean;
   onStartReview: () => void;
+  onStopReview?: () => void;
   onRefreshReview: () => void;
   onCopyReview: () => void;
   onOpenReviewFix: () => void;
@@ -54,6 +56,7 @@ export function TaskReviewPanel({
   reviewerId,
   reviewerName,
   isReviewActive,
+  canStopReview = false,
   reviewLoading,
   reviewError,
   reviewNotice,
@@ -63,6 +66,7 @@ export function TaskReviewPanel({
   assigneeId,
   reviewFixSubmitting,
   onStartReview,
+  onStopReview,
   onRefreshReview,
   onCopyReview,
   onOpenReviewFix,
@@ -106,25 +110,39 @@ export function TaskReviewPanel({
         title={t("detail.review.title")}
         description={t("detail.review.description")}
         actions={
-          <Button
-            type="button"
-            size="sm"
-            onClick={onStartReview}
-            disabled={reviewLoading || isReviewActive || status !== "review" || !reviewerId}
-            className="bg-amber-500 text-black hover:bg-amber-400"
-            title={
-              isReviewActive
-                ? t("detail.review.titleInProgress")
-                : status !== "review"
-                  ? t("detail.review.titleWrongStatus")
-                  : !reviewerId
-                    ? t("detail.review.titleNoReviewer")
-                    : t("detail.review.titleStart")
-            }
-          >
-            {reviewLoading || isReviewActive ? <Loader2 className="animate-spin" /> : <Play />}
-            {isReviewActive ? t("detail.review.inProgress") : t("detail.review.start")}
-          </Button>
+          canStopReview ? (
+            <Button
+              type="button"
+              size="sm"
+              variant="destructive"
+              onClick={onStopReview}
+              disabled={reviewLoading || !onStopReview}
+              title={t("detail.review.titleStop")}
+            >
+              {reviewLoading ? <Loader2 className="animate-spin" /> : <Square />}
+              {t("detail.review.stop")}
+            </Button>
+          ) : (
+            <Button
+              type="button"
+              size="sm"
+              onClick={onStartReview}
+              disabled={reviewLoading || isReviewActive || status !== "review" || !reviewerId}
+              className="bg-amber-500 text-black hover:bg-amber-400"
+              title={
+                isReviewActive
+                  ? t("detail.review.titleInProgress")
+                  : status !== "review"
+                    ? t("detail.review.titleWrongStatus")
+                    : !reviewerId
+                      ? t("detail.review.titleNoReviewer")
+                      : t("detail.review.titleStart")
+              }
+            >
+              {reviewLoading || isReviewActive ? <Loader2 className="animate-spin" /> : <Play />}
+              {isReviewActive ? t("detail.review.inProgress") : t("detail.review.start")}
+            </Button>
+          )
         }
       >
         <div className="space-y-3">
