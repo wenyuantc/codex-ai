@@ -754,3 +754,37 @@ i18next zh-CN/en framework, main-path extraction, activity single-source, leftov
 ### Next Steps
 
 - 在桌面应用里跑一次内置 Agent Read+Grep，确认任务/会话日志能滚出完整块
+
+
+## Session 25: 内置 Agent API 报错重试
+
+**Date**: 2026-08-27
+**Task**: 内置 Agent API 报错重试
+**Branch**: `main`
+
+### Summary
+
+内置 Agent 遇到可恢复 API 错误时最多重试 10 次、间隔 3 秒，并在会话终端输出 [重试] 行；401 等鉴权错误立即失败。
+
+### Main Changes
+
+- RetryConfig 默认 10 次、固定 3 秒；post_stream 覆盖 5xx/限流/200 网关空响应
+- 会话终端 sleep 前打出 [重试] 行；停止时 200ms 内可取消等待
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `6f55f22` | (see git log) |
+
+### Testing
+
+- [OK] cargo test native::model；clippy -D warnings；npm run format:check
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 08-25-native-stop-no-review 仍为 in_progress，未在本轮归档

@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 24
-- **Last Active**: 2026-08-25
+- **Total Sessions**: 25
+- **Last Active**: 2026-08-27
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~756 | Active |
+| `journal-1.md` | ~790 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 25 | 2026-08-27 | 内置 Agent API 报错重试 | `6f55f22` | `main` |
 | 24 | 2026-08-25 | 内置 Agent 终端显示完整工具结果 | `4929015` | `main` |
 | 23 | 2026-08-25 | native 看板计划运行 | `2448bba` | `main` |
 | 22 | 2026-08-25 | 任务项目文件引用 | `3c11683` | `main` |
