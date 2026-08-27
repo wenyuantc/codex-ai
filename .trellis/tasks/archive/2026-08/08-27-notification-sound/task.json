@@ -1,0 +1,28 @@
+{
+  "id": "notification-sound",
+  "name": "notification-sound",
+  "title": "通知中心声音提醒",
+  "description": "",
+  "status": "completed",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "P2",
+  "creator": "wenyuantc",
+  "assignee": "wenyuantc",
+  "createdAt": "2026-08-27",
+  "completedAt": "2026-08-27",
+  "branch": null,
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {
+    "description": "通知中心新通知播放本机提示音，设置页独立通知 Tab 可开关并试听。"
+  }
+}

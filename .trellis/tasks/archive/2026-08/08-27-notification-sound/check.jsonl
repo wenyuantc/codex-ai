@@ -1,0 +1,7 @@
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "Verify UI, IPC, config file, activity log, and i18n keys stay aligned."}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "Lint, format, test:ci, build, activity Chinese labels, date helper rules."}
+{"file": ".trellis/spec/frontend/i18n.md", "reason": "Both locales for tab copy and the new activity action."}
+{"file": ".trellis/spec/frontend/type-safety.md", "reason": "Shared NotificationSoundSettings type mirrors Rust payload."}
+{"file": ".trellis/spec/frontend/data-access.md", "reason": "No raw invoke in the tab or sound module."}
+{"file": ".trellis/spec/backend/testing.md", "reason": "Rust roundtrip tests and clippy -D warnings."}
+{"file": ".trellis/spec/backend/command-guidelines.md", "reason": "Commands registered, errors as String, activity only on actual change."}

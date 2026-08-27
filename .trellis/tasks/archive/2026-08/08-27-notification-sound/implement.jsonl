@@ -1,0 +1,11 @@
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "Settings persist across UI, backend.ts, Rust command, config file, and activity log."}
+{"file": ".trellis/spec/guides/code-reuse-thinking-guide.md", "reason": "Reuse session_events_policy / native settings / DatabaseSettingsTab instead of new persistence or tab patterns."}
+{"file": ".trellis/spec/frontend/index.md", "reason": "Frontend hard rules: no SQLite writes, backend.ts invoke, i18n, SSH as first-class."}
+{"file": ".trellis/spec/frontend/directory-structure.md", "reason": "New tab lives in components/settings; playback helper in src/lib."}
+{"file": ".trellis/spec/frontend/component-guidelines.md", "reason": "Named export tab, shadcn primitives, do not bloat SettingsPage."}
+{"file": ".trellis/spec/frontend/data-access.md", "reason": "All get/update go through backend.ts typed wrappers."}
+{"file": ".trellis/spec/frontend/state-management.md", "reason": "Do not add a Zustand store for a UI preference; cache in the sound module."}
+{"file": ".trellis/spec/frontend/i18n.md", "reason": "New tab copy plus activity:actions.notification_sound_settings_updated in zh-CN and en."}
+{"file": ".trellis/spec/backend/index.md", "reason": "Business writes in Rust; activity logs for meaningful setting changes; no new table."}
+{"file": ".trellis/spec/backend/command-guidelines.md", "reason": "Command shape Result<T, String>, AppHandle<R>, activity log after persist."}
+{"file": ".trellis/spec/backend/testing.md", "reason": "Colocated path roundtrip tests like session_events_policy."}
