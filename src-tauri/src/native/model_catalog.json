@@ -55,7 +55,7 @@
   {"id":"MiniMax-M1","aliases":["MiniMax-M1-80k","minimax-m1"],"vendor":"minimax","label":"MiniMax M1","context_tokens":1000000,"max_output_tokens":80000,"thinking":true,"thinking_levels":["low","medium","high"]},
   {"id":"MiniMax-Text-01","aliases":["abab6.5s-chat","abab6.5-chat"],"vendor":"minimax","label":"MiniMax Text-01","context_tokens":245760,"max_output_tokens":8192,"thinking":false,"thinking_levels":[]},
 
-  {"id":"glm-5.3-flash","aliases":["glm-5.3-flash"],"vendor":"glm","label":"GLM-5.3","context_tokens":1000000,"max_output_tokens":128000,"thinking":true,"thinking_levels":["low","high","max"]},
+  {"id":"glm-5.3-flash","aliases":["glm-5.3-flash","glm-5.3-flash:cloud"],"vendor":"glm","label":"GLM-5.3","context_tokens":1000000,"max_output_tokens":128000,"thinking":true,"thinking_levels":["low","high","max"]},
   {"id":"glm-5.3","aliases":["glm-5.3","GLM-5.3"],"vendor":"glm","label":"GLM-5.3","context_tokens":1000000,"max_output_tokens":128000,"thinking":true,"thinking_levels":["low","high","max"]},
   {"id":"glm-5.2","aliases":["glm-5.2","GLM-5.2"],"vendor":"glm","label":"GLM-5.2","context_tokens":1000000,"max_output_tokens":128000,"thinking":true,"thinking_levels":["low","medium","high","xhigh","max"]},
   {"id":"glm-5.1","aliases":["glm-5.1","GLM-5.1"],"vendor":"glm","label":"GLM-5.1","context_tokens":200000,"max_output_tokens":64000,"thinking":true,"thinking_levels":["low","medium","high","xhigh","max"]},
