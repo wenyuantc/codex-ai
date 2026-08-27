@@ -25,6 +25,7 @@ fn sample_codex_settings() -> CodexSettings {
         node_path_override: None,
         sdk_install_dir: "~/.codex-ai/codex-sdk-runtime/ssh-1".to_string(),
         one_shot_preferred_provider: "codex".to_string(),
+        one_shot_native_channel_id: None,
         max_concurrent_sessions: 3,
     }
 }

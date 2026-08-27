@@ -54,10 +54,14 @@ const SUPPORTED_WORKTREE_LOCATION_MODES: &[&str] =
     &["repo_sibling_hidden", "repo_child_hidden", "custom_root"];
 const SUPPORTED_AI_COMMIT_MESSAGE_LENGTHS: &[&str] = &["title_only", "title_with_body"];
 const SUPPORTED_AI_COMMIT_MODEL_SOURCES: &[&str] = &["inherit_one_shot", "custom"];
-const SUPPORTED_ONE_SHOT_PROVIDERS: &[&str] = &["codex", "claude", "opencode", "grok"];
+const SUPPORTED_ONE_SHOT_PROVIDERS: &[&str] = &["codex", "claude", "opencode", "grok", "native"];
 const SUPPORTED_GROK_REASONING_EFFORTS: &[&str] = &["low", "medium", "high"];
 const SUPPORTED_CLAUDE_REASONING_EFFORTS: &[&str] =
     &["low", "medium", "high", "xhigh", "max", "auto"];
+/// 内置 Agent 一次性 AI 的推理强度与模型目录思考等级对齐。
+pub(crate) const SUPPORTED_NATIVE_REASONING_EFFORTS: &[&str] = &[
+    "none", "no_think", "minimal", "low", "medium", "high", "xhigh", "max",
+];
 const SUPPORTED_OPENCODE_REASONING_EFFORTS: &[&str] = &["low", "medium", "high"];
 
 #[derive(Debug, Clone)]
@@ -129,6 +133,8 @@ struct RawCodexSettings {
     #[serde(default)]
     one_shot_preferred_provider: Option<String>,
     #[serde(default)]
+    one_shot_native_channel_id: Option<String>,
+    #[serde(default)]
     max_concurrent_sessions: Option<i32>,
 }
 
@@ -145,6 +151,7 @@ fn normalize_one_shot_provider(value: Option<&str>, _is_remote: bool) -> String 
         Some("claude") => "claude".to_string(),
         Some("grok") => "grok".to_string(),
         Some("opencode") => "opencode".to_string(),
+        Some("native") => "native".to_string(),
         Some("codex") => "codex".to_string(),
         Some(value) if SUPPORTED_ONE_SHOT_PROVIDERS.contains(&value) => value.to_string(),
         _ => DEFAULT_ONE_SHOT_PROVIDER.to_string(),
@@ -160,6 +167,11 @@ fn normalize_one_shot_model(provider: &str, value: Option<&str>) -> String {
             .filter(|value| !value.is_empty())
             .map(ToOwned::to_owned)
             .unwrap_or_else(|| DEFAULT_ONE_SHOT_OPENCODE_MODEL.to_string()),
+        "native" => value
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(ToOwned::to_owned)
+            .unwrap_or_else(|| "default".to_string()),
         _ => match value.map(str::trim) {
             Some(value) if SUPPORTED_MODELS.contains(&value) => value.to_string(),
             _ => DEFAULT_ONE_SHOT_MODEL.to_string(),
@@ -182,6 +194,10 @@ fn normalize_one_shot_reasoning_effort(provider: &str, value: Option<&str>) -> S
                 value.to_string()
             }
             _ => "high".to_string(),
+        },
+        "native" => match value.map(str::trim) {
+            Some(value) if SUPPORTED_NATIVE_REASONING_EFFORTS.contains(&value) => value.to_string(),
+            _ => DEFAULT_ONE_SHOT_REASONING_EFFORT.to_string(),
         },
         _ => match value.map(str::trim) {
             Some(value) if SUPPORTED_REASONING_EFFORTS.contains(&value) => value.to_string(),
@@ -414,6 +430,7 @@ fn default_codex_settings_with_install_dir(install_dir: String) -> CodexSettings
         one_shot_preferred_provider: DEFAULT_ONE_SHOT_PROVIDER.to_string(),
         one_shot_model: DEFAULT_ONE_SHOT_MODEL.to_string(),
         one_shot_reasoning_effort: DEFAULT_ONE_SHOT_REASONING_EFFORT.to_string(),
+        one_shot_native_channel_id: None,
         task_automation_default_enabled: false,
         task_automation_max_fix_rounds: DEFAULT_TASK_AUTOMATION_MAX_FIX_ROUNDS,
         task_automation_failure_strategy: DEFAULT_TASK_AUTOMATION_FAILURE_STRATEGY.to_string(),
@@ -504,6 +521,9 @@ fn normalize_settings_with_scope(
             &one_shot_preferred_provider,
             Some(&settings.one_shot_reasoning_effort),
         ),
+        one_shot_native_channel_id: normalize_optional_text(
+            settings.one_shot_native_channel_id.as_deref(),
+        ),
         task_automation_default_enabled: settings.task_automation_default_enabled,
         task_automation_max_fix_rounds: normalize_task_automation_max_fix_rounds(Some(
             settings.task_automation_max_fix_rounds,
@@ -552,6 +572,9 @@ fn normalize_raw_settings_with_scope(
         one_shot_reasoning_effort: normalize_one_shot_reasoning_effort(
             &one_shot_preferred_provider,
             raw.one_shot_reasoning_effort.as_deref(),
+        ),
+        one_shot_native_channel_id: normalize_optional_text(
+            raw.one_shot_native_channel_id.as_deref(),
         ),
         task_automation_default_enabled: raw.task_automation_default_enabled.unwrap_or(false),
         task_automation_max_fix_rounds: normalize_task_automation_max_fix_rounds(
@@ -820,6 +843,11 @@ pub fn merge_codex_settings<R: Runtime>(
         );
     }
 
+    if let Some(one_shot_native_channel_id) = updates.one_shot_native_channel_id {
+        settings.one_shot_native_channel_id =
+            normalize_optional_text(one_shot_native_channel_id.as_deref());
+    }
+
     if let Some(task_automation_default_enabled) = updates.task_automation_default_enabled {
         settings.task_automation_default_enabled = task_automation_default_enabled;
     }
@@ -902,6 +930,10 @@ pub fn merge_remote_codex_settings<R: Runtime>(
             &settings.one_shot_preferred_provider,
             Some(&one_shot_reasoning_effort),
         );
+    }
+    if let Some(one_shot_native_channel_id) = updates.one_shot_native_channel_id {
+        settings.one_shot_native_channel_id =
+            normalize_optional_text(one_shot_native_channel_id.as_deref());
     }
     if let Some(task_automation_default_enabled) = updates.task_automation_default_enabled {
         settings.task_automation_default_enabled = task_automation_default_enabled;
@@ -1655,6 +1687,50 @@ mod tests {
             normalize_one_shot_provider(Some("opencode"), true),
             "opencode"
         );
+    }
+
+    #[test]
+    fn native_one_shot_provider_model_and_effort_are_normalized() {
+        assert_eq!(normalize_one_shot_provider(Some("native"), false), "native");
+        assert_eq!(normalize_one_shot_provider(Some("native"), true), "native");
+        assert_eq!(
+            normalize_one_shot_model("native", Some("deepseek-chat")),
+            "deepseek-chat"
+        );
+        assert_eq!(normalize_one_shot_model("native", Some("")), "default");
+        assert_eq!(
+            normalize_one_shot_reasoning_effort("native", Some("xhigh")),
+            "xhigh"
+        );
+        assert_eq!(
+            normalize_one_shot_reasoning_effort("native", Some("no_think")),
+            "no_think"
+        );
+        assert_eq!(
+            normalize_one_shot_reasoning_effort("native", Some("extreme")),
+            "high"
+        );
+    }
+
+    #[test]
+    fn native_one_shot_channel_id_is_preserved_and_trimmed() {
+        let base = create_temp_dir();
+        let normalized = normalize_raw_settings(
+            RawCodexSettings {
+                one_shot_preferred_provider: Some("native".to_string()),
+                one_shot_native_channel_id: Some("  chan-1  ".to_string()),
+                ..RawCodexSettings::default()
+            },
+            base.to_string_lossy().as_ref(),
+        );
+
+        assert_eq!(normalized.one_shot_preferred_provider, "native");
+        assert_eq!(
+            normalized.one_shot_native_channel_id.as_deref(),
+            Some("chan-1")
+        );
+
+        fs::remove_dir_all(base).expect("remove temp dir");
     }
 
     #[test]

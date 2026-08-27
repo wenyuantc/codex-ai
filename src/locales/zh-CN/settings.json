@@ -231,7 +231,18 @@
         "codex": "Codex（OpenAI）",
         "claude": "Claude（Anthropic）",
         "opencode": "OpenCode（开源）",
-        "grok": "Grok"
+        "grok": "Grok",
+        "native": "内置 Agent（本地）"
+      },
+      "nativeThinkingLevels": {
+        "none": "无",
+        "no_think": "不思考",
+        "minimal": "极简",
+        "low": "低",
+        "medium": "中",
+        "high": "高",
+        "xhigh": "最高",
+        "max": "极高"
       },
       "reasoningEffort": {
         "low": "低",
@@ -304,6 +315,9 @@
       "description": "控制任务详情中的 AI 分析、评论生成、计划生成和子任务拆分默认通道。",
       "statusBadge": "{{provider}} / {{channel}}",
       "providerLabel": "AI 提供商",
+      "channelLabel": "AI 渠道",
+      "selectChannel": "选择 AI 渠道",
+      "noChannelHint": "暂无可用 AI 渠道，请先在「AI 渠道」页创建并启用渠道。",
       "preferSdkTitle": "优先使用 SDK",
       "enableOpenCodeSdkTitle": "启用 OpenCode SDK",
       "preferSdkDescriptionCodexLocal": "优先通过 Codex SDK 执行，失败时自动回退到 `codex exec`。",
@@ -314,6 +328,8 @@
       "sshClaudeNotice": "SSH 模式下 Claude 一次性 AI 固定通过远端 Claude CLI 执行。",
       "modelLabel": "一次性 AI 模型",
       "reasoningLabel": "一次性 AI 推理强度",
+      "nativeThinkingFromChannel": "思考等级随所选渠道模型配置",
+      "nativeThinkingDisabled": "该模型未启用思考，推理强度不生效",
       "modelPlaceholder": "openai/gpt-4o",
       "fetchModelsTitle": "从 OpenCode SDK 获取模型列表",
       "loadedModels": "已加载 {{count}} 个可用模型",
@@ -327,6 +343,7 @@
         "cliRemote": "CLI（远程）",
         "execFallback": "exec（自动回退）",
         "execRemote": "exec（远程）",
+        "channel": "AI 渠道",
         "unavailable": "不可用"
       },
       "actions": {
@@ -452,7 +469,11 @@
       "opencodeSdkDisabled": "OpenCode SDK 未启用",
       "opencodeSdkNotInstalled": "OpenCode SDK 未安装",
       "oneShotClaudeSdkDisabledUseCli": "一次性 AI 未启用 Claude SDK，将使用 Claude CLI",
-      "oneShotOpencodeSdkDisabled": "一次性 AI 未启用 OpenCode SDK，当前不可用"
+      "oneShotOpencodeSdkDisabled": "一次性 AI 未启用 OpenCode SDK，当前不可用",
+      "oneShotNativeChannelReady": "内置 Agent 一次性 AI 将通过 AI 渠道「{{channel}}」执行",
+      "oneShotNativeChannelMissing": "一次性 AI 使用内置 Agent 时请先选择 AI 渠道",
+      "oneShotNativeChannelDisabled": "一次性 AI 绑定的 AI 渠道已停用",
+      "oneShotNativeChannelRemote": "SSH 模式下内置 Agent 一次性 AI 通过本地 AI 渠道执行"
     }
   },
   "git": {

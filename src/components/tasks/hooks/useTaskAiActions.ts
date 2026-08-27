@@ -194,7 +194,9 @@ export function useTaskAiActions({
             ? "OpenCode"
             : settingsResult.value.one_shot_preferred_provider === "grok"
               ? "Grok"
-              : "Codex";
+              : settingsResult.value.one_shot_preferred_provider === "native"
+                ? "内置 Agent"
+                : "Codex";
       appendAiLog(
         `[${operation}] 一次性 AI 配置：Provider ${providerLabel} / 模型 ${settingsResult.value.one_shot_model} / 推理 ${settingsResult.value.one_shot_reasoning_effort}`,
       );
@@ -210,7 +212,9 @@ export function useTaskAiActions({
             ? "OpenCode"
             : healthResult.value.one_shot_effective_provider === "grok"
               ? "Grok"
-              : "Codex";
+              : healthResult.value.one_shot_effective_provider === "native"
+                ? "内置 Agent"
+                : "Codex";
       const channelLabel =
         healthResult.value.one_shot_effective_channel === "sdk"
           ? environmentMode === "ssh"
@@ -224,7 +228,9 @@ export function useTaskAiActions({
               ? environmentMode === "ssh"
                 ? "exec（远程）"
                 : "exec"
-              : "不可用";
+              : healthResult.value.one_shot_effective_channel === "channel"
+                ? "AI 渠道"
+                : "不可用";
       appendAiLog(`[${operation}] 当前执行 Provider：${providerLabel}`);
       appendAiLog(`[${operation}] 当前执行通道：${channelLabel}`);
       if (healthResult.value.one_shot_status_message?.trim()) {

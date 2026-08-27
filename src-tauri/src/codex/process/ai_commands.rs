@@ -1322,6 +1322,7 @@ mod tests {
             node_path_override: None,
             sdk_install_dir: "/tmp/codex-sdk".to_string(),
             one_shot_preferred_provider: one_shot_provider.to_string(),
+            one_shot_native_channel_id: None,
             max_concurrent_sessions: 3,
         }
     }

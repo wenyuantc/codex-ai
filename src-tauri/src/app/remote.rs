@@ -1594,6 +1594,10 @@ fn resolve_remote_one_shot_runtime(
             "SSH 模式下 Grok 一次性 AI 使用远端 Grok CLI（远端需已安装并 `grok login`）"
                 .to_string(),
         ),
+        "native" => (
+            "channel".to_string(),
+            "SSH 模式下内置 Agent 一次性 AI 通过本地 AI 渠道执行".to_string(),
+        ),
         _ => (
             runtime.one_shot_effective_provider.clone(),
             runtime.status_message.clone(),

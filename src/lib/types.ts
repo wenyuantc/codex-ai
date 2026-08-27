@@ -881,6 +881,8 @@ export interface CodexSettings {
   one_shot_preferred_provider: AiProvider;
   one_shot_model: string;
   one_shot_reasoning_effort: string;
+  /** 一次性 AI 使用内置 Agent（native）时绑定的 AI 渠道 id。 */
+  one_shot_native_channel_id: string | null;
   task_automation_default_enabled: boolean;
   task_automation_max_fix_rounds: number;
   task_automation_failure_strategy: TaskAutomationFailureStrategy;

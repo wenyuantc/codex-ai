@@ -231,7 +231,18 @@
         "codex": "Codex (OpenAI)",
         "claude": "Claude (Anthropic)",
         "opencode": "OpenCode (Open Source)",
-        "grok": "Grok"
+        "grok": "Grok",
+        "native": "Built-in Agent (Local)"
+      },
+      "nativeThinkingLevels": {
+        "none": "None",
+        "no_think": "No thinking",
+        "minimal": "Minimal",
+        "low": "Low",
+        "medium": "Medium",
+        "high": "High",
+        "xhigh": "Very High",
+        "max": "Max"
       },
       "reasoningEffort": {
         "low": "Low",
@@ -304,6 +315,9 @@
       "description": "Controls the default channel for AI analysis, comment generation, plan generation, and subtask splitting in task details.",
       "statusBadge": "{{provider}} / {{channel}}",
       "providerLabel": "AI provider",
+      "channelLabel": "AI channel",
+      "selectChannel": "Select AI channel",
+      "noChannelHint": "No AI channels available. Create and enable a channel in the AI Channels tab first.",
       "preferSdkTitle": "Prefer SDK",
       "enableOpenCodeSdkTitle": "Enable OpenCode SDK",
       "preferSdkDescriptionCodexLocal": "Prefer execution through the Codex SDK and fall back to `codex exec` on failure.",
@@ -314,6 +328,8 @@
       "sshClaudeNotice": "In SSH mode, Claude one-shot AI always runs through the remote Claude CLI.",
       "modelLabel": "One-shot AI model",
       "reasoningLabel": "One-shot AI reasoning effort",
+      "nativeThinkingFromChannel": "Thinking levels follow the selected channel model configuration",
+      "nativeThinkingDisabled": "This model does not have thinking enabled; reasoning effort is not applied",
       "modelPlaceholder": "openai/gpt-4o",
       "fetchModelsTitle": "Fetch model list from OpenCode SDK",
       "loadedModels": "Loaded {{count}} available models",
@@ -327,6 +343,7 @@
         "cliRemote": "CLI (remote)",
         "execFallback": "exec (auto fallback)",
         "execRemote": "exec (remote)",
+        "channel": "AI channel",
         "unavailable": "Unavailable"
       },
       "actions": {
@@ -452,7 +469,11 @@
       "opencodeSdkDisabled": "OpenCode SDK is disabled",
       "opencodeSdkNotInstalled": "OpenCode SDK is not installed",
       "oneShotClaudeSdkDisabledUseCli": "One-shot AI Claude SDK is disabled; Claude CLI will be used",
-      "oneShotOpencodeSdkDisabled": "One-shot AI OpenCode SDK is disabled; currently unavailable"
+      "oneShotOpencodeSdkDisabled": "One-shot AI OpenCode SDK is disabled; currently unavailable",
+      "oneShotNativeChannelReady": "Built-in Agent one-shot AI will run through the AI channel \"{{channel}}\"",
+      "oneShotNativeChannelMissing": "Select an AI channel first when one-shot AI uses the built-in Agent",
+      "oneShotNativeChannelDisabled": "The AI channel bound to one-shot AI is disabled",
+      "oneShotNativeChannelRemote": "In SSH mode, built-in Agent one-shot AI runs through the local AI channel"
     }
   },
   "git": {

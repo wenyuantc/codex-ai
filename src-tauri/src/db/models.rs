@@ -487,6 +487,8 @@ pub struct CodexSettings {
     pub node_path_override: Option<String>,
     pub sdk_install_dir: String,
     pub one_shot_preferred_provider: String,
+    /// 一次性 AI 使用内置 Agent（native）时绑定的 AI 渠道 id。
+    pub one_shot_native_channel_id: Option<String>,
     /// 全局任务执行会话并发上限；0 表示不限制。
     pub max_concurrent_sessions: i32,
 }
@@ -1570,6 +1572,8 @@ pub struct UpdateCodexSettings {
     pub one_shot_preferred_provider: Option<String>,
     pub one_shot_model: Option<String>,
     pub one_shot_reasoning_effort: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_explicit_nullable")]
+    pub one_shot_native_channel_id: Option<Option<String>>,
     pub task_automation_default_enabled: Option<bool>,
     pub task_automation_max_fix_rounds: Option<i32>,
     pub task_automation_failure_strategy: Option<String>,

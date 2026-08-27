@@ -340,40 +340,35 @@ fn resolve_run_model_config(
     config
 }
 
-async fn load_native_client(
+async fn load_native_client_from_channel(
     pool: &sqlx::SqlitePool,
-    employee: &crate::db::models::Employee,
+    channel_id: &str,
+    model: &str,
+    reasoning_effort: Option<&str>,
 ) -> Result<NativeRunSettings, String> {
-    if employee.ai_provider != "native" {
-        return Err("员工不是内置 Agent".to_string());
-    }
-    let channel_id = employee
-        .ai_channel_id
-        .as_deref()
-        .ok_or_else(|| "请先为内置 Agent 员工配置渠道".to_string())?;
     let record = fetch_channel_record(pool, channel_id).await?;
     if record.enabled == 0 {
         return Err(format!("渠道「{}」已停用", record.name));
     }
     let (record, api_key) = require_channel_api_key(pool, record).await?;
     let channel = record_to_channel(record)?;
-    let model = if employee.model.trim().is_empty() {
+    let model = if model.trim().is_empty() {
         channel
             .models
             .first()
             .map(|item| item.id.clone())
             .unwrap_or_else(|| "default".to_string())
     } else {
-        employee.model.clone()
+        model.to_string()
     };
     let model_config = resolve_run_model_config(&channel.models, &model);
     let thinking_enabled = model_config.thinking_enabled.unwrap_or(false);
     let effort = if thinking_enabled {
-        let from_employee = employee.reasoning_effort.trim();
-        if from_employee.is_empty() {
+        let from_effort = reasoning_effort.map(str::trim).unwrap_or_default();
+        if from_effort.is_empty() {
             model_config.thinking_level.clone()
         } else {
-            Some(from_employee.to_string())
+            Some(from_effort.to_string())
         }
     } else {
         None
@@ -399,6 +394,26 @@ async fn load_native_client(
         bound_subagent: None,
         catalog_project_id: None,
     })
+}
+
+async fn load_native_client(
+    pool: &sqlx::SqlitePool,
+    employee: &crate::db::models::Employee,
+) -> Result<NativeRunSettings, String> {
+    if employee.ai_provider != "native" {
+        return Err("员工不是内置 Agent".to_string());
+    }
+    let channel_id = employee
+        .ai_channel_id
+        .as_deref()
+        .ok_or_else(|| "请先为内置 Agent 员工配置渠道".to_string())?;
+    load_native_client_from_channel(
+        pool,
+        channel_id,
+        &employee.model,
+        Some(&employee.reasoning_effort),
+    )
+    .await
 }
 
 fn native_one_shot_text(message: &crate::native::model::types::Message) -> Result<String, String> {
@@ -427,33 +442,11 @@ fn one_shot_reasoning_usable(text: &str) -> bool {
         || trimmed.contains("\n## ")
 }
 
-/// Employee-scoped HTTP one-shot (tester acceptance and no-workspace fallback).
-/// No tool loop and no Codex SDK/exec fallback. Images stay on this machine.
-pub async fn run_native_one_shot<R: Runtime>(
-    app: &AppHandle<R>,
-    employee_id: &str,
+async fn run_native_one_shot_with_run(
+    run: NativeRunSettings,
     prompt: String,
     image_paths: Option<Vec<String>>,
-    model_override: Option<String>,
-    reasoning_effort_override: Option<String>,
 ) -> Result<NativeOneShotResult, String> {
-    let pool = sqlite_pool(app).await?;
-    let mut employee = fetch_employee_by_id(&pool, employee_id).await?;
-    if let Some(model) = model_override
-        .as_deref()
-        .map(str::trim)
-        .filter(|item| !item.is_empty())
-    {
-        employee.model = model.to_string();
-    }
-    if let Some(effort) = reasoning_effort_override
-        .as_deref()
-        .map(str::trim)
-        .filter(|item| !item.is_empty())
-    {
-        employee.reasoning_effort = effort.to_string();
-    }
-    let run = load_native_client(&pool, &employee).await?;
     let loaded = crate::native::images::load_native_images(image_paths.as_deref());
     for path in &loaded.missing {
         eprintln!("[native] one-shot 附件图片不存在，已跳过: {path}");
@@ -502,6 +495,52 @@ pub async fn run_native_one_shot<R: Runtime>(
         usage_line: crate::native::model::usage_to_delta(usage)
             .and_then(|delta| delta.format_terminal_line()),
     })
+}
+
+/// Employee-scoped HTTP one-shot (tester acceptance and no-workspace fallback).
+/// No tool loop and no Codex SDK/exec fallback. Images stay on this machine.
+pub async fn run_native_one_shot<R: Runtime>(
+    app: &AppHandle<R>,
+    employee_id: &str,
+    prompt: String,
+    image_paths: Option<Vec<String>>,
+    model_override: Option<String>,
+    reasoning_effort_override: Option<String>,
+) -> Result<NativeOneShotResult, String> {
+    let pool = sqlite_pool(app).await?;
+    let mut employee = fetch_employee_by_id(&pool, employee_id).await?;
+    if let Some(model) = model_override
+        .as_deref()
+        .map(str::trim)
+        .filter(|item| !item.is_empty())
+    {
+        employee.model = model.to_string();
+    }
+    if let Some(effort) = reasoning_effort_override
+        .as_deref()
+        .map(str::trim)
+        .filter(|item| !item.is_empty())
+    {
+        employee.reasoning_effort = effort.to_string();
+    }
+    let run = load_native_client(&pool, &employee).await?;
+    run_native_one_shot_with_run(run, prompt, image_paths).await
+}
+
+/// Settings-level HTTP one-shot bound to an AI channel instead of an employee.
+/// Used when 一次性 AI provider is 本地 Agent (native) and no employee is bound.
+pub async fn run_native_one_shot_via_channel<R: Runtime>(
+    app: &AppHandle<R>,
+    channel_id: &str,
+    model: &str,
+    reasoning_effort: &str,
+    prompt: String,
+    image_paths: Option<Vec<String>>,
+) -> Result<NativeOneShotResult, String> {
+    let pool = sqlite_pool(app).await?;
+    let run =
+        load_native_client_from_channel(&pool, channel_id, model, Some(reasoning_effort)).await?;
+    run_native_one_shot_with_run(run, prompt, image_paths).await
 }
 
 /// Coordinator plan generation: in-process read-only tool loop, no session registry.

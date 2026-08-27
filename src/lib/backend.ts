@@ -182,6 +182,7 @@ export interface UpdateCodexSettingsInput {
   one_shot_preferred_provider?: AiProvider;
   one_shot_model?: string;
   one_shot_reasoning_effort?: string;
+  one_shot_native_channel_id?: string | null;
   task_automation_default_enabled?: boolean;
   task_automation_max_fix_rounds?: number;
   task_automation_failure_strategy?: "blocked" | "manual_control";

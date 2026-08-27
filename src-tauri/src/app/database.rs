@@ -649,6 +649,39 @@ async fn resolve_local_one_shot_runtime<R: Runtime>(
                 ("unavailable".to_string(), grok_health.status_message)
             }
         }
+        "native" => {
+            let Some(channel_id) = codex_settings
+                .one_shot_native_channel_id
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+            else {
+                return (
+                    "unavailable".to_string(),
+                    "一次性 AI 使用内置 Agent 时请先选择 AI 渠道".to_string(),
+                );
+            };
+            let pool = match sqlite_pool(app).await {
+                Ok(pool) => pool,
+                Err(error) => {
+                    return (
+                        "unavailable".to_string(),
+                        format!("读取 AI 渠道失败：{error}"),
+                    );
+                }
+            };
+            match crate::native::channels::fetch_channel_record(&pool, channel_id).await {
+                Ok(record) if record.enabled != 0 => (
+                    "channel".to_string(),
+                    format!("内置 Agent 一次性 AI 将通过 AI 渠道「{}」执行", record.name),
+                ),
+                Ok(_) => (
+                    "unavailable".to_string(),
+                    "一次性 AI 绑定的 AI 渠道已停用".to_string(),
+                ),
+                Err(error) => ("unavailable".to_string(), error),
+            }
+        }
         _ => (
             codex_sdk_health.one_shot_effective_provider.clone(),
             codex_sdk_health.status_message.clone(),

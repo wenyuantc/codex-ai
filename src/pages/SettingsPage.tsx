@@ -42,6 +42,7 @@ import {
   installGrokCli,
   installRemoteCodexSdk,
   installRemoteGrokCli,
+  listAiChannels,
   openDatabaseFolder,
   restoreDatabase,
   syncSystemNotifications,
@@ -69,6 +70,7 @@ import { changeAppLocale } from "@/lib/i18n";
 import { getLocalePreference, type AppLocale } from "@/lib/i18n/locale";
 import { getEnvironmentModeLabel } from "@/lib/projects";
 import {
+  normalizeAiProvider,
   normalizeCliAiProvider,
   normalizeAiCommitMessageLength,
   normalizeClaudeModel,
@@ -77,6 +79,7 @@ import {
   normalizeReasoningEffortForProvider,
   normalizeTaskAutomationFailureStrategy,
   normalizeWorktreeLocationMode,
+  type AiChannel,
   type AiProvider,
   type AiCommitMessageLength,
   type AiCommitModelSource,
@@ -197,6 +200,8 @@ export function SettingsPage() {
   const [oneShotPreferredProvider, setOneShotPreferredProvider] = useState<AiProvider>("codex");
   const [oneShotModel, setOneShotModel] = useState("gpt-5.4");
   const [oneShotReasoningEffort, setOneShotReasoningEffort] = useState("high");
+  const [oneShotNativeChannelId, setOneShotNativeChannelId] = useState("");
+  const [nativeChannels, setNativeChannels] = useState<AiChannel[]>([]);
   const [taskAutomationDefaultEnabled, setTaskAutomationDefaultEnabled] = useState(false);
   const [taskAutomationMaxFixRounds, setTaskAutomationMaxFixRounds] = useState(3);
   const [taskAutomationFailureStrategy, setTaskAutomationFailureStrategy] =
@@ -322,7 +327,7 @@ export function SettingsPage() {
 
   function applySettingsToFormState(settings: CodexSettings) {
     const gitPreferences = settings.git_preferences ?? DEFAULT_GIT_PREFERENCES;
-    const oneShotProvider = normalizeCliAiProvider(settings.one_shot_preferred_provider);
+    const oneShotProvider = normalizeAiProvider(settings.one_shot_preferred_provider);
 
     setCodexSettings(settings);
     setTaskSdkEnabled(settings.task_sdk_enabled);
@@ -332,6 +337,7 @@ export function SettingsPage() {
     setOneShotReasoningEffort(
       normalizeReasoningEffortForProvider(oneShotProvider, settings.one_shot_reasoning_effort),
     );
+    setOneShotNativeChannelId(settings.one_shot_native_channel_id ?? "");
     setTaskAutomationDefaultEnabled(settings.task_automation_default_enabled);
     setTaskAutomationMaxFixRounds(settings.task_automation_max_fix_rounds);
     setTaskAutomationFailureStrategy(
@@ -455,6 +461,12 @@ export function SettingsPage() {
     try {
       await loadLocalConcurrencyLimit();
       await loadNativeMaxTurns();
+      try {
+        setNativeChannels(await listAiChannels());
+      } catch (error) {
+        console.error("Failed to load AI channels:", error);
+        setNativeChannels([]);
+      }
       if (isRemoteMode) {
         if (!selectedSshConfigId) {
           setCodexHealth(null);
@@ -761,6 +773,7 @@ export function SettingsPage() {
         one_shot_preferred_provider: oneShotPreferredProvider,
         one_shot_model: oneShotModel,
         one_shot_reasoning_effort: oneShotReasoningEffort,
+        one_shot_native_channel_id: oneShotNativeChannelId.trim() || null,
         task_automation_default_enabled: taskAutomationDefaultEnabled,
         task_automation_max_fix_rounds: taskAutomationMaxFixRounds,
         task_automation_failure_strategy: taskAutomationFailureStrategy,
@@ -1278,6 +1291,8 @@ export function SettingsPage() {
             oneShotPreferredProvider={oneShotPreferredProvider}
             oneShotModel={oneShotModel}
             oneShotReasoningEffort={oneShotReasoningEffort}
+            oneShotNativeChannelId={oneShotNativeChannelId}
+            nativeChannels={nativeChannels}
             nodePathOverride={nodePathOverride}
             themeMode={themeMode}
             onThemeModeChange={setThemeMode}
@@ -1309,6 +1324,7 @@ export function SettingsPage() {
             }}
             onOneShotModelChange={setOneShotModel}
             onOneShotReasoningEffortChange={setOneShotReasoningEffort}
+            onOneShotNativeChannelIdChange={setOneShotNativeChannelId}
             onNodePathOverrideChange={setNodePathOverride}
             onSave={() => void handleSaveSdkSettings()}
             onInstall={() => void handleInstallSdk()}

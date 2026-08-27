@@ -11,7 +11,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import {
-  CLI_AI_PROVIDER_OPTIONS,
+  AI_PROVIDER_OPTIONS,
   CODEX_MODEL_OPTIONS,
   CLAUDE_MODEL_OPTIONS,
   CLAUDE_THINKING_BUDGET_OPTIONS,
@@ -19,6 +19,7 @@ import {
   GROK_EFFORT_OPTIONS,
   OPENCODE_EFFORT_OPTIONS,
   REASONING_EFFORT_OPTIONS,
+  type AiChannel,
   type AiProvider,
   type ClaudeHealthCheck,
   type CodexHealthCheck,
@@ -38,6 +39,10 @@ import { mapRuntimeStatusMessage } from "@/lib/i18n/mapRuntimeStatusMessage";
 import { type ThemeMode } from "@/lib/theme";
 import { formatDate } from "@/lib/utils";
 
+import {
+  resolveNativeThinking,
+  selectNativeModel,
+} from "@/components/employees/NativeChannelFields";
 import { AboutUpdateSection } from "./AboutUpdateSection";
 
 interface RuntimeSettingsTabProps {
@@ -59,6 +64,9 @@ interface RuntimeSettingsTabProps {
   oneShotPreferredProvider: AiProvider;
   oneShotModel: string;
   oneShotReasoningEffort: string;
+  /** 一次性 AI 使用内置 Agent 时绑定的 AI 渠道 id。 */
+  oneShotNativeChannelId: string;
+  nativeChannels: AiChannel[];
   nodePathOverride: string;
   themeMode: ThemeMode;
   onThemeModeChange: (mode: ThemeMode) => void;
@@ -82,6 +90,7 @@ interface RuntimeSettingsTabProps {
   onOneShotPreferredProviderChange: (value: AiProvider) => void;
   onOneShotModelChange: (value: string) => void;
   onOneShotReasoningEffortChange: (value: string) => void;
+  onOneShotNativeChannelIdChange: (value: string) => void;
   onNodePathOverrideChange: (value: string) => void;
   onSave: () => void;
   onInstall: () => void;
@@ -198,6 +207,8 @@ export function RuntimeSettingsTab({
   oneShotPreferredProvider,
   oneShotModel,
   oneShotReasoningEffort,
+  oneShotNativeChannelId,
+  nativeChannels,
   nodePathOverride,
   themeMode,
   onThemeModeChange,
@@ -221,6 +232,7 @@ export function RuntimeSettingsTab({
   onOneShotPreferredProviderChange,
   onOneShotModelChange,
   onOneShotReasoningEffortChange,
+  onOneShotNativeChannelIdChange,
   onNodePathOverrideChange,
   onSave,
   onInstall,
@@ -281,7 +293,7 @@ export function RuntimeSettingsTab({
   onGrokRefresh,
 }: RuntimeSettingsTabProps) {
   const { t } = useTranslation(["settings", "common"]);
-  const providerOptions = CLI_AI_PROVIDER_OPTIONS.map((option) => ({
+  const availableOneShotProviders = AI_PROVIDER_OPTIONS.map((option) => ({
     ...option,
     label: t(`runtime.options.providers.${option.value}`),
   }));
@@ -322,7 +334,7 @@ export function RuntimeSettingsTab({
       : "runtime.codexSdk.taskProvider.execFallback",
   );
   const oneShotProviderLabel =
-    providerOptions.find((option) => option.value === oneShotPreferredProvider)?.label ??
+    availableOneShotProviders.find((option) => option.value === oneShotPreferredProvider)?.label ??
     oneShotPreferredProvider;
   const oneShotChannelLabel = (() => {
     const channel = codexHealth?.one_shot_effective_channel;
@@ -336,6 +348,10 @@ export function RuntimeSettingsTab({
           ? "runtime.oneShot.channel.execRemote"
           : "runtime.oneShot.channel.execFallback",
       );
+    }
+    if (channel === "channel") {
+      const selected = nativeChannels.find((item) => item.id === oneShotNativeChannelId);
+      return selected?.name ?? t("runtime.oneShot.channel.channel");
     }
     return t("runtime.oneShot.channel.unavailable");
   })();
@@ -358,11 +374,24 @@ export function RuntimeSettingsTab({
     healthLoading ||
     actionLoading !== null ||
     (isRemoteMode && (!hasSelectedSshConfig || passwordAuthBlocked));
-  const availableOneShotProviders = providerOptions;
   const isOneShotCodexProvider = oneShotPreferredProvider === "codex";
   const isOneShotClaudeProvider = oneShotPreferredProvider === "claude";
   const isOneShotOpenCodeProvider = oneShotPreferredProvider === "opencode";
   const isOneShotGrokProvider = oneShotPreferredProvider === "grok";
+  const isOneShotNativeProvider = oneShotPreferredProvider === "native";
+  const selectedNativeChannel = nativeChannels.find(
+    (channel) => channel.id === oneShotNativeChannelId,
+  );
+  const nativeModelOptions = selectedNativeChannel?.models.map((item) => item.id) ?? [];
+  const nativeThinking = resolveNativeThinking(selectedNativeChannel, oneShotModel);
+  const nativeEffortOptions = nativeThinking.levels.map((level) => ({
+    value: level,
+    label: t(`runtime.options.nativeThinkingLevels.${level}`, { defaultValue: level }),
+  }));
+  /** 历史配置的推理强度可能不在当前模型思考等级内，展示时回退到模型默认等级。 */
+  const effectiveNativeEffort = nativeThinking.levels.includes(oneShotReasoningEffort)
+    ? oneShotReasoningEffort
+    : nativeThinking.defaultLevel;
   const oneShotGrokModelOptions =
     grokModelList.length > 0
       ? grokModelList
@@ -867,7 +896,48 @@ export function RuntimeSettingsTab({
             </Select>
           </div>
 
-          {canUseOneShotSdkToggle ? (
+          {isOneShotNativeProvider ? (
+            <div className="space-y-2">
+              <label className="text-sm font-medium">{t("runtime.oneShot.channelLabel")}</label>
+              <Select
+                value={oneShotNativeChannelId || undefined}
+                onValueChange={(value) => {
+                  if (!value) return;
+                  onOneShotNativeChannelIdChange(value);
+                  const channel = nativeChannels.find((item) => item.id === value);
+                  const nextModel = selectNativeModel(channel, oneShotModel);
+                  onOneShotModelChange(nextModel);
+                  const thinking = resolveNativeThinking(channel, nextModel);
+                  onOneShotReasoningEffortChange(thinking.defaultLevel);
+                }}
+                disabled={healthLoading || actionLoading !== null}
+              >
+                <SelectTrigger className="bg-background">
+                  <SelectValue>
+                    {(value) => {
+                      if (typeof value !== "string") {
+                        return t("runtime.oneShot.selectChannel");
+                      }
+                      const channel = nativeChannels.find((item) => item.id === value);
+                      return channel
+                        ? `${channel.name} · ${channel.protocol}`
+                        : t("runtime.oneShot.selectChannel");
+                    }}
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                  {nativeChannels.map((channel) => (
+                    <SelectItem key={channel.id} value={channel.id}>
+                      {channel.name} · {channel.protocol}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {nativeChannels.length === 0 ? (
+                <p className="text-xs text-destructive">{t("runtime.oneShot.noChannelHint")}</p>
+              ) : null}
+            </div>
+          ) : canUseOneShotSdkToggle ? (
             <label className="flex items-start gap-3 rounded-md border border-border px-3 py-2">
               <input
                 type="checkbox"
@@ -907,7 +977,39 @@ export function RuntimeSettingsTab({
         <div className="grid gap-3 md:grid-cols-2">
           <div className="space-y-2">
             <label className="text-sm font-medium">{t("runtime.oneShot.modelLabel")}</label>
-            {isOneShotOpenCodeProvider ? (
+            {isOneShotNativeProvider ? (
+              nativeModelOptions.length > 0 ? (
+                <Select
+                  value={oneShotModel}
+                  onValueChange={(value) => {
+                    if (value) {
+                      onOneShotModelChange(value);
+                      const thinking = resolveNativeThinking(selectedNativeChannel, value);
+                      onOneShotReasoningEffortChange(thinking.defaultLevel);
+                    }
+                  }}
+                  disabled={healthLoading || actionLoading !== null}
+                >
+                  <SelectTrigger className="bg-background">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent className="max-h-72">
+                    {nativeModelOptions.map((item) => (
+                      <SelectItem key={item} value={item}>
+                        {item}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              ) : (
+                <Input
+                  value={oneShotModel}
+                  onChange={(event) => onOneShotModelChange(event.target.value)}
+                  placeholder={t("runtime.oneShot.modelPlaceholder")}
+                  disabled={!selectedNativeChannel || healthLoading || actionLoading !== null}
+                />
+              )
+            ) : isOneShotOpenCodeProvider ? (
               <div className="flex gap-2">
                 <div className="flex-1">
                   {opencodeHealth?.sdk_installed ? (
@@ -1004,25 +1106,31 @@ export function RuntimeSettingsTab({
           <div className="space-y-2">
             <label className="text-sm font-medium">{t("runtime.oneShot.reasoningLabel")}</label>
             <Select
-              value={oneShotReasoningEffort}
+              value={isOneShotNativeProvider ? effectiveNativeEffort : oneShotReasoningEffort}
               onValueChange={(value) => {
                 if (value) {
                   onOneShotReasoningEffortChange(value);
                 }
               }}
-              disabled={healthLoading || actionLoading !== null}
+              disabled={
+                healthLoading ||
+                actionLoading !== null ||
+                (isOneShotNativeProvider && !nativeThinking.enabled)
+              }
             >
               <SelectTrigger className="bg-background">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                {(isOneShotClaudeProvider
-                  ? claudeDefaultThinkingBudgetOptions
-                  : isOneShotOpenCodeProvider
-                    ? openCodeEffortOptions
-                    : isOneShotGrokProvider
-                      ? grokEffortOptions
-                      : reasoningEffortOptions
+                {(isOneShotNativeProvider
+                  ? nativeEffortOptions
+                  : isOneShotClaudeProvider
+                    ? claudeDefaultThinkingBudgetOptions
+                    : isOneShotOpenCodeProvider
+                      ? openCodeEffortOptions
+                      : isOneShotGrokProvider
+                        ? grokEffortOptions
+                        : reasoningEffortOptions
                 ).map((option) => (
                   <SelectItem key={option.value} value={option.value}>
                     {option.label}
@@ -1030,6 +1138,13 @@ export function RuntimeSettingsTab({
                 ))}
               </SelectContent>
             </Select>
+            {isOneShotNativeProvider ? (
+              <p className="text-xs text-muted-foreground">
+                {nativeThinking.enabled
+                  ? t("runtime.oneShot.nativeThinkingFromChannel")
+                  : t("runtime.oneShot.nativeThinkingDisabled")}
+              </p>
+            ) : null}
           </div>
         </div>
 

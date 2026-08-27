@@ -122,5 +122,25 @@ export function mapRuntimeStatusMessage(message: string | null | undefined): str
     return t("oneShotOpencodeSdkDisabled");
   }
 
+  match = raw.match(/^内置 Agent 一次性 AI 将通过 AI 渠道「(.+?)」执行$/);
+  if (match) {
+    return t("oneShotNativeChannelReady", { channel: match[1] });
+  }
+
+  match = raw.match(/^一次性 AI 使用内置 Agent 时请先选择 AI 渠道$/);
+  if (match) {
+    return t("oneShotNativeChannelMissing");
+  }
+
+  match = raw.match(/^一次性 AI 绑定的 AI 渠道已停用$/);
+  if (match) {
+    return t("oneShotNativeChannelDisabled");
+  }
+
+  match = raw.match(/^SSH 模式下内置 Agent 一次性 AI 通过本地 AI 渠道执行$/);
+  if (match) {
+    return t("oneShotNativeChannelRemote");
+  }
+
   return raw;
 }

@@ -37,6 +37,11 @@ fn normalize_one_shot_model_for_provider(provider: &str, value: Option<&str>) ->
             .filter(|value| !value.is_empty())
             .map(ToOwned::to_owned)
             .unwrap_or_else(|| DEFAULT_OPENCODE_ONE_SHOT_MODEL.to_string()),
+        "native" => value
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(ToOwned::to_owned)
+            .unwrap_or_else(|| "default".to_string()),
         _ => normalize_model(value).to_string(),
     }
 }
@@ -60,6 +65,14 @@ fn normalize_one_shot_reasoning_for_provider(provider: &str, value: Option<&str>
                 value.to_string()
             }
             _ => DEFAULT_OPENCODE_ONE_SHOT_REASONING_EFFORT.to_string(),
+        },
+        "native" => match value.map(str::trim) {
+            Some(value)
+                if crate::codex::settings::SUPPORTED_NATIVE_REASONING_EFFORTS.contains(&value) =>
+            {
+                value.to_string()
+            }
+            _ => "high".to_string(),
         },
         _ => normalize_reasoning_effort(value).to_string(),
     }
@@ -1321,6 +1334,28 @@ pub(crate) async fn run_ai_command_with_options<R: Runtime>(
             &one_shot_provider,
             Some(reasoning_effort_override),
         );
+    }
+
+    if one_shot_provider == "native" {
+        let channel_id = settings
+            .as_ref()
+            .and_then(|settings| settings.one_shot_native_channel_id.as_deref())
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .ok_or_else(|| "一次性 AI 使用内置 Agent 时请先选择 AI 渠道".to_string())?;
+        let shot = crate::native::run_native_one_shot_via_channel(
+            app,
+            channel_id,
+            &one_shot_model,
+            &one_shot_reasoning_effort,
+            prompt,
+            Some(image_paths),
+        )
+        .await?;
+        return Ok(AiCommandResult {
+            text: shot.text,
+            usage_line: shot.usage_line,
+        });
     }
 
     match (
