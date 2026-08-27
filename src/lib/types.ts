@@ -873,6 +873,8 @@ export interface GitPreferences {
   ai_commit_model_source: AiCommitModelSource;
   ai_commit_model: string;
   ai_commit_reasoning_effort: string;
+  /** Git AI 使用内置 Agent（native）时绑定的 AI 渠道 id。 */
+  ai_commit_native_channel_id: string | null;
 }
 
 export interface CodexSettings {
@@ -1179,11 +1181,6 @@ export const AI_PROVIDER_OPTIONS: { value: AiProvider; label: string }[] = [
   { value: "native", label: "内置 Agent" },
 ];
 
-/** Git 一次性提交 / 运行时 one-shot 仍走外部 CLI，不含内置 Agent。 */
-export const CLI_AI_PROVIDER_OPTIONS = AI_PROVIDER_OPTIONS.filter(
-  (option) => option.value !== "native",
-);
-
 export const CLAUDE_MODEL_OPTIONS: { value: ClaudeModelId; label: string }[] = [
   { value: "opus", label: "Claude Opus" },
   { value: "opus[1m]", label: "Claude Opus 1M" },
@@ -1352,11 +1349,6 @@ export function normalizeAiProvider(value: string | null | undefined): AiProvide
   if (value === "grok") return "grok";
   if (value === "native") return "native";
   return "codex";
-}
-
-export function normalizeCliAiProvider(value: string | null | undefined): AiProvider {
-  const provider = normalizeAiProvider(value);
-  return provider === "native" ? "codex" : provider;
 }
 
 export function formatEmployeeAiProviderLabel(

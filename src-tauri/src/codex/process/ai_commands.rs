@@ -306,6 +306,7 @@ struct CommitMessageAiSelection {
     provider_override: Option<String>,
     model_override: Option<String>,
     reasoning_override: Option<String>,
+    native_channel_id: Option<String>,
     effective_provider: String,
     effective_model: String,
     effective_reasoning_effort: String,
@@ -323,6 +324,10 @@ fn resolve_commit_message_ai_selection(
             provider_override: Some(provider.clone()),
             model_override: Some(settings.git_preferences.ai_commit_model.clone()),
             reasoning_override: Some(settings.git_preferences.ai_commit_reasoning_effort.clone()),
+            native_channel_id: settings
+                .git_preferences
+                .ai_commit_native_channel_id
+                .clone(),
             effective_provider: provider,
             effective_model: settings.git_preferences.ai_commit_model.clone(),
             effective_reasoning_effort: settings.git_preferences.ai_commit_reasoning_effort.clone(),
@@ -332,11 +337,60 @@ fn resolve_commit_message_ai_selection(
             provider_override: None,
             model_override: None,
             reasoning_override: None,
+            native_channel_id: settings.one_shot_native_channel_id.clone(),
             effective_provider: settings.one_shot_preferred_provider.clone(),
             effective_model: settings.one_shot_model.clone(),
             effective_reasoning_effort: settings.one_shot_reasoning_effort.clone(),
         }
     }
+}
+
+/// 执行 Git 提交信息生成：内置 Agent（native）走 AI 渠道本地 HTTP 调用，
+/// 其余提供商保持走 run_ai_command（外部 CLI / SDK）。
+async fn run_commit_message_ai_command<R: Runtime>(
+    app: &AppHandle<R>,
+    prompt: String,
+    project_id: String,
+    ai_selection: &CommitMessageAiSelection,
+) -> Result<String, String> {
+    if ai_selection.effective_provider == "native" {
+        let channel_id = ai_selection
+            .native_channel_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .ok_or_else(|| {
+                if ai_selection.provider_override.is_some() {
+                    "Git AI 使用内置 Agent 时请先选择 AI 渠道".to_string()
+                } else {
+                    "一次性 AI 使用内置 Agent 时请先选择 AI 渠道".to_string()
+                }
+            })?;
+        let shot = crate::native::run_native_one_shot_via_channel(
+            app,
+            channel_id,
+            &ai_selection.effective_model,
+            &ai_selection.effective_reasoning_effort,
+            prompt,
+            None,
+        )
+        .await?;
+        return Ok(shot.text);
+    }
+    let raw = run_ai_command(
+        app,
+        prompt,
+        None,
+        None,
+        Some(project_id),
+        None,
+        ai_selection.provider_override.clone(),
+        ai_selection.model_override.clone(),
+        ai_selection.reasoning_override.clone(),
+        None,
+    )
+    .await?;
+    Ok(raw.text)
 }
 
 fn format_commit_message_activity_details(
@@ -347,9 +401,13 @@ fn format_commit_message_activity_details(
     generated_at: &str,
     message: &str,
 ) -> String {
+    let provider_label = match provider {
+        "native" => "内置 Agent",
+        other => other,
+    };
     format!(
         "项目：{}；Provider：{}；模型：{}；推理等级：{}；生成时间：{}；结果：{}",
-        project_name, provider, model, reasoning_effort, generated_at, message
+        project_name, provider_label, model, reasoning_effort, generated_at, message
     )
 }
 
@@ -452,20 +510,9 @@ pub(crate) async fn generate_commit_message_for_project<R: Runtime>(
         &settings.git_preferences.ai_commit_message_length,
     );
     let ai_selection = resolve_commit_message_ai_selection(&settings);
-    let raw = run_ai_command(
-        app,
-        prompt.clone(),
-        None,
-        None,
-        Some(project.id.clone()),
-        None,
-        ai_selection.provider_override.clone(),
-        ai_selection.model_override.clone(),
-        ai_selection.reasoning_override.clone(),
-        None,
-    )
-    .await?;
-    let normalized = normalize_generated_commit_message(&raw.text)?;
+    let raw_text = run_commit_message_ai_command(app, prompt.clone(), project.id.clone(), &ai_selection)
+        .await?;
+    let normalized = normalize_generated_commit_message(&raw_text)?;
     let validation_error = match validate_generated_commit_message(
         &normalized,
         &settings.git_preferences.ai_commit_message_length,
@@ -488,20 +535,9 @@ pub(crate) async fn generate_commit_message_for_project<R: Runtime>(
         &validation_error,
         &settings.git_preferences.ai_commit_message_length,
     );
-    let retried_raw = run_ai_command(
-        app,
-        retry_prompt,
-        None,
-        None,
-        Some(project.id.clone()),
-        None,
-        ai_selection.provider_override.clone(),
-        ai_selection.model_override.clone(),
-        ai_selection.reasoning_override.clone(),
-        None,
-    )
-    .await?;
-    let retried = normalize_generated_commit_message(&retried_raw.text)?;
+    let retried_raw_text =
+        run_commit_message_ai_command(app, retry_prompt, project.id.clone(), &ai_selection).await?;
+    let retried = normalize_generated_commit_message(&retried_raw_text)?;
     match validate_generated_commit_message(
         &retried,
         &settings.git_preferences.ai_commit_message_length,
@@ -1318,6 +1354,7 @@ mod tests {
                 ai_commit_model_source: git_model_source.to_string(),
                 ai_commit_model: "sonnet".to_string(),
                 ai_commit_reasoning_effort: "xhigh".to_string(),
+                ai_commit_native_channel_id: None,
             },
             node_path_override: None,
             sdk_install_dir: "/tmp/codex-sdk".to_string(),
@@ -1422,6 +1459,36 @@ mod tests {
         assert_eq!(selection.model_override, None);
         assert_eq!(selection.reasoning_override, None);
         assert_eq!(selection.effective_provider, "codex");
+        assert_eq!(selection.effective_model, "gpt-5.4");
+        assert_eq!(selection.effective_reasoning_effort, "high");
+    }
+
+    #[test]
+    fn custom_native_commit_message_ai_selection_uses_git_channel() {
+        let mut settings = test_settings("codex", "native", "custom");
+        settings.git_preferences.ai_commit_native_channel_id = Some("chan-1".to_string());
+
+        let selection = resolve_commit_message_ai_selection(&settings);
+
+        assert_eq!(selection.provider_override.as_deref(), Some("native"));
+        assert_eq!(selection.model_override.as_deref(), Some("sonnet"));
+        assert_eq!(selection.reasoning_override.as_deref(), Some("xhigh"));
+        assert_eq!(selection.native_channel_id.as_deref(), Some("chan-1"));
+        assert_eq!(selection.effective_provider, "native");
+        assert_eq!(selection.effective_model, "sonnet");
+        assert_eq!(selection.effective_reasoning_effort, "xhigh");
+    }
+
+    #[test]
+    fn inherited_native_commit_message_ai_selection_uses_one_shot_channel() {
+        let mut settings = test_settings("native", "codex", "inherit_one_shot");
+        settings.one_shot_native_channel_id = Some("chan-2".to_string());
+
+        let selection = resolve_commit_message_ai_selection(&settings);
+
+        assert_eq!(selection.provider_override, None);
+        assert_eq!(selection.native_channel_id.as_deref(), Some("chan-2"));
+        assert_eq!(selection.effective_provider, "native");
         assert_eq!(selection.effective_model, "gpt-5.4");
         assert_eq!(selection.effective_reasoning_effort, "high");
     }

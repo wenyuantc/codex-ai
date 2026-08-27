@@ -526,6 +526,9 @@
       "providerLabel": "AI 提供商",
       "modelLabel": "Git AI 模型",
       "reasoningLabel": "Git AI 推理强度",
+      "channelLabel": "AI 渠道",
+      "selectChannel": "选择 AI 渠道",
+      "noChannelHint": "暂无可用 AI 渠道，请先在「AI 渠道」页创建并启用渠道。",
       "loadedModels": "已加载 {{count}} 个可用模型",
       "modelFormat": "格式：provider/modelID（例如 openai/gpt-4o）",
       "currentProviderLabel": "当前 Git AI",
@@ -578,7 +581,8 @@
         "codex": "Codex（OpenAI）",
         "claude": "Claude（Anthropic）",
         "opencode": "OpenCode（开源）",
-        "grok": "Grok"
+        "grok": "Grok",
+        "native": "内置 Agent"
       },
       "reasoningEffort": {
         "low": "低",

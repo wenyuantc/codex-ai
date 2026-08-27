@@ -526,6 +526,9 @@
       "providerLabel": "AI provider",
       "modelLabel": "Git AI model",
       "reasoningLabel": "Git AI reasoning effort",
+      "channelLabel": "AI channel",
+      "selectChannel": "Select AI channel",
+      "noChannelHint": "No AI channels available. Create and enable a channel in the AI Channels tab first.",
       "loadedModels": "Loaded {{count}} available models",
       "modelFormat": "Format: provider/modelID (for example openai/gpt-4o)",
       "currentProviderLabel": "Current Git AI",
@@ -578,7 +581,8 @@
         "codex": "Codex (OpenAI)",
         "claude": "Claude (Anthropic)",
         "opencode": "OpenCode (Open Source)",
-        "grok": "Grok"
+        "grok": "Grok",
+        "native": "Built-in Agent"
       },
       "reasoningEffort": {
         "low": "Low",

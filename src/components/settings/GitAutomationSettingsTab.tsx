@@ -13,7 +13,7 @@ import {
 import {
   AI_COMMIT_MODEL_SOURCE_OPTIONS,
   AI_COMMIT_MESSAGE_LENGTH_OPTIONS,
-  CLI_AI_PROVIDER_OPTIONS,
+  AI_PROVIDER_OPTIONS,
   CODEX_MODEL_OPTIONS,
   CLAUDE_MODEL_OPTIONS,
   CLAUDE_THINKING_BUDGET_OPTIONS,
@@ -26,12 +26,17 @@ import {
   normalizeAiCommitMessageLength,
   normalizeTaskAutomationFailureStrategy,
   normalizeWorktreeLocationMode,
+  type AiChannel,
   type AiProvider,
   type AiCommitMessageLength,
   type AiCommitModelSource,
   type TaskAutomationFailureStrategy,
   type WorktreeLocationMode,
 } from "@/lib/types";
+import {
+  resolveNativeThinking,
+  selectNativeModel,
+} from "@/components/employees/NativeChannelFields";
 import type { OpenCodeModelInfo } from "@/lib/opencode";
 
 const FAILURE_STRATEGY_OPTION_KEY_BY_VALUE: Record<string, string> = {
@@ -103,6 +108,8 @@ interface GitAutomationSettingsTabProps {
   gitAiProvider: AiProvider;
   aiCommitModel: string;
   aiCommitReasoningEffort: string;
+  aiCommitNativeChannelId: string;
+  nativeChannels: AiChannel[];
   opencodeModelList: OpenCodeModelInfo[];
   opencodeModelListLoading: boolean;
   onTaskAutomationDefaultEnabledChange: (value: boolean) => void;
@@ -119,6 +126,7 @@ interface GitAutomationSettingsTabProps {
   onGitAiProviderChange: (value: AiProvider) => void;
   onAiCommitModelChange: (value: string) => void;
   onAiCommitReasoningEffortChange: (value: string) => void;
+  onAiCommitNativeChannelIdChange: (value: string) => void;
   onOpenCodeFetchModels: () => void;
   onSave: () => void;
 }
@@ -144,6 +152,8 @@ export function GitAutomationSettingsTab({
   gitAiProvider,
   aiCommitModel,
   aiCommitReasoningEffort,
+  aiCommitNativeChannelId,
+  nativeChannels,
   opencodeModelList,
   opencodeModelListLoading,
   onTaskAutomationDefaultEnabledChange,
@@ -160,6 +170,7 @@ export function GitAutomationSettingsTab({
   onGitAiProviderChange,
   onAiCommitModelChange,
   onAiCommitReasoningEffortChange,
+  onAiCommitNativeChannelIdChange,
   onOpenCodeFetchModels,
   onSave,
 }: GitAutomationSettingsTabProps) {
@@ -192,7 +203,7 @@ export function GitAutomationSettingsTab({
       description: t(`git.options.commitModelSource.${key}.description`),
     };
   });
-  const providerOptions = CLI_AI_PROVIDER_OPTIONS.map((option) => ({
+  const providerOptions = AI_PROVIDER_OPTIONS.map((option) => ({
     ...option,
     label: t(`git.options.providers.${option.value}`),
   }));
@@ -246,6 +257,20 @@ export function GitAutomationSettingsTab({
   const isGitClaudeProvider = gitAiProvider === "claude";
   const isGitOpenCodeProvider = gitAiProvider === "opencode";
   const isGitGrokProvider = gitAiProvider === "grok";
+  const isGitNativeProvider = gitAiProvider === "native";
+  const selectedGitNativeChannel = nativeChannels.find(
+    (channel) => channel.id === aiCommitNativeChannelId,
+  );
+  const gitNativeModelOptions = selectedGitNativeChannel?.models.map((item) => item.id) ?? [];
+  const gitNativeThinking = resolveNativeThinking(selectedGitNativeChannel, aiCommitModel);
+  const gitNativeEffortOptions = gitNativeThinking.levels.map((level) => ({
+    value: level,
+    label: t(`runtime.options.nativeThinkingLevels.${level}`, { defaultValue: level }),
+  }));
+  /** 历史配置的推理强度可能不在当前模型思考等级内，展示时回退到模型默认等级。 */
+  const effectiveGitNativeEffort = gitNativeThinking.levels.includes(aiCommitReasoningEffort)
+    ? aiCommitReasoningEffort
+    : gitNativeThinking.defaultLevel;
   const availableGitProviders = providerOptions;
   const gitOpenCodeModelOptions =
     opencodeModelList.length > 0
@@ -269,7 +294,17 @@ export function GitAutomationSettingsTab({
       ? openCodeEffortOptions
       : isGitGrokProvider
         ? grokEffortOptions
-        : reasoningEffortOptions;
+        : isGitNativeProvider
+          ? gitNativeEffortOptions
+          : reasoningEffortOptions;
+
+  const gitModelOptions = isGitClaudeProvider
+    ? claudeModelOptions
+    : isGitGrokProvider
+      ? grokModelOptions
+      : isGitNativeProvider
+        ? gitNativeModelOptions.map((id) => ({ value: id, label: id }))
+        : codexModelOptions;
 
   const gitProviderLabel =
     providerOptions.find((option) => option.value === gitAiProvider)?.label ?? gitAiProvider;
@@ -620,6 +655,49 @@ export function GitAutomationSettingsTab({
           </div>
         </div>
 
+        {isGitAiCustom && isGitNativeProvider ? (
+          <div className="space-y-2">
+            <label className="text-sm font-medium">{t("git.gitAi.channelLabel")}</label>
+            <Select
+              value={aiCommitNativeChannelId || undefined}
+              onValueChange={(value) => {
+                if (!value) return;
+                onAiCommitNativeChannelIdChange(value);
+                const channel = nativeChannels.find((item) => item.id === value);
+                const nextModel = selectNativeModel(channel, aiCommitModel);
+                onAiCommitModelChange(nextModel);
+                const thinking = resolveNativeThinking(channel, nextModel);
+                onAiCommitReasoningEffortChange(thinking.defaultLevel);
+              }}
+              disabled={healthLoading || actionLoading !== null}
+            >
+              <SelectTrigger className="bg-background">
+                <SelectValue>
+                  {(value) => {
+                    if (typeof value !== "string") {
+                      return t("git.gitAi.selectChannel");
+                    }
+                    const channel = nativeChannels.find((item) => item.id === value);
+                    return channel
+                      ? `${channel.name} · ${channel.protocol}`
+                      : t("git.gitAi.selectChannel");
+                  }}
+                </SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                {nativeChannels.map((channel) => (
+                  <SelectItem key={channel.id} value={channel.id}>
+                    {channel.name} · {channel.protocol}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {nativeChannels.length === 0 ? (
+              <p className="text-xs text-destructive">{t("git.gitAi.noChannelHint")}</p>
+            ) : null}
+          </div>
+        ) : null}
+
         <div className="grid gap-3 md:grid-cols-2">
           <div className="space-y-2">
             <label className="text-sm font-medium">{t("git.gitAi.modelLabel")}</label>
@@ -680,6 +758,13 @@ export function GitAutomationSettingsTab({
                   )}
                 </Button>
               </div>
+            ) : isGitNativeProvider && gitNativeModelOptions.length === 0 ? (
+              <Input
+                value={aiCommitModel}
+                onChange={(event) => onAiCommitModelChange(event.target.value)}
+                placeholder={t("runtime.oneShot.modelPlaceholder")}
+                disabled={healthLoading || actionLoading !== null || !isGitAiCustom}
+              />
             ) : (
               <Select
                 value={aiCommitModel}
@@ -694,12 +779,7 @@ export function GitAutomationSettingsTab({
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {(isGitClaudeProvider
-                    ? claudeModelOptions
-                    : isGitGrokProvider
-                      ? grokModelOptions
-                      : codexModelOptions
-                  ).map((option) => (
+                  {gitModelOptions.map((option) => (
                     <SelectItem key={option.value} value={option.value}>
                       {option.label}
                     </SelectItem>
@@ -719,7 +799,7 @@ export function GitAutomationSettingsTab({
           <div className="space-y-2">
             <label className="text-sm font-medium">{t("git.gitAi.reasoningLabel")}</label>
             <Select
-              value={aiCommitReasoningEffort}
+              value={isGitNativeProvider ? effectiveGitNativeEffort : aiCommitReasoningEffort}
               onValueChange={(value) => {
                 if (value) {
                   onAiCommitReasoningEffortChange(value);
@@ -738,6 +818,13 @@ export function GitAutomationSettingsTab({
                 ))}
               </SelectContent>
             </Select>
+            {isGitNativeProvider ? (
+              <p className="text-xs text-muted-foreground">
+                {gitNativeThinking.enabled
+                  ? t("runtime.oneShot.nativeThinkingFromChannel")
+                  : t("runtime.oneShot.nativeThinkingDisabled")}
+              </p>
+            ) : null}
           </div>
         </div>
 

@@ -98,6 +98,8 @@ struct RawGitPreferences {
     ai_commit_model: Option<String>,
     #[serde(default)]
     ai_commit_reasoning_effort: Option<String>,
+    #[serde(default)]
+    ai_commit_native_channel_id: Option<String>,
 }
 
 #[derive(Debug, Default, Deserialize, Serialize)]
@@ -280,6 +282,7 @@ fn default_git_preferences() -> GitPreferences {
         ai_commit_model_source: DEFAULT_AI_COMMIT_MODEL_SOURCE.to_string(),
         ai_commit_model: DEFAULT_ONE_SHOT_MODEL.to_string(),
         ai_commit_reasoning_effort: DEFAULT_ONE_SHOT_REASONING_EFFORT.to_string(),
+        ai_commit_native_channel_id: None,
     }
 }
 
@@ -322,6 +325,9 @@ fn normalize_git_preferences(
             &git_provider,
             Some(&preferences.ai_commit_reasoning_effort),
         ),
+        ai_commit_native_channel_id: normalize_optional_text(
+            preferences.ai_commit_native_channel_id.as_deref(),
+        ),
     }
 }
 
@@ -363,6 +369,9 @@ fn normalize_raw_git_preferences(
             &git_provider,
             raw.ai_commit_reasoning_effort.as_deref(),
         ),
+        ai_commit_native_channel_id: normalize_optional_text(
+            raw.ai_commit_native_channel_id.as_deref(),
+        ),
     }
 }
 
@@ -399,6 +408,16 @@ fn validate_git_preferences(preferences: &GitPreferences, is_remote: bool) -> Re
         );
         if normalized_effort != preferences.ai_commit_reasoning_effort.trim() {
             return Err(format!("Git AI 自定义推理强度不支持 provider {}", provider));
+        }
+        if provider == "native"
+            && preferences
+                .ai_commit_native_channel_id
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .is_none()
+        {
+            return Err("Git AI 使用内置 Agent 时请先选择 AI 渠道".to_string());
         }
     }
 
@@ -744,6 +763,10 @@ fn merge_git_preferences(
             Some(&ai_commit_reasoning_effort),
         );
     }
+    if let Some(ai_commit_native_channel_id) = updates.ai_commit_native_channel_id {
+        current.ai_commit_native_channel_id =
+            normalize_optional_text(ai_commit_native_channel_id.as_deref());
+    }
     validate_git_preferences(current, is_remote)
 }
 
@@ -756,6 +779,7 @@ fn git_preferences_changed(previous: &GitPreferences, next: &GitPreferences) -> 
         || previous.ai_commit_model_source != next.ai_commit_model_source
         || previous.ai_commit_model != next.ai_commit_model
         || previous.ai_commit_reasoning_effort != next.ai_commit_reasoning_effort
+        || previous.ai_commit_native_channel_id != next.ai_commit_native_channel_id
 }
 
 fn format_worktree_location_mode_label(value: &str) -> &str {
@@ -778,6 +802,7 @@ fn format_ai_preferred_provider_label(value: &str) -> &str {
         "claude" => "Claude",
         "opencode" => "OpenCode",
         "grok" => "Grok",
+        "native" => "内置 Agent",
         _ => "Codex",
     }
 }
@@ -796,9 +821,20 @@ fn format_git_preferences_activity_details(
         "{}（{} / 推理 {}）",
         git_provider_label, preferences.ai_commit_model, preferences.ai_commit_reasoning_effort
     );
+    let channel_details = if preferences.ai_commit_preferred_provider == "native" {
+        let channel = preferences
+            .ai_commit_native_channel_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .unwrap_or("未选择");
+        format!("；Git AI 渠道 {}", channel)
+    } else {
+        String::new()
+    };
 
     format!(
-        "{}：新建任务默认 Worktree {}；目录规则 {}；自定义根目录 {}；提交信息默认 {}；Git AI {}",
+        "{}：新建任务默认 Worktree {}；目录规则 {}；自定义根目录 {}；提交信息默认 {}；Git AI {}{}",
         profile_label,
         if preferences.default_task_use_worktree {
             "开启"
@@ -808,7 +844,8 @@ fn format_git_preferences_activity_details(
         format_worktree_location_mode_label(&preferences.worktree_location_mode),
         custom_root,
         format_ai_commit_message_length_label(&preferences.ai_commit_message_length),
-        model_details
+        model_details,
+        channel_details
     )
 }
 
@@ -1419,7 +1456,7 @@ mod tests {
         normalize_task_automation_failure_strategy, normalize_task_automation_max_fix_rounds,
         npm_package_dir, parse_node_major_version, read_sdk_version_from_dir,
         sdk_cli_binaries_available, sdk_platform_binary_path, sdk_platform_package_for_target,
-        RawCodexSettings, RawGitPreferences, SDK_INSTALL_PACKAGE_SPECS,
+        validate_git_preferences, RawCodexSettings, RawGitPreferences, SDK_INSTALL_PACKAGE_SPECS,
     };
     use crate::db::models::{CodexSettings, GitPreferences, UpdateGitPreferences};
     use std::fs;
@@ -1734,6 +1771,78 @@ mod tests {
     }
 
     #[test]
+    fn git_ai_native_channel_id_is_preserved_and_trimmed() {
+        let base = create_temp_dir();
+        let normalized = normalize_raw_settings(
+            RawCodexSettings {
+                git_preferences: Some(RawGitPreferences {
+                    ai_commit_preferred_provider: Some("native".to_string()),
+                    ai_commit_model_source: Some("custom".to_string()),
+                    ai_commit_native_channel_id: Some("  chan-1  ".to_string()),
+                    ..RawGitPreferences::default()
+                }),
+                ..RawCodexSettings::default()
+            },
+            base.to_string_lossy().as_ref(),
+        );
+
+        assert_eq!(
+            normalized.git_preferences.ai_commit_preferred_provider,
+            "native"
+        );
+        assert_eq!(
+            normalized.git_preferences.ai_commit_native_channel_id.as_deref(),
+            Some("chan-1")
+        );
+
+        fs::remove_dir_all(base).expect("remove temp dir");
+    }
+
+    #[test]
+    fn git_ai_custom_native_requires_channel() {
+        let mut preferences = default_git_preferences();
+        preferences.ai_commit_model_source = "custom".to_string();
+        preferences.ai_commit_preferred_provider = "native".to_string();
+        preferences.ai_commit_model = "deepseek-chat".to_string();
+        preferences.ai_commit_reasoning_effort = "high".to_string();
+        preferences.ai_commit_native_channel_id = None;
+
+        let error = validate_git_preferences(&preferences, false)
+            .expect_err("custom native without channel should fail");
+        assert!(error.contains("请先选择 AI 渠道"));
+
+        preferences.ai_commit_native_channel_id = Some("  chan-1  ".to_string());
+        validate_git_preferences(&preferences, false).expect("channel set should pass");
+    }
+
+    #[test]
+    fn merge_git_preferences_applies_native_channel() {
+        let mut current = default_git_preferences();
+        merge_git_preferences(
+            &mut current,
+            UpdateGitPreferences {
+                ai_commit_preferred_provider: Some("native".to_string()),
+                ai_commit_model_source: Some("custom".to_string()),
+                ai_commit_model: Some("deepseek-chat".to_string()),
+                ai_commit_reasoning_effort: Some("high".to_string()),
+                ai_commit_native_channel_id: Some(Some("  chan-2  ".to_string())),
+                default_task_use_worktree: None,
+                worktree_location_mode: None,
+                worktree_custom_root: None,
+                ai_commit_message_length: None,
+            },
+            false,
+        )
+        .expect("custom native with channel should be valid");
+
+        assert_eq!(current.ai_commit_preferred_provider, "native");
+        assert_eq!(
+            current.ai_commit_native_channel_id.as_deref(),
+            Some("chan-2")
+        );
+    }
+
+    #[test]
     fn invalid_task_automation_settings_fall_back_to_defaults() {
         let base = create_temp_dir();
         let normalized = normalize_raw_settings(
@@ -1868,6 +1977,7 @@ mod tests {
                 ai_commit_model_source: None,
                 ai_commit_model: None,
                 ai_commit_reasoning_effort: None,
+                ai_commit_native_channel_id: None,
             },
             false,
         )
@@ -1890,6 +2000,7 @@ mod tests {
                 ai_commit_model_source: Some("custom".to_string()),
                 ai_commit_model: Some("gpt-5.4-mini".to_string()),
                 ai_commit_reasoning_effort: Some("medium".to_string()),
+                ai_commit_native_channel_id: None,
             },
             true,
         )
@@ -1918,6 +2029,7 @@ mod tests {
                 ai_commit_model_source: Some("custom".to_string()),
                 ai_commit_model: Some("gpt-unknown".to_string()),
                 ai_commit_reasoning_effort: Some("medium".to_string()),
+                ai_commit_native_channel_id: None,
             },
             false,
         )

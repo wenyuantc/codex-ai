@@ -21,6 +21,7 @@ fn sample_codex_settings() -> CodexSettings {
             ai_commit_model_source: "inherit_one_shot".to_string(),
             ai_commit_model: "gpt-5.4".to_string(),
             ai_commit_reasoning_effort: "high".to_string(),
+            ai_commit_native_channel_id: None,
         },
         node_path_override: None,
         sdk_install_dir: "~/.codex-ai/codex-sdk-runtime/ssh-1".to_string(),

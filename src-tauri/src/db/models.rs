@@ -469,6 +469,8 @@ pub struct GitPreferences {
     pub ai_commit_model_source: String,
     pub ai_commit_model: String,
     pub ai_commit_reasoning_effort: String,
+    /// Git AI 使用内置 Agent（native）时绑定的 AI 渠道 id。
+    pub ai_commit_native_channel_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1563,6 +1565,8 @@ pub struct UpdateGitPreferences {
     pub ai_commit_model_source: Option<String>,
     pub ai_commit_model: Option<String>,
     pub ai_commit_reasoning_effort: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_explicit_nullable")]
+    pub ai_commit_native_channel_id: Option<Option<String>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

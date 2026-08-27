@@ -71,7 +71,6 @@ import { getLocalePreference, type AppLocale } from "@/lib/i18n/locale";
 import { getEnvironmentModeLabel } from "@/lib/projects";
 import {
   normalizeAiProvider,
-  normalizeCliAiProvider,
   normalizeAiCommitMessageLength,
   normalizeClaudeModel,
   normalizeModelForProvider,
@@ -124,6 +123,7 @@ const DEFAULT_GIT_PREFERENCES: GitPreferences = {
   ai_commit_model_source: "inherit_one_shot",
   ai_commit_model: "gpt-5.4",
   ai_commit_reasoning_effort: "high",
+  ai_commit_native_channel_id: null,
 };
 
 const CLAUDE_DEFAULT_EFFORT_TO_BUDGET: Record<string, number> = {
@@ -228,6 +228,7 @@ export function SettingsPage() {
   const [aiCommitReasoningEffort, setAiCommitReasoningEffort] = useState(
     DEFAULT_GIT_PREFERENCES.ai_commit_reasoning_effort,
   );
+  const [aiCommitNativeChannelId, setAiCommitNativeChannelId] = useState("");
   const [gitAiProvider, setGitAiProvider] = useState<AiProvider>(
     DEFAULT_GIT_PREFERENCES.ai_commit_preferred_provider,
   );
@@ -353,19 +354,13 @@ export function SettingsPage() {
       normalizeAiCommitMessageLength(gitPreferences.ai_commit_message_length),
     );
     setAiCommitModelSource(normalizeAiCommitModelSource(gitPreferences.ai_commit_model_source));
-    setAiCommitModel(
-      normalizeModelForProvider(
-        normalizeCliAiProvider(gitPreferences.ai_commit_preferred_provider),
-        gitPreferences.ai_commit_model,
-      ),
-    );
-    setGitAiProvider(normalizeCliAiProvider(gitPreferences.ai_commit_preferred_provider));
+    const gitProvider = normalizeAiProvider(gitPreferences.ai_commit_preferred_provider);
+    setAiCommitModel(normalizeModelForProvider(gitProvider, gitPreferences.ai_commit_model));
+    setGitAiProvider(gitProvider);
     setAiCommitReasoningEffort(
-      normalizeReasoningEffortForProvider(
-        normalizeCliAiProvider(gitPreferences.ai_commit_preferred_provider),
-        gitPreferences.ai_commit_reasoning_effort,
-      ),
+      normalizeReasoningEffortForProvider(gitProvider, gitPreferences.ai_commit_reasoning_effort),
     );
+    setAiCommitNativeChannelId(gitPreferences.ai_commit_native_channel_id ?? "");
     setNodePathOverride(settings.node_path_override ?? "");
   }
 
@@ -789,6 +784,7 @@ export function SettingsPage() {
           ai_commit_model_source: aiCommitModelSource,
           ai_commit_model: aiCommitModel,
           ai_commit_reasoning_effort: aiCommitReasoningEffort,
+          ai_commit_native_channel_id: aiCommitNativeChannelId.trim() || null,
         },
         node_path_override: nodePathOverride.trim() || null,
       };
@@ -1420,6 +1416,8 @@ export function SettingsPage() {
             gitAiProvider={gitAiProvider}
             aiCommitModel={aiCommitModel}
             aiCommitReasoningEffort={aiCommitReasoningEffort}
+            aiCommitNativeChannelId={aiCommitNativeChannelId}
+            nativeChannels={nativeChannels}
             opencodeModelList={opencodeModelList}
             opencodeModelListLoading={opencodeModelListLoading}
             onTaskAutomationDefaultEnabledChange={setTaskAutomationDefaultEnabled}
@@ -1442,6 +1440,7 @@ export function SettingsPage() {
             }}
             onAiCommitModelChange={setAiCommitModel}
             onAiCommitReasoningEffortChange={setAiCommitReasoningEffort}
+            onAiCommitNativeChannelIdChange={setAiCommitNativeChannelId}
             onOpenCodeFetchModels={() => void handleFetchOpenCodeModels()}
             onSave={() => void handleSaveSdkSettings()}
           />
