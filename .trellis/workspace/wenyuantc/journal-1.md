@@ -809,3 +809,24 @@ i18next zh-CN/en framework, main-path extraction, activity single-source, leftov
 ### Status
 
 [OK] **Completed**
+
+
+## Session 27: Git AI 提交信息支持内置 Agent 与 AI 渠道
+
+**Date**: 2026-08-27
+**Task**: Git AI 提交信息支持内置 Agent 与 AI 渠道
+**Branch**: `main`
+
+### Summary
+
+实现 Git AI 提交信息生成支持内置 Agent（native）+ AI 渠道：后端新增 ai_commit_native_channel_id 设置字段（JSON 设置，无迁移）、run_commit_message_ai_command 走 run_native_one_shot_via_channel、custom/inherit 双模式渠道解析与校验、活动日志显示内置 Agent；前端设置页提供商可选内置 Agent 并联动 AI 渠道/模型/推理强度（复用 selectNativeModel/resolveNativeThinking）。独立子代理审查通过（修复测试模块导入），delivery_check PASS。cargo/npm 检查因会话无 shell 工具未执行，需本地运行 implement.md 验证清单。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `1ec2a74` | (see git log) |
+
+### Status
+
+[OK] **Completed**
