@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::sync::Arc;
 use std::time::Duration;
 
 use serde_json::Value;
@@ -8,13 +9,16 @@ use crate::native::protocol::{
     channel_chat_url, channel_models_url, model_list_next_page, parse_model_list_json,
     PROTOCOL_ANTHROPIC, PROTOCOL_CODEX, PROTOCOL_OPENAI,
 };
+use crate::native::tools::CancelFlag;
 
 use super::anthropic::{build_anthropic_body, parse_anthropic_json, parse_anthropic_sse};
 use super::openai::{
     build_openai_body, parse_max_output_token_limit, parse_openai_json, parse_openai_sse,
 };
 use super::responses::{build_responses_body, parse_responses_json, parse_responses_sse};
-use super::retry::{format_http_error, is_retryable_status, redact_secrets, RetryConfig};
+use super::retry::{
+    format_http_error, format_retry_line, is_retryable_error, redact_secrets, RetryConfig,
+};
 use super::sse::parse_sse;
 use super::types::{Message, StreamEvent, ToolSpec, Usage};
 
@@ -37,10 +41,14 @@ pub struct ChatRequest<'a> {
     pub thinking_enabled: bool,
 }
 
+pub type RetryHook = Arc<dyn Fn(&str) + Send + Sync>;
+
 #[derive(Clone)]
 pub struct ModelClient {
     http: reqwest::Client,
     config: ModelClientConfig,
+    on_retry: Option<RetryHook>,
+    cancel: Option<CancelFlag>,
 }
 
 impl ModelClient {
@@ -49,7 +57,22 @@ impl ModelClient {
             .timeout(config.timeout)
             .build()
             .map_err(|error| format!("创建 HTTP 客户端失败: {error}"))?;
-        Ok(Self { http, config })
+        Ok(Self {
+            http,
+            config,
+            on_retry: None,
+            cancel: None,
+        })
+    }
+
+    pub fn with_retry_hook(mut self, hook: RetryHook) -> Self {
+        self.on_retry = Some(hook);
+        self
+    }
+
+    pub fn with_cancel(mut self, cancel: CancelFlag) -> Self {
+        self.cancel = Some(cancel);
+        self
     }
 
     pub fn build_body(&self, request: &ChatRequest<'_>, stream: bool) -> Result<Value, String> {
@@ -201,26 +224,88 @@ impl ModelClient {
         let attempts = self.config.retry.max_retries.saturating_add(1);
         let mut last_error = "模型请求失败".to_string();
         for attempt in 0..attempts {
+            if self.is_cancelled() {
+                return Err("已取消".to_string());
+            }
             match self.post_raw(url, body).await {
                 Ok((status, text)) if (200..300).contains(&status) => {
-                    return self.parse_success_body(&text);
+                    match self.parse_success_body(&text) {
+                        Ok(result) => return Ok(result),
+                        Err(error) => last_error = error,
+                    }
+                    if self.should_stop_retry(&last_error, Some(status), attempt, attempts) {
+                        return Err(last_error);
+                    }
                 }
                 Ok((status, text)) => {
                     last_error = format_http_error(status, url, &text);
-                    if !is_retryable_status(status) || attempt + 1 >= attempts {
+                    if self.should_stop_retry(&last_error, Some(status), attempt, attempts) {
                         return Err(last_error);
                     }
                 }
                 Err(error) => {
                     last_error = error;
-                    if attempt + 1 >= attempts {
+                    if self.is_cancelled() {
+                        return Err("已取消".to_string());
+                    }
+                    if self.should_stop_retry(&last_error, None, attempt, attempts) {
                         return Err(last_error);
                     }
                 }
             }
-            tokio::time::sleep(self.config.retry.delay_for_attempt(attempt)).await;
+            let delay = self.config.retry.delay_for_attempt(attempt);
+            self.emit_retry(&last_error, attempt.saturating_add(1), delay);
+            self.wait_before_retry(delay).await?;
         }
         Err(last_error)
+    }
+
+    fn should_stop_retry(
+        &self,
+        error: &str,
+        status: Option<u16>,
+        attempt: u32,
+        attempts: u32,
+    ) -> bool {
+        parse_max_output_token_limit(error).is_some()
+            || !is_retryable_error(status, error)
+            || attempt + 1 >= attempts
+    }
+
+    fn is_cancelled(&self) -> bool {
+        self.cancel.as_ref().is_some_and(CancelFlag::is_cancelled)
+    }
+
+    fn emit_retry(&self, error: &str, attempt: u32, delay: Duration) {
+        let Some(hook) = &self.on_retry else {
+            return;
+        };
+        hook(&format_retry_line(
+            &redact_secrets(error),
+            attempt,
+            self.config.retry.max_retries,
+            delay,
+        ));
+    }
+
+    async fn wait_before_retry(&self, delay: Duration) -> Result<(), String> {
+        let Some(cancel) = &self.cancel else {
+            tokio::time::sleep(delay).await;
+            return Ok(());
+        };
+        let mut remaining = delay;
+        while remaining > Duration::ZERO {
+            if cancel.is_cancelled() {
+                return Err("已取消".to_string());
+            }
+            let slice = remaining.min(Duration::from_millis(200));
+            tokio::time::sleep(slice).await;
+            remaining = remaining.saturating_sub(slice);
+        }
+        if cancel.is_cancelled() {
+            return Err("已取消".to_string());
+        }
+        Ok(())
     }
 
     fn apply_auth(&self, mut request: reqwest::RequestBuilder) -> reqwest::RequestBuilder {
@@ -412,13 +497,25 @@ pub fn events_from_message(message: Message, usage: Usage) -> Vec<StreamEvent> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::atomic::{AtomicU32, Ordering};
+    use std::sync::{Arc, Mutex};
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    const OK_SSE: &str =
+        "data: {\"choices\":[{\"delta\":{\"content\":\"ok\"}}]}\n\ndata: [DONE]\n\n";
 
     async fn serve_once(status: u16, body: &str) -> String {
         serve_sequence(vec![(status, body.to_string())]).await
     }
 
     async fn serve_sequence(responses: Vec<(u16, String)>) -> String {
+        serve_sequence_counted(responses, None).await
+    }
+
+    async fn serve_sequence_counted(
+        responses: Vec<(u16, String)>,
+        counter: Option<Arc<AtomicU32>>,
+    ) -> String {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
             .await
             .expect("bind mock server");
@@ -426,6 +523,9 @@ mod tests {
         tokio::spawn(async move {
             for (status, body) in responses {
                 let (mut stream, _) = listener.accept().await.expect("accept");
+                if let Some(counter) = &counter {
+                    counter.fetch_add(1, Ordering::SeqCst);
+                }
                 let mut buf = vec![0u8; 16384];
                 let _ = stream.read(&mut buf).await;
                 let header = format!(
@@ -444,22 +544,40 @@ mod tests {
     }
 
     fn client_with_protocol(base_url: String, protocol: &str) -> ModelClient {
+        client_with_retry_protocol(base_url, protocol, RetryConfig::none())
+    }
+
+    fn fast_retry() -> RetryConfig {
+        RetryConfig {
+            max_retries: 10,
+            base_delay_ms: 1,
+            max_delay_ms: 1,
+            jitter: false,
+        }
+    }
+
+    fn client_with_retry(base_url: String, retry: RetryConfig) -> ModelClient {
+        client_with_retry_protocol(base_url, PROTOCOL_OPENAI, retry)
+    }
+
+    fn client_with_retry_protocol(
+        base_url: String,
+        protocol: &str,
+        retry: RetryConfig,
+    ) -> ModelClient {
         ModelClient::new(ModelClientConfig {
             protocol: protocol.to_string(),
             base_url,
             api_key: "sk-secret-key".to_string(),
             extra_headers: HashMap::new(),
-            retry: RetryConfig::none(),
+            retry,
             timeout: Duration::from_secs(5),
         })
         .expect("client")
     }
 
-    #[tokio::test]
-    async fn chat_parses_mock_openai_sse() {
-        let sse = "data: {\"choices\":[{\"delta\":{\"content\":\"ok\"}}]}\n\ndata: [DONE]\n\n";
-        let base = serve_once(200, sse).await;
-        let (message, _) = client(base)
+    async fn chat_hi_on(client: ModelClient) -> Result<(Message, Usage), String> {
+        client
             .chat(ChatRequest {
                 messages: &[Message::user("hi")],
                 tools: &[],
@@ -469,7 +587,12 @@ mod tests {
                 thinking_enabled: false,
             })
             .await
-            .expect("chat");
+    }
+
+    #[tokio::test]
+    async fn chat_parses_mock_openai_sse() {
+        let base = serve_once(200, OK_SSE).await;
+        let (message, _) = chat_hi_on(client(base)).await.expect("chat");
         assert_eq!(message.content, "ok");
     }
 
@@ -494,8 +617,7 @@ mod tests {
 
     #[tokio::test]
     async fn chat_stream_ends_with_done() {
-        let sse = "data: {\"choices\":[{\"delta\":{\"content\":\"ok\"}}]}\n\ndata: [DONE]\n\n";
-        let base = serve_once(200, sse).await;
+        let base = serve_once(200, OK_SSE).await;
         let mut rx = client(base)
             .chat_stream(ChatRequest {
                 messages: &[Message::user("hi")],
@@ -519,8 +641,7 @@ mod tests {
     #[tokio::test]
     async fn chat_retries_when_max_tokens_exceeds_gateway_limit() {
         let error = r#"{"error":{"message":"max_tokens is too large: 384000. This model supports at most 131072 completion tokens."}}"#;
-        let sse = "data: {\"choices\":[{\"delta\":{\"content\":\"ok\"}}]}\n\ndata: [DONE]\n\n";
-        let base = serve_sequence(vec![(400, error.to_string()), (200, sse.to_string())]).await;
+        let base = serve_sequence(vec![(400, error.to_string()), (200, OK_SSE.to_string())]).await;
         let (message, _) = client(base)
             .chat(ChatRequest {
                 messages: &[Message::user("hi")],
@@ -536,16 +657,7 @@ mod tests {
     }
 
     async fn chat_hi(base: String) -> Result<(Message, Usage), String> {
-        client(base)
-            .chat(ChatRequest {
-                messages: &[Message::user("hi")],
-                tools: &[],
-                model: "gpt-4o",
-                effort: None,
-                max_output_tokens: None,
-                thinking_enabled: false,
-            })
-            .await
+        chat_hi_on(client(base)).await
     }
 
     #[tokio::test]
@@ -603,5 +715,149 @@ mod tests {
             .await
             .expect("responses json");
         assert_eq!(message.content, "done plan");
+    }
+
+    #[tokio::test]
+    async fn chat_retries_http_503_then_succeeds() {
+        let counter = Arc::new(AtomicU32::new(0));
+        let base = serve_sequence_counted(
+            vec![(503, "busy".to_string()), (200, OK_SSE.to_string())],
+            Some(counter.clone()),
+        )
+        .await;
+        let lines = Arc::new(Mutex::new(Vec::new()));
+        let captured = lines.clone();
+        let (message, _) = chat_hi_on(client_with_retry(base, fast_retry()).with_retry_hook(
+            Arc::new(move |line: &str| {
+                captured.lock().expect("retry lines").push(line.to_string());
+            }),
+        ))
+        .await
+        .expect("503 then success");
+        assert_eq!(message.content, "ok");
+        assert_eq!(counter.load(Ordering::SeqCst), 2);
+        let lines = lines.lock().expect("retry lines");
+        assert_eq!(lines.len(), 1);
+        assert!(lines[0].contains("[重试]"));
+        assert!(lines[0].contains("1/10"));
+        assert!(lines[0].contains("HTTP 503"));
+    }
+
+    #[tokio::test]
+    async fn chat_retries_http_200_gateway_error_then_succeeds() {
+        let error = r#"{"error":{"message":"overloaded"}}"#;
+        let base = serve_sequence(vec![(200, error.to_string()), (200, OK_SSE.to_string())]).await;
+        let (message, _) = chat_hi_on(client_with_retry(base, fast_retry()))
+            .await
+            .expect("gateway error then success");
+        assert_eq!(message.content, "ok");
+    }
+
+    #[tokio::test]
+    async fn chat_retries_http_200_empty_then_succeeds() {
+        let base = serve_sequence(vec![(200, String::new()), (200, OK_SSE.to_string())]).await;
+        let (message, _) = chat_hi_on(client_with_retry(base, fast_retry()))
+            .await
+            .expect("empty then success");
+        assert_eq!(message.content, "ok");
+    }
+
+    #[tokio::test]
+    async fn chat_retry_none_does_not_retry() {
+        let counter = Arc::new(AtomicU32::new(0));
+        let base =
+            serve_sequence_counted(vec![(503, "busy".to_string())], Some(counter.clone())).await;
+        let error = chat_hi_on(client_with_retry(base, RetryConfig::none()))
+            .await
+            .expect_err("none should fail immediately");
+        assert!(error.contains("HTTP 503"));
+        assert_eq!(counter.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn chat_retry_line_redacts_api_key() {
+        let body = "Authorization: Bearer sk-secret-key gateway busy";
+        let base = serve_sequence(vec![(503, body.to_string()), (200, OK_SSE.to_string())]).await;
+        let lines = Arc::new(Mutex::new(Vec::new()));
+        let captured = lines.clone();
+        chat_hi_on(
+            client_with_retry(base, fast_retry()).with_retry_hook(Arc::new(move |line: &str| {
+                captured.lock().expect("retry lines").push(line.to_string());
+            })),
+        )
+        .await
+        .expect("retry then success");
+        let lines = lines.lock().expect("retry lines");
+        assert_eq!(lines.len(), 1);
+        assert!(lines[0].contains("[重试]"));
+        assert!(!lines[0].contains("sk-secret-key"));
+        assert!(!lines[0].to_ascii_lowercase().contains("bearer sk"));
+    }
+
+    #[tokio::test]
+    async fn chat_does_not_retry_unauthorized() {
+        let counter = Arc::new(AtomicU32::new(0));
+        let base =
+            serve_sequence_counted(vec![(401, "denied".to_string())], Some(counter.clone())).await;
+        let lines = Arc::new(Mutex::new(Vec::new()));
+        let captured = lines.clone();
+        let error = chat_hi_on(
+            client_with_retry(base, fast_retry()).with_retry_hook(Arc::new(move |line: &str| {
+                captured.lock().expect("retry lines").push(line.to_string());
+            })),
+        )
+        .await
+        .expect_err("401 should fail");
+        assert!(error.contains("HTTP 401"));
+        assert_eq!(counter.load(Ordering::SeqCst), 1);
+        assert!(lines.lock().expect("retry lines").is_empty());
+    }
+
+    #[tokio::test]
+    async fn chat_max_tokens_limit_skips_http_retry_budget() {
+        let error = r#"{"error":{"message":"max_tokens is too large: 384000. This model supports at most 131072 completion tokens."}}"#;
+        let counter = Arc::new(AtomicU32::new(0));
+        let base = serve_sequence_counted(
+            vec![(400, error.to_string()), (200, OK_SSE.to_string())],
+            Some(counter.clone()),
+        )
+        .await;
+        let (message, _) = client_with_retry(base, fast_retry())
+            .chat(ChatRequest {
+                messages: &[Message::user("hi")],
+                tools: &[],
+                model: "deepseek-v4-flash",
+                effort: None,
+                max_output_tokens: Some(384000),
+                thinking_enabled: true,
+            })
+            .await
+            .expect("max_tokens one-shot retry");
+        assert_eq!(message.content, "ok");
+        assert_eq!(counter.load(Ordering::SeqCst), 2);
+    }
+
+    #[tokio::test]
+    async fn chat_cancels_during_retry_wait() {
+        let base = serve_once(503, "busy").await;
+        let cancel = CancelFlag::new();
+        let client = client_with_retry(
+            base,
+            RetryConfig {
+                max_retries: 10,
+                base_delay_ms: 2_000,
+                max_delay_ms: 2_000,
+                jitter: false,
+            },
+        )
+        .with_cancel(cancel.clone());
+        let task = tokio::spawn(async move { chat_hi_on(client).await });
+        tokio::time::sleep(Duration::from_millis(80)).await;
+        cancel.cancel();
+        let error = task
+            .await
+            .expect("join")
+            .expect_err("retry wait should cancel");
+        assert_eq!(error, "已取消");
     }
 }

@@ -1,0 +1,4 @@
+{"file": ".trellis/spec/backend/ai-engines.md", "reason": "Native RetryConfig default 10×3s, retryable vs auth/quota, [重试] stdout path, CancelFlag wait, probe none(), max_tokens one-shot downgrade"}
+{"file": ".trellis/spec/backend/error-handling.md", "reason": "Chinese Result errors; do not log or echo API keys"}
+{"file": ".trellis/spec/backend/testing.md", "reason": "Colocated unit/async tests for retry classification and HTTP sequences"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "stdout persist + native-stdout; local and SSH share in-process ModelClient"}

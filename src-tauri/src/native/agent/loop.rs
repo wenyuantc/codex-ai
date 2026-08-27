@@ -187,14 +187,33 @@ impl AgentRunner {
     }
 
     fn emit(&self, line: impl Into<String>) {
-        if let Some(tx) = &self.on_event {
+        Self::send_prefixed_event(&self.on_event, &self.event_prefix, line);
+    }
+
+    fn send_prefixed_event(
+        on_event: &Option<mpsc::UnboundedSender<String>>,
+        prefix: &str,
+        line: impl Into<String>,
+    ) {
+        if let Some(tx) = on_event {
             let line = line.into();
-            let _ = tx.send(if self.event_prefix.is_empty() {
+            let _ = tx.send(if prefix.is_empty() {
                 line
             } else {
-                format!("{}{line}", self.event_prefix)
+                format!("{prefix}{line}")
             });
         }
+    }
+
+    fn observe_client(&self, client: &ModelClient) -> ModelClient {
+        let on_event = self.on_event.clone();
+        let prefix = self.event_prefix.clone();
+        client
+            .clone()
+            .with_cancel(self.ctx.cancel.clone())
+            .with_retry_hook(Arc::new(move |line: &str| {
+                Self::send_prefixed_event(&on_event, &prefix, line);
+            }))
     }
 
     fn emit_activity(&self, action: &str, details: &str) {
@@ -232,6 +251,7 @@ impl AgentRunner {
             thinking_enabled,
         });
         self.begin_user_turn(user, images)?;
+        let client = self.observe_client(client);
         loop {
             let last_turn = self.prepare_model_call()?;
             let tools = self.combined_tools();
@@ -248,7 +268,7 @@ impl AgentRunner {
                 .await?;
             self.emit_usage(usage);
             match self
-                .consume_assistant(assistant, last_turn, Some(client))
+                .consume_assistant(assistant, last_turn, Some(&client))
                 .await?
             {
                 TurnControl::Stop(text) => return Ok(text),
@@ -267,6 +287,7 @@ impl AgentRunner {
         thinking_enabled: bool,
     ) -> Result<String, String> {
         self.begin_user_turn(user, Vec::new())?;
+        let client = self.observe_client(client);
         loop {
             let last_turn = self.prepare_model_call()?;
             let tools = self.combined_tools();

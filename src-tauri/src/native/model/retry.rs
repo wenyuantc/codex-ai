@@ -11,10 +11,10 @@ pub struct RetryConfig {
 impl Default for RetryConfig {
     fn default() -> Self {
         Self {
-            max_retries: 5,
-            base_delay_ms: 2_000,
-            max_delay_ms: 60_000,
-            jitter: true,
+            max_retries: 10,
+            base_delay_ms: 3_000,
+            max_delay_ms: 3_000,
+            jitter: false,
         }
     }
 }
@@ -45,6 +45,61 @@ impl RetryConfig {
 
 pub fn is_retryable_status(status: u16) -> bool {
     matches!(status, 408 | 409 | 429) || status >= 500
+}
+
+pub fn is_retryable_error(status: Option<u16>, message: &str) -> bool {
+    if let Some(status) = status {
+        if matches!(status, 401 | 403 | 404) {
+            return false;
+        }
+        if is_retryable_status(status) {
+            return true;
+        }
+        if (400..500).contains(&status) {
+            return false;
+        }
+    }
+    if is_non_retryable_message(message) {
+        return false;
+    }
+    is_transient_message(message)
+}
+
+pub fn format_retry_line(error: &str, attempt: u32, max_retries: u32, delay: Duration) -> String {
+    let secs = delay.as_secs().max(1);
+    format!("[重试] {error}，{secs} 秒后进行第 {attempt}/{max_retries} 次重试")
+}
+
+fn is_non_retryable_message(message: &str) -> bool {
+    let lower = message.to_ascii_lowercase();
+    lower.contains("insufficient quota")
+        || lower.contains("invalid api key")
+        || lower.contains("invalid_api_key")
+        || lower.contains("unauthorized")
+        || lower.contains("authentication")
+}
+
+fn is_transient_message(message: &str) -> bool {
+    let lower = message.to_ascii_lowercase();
+    lower.contains("timeout")
+        || lower.contains("timed out")
+        || lower.contains("overloaded")
+        || lower.contains("rate limit")
+        || lower.contains("too many requests")
+        || lower.contains("try again")
+        || lower.contains("temporarily")
+        || lower.contains("connection")
+        || lower.contains("connect")
+        || lower.contains("broken pipe")
+        || lower.contains("reset")
+        || lower.contains("eof")
+        || lower.contains("空响应")
+        || lower.contains("模型返回错误")
+        || lower.contains("模型请求失败")
+        || lower.contains("502")
+        || lower.contains("503")
+        || lower.contains("504")
+        || lower.contains("529")
 }
 
 pub fn redact_secrets(text: &str) -> String {
@@ -108,6 +163,48 @@ mod tests {
         assert!(is_retryable_status(503));
         assert!(!is_retryable_status(400));
         assert!(!is_retryable_status(401));
+    }
+
+    #[test]
+    fn default_delay_is_fixed_three_seconds() {
+        let retry = RetryConfig::default();
+        assert_eq!(retry.max_retries, 10);
+        assert_eq!(retry.delay_for_attempt(0), Duration::from_millis(3_000));
+        assert_eq!(retry.delay_for_attempt(9), Duration::from_millis(3_000));
+    }
+
+    #[test]
+    fn retryable_error_covers_transient_and_auth() {
+        assert!(is_retryable_error(Some(503), "模型请求失败（HTTP 503）"));
+        assert!(is_retryable_error(Some(200), "模型返回错误：overloaded"));
+        assert!(is_retryable_error(Some(200), "模型返回空响应：正文为空"));
+        assert!(is_retryable_error(None, "模型请求失败: connection reset"));
+        assert!(!is_retryable_error(Some(401), "模型请求失败（HTTP 401）"));
+        assert!(!is_retryable_error(Some(403), "模型请求失败（HTTP 403）"));
+        assert!(!is_retryable_error(Some(404), "模型请求失败（HTTP 404）"));
+        assert!(!is_retryable_error(Some(400), "max_tokens is too large"));
+        assert!(!is_retryable_error(
+            Some(200),
+            "模型返回错误：insufficient quota"
+        ));
+        assert!(!is_retryable_error(
+            Some(200),
+            "模型返回错误：invalid api key"
+        ));
+        assert!(!is_retryable_error(Some(200), "模型返回错误：unauthorized"));
+    }
+
+    #[test]
+    fn retry_line_includes_attempt() {
+        let line = format_retry_line(
+            "模型请求失败（HTTP 503）: gateway",
+            1,
+            10,
+            Duration::from_secs(3),
+        );
+        assert!(line.starts_with("[重试] "));
+        assert!(line.contains("第 1/10 次重试"));
+        assert!(line.contains("3 秒后"));
     }
 
     #[test]

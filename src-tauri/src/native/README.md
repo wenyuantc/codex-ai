@@ -128,7 +128,7 @@ src-tauri/src/native/
 - `chat_stream`：把一次 chat 结果拆成 `StreamEvent` 序列（文本/思考/工具调用/用量/Done），供流式消费。
 - `list_models`：`/v1/models` 分页拉取（最多 500，去重、排序）。
 - `probe`：发送最小请求测通渠道。
-- `post_raw` / `get_raw` / `apply_auth`：鉴权（Anthropic 用 `x-api-key` + `anthropic-version`，其他用 `Authorization: Bearer`），支持额外请求头（禁止覆盖 authorization/x-api-key），重试由 `RetryConfig` 驱动（指数退避 + 抖动）。
+- `post_raw` / `get_raw` / `apply_auth`：鉴权（Anthropic 用 `x-api-key` + `anthropic-version`，其他用 `Authorization: Bearer`），支持额外请求头（禁止覆盖 authorization/x-api-key），重试由 `RetryConfig` 驱动（默认最多 10 次、固定 3s、无抖动；`none` 用于探测）。HTTP 2xx 网关错误/空响应也可重试；401/4xx/配额不重试。重试前经 `on_retry` 打 `[重试]` 行，等待期可响应 `CancelFlag`。
 - `parse_success_body`：SSE（含缺空行的完整 JSON `data:` 行）失败时解析非流式 JSON（可剥一层 `data`/`result`）；仍空则错误带脱敏正文摘要。
 
 #### `model/types.rs`
@@ -138,7 +138,7 @@ src-tauri/src/native/
 SSE 文本解析：把 `event:` / `data:` 块解析为 `SseEvent` 列表，`[DONE]` 归一为 `done` 事件，忽略注释行；完整 JSON / `[DONE]` 的 `data:` 行即使中间没有空行也单独成事件（兼容不按 spec 分帧的中转）。
 
 #### `model/retry.rs`
-重试配置 `RetryConfig`（默认最多 5 次、2s 起步、60s 上限、抖动；`none` 用于探测请求）、指数退避延迟计算（`delay_for_attempt`）、可重试状态码判定（408/409/429/5xx）、错误信息脱敏（`redact_secrets` 抹掉 `Bearer` 与 `sk-` 令牌）与 `format_http_error` 友好错误文案。
+重试配置 `RetryConfig`（默认最多 10 次、固定 3s、无抖动；`none` 用于探测请求）、`delay_for_attempt`（`max_delay_ms` 封顶后为固定间隔）、可重试状态码（408/409/429/5xx）与 `is_retryable_error`（网络/空响应/网关抖动可重试，401/配额/其它 4xx 不重试）、`format_retry_line`（`[重试] …第 n/10 次重试`）、错误信息脱敏（`redact_secrets` 抹掉 `Bearer` 与 `sk-` 令牌）与 `format_http_error` 友好错误文案。
 
 #### `model/usage.rs`
 `parse_usage`：兼容 OpenAI（prompt_tokens/completion_tokens/prompt_tokens_details.cached_tokens）、Anthropic（input_tokens/output_tokens/cache_read_input_tokens）与 Responses 的用量字段；`usage_to_delta` 转换为引擎通用的 `engine::UsageDelta`。
