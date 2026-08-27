@@ -1975,7 +1975,10 @@ mod tests {
 
     #[test]
     fn usable_native_plan_text_requires_non_empty_body() {
-        assert_eq!(super::usable_native_plan_text("  目标与范围  "), Some("目标与范围"));
+        assert_eq!(
+            super::usable_native_plan_text("  目标与范围  "),
+            Some("目标与范围")
+        );
         assert_eq!(super::usable_native_plan_text("   \n\t"), None);
         assert_eq!(super::usable_native_plan_text(""), None);
     }
