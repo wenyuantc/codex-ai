@@ -513,6 +513,10 @@ export type NotificationDeliveryMode = "one_time" | "sticky";
 export type NotificationState = "active" | "resolved";
 export type DesktopNotificationDeliveryReason = "created" | "reactivated" | "updated" | "transient";
 
+export interface NotificationSoundSettings {
+  enabled: boolean;
+}
+
 export interface AppNotification {
   id: string;
   notification_type: NotificationType;

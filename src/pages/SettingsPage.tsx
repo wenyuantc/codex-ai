@@ -5,6 +5,7 @@ import { useTranslation } from "react-i18next";
 
 import { DatabaseSettingsTab } from "@/components/settings/DatabaseSettingsTab";
 import { GitAutomationSettingsTab } from "@/components/settings/GitAutomationSettingsTab";
+import { NotificationSettingsTab } from "@/components/settings/NotificationSettingsTab";
 import { McpSettingsTab } from "@/components/settings/McpSettingsTab";
 import { PromptSettingsTab } from "@/components/settings/PromptSettingsTab";
 import { RuntimeSettingsTab } from "@/components/settings/RuntimeSettingsTab";
@@ -96,6 +97,7 @@ import { useProjectStore } from "@/stores/projectStore";
 
 const SETTINGS_TAB_KEYS: Array<{ value: SettingsTabValue; labelKey: string }> = [
   { value: "runtime", labelKey: "settings:tabs.runtime" },
+  { value: "notifications", labelKey: "settings:tabs.notifications" },
   { value: "git", labelKey: "settings:tabs.git" },
   { value: "prompts", labelKey: "settings:tabs.prompts" },
   { value: "mcp", labelKey: "settings:tabs.mcp" },
@@ -1374,6 +1376,10 @@ export function SettingsPage() {
             </p>
             <EngineCapabilityBadges />
           </div>
+        </TabsContent>
+
+        <TabsContent value="notifications">
+          <NotificationSettingsTab isTauriRuntime={isTauriRuntime} />
         </TabsContent>
 
         <TabsContent value="git">

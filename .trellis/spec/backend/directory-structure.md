@@ -25,6 +25,7 @@ src-tauri/
     │   ├── sessions.rs         # sessions, search, activity log
     │   ├── remote.rs           # SSH configs + remote runtime
     │   ├── review.rs           # attachments + code review launch
+    │   ├── notification_sound.rs # JSON pref + OS alert (`play_notification_sound_alert`)
     │   └── tests/              # integration-style tests + helpers
     ├── db/
     │   ├── models.rs           # FromRow entities + command DTOs
@@ -94,6 +95,7 @@ src-tauri/
 | In-process built-in Agent | `native/` (`NativeAgentManager` + channels/model/tools/agent/session) |
 | Auto review/fix state machine | `task_automation` (+ `task_automation/*` slices) |
 | Sticky/transient notifications | `notifications.rs` |
+| Notification sound pref + OS play | `app/notification_sound.rs` (see [notification-sound.md](./notification-sound.md)) |
 
 ## Adding A New Command
 

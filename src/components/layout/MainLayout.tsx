@@ -13,6 +13,7 @@ import { useTaskStore } from "@/stores/taskStore";
 import { useEffect, useEffectEvent } from "react";
 import { showMainWindow } from "@/lib/backend";
 import { initDesktopNotificationBridge } from "@/lib/desktopNotifications";
+import { initNotificationSoundBridge } from "@/lib/notificationSound";
 import { openNotificationTarget } from "@/lib/notificationNavigation";
 import type { DesktopNotificationExtra } from "@/lib/types";
 
@@ -61,6 +62,11 @@ export function MainLayout() {
     const cleanup = initDesktopNotificationBridge(handleDesktopNotificationOpen);
     return cleanup;
   }, [handleDesktopNotificationOpen]);
+
+  useEffect(() => {
+    const cleanup = initNotificationSoundBridge();
+    return cleanup;
+  }, []);
 
   useEffect(() => {
     void syncSystemNotifications(environmentMode, selectedSshConfigId);

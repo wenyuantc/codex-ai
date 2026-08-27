@@ -30,6 +30,7 @@ describe("i18n locale preference", () => {
     expect(getActivityActionLabel("native_plan_mode_executed")).toBe("内置 Agent 开始执行计划");
     expect(getActivityActionLabel("native_plan_question_asked")).toBe("内置 Agent 计划提问");
     expect(getActivityActionLabel("native_plan_content_saved")).toBe("保存计划运行内容");
+    expect(getActivityActionLabel("notification_sound_settings_updated")).toBe("更新通知声音设置");
     expect(i18n.t("tasks:card.planRun")).toBe("计划运行");
     expect(i18n.t("tasks:detail.overview.openCoordinatorPlan")).toBe("打开协调员计划");
     expect(i18n.t("tasks:detail.overview.viewCoordinatorPlanProgress")).toBe("查看生成进度");
@@ -38,6 +39,7 @@ describe("i18n locale preference", () => {
     expect(i18n.t("tasks:nativePlanQuestion.other")).toBe("其他");
     expect(i18n.t("tasks:createDialog.selectProjectFiles")).toBe("选择项目文件");
     expect(i18n.t("settings:tabs.subagents")).toBe("子智能体");
+    expect(i18n.t("settings:tabs.notifications")).toBe("通知");
     expect(i18n.t("settings:subagents.dialogs.createTitle")).toBe("新建子智能体");
     expect(i18n.t("settings:subagents.dialogs.editTitle")).toBe("编辑子智能体");
     expect(i18n.t("settings:subagents.actions.edit")).toBe("编辑");
@@ -89,6 +91,9 @@ describe("i18n locale preference", () => {
       "Built-in Agent asked a plan question",
     );
     expect(getActivityActionLabel("native_plan_content_saved")).toBe("Saved plan-run content");
+    expect(getActivityActionLabel("notification_sound_settings_updated")).toBe(
+      "Updated notification sound settings",
+    );
     expect(i18n.t("tasks:card.planRun")).toBe("Plan and run");
     expect(i18n.t("tasks:detail.overview.openCoordinatorPlan")).toBe("Open coordinator plan");
     expect(i18n.t("tasks:detail.overview.viewCoordinatorPlanProgress")).toBe(
@@ -99,6 +104,7 @@ describe("i18n locale preference", () => {
     expect(i18n.t("tasks:nativePlanQuestion.other")).toBe("Other");
     expect(i18n.t("tasks:createDialog.selectProjectFiles")).toBe("Select project files");
     expect(i18n.t("settings:tabs.subagents")).toBe("Sub-agents");
+    expect(i18n.t("settings:tabs.notifications")).toBe("Notifications");
     expect(i18n.t("settings:subagents.dialogs.createTitle")).toBe("New sub-agent");
     expect(i18n.t("settings:subagents.dialogs.editTitle")).toBe("Edit sub-agent");
     expect(i18n.t("settings:subagents.actions.edit")).toBe("Edit");

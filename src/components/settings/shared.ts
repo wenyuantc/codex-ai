@@ -1,7 +1,15 @@
 import type { SshAuthType, SshConfig } from "@/lib/types";
 
 export type SettingsTabValue =
-  "runtime" | "git" | "ssh" | "database" | "prompts" | "mcp" | "channels" | "subagents";
+  | "runtime"
+  | "notifications"
+  | "git"
+  | "ssh"
+  | "database"
+  | "prompts"
+  | "mcp"
+  | "channels"
+  | "subagents";
 
 export interface SshConfigFormState {
   name: string;
@@ -47,6 +55,8 @@ export function buildSshConfigFormState(config: SshConfig | null): SshConfigForm
 
 export function getSettingsTabFromSection(section: string | null): SettingsTabValue {
   switch (section) {
+    case "notifications":
+      return "notifications";
     case "git":
       return "git";
     case "ssh":
@@ -69,6 +79,8 @@ export function getSettingsTabFromSection(section: string | null): SettingsTabVa
 
 export function getSectionForSettingsTab(tab: SettingsTabValue): string {
   switch (tab) {
+    case "notifications":
+      return "notifications";
     case "git":
       return "git";
     case "ssh":

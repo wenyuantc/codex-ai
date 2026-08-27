@@ -7,7 +7,20 @@
     "channels": "AI channels",
     "subagents": "Sub-agents",
     "ssh": "SSH",
-    "database": "Database"
+    "database": "Database",
+    "notifications": "Notifications"
+  },
+  "notifications": {
+    "title": "Notification sound",
+    "description": "Play a local alert when a new notification arrives. Shared by local and SSH modes.",
+    "enableLabel": "Play notification sound",
+    "enableHint": "Plays when review, run failure, or system alerts arrive. Turning this off silences real notifications.",
+    "preview": "Preview",
+    "previewHint": "Preview still plays when the toggle is off so you can hear the sound first.",
+    "saved": "Notification sound settings saved.",
+    "saveFailed": "Failed to save notification sound settings: {{detail}}",
+    "loadFailed": "Failed to load notification sound settings: {{detail}}",
+    "browserOnly": "Browser preview only. This preference stays in local storage and is not written to desktop config or the activity log."
   },
   "theme": {
     "title": "Theme",

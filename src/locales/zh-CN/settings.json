@@ -7,7 +7,20 @@
     "channels": "AI 渠道",
     "subagents": "子智能体",
     "ssh": "SSH 配置",
-    "database": "数据库维护"
+    "database": "数据库维护",
+    "notifications": "通知"
+  },
+  "notifications": {
+    "title": "通知声音",
+    "description": "新通知到达时播放本机提示音。本地与 SSH 环境共用此设置。",
+    "enableLabel": "播放通知提示音",
+    "enableHint": "任务审核、运行失败、系统异常等通知到达时播放。关闭后真实通知不再发声。",
+    "preview": "试听",
+    "previewHint": "试听不受开关影响，可在关闭时确认音色。",
+    "saved": "已保存通知声音设置。",
+    "saveFailed": "保存通知声音设置失败：{{detail}}",
+    "loadFailed": "读取通知声音设置失败：{{detail}}",
+    "browserOnly": "当前为浏览器预览，设置仅保存在本机浏览器，不会写入桌面配置或活动日志。"
   },
   "theme": {
     "title": "主题模式",

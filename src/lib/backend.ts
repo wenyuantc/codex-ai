@@ -9,6 +9,7 @@ import type {
   ModelCatalogEntry,
   AiProvider,
   AppNotification,
+  NotificationSoundSettings,
   ArtifactCaptureMode,
   ClaudeHealthCheck,
   ClaudeSettings,
@@ -1000,6 +1001,20 @@ export async function markNotificationRead(id: string): Promise<AppNotification>
 
 export async function markAllNotificationsRead(): Promise<number> {
   return invoke("mark_all_notifications_read");
+}
+
+export async function getNotificationSoundSettings(): Promise<NotificationSoundSettings> {
+  return invoke("get_notification_sound_settings");
+}
+
+export async function updateNotificationSoundSettings(
+  enabled: boolean,
+): Promise<NotificationSoundSettings> {
+  return invoke("update_notification_sound_settings", { enabled });
+}
+
+export async function playNotificationSoundAlert(): Promise<void> {
+  await invoke("play_notification_sound_alert");
 }
 
 export async function listCodexSessions(): Promise<CodexSessionListItem[]> {

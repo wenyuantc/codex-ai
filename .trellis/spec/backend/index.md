@@ -36,6 +36,7 @@
 | [Command Guidelines](./command-guidelines.md) | Tauri command shape, validation, transactions |
 | [Database & Migrations](./database-migrations.md) | Models, SQL style, migration rules |
 | [Error Handling](./error-handling.md) | `Result<T, String>`, notifications, cleanup |
+| [Notification Sound](./notification-sound.md) | OS alert via `play_notification_sound_alert`; JSON pref, no SQLite |
 | [AI Engines](./ai-engines.md) | Codex/Claude/OpenCode/Grok process lifecycle + native in-process agent contracts |
 | [Run Queue](./run-queue.md) | Global concurrency gate, `StartSessionOutcome`, `task_run_queue` |
 | [Task Templates](./task-templates.md) | v47 `task_templates`, `{{ident}}` apply, batch create without attachments |

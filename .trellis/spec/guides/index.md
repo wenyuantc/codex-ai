@@ -36,6 +36,7 @@ Most regressions in this repo come from boundary mistakes, not syntax:
 - [ ] Task project file refs (`task_file_refs` relative paths, git-bridge list, prompt injection)
 - [ ] Review findings (`<review_findings>` / latest-review payload / Monaco reveal)
 - [ ] Desktop auto-update (updater artifacts, `latest.json`, signing secrets)
+- [ ] In-app notification sound (`play_notification_sound_alert` OS audio; not Web Audio in WKWebView)
 
 → Read [Cross-Layer Thinking Guide](./cross-layer-thinking-guide.md)
 

@@ -1195,6 +1195,11 @@ pub struct SessionEventsPolicy {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NotificationSoundSettings {
+    pub enabled: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SessionEventsStats {
     pub total_events: i64,
     pub expired_events: i64,
