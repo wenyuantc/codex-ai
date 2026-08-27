@@ -788,3 +788,24 @@ i18next zh-CN/en framework, main-path extraction, activity single-source, leftov
 ### Next Steps
 
 - 08-25-native-stop-no-review 仍为 in_progress，未在本轮归档
+
+
+## Session 26: 通知中心声音提醒
+
+**Date**: 2026-08-27
+**Task**: 通知中心声音提醒
+**Branch**: `main`
+
+### Summary
+
+为通知中心增加本机提示音：设置页独立通知 Tab 可开关并试听；WKWebView 会静音异步 Web Audio，改为 Rust 播放系统音（macOS Glass）。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `692c086` | (see git log) |
+
+### Status
+
+[OK] **Completed**
