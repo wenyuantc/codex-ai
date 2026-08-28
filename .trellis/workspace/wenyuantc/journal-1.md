@@ -851,3 +851,24 @@ i18next zh-CN/en framework, main-path extraction, activity single-source, leftov
 ### Status
 
 [OK] **Completed**
+
+
+## Session 29: Native Agent token budget K 单位
+
+**Date**: 2026-08-28
+**Task**: Native Agent token budget K 单位
+**Branch**: `main`
+
+### Summary
+
+完成内置 Agent 上下文/预算/工具输出优化；设置界面改用 K token 输入（1K=1000 token），IPC 与持久化仍使用原始 token。新增转换与边界测试，前端 173 项、Rust 647 项测试及构建/Clippy/格式检查通过。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `e14d63a` | (see git log) |
+
+### Status
+
+[OK] **Completed**
