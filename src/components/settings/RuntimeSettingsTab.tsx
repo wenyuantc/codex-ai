@@ -599,7 +599,7 @@ export function RuntimeSettingsTab({
                 onBlur={(event) => {
                   const parsed = Number.parseFloat(event.target.value);
                   onNativeContextWindowKCommit(
-                    Number.isNaN(parsed) ? 16 : Math.min(1_000, Math.max(8, parsed)),
+                    Number.isNaN(parsed) ? 128 : Math.min(1_000, Math.max(8, parsed)),
                   );
                 }}
               />
@@ -628,7 +628,7 @@ export function RuntimeSettingsTab({
                 onBlur={(event) => {
                   const parsed = Number.parseFloat(event.target.value);
                   onNativeRolloutTokenBudgetKCommit(
-                    Number.isNaN(parsed) ? 200 : Math.min(10_000, Math.max(0, parsed)),
+                    Number.isNaN(parsed) ? 256 : Math.min(10_000, Math.max(0, parsed)),
                   );
                 }}
               />

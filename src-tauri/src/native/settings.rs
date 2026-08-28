@@ -15,12 +15,12 @@ const MAX_NATIVE_MAX_CONCURRENT_SUBAGENTS: i32 = 16;
 /// Keep normal coding turns well below the provider's advertised context
 /// window. The runner can still compact and continue when this threshold is
 /// reached.
-pub const DEFAULT_NATIVE_CONTEXT_WINDOW_TOKENS: i32 = 16_000;
+pub const DEFAULT_NATIVE_CONTEXT_WINDOW_TOKENS: i32 = 128_000;
 const MIN_NATIVE_CONTEXT_WINDOW_TOKENS: i32 = 8_000;
 const MAX_NATIVE_CONTEXT_WINDOW_TOKENS: i32 = 1_000_000;
 /// A rollout budget is shared by the parent and all child agents. Zero keeps
 /// the legacy unlimited behavior for users who explicitly opt out.
-pub const DEFAULT_NATIVE_ROLLOUT_TOKEN_BUDGET: i64 = 200_000;
+pub const DEFAULT_NATIVE_ROLLOUT_TOKEN_BUDGET: i64 = 256_000;
 const MAX_NATIVE_ROLLOUT_TOKEN_BUDGET: i64 = 10_000_000;
 pub const DEFAULT_NATIVE_MAX_TOOL_OUTPUT_TOKENS: i32 = 4_096;
 const MIN_NATIVE_MAX_TOOL_OUTPUT_TOKENS: i32 = 256;

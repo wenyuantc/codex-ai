@@ -40,6 +40,11 @@ const DEFAULT_CONTEXT_CHARS: usize = 120_000;
 pub const DEFAULT_ROLLOUT_TOKEN_BUDGET: u64 =
     crate::native::settings::DEFAULT_NATIVE_ROLLOUT_TOKEN_BUDGET as u64;
 const DEFAULT_FINAL_OUTPUT_RESERVE: u64 = 1_024;
+/// When the caller does not configure `max_output_tokens`, assume one
+/// response stays within this bound. The remaining rollout budget is only
+/// enforced as a hard request cap once it drops below this level, so a
+/// healthy budget never rewrites provider defaults.
+const FALLBACK_OUTPUT_TOKEN_GUARD: u64 = 16_384;
 const REPEAT_TOOL_LIMIT: u32 = 3;
 const LAST_TURN_REMINDER: &str = "工具轮次已达上限。请立即给出最终结论，不要再调用工具。";
 const LAST_TURN_FALLBACK: &str = "已达到最大工具轮次，已根据已有工具结果停止。";
@@ -669,51 +674,52 @@ impl AgentRunner {
             self.release_model_reservation();
         }
         let input_tokens = total_message_tokens(&self.messages) as u64;
-        let requested_output_tokens = u64::from(
-            max_output_tokens
-                .unwrap_or(DEFAULT_FINAL_OUTPUT_RESERVE as u32)
-                .min(16_384),
-        );
+        let requested_output_tokens =
+            u64::from(max_output_tokens.unwrap_or(DEFAULT_FINAL_OUTPUT_RESERVE as u32));
         let tool_tokens = total_tool_tokens(tools) as u64;
         let fixed_tokens = input_tokens.saturating_add(tool_tokens);
-        let output_tokens = if self.rollout_budget.limit() == 0 {
-            requested_output_tokens
-        } else {
-            let available = self.rollout_budget.remaining().saturating_sub(fixed_tokens);
-            requested_output_tokens.min(available)
-        };
-        if requested_output_tokens > 0 && output_tokens == 0 {
-            let newly_exhausted = !self.budget_exhausted;
-            self.budget_exhausted = true;
-            if newly_exhausted {
-                self.diagnostics.budget_stops.fetch_add(1, Ordering::AcqRel);
-            }
+        if self.rollout_budget.limit() == 0 {
+            // Unlimited budgets track usage for diagnostics but never rewrite
+            // the caller's provider settings.
+            let estimate = fixed_tokens.saturating_add(requested_output_tokens);
+            self.rollout_budget.try_reserve(estimate);
+            self.pending_budget_reservation = estimate;
+            return Some(ModelCallBudget { max_output_tokens });
+        }
+        let available = self.rollout_budget.remaining().saturating_sub(fixed_tokens);
+        if available == 0 {
+            self.mark_budget_stop();
             return None;
         }
-        let estimate = fixed_tokens.saturating_add(output_tokens);
-        if (self.rollout_budget.limit() == 0 || estimate <= self.rollout_budget.remaining())
-            && self.rollout_budget.try_reserve(estimate)
-        {
+        // The output reserve is only an estimate that `settle_model_usage`
+        // replaces with actual usage. The request keeps the caller's own
+        // output limit and is tightened solely when a single response could
+        // realistically overrun the remaining shared budget; a healthy budget
+        // must not shrink provider defaults (large Write/Edit tool calls need
+        // the full configured output room).
+        let reserve_output_tokens = requested_output_tokens.min(available);
+        let request_cap = match max_output_tokens {
+            Some(value) => Some(u64::from(value).min(available) as u32),
+            None if available < FALLBACK_OUTPUT_TOKEN_GUARD => Some(available as u32),
+            None => None,
+        };
+        let estimate = fixed_tokens.saturating_add(reserve_output_tokens);
+        if self.rollout_budget.try_reserve(estimate) {
             self.pending_budget_reservation = estimate;
             Some(ModelCallBudget {
-                // Passing an explicit cap when a finite budget is configured
-                // prevents a provider from generating beyond the remaining
-                // rollout allowance on the final turn.
-                max_output_tokens: if self.rollout_budget.limit() == 0
-                    && max_output_tokens.is_none()
-                {
-                    None
-                } else {
-                    Some(output_tokens.min(u64::from(u32::MAX)) as u32)
-                },
+                max_output_tokens: request_cap,
             })
         } else {
-            let newly_exhausted = !self.budget_exhausted;
-            self.budget_exhausted = true;
-            if newly_exhausted {
-                self.diagnostics.budget_stops.fetch_add(1, Ordering::AcqRel);
-            }
+            self.mark_budget_stop();
             None
+        }
+    }
+
+    fn mark_budget_stop(&mut self) {
+        let newly_exhausted = !self.budget_exhausted;
+        self.budget_exhausted = true;
+        if newly_exhausted {
+            self.diagnostics.budget_stops.fetch_add(1, Ordering::AcqRel);
         }
     }
 
@@ -1779,6 +1785,37 @@ mod tests {
             .reserve_model_call(Some(10_000), &[])
             .expect("reservation");
         assert!(budget.max_output_tokens.expect("output cap") < 10_000);
+        runner.release_model_reservation();
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn ample_budget_preserves_caller_output_settings() {
+        let (mut runner, root) = temp_runner();
+        runner.set_rollout_budget_limit(1_000_000);
+        runner.messages.push(Message::user("task"));
+        // No configured limit must stay unlimited at the provider instead of
+        // silently degrading to the internal output reserve.
+        let budget = runner.reserve_model_call(None, &[]).expect("reservation");
+        assert_eq!(budget.max_output_tokens, None);
+        runner.release_model_reservation();
+        // A caller-configured limit above the old 16,384 clamp passes through.
+        let budget = runner
+            .reserve_model_call(Some(60_000), &[])
+            .expect("reservation");
+        assert_eq!(budget.max_output_tokens, Some(60_000));
+        runner.release_model_reservation();
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn near_exhaustion_caps_unconfigured_output_to_remaining_budget() {
+        let (mut runner, root) = temp_runner();
+        runner.set_rollout_budget_limit(2_000);
+        runner.messages.push(Message::user("task"));
+        let budget = runner.reserve_model_call(None, &[]).expect("reservation");
+        let cap = u64::from(budget.max_output_tokens.expect("near-exhaustion cap"));
+        assert!(cap < 2_000);
         runner.release_model_reservation();
         let _ = fs::remove_dir_all(root);
     }

@@ -198,8 +198,8 @@ export function SettingsPage() {
   const [nativeMaxConcurrentSubagents, setNativeMaxConcurrentSubagents] = useState(1);
   const [nativeSubagentPolicy, setNativeSubagentPolicy] = useState("conservative");
   const [nativeConfirmHighRisk, setNativeConfirmHighRisk] = useState(true);
-  const [nativeContextWindowK, setNativeContextWindowK] = useState("16");
-  const [nativeRolloutTokenBudgetK, setNativeRolloutTokenBudgetK] = useState("200");
+  const [nativeContextWindowK, setNativeContextWindowK] = useState("128");
+  const [nativeRolloutTokenBudgetK, setNativeRolloutTokenBudgetK] = useState("256");
   const [nativeMaxToolOutputK, setNativeMaxToolOutputK] = useState("4.096");
   const [codexHealth, setCodexHealth] = useState<CodexHealthCheck | RemoteCodexHealthCheck | null>(
     null,
@@ -407,8 +407,8 @@ export function SettingsPage() {
     setNativeMaxConcurrentSubagents(settings.max_concurrent_subagents ?? 1);
     setNativeSubagentPolicy(settings.subagent_policy || "conservative");
     setNativeConfirmHighRisk(settings.confirm_high_risk !== false);
-    setNativeContextWindowK(String(nativeTokensToK(settings.context_window_tokens ?? 16_000)));
-    setNativeRolloutTokenBudgetK(String(nativeTokensToK(settings.rollout_token_budget ?? 200_000)));
+    setNativeContextWindowK(String(nativeTokensToK(settings.context_window_tokens ?? 128_000)));
+    setNativeRolloutTokenBudgetK(String(nativeTokensToK(settings.rollout_token_budget ?? 256_000)));
     setNativeMaxToolOutputK(String(nativeTokensToK(settings.max_tool_output_tokens ?? 4_096)));
   }
 
@@ -463,7 +463,7 @@ export function SettingsPage() {
   }
 
   async function persistNativeContextWindowK(value: number) {
-    const normalizedK = normalizeNativeTokenK(value, 8_000, 1_000_000, 16_000);
+    const normalizedK = normalizeNativeTokenK(value, 8_000, 1_000_000, 128_000);
     const normalized = nativeKToTokens(normalizedK);
     setNativeContextWindowK(String(normalizedK));
     try {
@@ -475,7 +475,7 @@ export function SettingsPage() {
   }
 
   async function persistNativeRolloutTokenBudgetK(value: number) {
-    const normalizedK = normalizeNativeTokenK(value, 0, 10_000_000, 200_000);
+    const normalizedK = normalizeNativeTokenK(value, 0, 10_000_000, 256_000);
     const normalized = nativeKToTokens(normalizedK);
     setNativeRolloutTokenBudgetK(String(normalizedK));
     try {

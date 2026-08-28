@@ -131,28 +131,29 @@ pub fn truncate_tool_result(
     let tail_budget = available.saturating_sub(head_budget);
     let mut head = take_prefix_tokens(trimmed, head_budget);
     let mut tail = take_suffix_tokens(trimmed, tail_budget);
-    marker = format!(
-        "\n…[truncated: {original_tokens} tokens, {line_count} lines omitted]\n{}\n",
-        continuation_hint(name, arguments, head.lines().count().saturating_add(1))
-    );
-    let mut result = format_parts(&head, &marker, &tail);
 
     // Estimation is intentionally conservative, but make the bound exact for
     // the same estimator in case the marker itself contains CJK text. Remove a
-    // token at a time from the larger side so the useful head and tail survive.
-    while estimate_text_tokens(&result) > max_tokens && (!head.is_empty() || !tail.is_empty()) {
+    // token at a time from the larger side so the useful head and tail
+    // survive. The marker is rebuilt every round so the continuation offset
+    // always points at the first line the model has not seen.
+    loop {
+        marker = format!(
+            "\n…[truncated: {original_tokens} tokens, {line_count} lines omitted]\n{}\n",
+            continuation_hint(name, arguments, head.lines().count().saturating_add(1))
+        );
+        let result = format_parts(&head, &marker, &tail);
+        if estimate_text_tokens(&result) <= max_tokens || (head.is_empty() && tail.is_empty()) {
+            return result;
+        }
         if estimate_text_tokens(&head) >= estimate_text_tokens(&tail) && !head.is_empty() {
             let budget = estimate_text_tokens(&head).saturating_sub(1);
             head = take_prefix_tokens(&head, budget);
-        } else if !tail.is_empty() {
+        } else {
             let budget = estimate_text_tokens(&tail).saturating_sub(1);
             tail = take_suffix_tokens(&tail, budget);
-        } else {
-            break;
         }
-        result = format_parts(&head, &marker, &tail);
     }
-    result
 }
 
 fn format_parts(head: &str, marker: &str, tail: &str) -> String {
@@ -165,7 +166,7 @@ fn format_parts(head: &str, marker: &str, tail: &str) -> String {
     }
 }
 
-fn continuation_hint(name: &str, arguments: &str, omitted_lines: usize) -> String {
+fn continuation_hint(name: &str, arguments: &str, next_offset: usize) -> String {
     let args = serde_json::from_str::<Value>(arguments).unwrap_or(Value::Null);
     if let Some(path) = args
         .get("file_path")
@@ -173,9 +174,8 @@ fn continuation_hint(name: &str, arguments: &str, omitted_lines: usize) -> Strin
         .and_then(Value::as_str)
         .filter(|path| !path.trim().is_empty())
     {
-        let offset = omitted_lines.saturating_add(1);
         return format!(
-            "[继续读取] {name} 输出过长；需要更多内容时调用 Read {{\"file_path\":{path:?},\"offset\":{offset}}}。"
+            "[继续读取] {name} 输出过长；需要更多内容时调用 Read {{\"file_path\":{path:?},\"offset\":{next_offset}}}。"
         );
     }
     if let Some(pattern) = args.get("pattern").and_then(Value::as_str) {
@@ -499,6 +499,21 @@ mod tests {
         assert!(result.contains("\"offset\":"));
         assert!(!result.contains("\"offset\":501"));
         assert!(estimate_text_tokens(&result) <= 120);
+    }
+
+    #[test]
+    fn continuation_offset_points_to_first_unseen_line() {
+        let output = (1..=500)
+            .map(|i| format!("line {i}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let result = truncate_tool_result("Read", r#"{"file_path":"src/lib.rs"}"#, &output, 120);
+        let marker_at = result.find("\n…[truncated").expect("marker present");
+        let retained_head_lines = result[..marker_at].lines().count();
+        assert!(
+            result.contains(&format!("\"offset\":{}", retained_head_lines + 1)),
+            "offset must continue right after the retained head: {result}"
+        );
     }
 
     #[test]
