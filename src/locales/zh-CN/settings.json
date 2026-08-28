@@ -837,6 +837,7 @@
     "actions": {
       "new": "新建渠道",
       "save": "保存",
+      "cancel": "取消",
       "test": "测通",
       "fetchModels": "获取模型",
       "addModel": "添加模型",
@@ -883,6 +884,8 @@
     },
     "updatedAt": "更新于 {{date}}",
     "dialogs": {
+      "createTitle": "新建渠道",
+      "editTitle": "编辑渠道",
       "deleteTitle": "删除渠道",
       "deleteConfirm": "确定删除渠道「{{name}}」？已绑定该渠道的员工会阻止删除。"
     },

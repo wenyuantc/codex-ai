@@ -837,6 +837,7 @@
     "actions": {
       "new": "New channel",
       "save": "Save",
+      "cancel": "Cancel",
       "test": "Test",
       "fetchModels": "Fetch models",
       "addModel": "Add model",
@@ -883,6 +884,8 @@
     },
     "updatedAt": "Updated {{date}}",
     "dialogs": {
+      "createTitle": "New channel",
+      "editTitle": "Edit channel",
       "deleteTitle": "Delete channel",
       "deleteConfirm": "Delete channel \"{{name}}\"? Employees bound to it will block deletion."
     },
