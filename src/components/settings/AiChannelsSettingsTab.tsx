@@ -72,6 +72,7 @@ export function AiChannelsSettingsTab() {
   const [channels, setChannels] = useState<AiChannel[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState<"save" | "delete" | "test" | "models" | null>(null);
+  const [deleteConfirming, setDeleteConfirming] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -123,7 +124,7 @@ export function AiChannelsSettingsTab() {
   };
 
   const closeDialog = () => {
-    if (saving !== null) {
+    if (saving !== null || deleteConfirming) {
       return;
     }
     setDialogOpen(false);
@@ -182,18 +183,21 @@ export function AiChannelsSettingsTab() {
   };
 
   const handleDelete = async () => {
-    if (!selected) return;
-    const confirmed = await confirm(t("channels.dialogs.deleteConfirm", { name: selected.name }), {
-      title: t("channels.dialogs.deleteTitle"),
-      kind: "warning",
-    });
-    if (!confirmed) return;
-    setSaving("delete");
+    if (!selected || saving !== null || deleteConfirming) return;
+    const targetId = selected.id;
+    const targetName = selected.name;
+    setDeleteConfirming(true);
     setError(null);
     setMessage(null);
     try {
-      await deleteAiChannel(selected.id);
-      setChannels((current) => current.filter((channel) => channel.id !== selected.id));
+      const confirmed = await confirm(t("channels.dialogs.deleteConfirm", { name: targetName }), {
+        title: t("channels.dialogs.deleteTitle"),
+        kind: "warning",
+      });
+      if (!confirmed) return;
+      setSaving("delete");
+      await deleteAiChannel(targetId);
+      setChannels((current) => current.filter((channel) => channel.id !== targetId));
       setSelectedId(null);
       setForm(EMPTY_FORM);
       setDialogOpen(false);
@@ -201,6 +205,7 @@ export function AiChannelsSettingsTab() {
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
+      setDeleteConfirming(false);
       setSaving(null);
     }
   };
@@ -263,6 +268,7 @@ export function AiChannelsSettingsTab() {
     { value: "codex", label: t("channels.protocols.codex") },
   ];
   const busy = saving !== null;
+  const formLocked = busy || deleteConfirming;
 
   return (
     <div className="space-y-6">
@@ -321,7 +327,10 @@ export function AiChannelsSettingsTab() {
           }
         }}
       >
-        <DialogContent className="flex max-h-[90vh] w-full flex-col gap-0 overflow-hidden sm:max-w-2xl">
+        <DialogContent
+          className="flex max-h-[90vh] w-full flex-col gap-0 overflow-hidden sm:max-w-2xl"
+          showCloseButton={!formLocked}
+        >
           <DialogHeader className="shrink-0 pb-3">
             <DialogTitle>
               {isCreate ? t("channels.dialogs.createTitle") : t("channels.dialogs.editTitle")}
@@ -334,6 +343,7 @@ export function AiChannelsSettingsTab() {
                 value={form.name}
                 onChange={(event) => patchForm({ name: event.target.value })}
                 placeholder={t("channels.fields.name")}
+                disabled={formLocked}
               />
               <div>
                 <label className="text-xs font-medium text-muted-foreground">
@@ -341,6 +351,7 @@ export function AiChannelsSettingsTab() {
                 </label>
                 <Select
                   value={form.protocol}
+                  disabled={formLocked}
                   onValueChange={(value) => {
                     if (value === "openai" || value === "anthropic" || value === "codex") {
                       patchForm({ protocol: value });
@@ -370,6 +381,7 @@ export function AiChannelsSettingsTab() {
                 value={form.baseUrl}
                 onChange={(event) => patchForm({ baseUrl: event.target.value })}
                 placeholder={t("channels.fields.baseUrl")}
+                disabled={formLocked}
               />
               <div className="relative">
                 <Input
@@ -383,6 +395,7 @@ export function AiChannelsSettingsTab() {
                       : t("channels.fields.apiKey")
                   }
                   autoComplete="off"
+                  disabled={formLocked}
                 />
                 <Button
                   type="button"
@@ -390,6 +403,7 @@ export function AiChannelsSettingsTab() {
                   size="icon-xs"
                   className="absolute top-1/2 right-1 -translate-y-1/2 text-muted-foreground"
                   onClick={() => setShowApiKey((current) => !current)}
+                  disabled={formLocked}
                   aria-label={
                     showApiKey ? t("channels.fields.hideApiKey") : t("channels.fields.showApiKey")
                   }
@@ -400,7 +414,7 @@ export function AiChannelsSettingsTab() {
               <ChannelModelsEditor
                 models={form.models}
                 catalog={catalog}
-                disabled={busy}
+                disabled={formLocked}
                 onChange={(models) => patchForm({ models })}
               />
               <Textarea
@@ -408,6 +422,7 @@ export function AiChannelsSettingsTab() {
                 onChange={(event) => patchForm({ extraHeaders: event.target.value })}
                 placeholder={t("channels.fields.extraHeaders")}
                 rows={3}
+                disabled={formLocked}
               />
               <div>
                 <label className="text-xs font-medium text-muted-foreground">
@@ -415,6 +430,7 @@ export function AiChannelsSettingsTab() {
                 </label>
                 <Select
                   value={form.enabled ? "enabled" : "disabled"}
+                  disabled={formLocked}
                   onValueChange={(value) => {
                     if (value === "enabled" || value === "disabled") {
                       patchForm({ enabled: value === "enabled" });
@@ -444,11 +460,15 @@ export function AiChannelsSettingsTab() {
                 </p>
               ) : null}
               <div className="flex flex-wrap gap-2">
-                <Button variant="outline" onClick={() => void handleFetchModels()} disabled={busy}>
+                <Button
+                  variant="outline"
+                  onClick={() => void handleFetchModels()}
+                  disabled={formLocked}
+                >
                   {saving === "models" ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
                   {t("channels.actions.fetchModels")}
                 </Button>
-                <Button variant="outline" onClick={() => void handleTest()} disabled={busy}>
+                <Button variant="outline" onClick={() => void handleTest()} disabled={formLocked}>
                   {saving === "test" ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
                   {t("channels.actions.test")}
                 </Button>
@@ -463,17 +483,17 @@ export function AiChannelsSettingsTab() {
                 variant="destructive"
                 className="sm:mr-auto"
                 onClick={() => void handleDelete()}
-                disabled={busy}
+                disabled={formLocked}
               >
                 {saving === "delete" ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
                 <Trash2 className="mr-1 h-4 w-4" />
                 {t("channels.actions.delete")}
               </Button>
             ) : null}
-            <Button variant="outline" onClick={closeDialog} disabled={busy}>
+            <Button variant="outline" onClick={closeDialog} disabled={formLocked}>
               {t("channels.actions.cancel")}
             </Button>
-            <Button onClick={() => void handleSave()} disabled={busy}>
+            <Button onClick={() => void handleSave()} disabled={formLocked}>
               {saving === "save" ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
               {t("channels.actions.save")}
             </Button>
