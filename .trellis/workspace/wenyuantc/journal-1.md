@@ -830,3 +830,24 @@ i18next zh-CN/en framework, main-path extraction, activity single-source, leftov
 ### Status
 
 [OK] **Completed**
+
+
+## Session 28: 首次执行中自动质控徽章显示执行中
+
+**Date**: 2026-08-28
+**Task**: 首次执行中自动质控徽章显示执行中
+**Branch**: `main`
+
+### Summary
+
+诊断任务运行中自动质控仍显示待命：首次执行不改 idle 相位，闭环等执行退出后才启动审核。展示层 overlay 为「执行中」（en Executing），不新增相位、不复用 waiting_execution。约定写入 frontend component-guidelines。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `195c686` | (see git log) |
+
+### Status
+
+[OK] **Completed**
