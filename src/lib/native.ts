@@ -5,6 +5,30 @@ import type { NativeSubagentScope } from "./nativeSubagentScope";
 
 export type { NativeSubagentScope } from "./nativeSubagentScope";
 
+/** K-token settings use decimal thousands at the UI boundary; persisted
+ * settings and the native runner continue to use individual tokens. */
+export const NATIVE_TOKEN_UNIT = 1_000;
+
+export function nativeTokensToK(tokens: number): number {
+  return Number.isFinite(tokens) ? tokens / NATIVE_TOKEN_UNIT : 0;
+}
+
+export function nativeKToTokens(kTokens: number): number {
+  return Number.isFinite(kTokens) ? Math.round(kTokens * NATIVE_TOKEN_UNIT) : 0;
+}
+
+/** Normalize a user-entered K value to a valid integer-token setting. */
+export function normalizeNativeTokenK(
+  kTokens: number,
+  minTokens: number,
+  maxTokens: number,
+  defaultTokens: number,
+): number {
+  const tokens = Number.isFinite(kTokens) ? nativeKToTokens(kTokens) : defaultTokens;
+  const bounded = Math.min(maxTokens, Math.max(minTokens, tokens));
+  return nativeTokensToK(bounded);
+}
+
 export interface NativeOutput {
   employee_id: string;
   task_id: string | null;
@@ -198,6 +222,9 @@ export interface NativeSettings {
   confirm_high_risk: boolean;
   max_concurrent_subagents: number;
   subagent_policy: NativeSubagentPolicy | string;
+  context_window_tokens: number;
+  rollout_token_budget: number;
+  max_tool_output_tokens: number;
 }
 
 export interface UpdateNativeSettings {
@@ -205,6 +232,9 @@ export interface UpdateNativeSettings {
   confirm_high_risk?: boolean;
   max_concurrent_subagents?: number;
   subagent_policy?: NativeSubagentPolicy | string;
+  context_window_tokens?: number;
+  rollout_token_budget?: number;
+  max_tool_output_tokens?: number;
 }
 
 export async function getNativeSettings(): Promise<NativeSettings> {

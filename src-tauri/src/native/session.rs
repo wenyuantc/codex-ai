@@ -18,6 +18,8 @@ use crate::codex::{CodexExecutionProvider, CodexSessionKind, ExecutionChangeBase
 use crate::db::models::ChannelModelConfig;
 use crate::db::models::{CodexExit, CodexOutput, CodexSession, SshConfigRecord};
 use crate::engine::context::resolve_session_execution_context;
+use crate::native::agent::compact::{BudgetSnapshot, ContextWindow};
+use crate::native::agent::r#loop::AgentDiagnosticsSnapshot;
 use crate::native::agent::r#loop::AgentRunner;
 use crate::native::channels::{fetch_channel_record, require_channel_api_key};
 use crate::native::manager::{
@@ -303,6 +305,57 @@ struct NativeRunSettings {
     channel_name: String,
     bound_subagent: Option<crate::native::subagents::NativeSubagent>,
     catalog_project_id: Option<String>,
+}
+
+fn configure_runner_limits<R: Runtime>(
+    app: &AppHandle<R>,
+    runner: &mut AgentRunner,
+    model_context_tokens: Option<u32>,
+) {
+    let configured_context = crate::native::settings::effective_context_window_tokens(app) as usize;
+    let context_tokens = model_context_tokens
+        .map(|value| value as usize)
+        .filter(|value| *value > 0)
+        .map(|value| value.min(configured_context))
+        .unwrap_or(configured_context)
+        .max(1);
+    // AgentRunner keeps a legacy character limit for callers that construct
+    // it directly; make the session setting authoritative in token units.
+    runner.context_char_limit = context_tokens.saturating_mul(2);
+    runner.context_window.set_token_limit(context_tokens);
+    runner.tool_result_token_limit =
+        crate::native::settings::effective_max_tool_output_tokens(app) as usize;
+    runner.set_rollout_budget_limit(crate::native::settings::effective_rollout_token_budget(app));
+}
+
+fn format_native_diagnostics(
+    budget: &BudgetSnapshot,
+    context: &ContextWindow,
+    diagnostics: &AgentDiagnosticsSnapshot,
+) -> String {
+    let limit = if budget.limit == 0 {
+        "不限制".to_string()
+    } else {
+        format!("{} token", budget.limit)
+    };
+    format!(
+        "Token 诊断：已用 {}，预算 {}，剩余 {}，活动预留 {}；上下文窗口代数 {}，压缩 {} 次，重置 {} 次，上限 {} token；工具结果截断 {} 次，启动子 Agent {} 个，预算停止 {} 次",
+        budget.spent,
+        limit,
+        if budget.limit == 0 {
+            "不限制".to_string()
+        } else {
+            format!("{} token", budget.remaining)
+        },
+        budget.active_reservations,
+        context.generation,
+        context.compactions,
+        context.resets,
+        context.token_limit,
+        diagnostics.tool_results_truncated,
+        diagnostics.subagents_started,
+        diagnostics.budget_stops,
+    )
 }
 
 fn native_startup_banner(
@@ -647,9 +700,7 @@ pub async fn run_native_read_only_one_shot(
     runner.max_concurrent_subagents =
         crate::native::settings::effective_max_concurrent_subagents(app);
     runner.subagent_policy = crate::native::settings::effective_subagent_policy(app);
-    if let Some(context_tokens) = run.context_tokens {
-        runner.context_char_limit = (context_tokens as usize).saturating_mul(3).max(8_000);
-    }
+    configure_runner_limits(app, &mut runner, run.context_tokens);
     let mut parts = crate::native::prompt::NativePromptParts {
         cwd: run_cwd.clone(),
         model: run.model.clone(),
@@ -735,6 +786,25 @@ pub async fn run_native_read_only_one_shot(
     };
     runner.on_usage.take();
     let usage = usage_join.await.unwrap_or_default();
+    if let Some(session_id) = session_record_id
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        let diagnostics = format_native_diagnostics(
+            &runner.budget_snapshot(),
+            &runner.context_window,
+            &runner.diagnostics_snapshot(),
+        );
+        if let Ok(pool) = sqlite_pool(app).await {
+            let _ = insert_codex_session_event(
+                &pool,
+                session_id,
+                "native_token_diagnostics",
+                Some(&diagnostics),
+            )
+            .await;
+        }
+    }
     if text.trim().is_empty() {
         return Err("内置 Agent 未返回可用内容".to_string());
     }
@@ -1237,9 +1307,7 @@ async fn run_native_loop(
     runner.max_concurrent_subagents =
         crate::native::settings::effective_max_concurrent_subagents(&app);
     runner.subagent_policy = crate::native::settings::effective_subagent_policy(&app);
-    if let Some(context_tokens) = run.context_tokens {
-        runner.context_char_limit = (context_tokens as usize).saturating_mul(3).max(8_000);
-    }
+    configure_runner_limits(&app, &mut runner, run.context_tokens);
     let mut parts = crate::native::prompt::NativePromptParts {
         cwd: run_cwd.clone(),
         model: run.model.clone(),
@@ -1592,6 +1660,30 @@ async fn run_native_loop(
     let _ = emit_join.await;
     let _ = usage_join.await;
     let _ = activity_join.await;
+
+    let budget = runner.budget_snapshot();
+    let context = runner.context_window;
+    let diagnostics = format_native_diagnostics(&budget, &context, &runner.diagnostics_snapshot());
+    if let Ok(pool) = sqlite_pool(&app).await {
+        let _ = insert_codex_session_event(
+            &pool,
+            &session_record_id,
+            "native_token_diagnostics",
+            Some(&diagnostics),
+        )
+        .await;
+        if let Some(task_id) = task_id.as_deref() {
+            let _ = insert_activity_log(
+                &pool,
+                "native_token_diagnostics",
+                &diagnostics,
+                Some(&employee_id),
+                Some(task_id),
+                project_id.as_deref(),
+            )
+            .await;
+        }
+    }
 
     if kind == "review" {
         if let Ok(pool) = sqlite_pool(&app).await {
@@ -2027,8 +2119,12 @@ pub async fn resume_native_session(
 
 #[cfg(test)]
 mod tests {
-    use super::{native_kind_to_codex, should_capture_native_execution_changes};
+    use super::{
+        format_native_diagnostics, native_kind_to_codex, should_capture_native_execution_changes,
+    };
     use crate::codex::CodexSessionKind;
+    use crate::native::agent::compact::{BudgetSnapshot, ContextWindow};
+    use crate::native::agent::r#loop::AgentDiagnosticsSnapshot;
 
     #[test]
     fn execution_sessions_capture_git_changes_and_review_does_not() {
@@ -2099,5 +2195,27 @@ mod tests {
             super::native_startup_banner("DeepSeek", "openai", "deepseek-v4-flash", None, false),
             "[内置 Agent] 启动会话 渠道=DeepSeek 协议=openai model=deepseek-v4-flash effort=默认 thinking=off"
         );
+    }
+
+    #[test]
+    fn native_diagnostics_describe_budget_and_context_window() {
+        let budget = BudgetSnapshot {
+            limit: 200_000,
+            spent: 12_345,
+            remaining: 187_655,
+            active_reservations: 256,
+        };
+        let context = ContextWindow {
+            generation: 2,
+            token_limit: 16_000,
+            compactions: 1,
+            resets: 1,
+        };
+        let details =
+            format_native_diagnostics(&budget, &context, &AgentDiagnosticsSnapshot::default());
+        assert!(details.contains("已用 12345"));
+        assert!(details.contains("上下文窗口代数 2"));
+        assert!(details.contains("压缩 1 次"));
+        assert!(details.contains("重置 1 次"));
     }
 }

@@ -10,12 +10,25 @@ use crate::db::models::{NativeSettings, UpdateNativeSettings};
 const SETTINGS_FILE_NAME: &str = "native-settings.json";
 pub const DEFAULT_NATIVE_MAX_TURNS: i32 = 40;
 const MAX_NATIVE_MAX_TURNS: i32 = 500;
-pub const DEFAULT_NATIVE_MAX_CONCURRENT_SUBAGENTS: i32 = 3;
+pub const DEFAULT_NATIVE_MAX_CONCURRENT_SUBAGENTS: i32 = 1;
 const MAX_NATIVE_MAX_CONCURRENT_SUBAGENTS: i32 = 16;
+/// Keep normal coding turns well below the provider's advertised context
+/// window. The runner can still compact and continue when this threshold is
+/// reached.
+pub const DEFAULT_NATIVE_CONTEXT_WINDOW_TOKENS: i32 = 16_000;
+const MIN_NATIVE_CONTEXT_WINDOW_TOKENS: i32 = 8_000;
+const MAX_NATIVE_CONTEXT_WINDOW_TOKENS: i32 = 1_000_000;
+/// A rollout budget is shared by the parent and all child agents. Zero keeps
+/// the legacy unlimited behavior for users who explicitly opt out.
+pub const DEFAULT_NATIVE_ROLLOUT_TOKEN_BUDGET: i64 = 200_000;
+const MAX_NATIVE_ROLLOUT_TOKEN_BUDGET: i64 = 10_000_000;
+pub const DEFAULT_NATIVE_MAX_TOOL_OUTPUT_TOKENS: i32 = 4_096;
+const MIN_NATIVE_MAX_TOOL_OUTPUT_TOKENS: i32 = 256;
+const MAX_NATIVE_MAX_TOOL_OUTPUT_TOKENS: i32 = 65_536;
 pub const SUBAGENT_POLICY_CONSERVATIVE: &str = "conservative";
 pub const SUBAGENT_POLICY_BALANCED: &str = "balanced";
 pub const SUBAGENT_POLICY_AGGRESSIVE: &str = "aggressive";
-pub const DEFAULT_NATIVE_SUBAGENT_POLICY: &str = SUBAGENT_POLICY_BALANCED;
+pub const DEFAULT_NATIVE_SUBAGENT_POLICY: &str = SUBAGENT_POLICY_CONSERVATIVE;
 
 #[derive(Debug, Default, Deserialize, Serialize)]
 struct RawNativeSettings {
@@ -27,6 +40,12 @@ struct RawNativeSettings {
     max_concurrent_subagents: Option<i32>,
     #[serde(default)]
     subagent_policy: Option<String>,
+    #[serde(default)]
+    context_window_tokens: Option<i32>,
+    #[serde(default)]
+    rollout_token_budget: Option<i64>,
+    #[serde(default)]
+    max_tool_output_tokens: Option<i32>,
 }
 
 pub fn normalize_native_max_turns(value: Option<i32>) -> i32 {
@@ -40,6 +59,37 @@ pub fn normalize_native_max_concurrent_subagents(value: Option<i32>) -> i32 {
     match value {
         Some(value) if (1..=MAX_NATIVE_MAX_CONCURRENT_SUBAGENTS).contains(&value) => value,
         _ => DEFAULT_NATIVE_MAX_CONCURRENT_SUBAGENTS,
+    }
+}
+
+pub fn normalize_native_context_window_tokens(value: Option<i32>) -> i32 {
+    match value {
+        Some(value)
+            if (MIN_NATIVE_CONTEXT_WINDOW_TOKENS..=MAX_NATIVE_CONTEXT_WINDOW_TOKENS)
+                .contains(&value) =>
+        {
+            value
+        }
+        _ => DEFAULT_NATIVE_CONTEXT_WINDOW_TOKENS,
+    }
+}
+
+pub fn normalize_native_rollout_token_budget(value: Option<i64>) -> i64 {
+    match value {
+        Some(value) if (0..=MAX_NATIVE_ROLLOUT_TOKEN_BUDGET).contains(&value) => value,
+        _ => DEFAULT_NATIVE_ROLLOUT_TOKEN_BUDGET,
+    }
+}
+
+pub fn normalize_native_max_tool_output_tokens(value: Option<i32>) -> i32 {
+    match value {
+        Some(value)
+            if (MIN_NATIVE_MAX_TOOL_OUTPUT_TOKENS..=MAX_NATIVE_MAX_TOOL_OUTPUT_TOKENS)
+                .contains(&value) =>
+        {
+            value
+        }
+        _ => DEFAULT_NATIVE_MAX_TOOL_OUTPUT_TOKENS,
     }
 }
 
@@ -76,6 +126,9 @@ fn default_settings() -> NativeSettings {
         confirm_high_risk: true,
         max_concurrent_subagents: DEFAULT_NATIVE_MAX_CONCURRENT_SUBAGENTS,
         subagent_policy: DEFAULT_NATIVE_SUBAGENT_POLICY.to_string(),
+        context_window_tokens: DEFAULT_NATIVE_CONTEXT_WINDOW_TOKENS,
+        rollout_token_budget: DEFAULT_NATIVE_ROLLOUT_TOKEN_BUDGET,
+        max_tool_output_tokens: DEFAULT_NATIVE_MAX_TOOL_OUTPUT_TOKENS,
     }
 }
 
@@ -87,6 +140,9 @@ fn normalize_settings(raw: RawNativeSettings) -> NativeSettings {
             raw.max_concurrent_subagents,
         ),
         subagent_policy: normalize_subagent_policy(raw.subagent_policy.as_deref()),
+        context_window_tokens: normalize_native_context_window_tokens(raw.context_window_tokens),
+        rollout_token_budget: normalize_native_rollout_token_budget(raw.rollout_token_budget),
+        max_tool_output_tokens: normalize_native_max_tool_output_tokens(raw.max_tool_output_tokens),
     }
 }
 
@@ -125,6 +181,15 @@ fn save_native_settings<R: Runtime>(
         subagent_policy: Some(normalize_subagent_policy(Some(
             settings.subagent_policy.as_str(),
         ))),
+        context_window_tokens: Some(normalize_native_context_window_tokens(Some(
+            settings.context_window_tokens,
+        ))),
+        rollout_token_budget: Some(normalize_native_rollout_token_budget(Some(
+            settings.rollout_token_budget,
+        ))),
+        max_tool_output_tokens: Some(normalize_native_max_tool_output_tokens(Some(
+            settings.max_tool_output_tokens,
+        ))),
     };
     let json = serde_json::to_string_pretty(&raw)
         .map_err(|error| format!("序列化内置 Agent 设置失败: {error}"))?;
@@ -158,11 +223,26 @@ async fn merge_native_settings<R: Runtime>(
     if let Some(subagent_policy) = updates.subagent_policy {
         next.subagent_policy = normalize_subagent_policy(Some(subagent_policy.as_str()));
     }
+    if let Some(context_window_tokens) = updates.context_window_tokens {
+        next.context_window_tokens =
+            normalize_native_context_window_tokens(Some(context_window_tokens));
+    }
+    if let Some(rollout_token_budget) = updates.rollout_token_budget {
+        next.rollout_token_budget =
+            normalize_native_rollout_token_budget(Some(rollout_token_budget));
+    }
+    if let Some(max_tool_output_tokens) = updates.max_tool_output_tokens {
+        next.max_tool_output_tokens =
+            normalize_native_max_tool_output_tokens(Some(max_tool_output_tokens));
+    }
     save_native_settings(app, &next)?;
     if previous.max_turns != next.max_turns
         || previous.confirm_high_risk != next.confirm_high_risk
         || previous.max_concurrent_subagents != next.max_concurrent_subagents
         || previous.subagent_policy != next.subagent_policy
+        || previous.context_window_tokens != next.context_window_tokens
+        || previous.rollout_token_budget != next.rollout_token_budget
+        || previous.max_tool_output_tokens != next.max_tool_output_tokens
     {
         if let Ok(pool) = sqlite_pool(app).await {
             let _ = insert_activity_log(
@@ -181,7 +261,7 @@ async fn merge_native_settings<R: Runtime>(
 
 fn native_settings_activity_details(settings: &NativeSettings) -> String {
     format!(
-        "{}；高风险确认：{}；同轮子 Agent 上限：{}；子 Agent 策略：{}",
+        "{}；高风险确认：{}；同轮子 Agent 上限：{}；子 Agent 策略：{}；上下文窗口：{} token；会话预算：{}；单条工具结果：{} token",
         max_turns_activity_details(settings.max_turns),
         if settings.confirm_high_risk {
             "开启"
@@ -189,7 +269,14 @@ fn native_settings_activity_details(settings: &NativeSettings) -> String {
             "关闭"
         },
         settings.max_concurrent_subagents,
-        subagent_policy_label_zh(&settings.subagent_policy)
+        subagent_policy_label_zh(&settings.subagent_policy),
+        settings.context_window_tokens,
+        if settings.rollout_token_budget == 0 {
+            "不限制".to_string()
+        } else {
+            format!("{} token", settings.rollout_token_budget)
+        },
+        settings.max_tool_output_tokens,
     )
 }
 
@@ -203,6 +290,32 @@ pub fn effective_max_concurrent_subagents<R: Runtime>(app: &AppHandle<R>) -> u32
     load_native_settings(app)
         .map(|settings| settings.max_concurrent_subagents.max(1) as u32)
         .unwrap_or(DEFAULT_NATIVE_MAX_CONCURRENT_SUBAGENTS as u32)
+}
+
+pub fn effective_context_window_tokens<R: Runtime>(app: &AppHandle<R>) -> u32 {
+    load_native_settings(app)
+        .map(|settings| {
+            settings
+                .context_window_tokens
+                .max(MIN_NATIVE_CONTEXT_WINDOW_TOKENS) as u32
+        })
+        .unwrap_or(DEFAULT_NATIVE_CONTEXT_WINDOW_TOKENS as u32)
+}
+
+pub fn effective_rollout_token_budget<R: Runtime>(app: &AppHandle<R>) -> u64 {
+    load_native_settings(app)
+        .map(|settings| settings.rollout_token_budget.max(0) as u64)
+        .unwrap_or(DEFAULT_NATIVE_ROLLOUT_TOKEN_BUDGET as u64)
+}
+
+pub fn effective_max_tool_output_tokens<R: Runtime>(app: &AppHandle<R>) -> u32 {
+    load_native_settings(app)
+        .map(|settings| {
+            settings
+                .max_tool_output_tokens
+                .max(MIN_NATIVE_MAX_TOOL_OUTPUT_TOKENS) as u32
+        })
+        .unwrap_or(DEFAULT_NATIVE_MAX_TOOL_OUTPUT_TOKENS as u32)
 }
 
 pub fn confirm_high_risk_enabled<R: Runtime>(app: &AppHandle<R>) -> bool {
@@ -246,6 +359,9 @@ mod tests {
             confirm_high_risk: None,
             max_concurrent_subagents: None,
             subagent_policy: None,
+            context_window_tokens: None,
+            rollout_token_budget: None,
+            max_tool_output_tokens: None,
         });
         assert!(settings.confirm_high_risk);
         assert_eq!(
@@ -253,6 +369,18 @@ mod tests {
             DEFAULT_NATIVE_MAX_CONCURRENT_SUBAGENTS
         );
         assert_eq!(settings.subagent_policy, DEFAULT_NATIVE_SUBAGENT_POLICY);
+        assert_eq!(
+            settings.context_window_tokens,
+            DEFAULT_NATIVE_CONTEXT_WINDOW_TOKENS
+        );
+        assert_eq!(
+            settings.rollout_token_budget,
+            DEFAULT_NATIVE_ROLLOUT_TOKEN_BUDGET
+        );
+        assert_eq!(
+            settings.max_tool_output_tokens,
+            DEFAULT_NATIVE_MAX_TOOL_OUTPUT_TOKENS
+        );
     }
 
     #[test]
@@ -282,9 +410,10 @@ mod tests {
     #[test]
     fn normalize_concurrent_subagents_range() {
         assert_eq!(
-            normalize_native_max_concurrent_subagents(Some(3)),
+            normalize_native_max_concurrent_subagents(None),
             DEFAULT_NATIVE_MAX_CONCURRENT_SUBAGENTS
         );
+        assert_eq!(normalize_native_max_concurrent_subagents(Some(3)), 3);
         assert_eq!(normalize_native_max_concurrent_subagents(Some(1)), 1);
         assert_eq!(normalize_native_max_concurrent_subagents(Some(16)), 16);
         assert_eq!(
@@ -311,6 +440,53 @@ mod tests {
         assert_eq!(
             normalize_native_max_turns(Some(501)),
             DEFAULT_NATIVE_MAX_TURNS
+        );
+    }
+
+    #[test]
+    fn normalize_context_window_and_tool_limits() {
+        assert_eq!(
+            normalize_native_context_window_tokens(Some(DEFAULT_NATIVE_CONTEXT_WINDOW_TOKENS)),
+            DEFAULT_NATIVE_CONTEXT_WINDOW_TOKENS
+        );
+        assert_eq!(
+            normalize_native_context_window_tokens(Some(MIN_NATIVE_CONTEXT_WINDOW_TOKENS)),
+            MIN_NATIVE_CONTEXT_WINDOW_TOKENS
+        );
+        assert_eq!(
+            normalize_native_context_window_tokens(Some(MIN_NATIVE_CONTEXT_WINDOW_TOKENS - 1)),
+            DEFAULT_NATIVE_CONTEXT_WINDOW_TOKENS
+        );
+        assert_eq!(
+            normalize_native_context_window_tokens(Some(MAX_NATIVE_CONTEXT_WINDOW_TOKENS + 1)),
+            DEFAULT_NATIVE_CONTEXT_WINDOW_TOKENS
+        );
+
+        assert_eq!(normalize_native_rollout_token_budget(Some(0)), 0);
+        assert_eq!(
+            normalize_native_rollout_token_budget(Some(DEFAULT_NATIVE_ROLLOUT_TOKEN_BUDGET)),
+            DEFAULT_NATIVE_ROLLOUT_TOKEN_BUDGET
+        );
+        assert_eq!(
+            normalize_native_rollout_token_budget(Some(-1)),
+            DEFAULT_NATIVE_ROLLOUT_TOKEN_BUDGET
+        );
+        assert_eq!(
+            normalize_native_rollout_token_budget(Some(MAX_NATIVE_ROLLOUT_TOKEN_BUDGET + 1)),
+            DEFAULT_NATIVE_ROLLOUT_TOKEN_BUDGET
+        );
+
+        assert_eq!(
+            normalize_native_max_tool_output_tokens(Some(DEFAULT_NATIVE_MAX_TOOL_OUTPUT_TOKENS)),
+            DEFAULT_NATIVE_MAX_TOOL_OUTPUT_TOKENS
+        );
+        assert_eq!(
+            normalize_native_max_tool_output_tokens(Some(MIN_NATIVE_MAX_TOOL_OUTPUT_TOKENS - 1)),
+            DEFAULT_NATIVE_MAX_TOOL_OUTPUT_TOKENS
+        );
+        assert_eq!(
+            normalize_native_max_tool_output_tokens(Some(MAX_NATIVE_MAX_TOOL_OUTPUT_TOKENS + 1)),
+            DEFAULT_NATIVE_MAX_TOOL_OUTPUT_TOKENS
         );
     }
 }

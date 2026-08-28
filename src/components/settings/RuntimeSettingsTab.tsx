@@ -81,6 +81,15 @@ interface RuntimeSettingsTabProps {
   nativeMaxConcurrentSubagents: number;
   onNativeMaxConcurrentSubagentsChange: (value: number) => void;
   onNativeMaxConcurrentSubagentsCommit: (value: number) => void;
+  nativeContextWindowK: string;
+  onNativeContextWindowKChange: (value: string) => void;
+  onNativeContextWindowKCommit: (value: number) => void;
+  nativeRolloutTokenBudgetK: string;
+  onNativeRolloutTokenBudgetKChange: (value: string) => void;
+  onNativeRolloutTokenBudgetKCommit: (value: number) => void;
+  nativeMaxToolOutputK: string;
+  onNativeMaxToolOutputKChange: (value: string) => void;
+  onNativeMaxToolOutputKCommit: (value: number) => void;
   nativeSubagentPolicy: string;
   onNativeSubagentPolicyChange: (value: string) => void;
   nativeConfirmHighRisk: boolean;
@@ -223,6 +232,15 @@ export function RuntimeSettingsTab({
   nativeMaxConcurrentSubagents,
   onNativeMaxConcurrentSubagentsChange,
   onNativeMaxConcurrentSubagentsCommit,
+  nativeContextWindowK,
+  onNativeContextWindowKChange,
+  onNativeContextWindowKCommit,
+  nativeRolloutTokenBudgetK,
+  onNativeRolloutTokenBudgetKChange,
+  onNativeRolloutTokenBudgetKCommit,
+  nativeMaxToolOutputK,
+  onNativeMaxToolOutputKChange,
+  onNativeMaxToolOutputKCommit,
   nativeSubagentPolicy,
   onNativeSubagentPolicyChange,
   nativeConfirmHighRisk,
@@ -565,6 +583,93 @@ export function RuntimeSettingsTab({
             <p className="text-xs text-muted-foreground">{t("settings:nativeAgent.hint")}</p>
           </div>
           <div className="mt-4 max-w-xs space-y-2">
+            <label htmlFor="native-context-window-k" className="text-sm font-medium">
+              {t("settings:nativeAgent.contextWindowTokensLabel")}
+            </label>
+            <div className="relative">
+              <Input
+                id="native-context-window-k"
+                className="pr-8"
+                type="number"
+                min={8}
+                max={1_000}
+                step={1}
+                value={nativeContextWindowK}
+                onChange={(event) => onNativeContextWindowKChange(event.target.value)}
+                onBlur={(event) => {
+                  const parsed = Number.parseFloat(event.target.value);
+                  onNativeContextWindowKCommit(
+                    Number.isNaN(parsed) ? 16 : Math.min(1_000, Math.max(8, parsed)),
+                  );
+                }}
+              />
+              <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-sm text-muted-foreground">
+                K
+              </span>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              {t("settings:nativeAgent.contextWindowTokensHint")}
+            </p>
+          </div>
+          <div className="mt-4 max-w-xs space-y-2">
+            <label htmlFor="native-rollout-token-budget-k" className="text-sm font-medium">
+              {t("settings:nativeAgent.rolloutTokenBudgetLabel")}
+            </label>
+            <div className="relative">
+              <Input
+                id="native-rollout-token-budget-k"
+                className="pr-8"
+                type="number"
+                min={0}
+                max={10_000}
+                step={1}
+                value={nativeRolloutTokenBudgetK}
+                onChange={(event) => onNativeRolloutTokenBudgetKChange(event.target.value)}
+                onBlur={(event) => {
+                  const parsed = Number.parseFloat(event.target.value);
+                  onNativeRolloutTokenBudgetKCommit(
+                    Number.isNaN(parsed) ? 200 : Math.min(10_000, Math.max(0, parsed)),
+                  );
+                }}
+              />
+              <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-sm text-muted-foreground">
+                K
+              </span>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              {t("settings:nativeAgent.rolloutTokenBudgetHint")}
+            </p>
+          </div>
+          <div className="mt-4 max-w-xs space-y-2">
+            <label htmlFor="native-max-tool-output-k" className="text-sm font-medium">
+              {t("settings:nativeAgent.maxToolOutputTokensLabel")}
+            </label>
+            <div className="relative">
+              <Input
+                id="native-max-tool-output-k"
+                className="pr-8"
+                type="number"
+                min={0.256}
+                max={65.536}
+                step={0.001}
+                value={nativeMaxToolOutputK}
+                onChange={(event) => onNativeMaxToolOutputKChange(event.target.value)}
+                onBlur={(event) => {
+                  const parsed = Number.parseFloat(event.target.value);
+                  onNativeMaxToolOutputKCommit(
+                    Number.isNaN(parsed) ? 4.096 : Math.min(65.536, Math.max(0.256, parsed)),
+                  );
+                }}
+              />
+              <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-sm text-muted-foreground">
+                K
+              </span>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              {t("settings:nativeAgent.maxToolOutputTokensHint")}
+            </p>
+          </div>
+          <div className="mt-4 max-w-xs space-y-2">
             <label htmlFor="native-max-concurrent-subagents" className="text-sm font-medium">
               {t("settings:nativeAgent.maxConcurrentSubagentsLabel")}
             </label>
@@ -578,13 +683,13 @@ export function RuntimeSettingsTab({
               onChange={(event) => {
                 const parsed = Number.parseInt(event.target.value, 10);
                 onNativeMaxConcurrentSubagentsChange(
-                  Number.isNaN(parsed) ? 3 : Math.min(16, Math.max(1, parsed)),
+                  Number.isNaN(parsed) ? 1 : Math.min(16, Math.max(1, parsed)),
                 );
               }}
               onBlur={(event) => {
                 const parsed = Number.parseInt(event.target.value, 10);
                 onNativeMaxConcurrentSubagentsCommit(
-                  Number.isNaN(parsed) ? 3 : Math.min(16, Math.max(1, parsed)),
+                  Number.isNaN(parsed) ? 1 : Math.min(16, Math.max(1, parsed)),
                 );
               }}
             />

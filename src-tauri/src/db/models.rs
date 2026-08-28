@@ -945,6 +945,16 @@ pub struct NativeSettings {
     pub confirm_high_risk: bool,
     pub max_concurrent_subagents: i32,
     pub subagent_policy: String,
+    /// Maximum local context window used by the native agent, in tokens.
+    /// This is deliberately independent from the model's advertised maximum
+    /// so a large provider context cannot cause unbounded input growth.
+    pub context_window_tokens: i32,
+    /// Shared cumulative input/output budget for a rollout. Zero means no
+    /// explicit budget, matching the existing max_turns convention.
+    pub rollout_token_budget: i64,
+    /// Maximum estimated tokens from one tool result retained in model
+    /// history. The full result is still available to the event stream.
+    pub max_tool_output_tokens: i32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -953,6 +963,9 @@ pub struct UpdateNativeSettings {
     pub confirm_high_risk: Option<bool>,
     pub max_concurrent_subagents: Option<i32>,
     pub subagent_policy: Option<String>,
+    pub context_window_tokens: Option<i32>,
+    pub rollout_token_budget: Option<i64>,
+    pub max_tool_output_tokens: Option<i32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

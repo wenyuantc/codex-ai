@@ -1,0 +1,4 @@
+{"file":".trellis/spec/backend/ai-engines.md","reason":"Native agent runtime, context-window, rollout-budget, tool truncation, Responses continuation, SSH parity, and diagnostics contracts."}
+{"file":".trellis/spec/backend/testing.md","reason":"Backend verification commands and test expectations for native model/agent changes."}
+{"file":".trellis/spec/frontend/i18n.md","reason":"Locale and activity-label requirements for new Native settings and token diagnostics actions."}
+{"file":".trellis/spec/frontend/component-guidelines.md","reason":"Settings UI component and control conventions."}

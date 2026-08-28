@@ -65,7 +65,14 @@ import {
   type OpenCodeModelInfo,
   type RemoteOpenCodeHealthCheck,
 } from "@/lib/opencode";
-import { getNativeSettings, updateNativeSettings, type NativeSettings } from "@/lib/native";
+import {
+  getNativeSettings,
+  nativeKToTokens,
+  nativeTokensToK,
+  normalizeNativeTokenK,
+  updateNativeSettings,
+  type NativeSettings,
+} from "@/lib/native";
 import { changeAppLocale } from "@/lib/i18n";
 import { getLocalePreference, type AppLocale } from "@/lib/i18n/locale";
 import { getEnvironmentModeLabel } from "@/lib/projects";
@@ -188,9 +195,12 @@ export function SettingsPage() {
   const [locale, setLocale] = useState<AppLocale>(getLocalePreference);
   const [maxConcurrentSessions, setMaxConcurrentSessions] = useState(3);
   const [nativeMaxTurns, setNativeMaxTurns] = useState(40);
-  const [nativeMaxConcurrentSubagents, setNativeMaxConcurrentSubagents] = useState(3);
-  const [nativeSubagentPolicy, setNativeSubagentPolicy] = useState("balanced");
+  const [nativeMaxConcurrentSubagents, setNativeMaxConcurrentSubagents] = useState(1);
+  const [nativeSubagentPolicy, setNativeSubagentPolicy] = useState("conservative");
   const [nativeConfirmHighRisk, setNativeConfirmHighRisk] = useState(true);
+  const [nativeContextWindowK, setNativeContextWindowK] = useState("16");
+  const [nativeRolloutTokenBudgetK, setNativeRolloutTokenBudgetK] = useState("200");
+  const [nativeMaxToolOutputK, setNativeMaxToolOutputK] = useState("4.096");
   const [codexHealth, setCodexHealth] = useState<CodexHealthCheck | RemoteCodexHealthCheck | null>(
     null,
   );
@@ -394,9 +404,12 @@ export function SettingsPage() {
 
   function applyNativeSettings(settings: NativeSettings) {
     setNativeMaxTurns(settings.max_turns ?? 40);
-    setNativeMaxConcurrentSubagents(settings.max_concurrent_subagents ?? 3);
-    setNativeSubagentPolicy(settings.subagent_policy || "balanced");
+    setNativeMaxConcurrentSubagents(settings.max_concurrent_subagents ?? 1);
+    setNativeSubagentPolicy(settings.subagent_policy || "conservative");
     setNativeConfirmHighRisk(settings.confirm_high_risk !== false);
+    setNativeContextWindowK(String(nativeTokensToK(settings.context_window_tokens ?? 16_000)));
+    setNativeRolloutTokenBudgetK(String(nativeTokensToK(settings.rollout_token_budget ?? 200_000)));
+    setNativeMaxToolOutputK(String(nativeTokensToK(settings.max_tool_output_tokens ?? 4_096)));
   }
 
   async function loadNativeMaxTurns() {
@@ -419,7 +432,7 @@ export function SettingsPage() {
   }
 
   async function persistNativeMaxConcurrentSubagents(value: number) {
-    const normalized = Number.isFinite(value) ? Math.min(16, Math.max(1, Math.trunc(value))) : 3;
+    const normalized = Number.isFinite(value) ? Math.min(16, Math.max(1, Math.trunc(value))) : 1;
     setNativeMaxConcurrentSubagents(normalized);
     try {
       applyNativeSettings(await updateNativeSettings({ max_concurrent_subagents: normalized }));
@@ -445,6 +458,42 @@ export function SettingsPage() {
       applyNativeSettings(await updateNativeSettings({ confirm_high_risk: value }));
     } catch (error) {
       console.error("Failed to save native high-risk confirmation:", error);
+      await loadNativeMaxTurns();
+    }
+  }
+
+  async function persistNativeContextWindowK(value: number) {
+    const normalizedK = normalizeNativeTokenK(value, 8_000, 1_000_000, 16_000);
+    const normalized = nativeKToTokens(normalizedK);
+    setNativeContextWindowK(String(normalizedK));
+    try {
+      applyNativeSettings(await updateNativeSettings({ context_window_tokens: normalized }));
+    } catch (error) {
+      console.error("Failed to save native context window:", error);
+      await loadNativeMaxTurns();
+    }
+  }
+
+  async function persistNativeRolloutTokenBudgetK(value: number) {
+    const normalizedK = normalizeNativeTokenK(value, 0, 10_000_000, 200_000);
+    const normalized = nativeKToTokens(normalizedK);
+    setNativeRolloutTokenBudgetK(String(normalizedK));
+    try {
+      applyNativeSettings(await updateNativeSettings({ rollout_token_budget: normalized }));
+    } catch (error) {
+      console.error("Failed to save native rollout token budget:", error);
+      await loadNativeMaxTurns();
+    }
+  }
+
+  async function persistNativeMaxToolOutputK(value: number) {
+    const normalizedK = normalizeNativeTokenK(value, 256, 65_536, 4_096);
+    const normalized = nativeKToTokens(normalizedK);
+    setNativeMaxToolOutputK(String(normalizedK));
+    try {
+      applyNativeSettings(await updateNativeSettings({ max_tool_output_tokens: normalized }));
+    } catch (error) {
+      console.error("Failed to save native tool output limit:", error);
       await loadNativeMaxTurns();
     }
   }
@@ -1305,6 +1354,17 @@ export function SettingsPage() {
             onNativeMaxConcurrentSubagentsCommit={(value) =>
               void persistNativeMaxConcurrentSubagents(value)
             }
+            nativeContextWindowK={nativeContextWindowK}
+            onNativeContextWindowKChange={setNativeContextWindowK}
+            onNativeContextWindowKCommit={(value) => void persistNativeContextWindowK(value)}
+            nativeRolloutTokenBudgetK={nativeRolloutTokenBudgetK}
+            onNativeRolloutTokenBudgetKChange={setNativeRolloutTokenBudgetK}
+            onNativeRolloutTokenBudgetKCommit={(value) =>
+              void persistNativeRolloutTokenBudgetK(value)
+            }
+            nativeMaxToolOutputK={nativeMaxToolOutputK}
+            onNativeMaxToolOutputKChange={setNativeMaxToolOutputK}
+            onNativeMaxToolOutputKCommit={(value) => void persistNativeMaxToolOutputK(value)}
             nativeSubagentPolicy={nativeSubagentPolicy}
             onNativeSubagentPolicyChange={(value) => void persistNativeSubagentPolicy(value)}
             nativeConfirmHighRisk={nativeConfirmHighRisk}

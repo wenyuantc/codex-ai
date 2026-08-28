@@ -104,9 +104,17 @@ fn responses_user_content(message: &Message) -> Value {
 }
 
 pub fn parse_responses_sse(text: &str) -> Result<(Message, Usage), String> {
+    parse_responses_sse_with_id(text).map(|(message, usage, _)| (message, usage))
+}
+
+/// Parse a Responses stream and retain the server response identifier when one
+/// is present. The identifier lets the caller use `previous_response_id` on
+/// the next request without re-sending the entire conversation.
+pub fn parse_responses_sse_with_id(text: &str) -> Result<(Message, Usage, Option<String>), String> {
     let mut message = Message::assistant_text("");
     let mut usage = Usage::default();
     let mut tools: Vec<ToolCall> = Vec::new();
+    let mut response_id = None;
     for event in parse_sse(text) {
         let Ok(payload) = serde_json::from_str::<Value>(&event.data) else {
             continue;
@@ -115,7 +123,14 @@ pub fn parse_responses_sse(text: &str) -> Result<(Message, Usage), String> {
             .get("type")
             .and_then(Value::as_str)
             .unwrap_or(event.event.as_str());
-        apply_responses_event(&mut message, &mut tools, &mut usage, event_type, &payload);
+        apply_responses_event(
+            &mut message,
+            &mut tools,
+            &mut usage,
+            &mut response_id,
+            event_type,
+            &payload,
+        );
     }
     message.tool_calls = tools;
     if message.content.is_empty()
@@ -124,17 +139,43 @@ pub fn parse_responses_sse(text: &str) -> Result<(Message, Usage), String> {
     {
         return Err("模型返回空响应".to_string());
     }
-    Ok((message, usage))
+    Ok((message, usage, response_id))
 }
 
 fn apply_responses_event(
     message: &mut Message,
     tools: &mut Vec<ToolCall>,
     usage: &mut Usage,
+    response_id: &mut Option<String>,
     event_type: &str,
     payload: &Value,
 ) {
     match event_type {
+        "response.created" | "response.in_progress" | "response.completed" | "response.done" => {
+            if response_id.is_none() {
+                *response_id = responses_response_id(payload).map(ToOwned::to_owned);
+            }
+            if matches!(event_type, "response.completed" | "response.done") {
+                if let Some(raw) = payload
+                    .pointer("/response/usage")
+                    .or_else(|| payload.get("usage"))
+                {
+                    *usage = parse_usage(raw);
+                }
+                let empty = message.content.is_empty()
+                    && message.reasoning_content.is_empty()
+                    && tools.is_empty();
+                if empty {
+                    if let Some(output) = payload
+                        .pointer("/response/output")
+                        .or_else(|| payload.get("output"))
+                        .and_then(Value::as_array)
+                    {
+                        apply_responses_output(message, tools, output);
+                    }
+                }
+            }
+        }
         "response.output_text.delta" | "response.content_part.delta" => {
             if let Some(delta) = payload.get("delta").and_then(Value::as_str) {
                 message.content.push_str(delta);
@@ -193,26 +234,6 @@ fn apply_responses_event(
                 call.arguments.push_str(delta);
             }
         }
-        "response.completed" | "response.done" => {
-            if let Some(raw) = payload
-                .pointer("/response/usage")
-                .or_else(|| payload.get("usage"))
-            {
-                *usage = parse_usage(raw);
-            }
-            let empty = message.content.is_empty()
-                && message.reasoning_content.is_empty()
-                && tools.is_empty();
-            if empty {
-                if let Some(output) = payload
-                    .pointer("/response/output")
-                    .or_else(|| payload.get("output"))
-                    .and_then(Value::as_array)
-                {
-                    apply_responses_output(message, tools, output);
-                }
-            }
-        }
         _ => {
             if let Some(text) = payload.get("delta").and_then(Value::as_str) {
                 if event_type.contains("text") {
@@ -224,9 +245,17 @@ fn apply_responses_event(
 }
 
 pub fn parse_responses_json(value: &Value) -> Result<(Message, Usage), String> {
+    parse_responses_json_with_id(value).map(|(message, usage, _)| (message, usage))
+}
+
+/// Parse a complete Responses payload and retain its server response id.
+pub fn parse_responses_json_with_id(
+    value: &Value,
+) -> Result<(Message, Usage, Option<String>), String> {
     let mut message = Message::assistant_text("");
     let mut tools = Vec::new();
     let response = value.get("response").unwrap_or(value);
+    let response_id = responses_response_id(value).or_else(|| responses_response_id(response));
     let usage = response
         .get("usage")
         .or_else(|| value.get("usage"))
@@ -247,7 +276,16 @@ pub fn parse_responses_json(value: &Value) -> Result<(Message, Usage), String> {
     {
         return Err("模型返回空响应".to_string());
     }
-    Ok((message, usage))
+    Ok((message, usage, response_id.map(ToOwned::to_owned)))
+}
+
+fn responses_response_id(value: &Value) -> Option<&str> {
+    value
+        .pointer("/response/id")
+        .or_else(|| value.get("id"))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|id| !id.is_empty())
 }
 
 fn apply_responses_output(message: &mut Message, tools: &mut Vec<ToolCall>, output: &[Value]) {
@@ -352,6 +390,18 @@ mod tests {
     }
 
     #[test]
+    fn captures_response_id_from_completed_sse() {
+        let sse = concat!(
+            "event: response.output_text.delta\n",
+            "data: {\"type\":\"response.output_text.delta\",\"delta\":\"ok\"}\n\n",
+            "event: response.completed\n",
+            "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_123\",\"usage\":{\"input_tokens\":1,\"output_tokens\":1}}}\n\n",
+        );
+        let (_, _, response_id) = parse_responses_sse_with_id(sse).expect("parse response id");
+        assert_eq!(response_id.as_deref(), Some("resp_123"));
+    }
+
+    #[test]
     fn parses_completed_output_without_deltas() {
         let sse = concat!(
             "event: response.completed\n",
@@ -385,6 +435,16 @@ mod tests {
         assert_eq!(message.reasoning_content, "think");
         assert_eq!(message.tool_calls[0].id, "call_1");
         assert_eq!(usage.prompt_tokens, 4);
+    }
+
+    #[test]
+    fn captures_response_id_from_complete_json() {
+        let value = json!({
+            "id": "resp_json",
+            "output": [{"type":"message","content":[{"type":"output_text","text":"ok"}]}]
+        });
+        let (_, _, response_id) = parse_responses_json_with_id(&value).expect("parse response id");
+        assert_eq!(response_id.as_deref(), Some("resp_json"));
     }
 
     #[test]

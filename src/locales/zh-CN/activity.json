@@ -166,6 +166,7 @@
     "ai_channel_tested": "测通 AI 渠道",
     "ai_channel_models_fetched": "拉取 AI 渠道模型",
     "native_settings_updated": "更新内置 Agent 设置",
+    "native_token_diagnostics": "内置 Agent Token 诊断",
     "native_subagent_started": "启动子 Agent",
     "native_subagent_finished": "子 Agent 结束",
     "native_subagent_created": "创建子智能体",

@@ -9,7 +9,7 @@ src-tauri/src/native/
 ├── mod.rs                    # 模块声明与对外重导出（NativeAgentManager 等）
 ├── manager.rs                # 内存态会话注册表 NativeAgentManager
 ├── session.rs                # 会话生命周期（启动/停止/重启/恢复/输入/一次性调用）
-├── settings.rs               # 内置 Agent 设置（max_turns）持久化
+├── settings.rs               # 内置 Agent 设置（轮次/上下文/Token 预算）持久化
 ├── channels.rs               # AI 渠道 CRUD、测通、拉取模型列表
 ├── protocol.rs               # 协议归一化、URL 构造、模型列表解析、渠道 DTO
 ├── secret_store.rs           # 系统密钥库（keyring）读写渠道 API Key
@@ -72,7 +72,7 @@ src-tauri/src/native/
 - 辅助函数：`load_native_client`（员工 → 渠道 → 模型配置 → `ModelClient`）、`emit_native_line`（写 `codex_session_events` 并广播 `native-stdout`）、`resolve_run_model_config`（渠道模型配置缺失时回填模型目录）。
 
 #### `settings.rs` — 设置持久化
-将内置 Agent 设置保存到 `$APPCONFIG/native-settings.json`（结构体 `RawNativeSettings`）。当前仅一项 `max_turns`（最大模型工具轮次）：默认 40，0 表示不限制，上限 500（`normalize_native_max_turns` 越界自动回退默认）。提供 Tauri 命令 `get_native_settings` / `update_native_settings`，修改时写活动日志（`native_settings_updated`）。
+将内置 Agent 设置保存到 `$APPCONFIG/native-settings.json`（结构体 `RawNativeSettings`）。字段包括最大模型工具轮次 `max_turns`（默认 40，0 表示不限制，上限 500）、高风险确认、同轮子 Agent 并发上限（默认 1，范围 1–16）、子 Agent 策略（默认 conservative），上下文窗口上限 `context_window_tokens`（默认 16,000，范围 8,000–1,000,000）、会话 rollout 预算 `rollout_token_budget`（默认 200,000，0 表示不限制，上限 10,000,000）和单条工具结果上限 `max_tool_output_tokens`（默认 4,096，范围 256–65,536）。缺少新增字段的旧 JSON 会按保守默认值归一化。提供 Tauri 命令 `get_native_settings` / `update_native_settings`，修改时写活动日志（`native_settings_updated`）。
 
 #### `channels.rs` — AI 渠道管理
 管理 `ai_channels` 表（内置 Agent 的模型来源）。Tauri 命令：`list_ai_channels`、`create_ai_channel`、`update_ai_channel`、`delete_ai_channel`（被员工引用时拒绝删除）、`test_ai_channel`（发一条 probe 请求测通）、`list_ai_channel_models`（调用 `/v1/models` 拉取模型列表）。包含 API Key 的迁移逻辑：旧字段 `api_key_ref`（keyring 引用）自动迁移到 `api_key` 列（`hydrate_channel_record`、`require_channel_api_key`），模型配置写入时经 `fill_from_catalog` 回填目录默认值。
@@ -109,13 +109,13 @@ src-tauri/src/native/
 - `consume_assistant`：处理模型输出 —— 剥离空工具名、最后一轮强制清空工具调用、播报思考字数与文本、执行工具并把结果作为 `tool` 消息回填；无工具调用即返回最终文本。
 - 防重复调用：同一工具+相同参数连续调用 3 次（`REPEAT_TOOL_LIMIT`）后直接拒绝，避免死循环。
 - 子 Agent：连续 `Agent` 调用走 `JoinSet`（上限见设置）；子循环 `event_prefix` 为 `[子 Agent n(explore|general) - {description}] `（description 来自工具参数短标题，空白折叠、去括号、最长 32 字）；高风险确认 FIFO；MCP 经 `SharedMcp` Mutex 共享。
-- 事件输出：`[思考] `、`[读取] `、`[命令] `、`[工具结果] `、`[子 Agent] ` 等进度行通过 `on_event` 通道发出；用量通过 `on_usage` 通道发出。`[工具结果]` 发完整工具输出（一条事件，可含换行），不是第一行摘要；TodoWrite 清单仍只报「已更新 N 项」。超过 2000 行或 65536 字时 UI 截断并附中文提示，模型仍拿全文。
+- 事件输出：`[思考] `、`[读取] `、`[命令] `、`[工具结果] `、`[子 Agent] ` 等进度行通过 `on_event` 通道发出；用量通过 `on_usage` 通道发出。`[工具结果]` 事件保留完整工具输出（一条事件，可含换行），不是第一行摘要；TodoWrite 清单仍只报「已更新 N 项」。超过 2000 行或 65536 字时 UI 截断并附中文提示；模型历史使用按 token 限制的头尾片段。
 
 #### `agent/compact.rs`
-本地上下文压缩：当消息总字符数达到上限 85% 时，把最早的用户轮次分组汇总为一段「会话摘要」插入（保留 system 与最近一轮），不消耗模型调用。`total_chars` 计算占用、`should_compact` 判断阈值、`compact_local` 执行压缩。
+上下文窗口与预算管理：`ContextWindow` 按序列化消息 Token 估算，在达到 85% 阈值时优先用当前模型发起无工具结构化摘要，失败或预算不足时回退本地摘要/窗口重置；`RolloutBudget` 由父 Agent 与所有子 Agent 共享并原子预留、结算，达到预算后停止新的工具轮次。每次会话结束写入 `native_token_diagnostics` 诊断事件，包含压缩、重置、截断、子 Agent 和预算停止计数。
 
 #### `agent/truncate.rs`
-消息字符统计（`message_chars`：正文 + 思考 + 工具调用参数）与超长工具结果截断（`truncate_messages`：把超过 240 字符的 tool 消息截为前 200 字符 + `[truncated]`），控制上下文占用。
+消息 Token 估算（正文、思考、工具调用、图片和工具 schema）与超长工具结果截断。模型历史中的每条工具结果默认限制 4,096 token，保留头尾并附路径/offset 继续读取提示；`truncate_messages_tokens` 在发送前再执行总窗口保护。旧的字符预算 `truncate_messages` API 保留给兼容调用者，UI/session 事件仍走展示截断而不改变模型消息。
 
 ### `model/` — 模型客户端与协议
 
@@ -124,7 +124,7 @@ src-tauri/src/native/
 
 #### `model/client.rs` — `ModelClient`
 统一的 HTTP 模型客户端：
-- `chat`：按协议构造请求体 → `post_stream` 流式拉取 → `parse_success_body`（SSE，失败再解析完整 JSON）解析为统一 `Message` + `Usage`；若网关报「max_tokens 超限」，自动从错误信息解析上限并降级重试一次（`parse_max_output_token_limit`）。HTTP 200 的 `error` 对象要报「模型返回错误」，不得叫空响应。
+- `chat`：按协议构造请求体 → `post_stream` 流式拉取 → `parse_success_body`（SSE，失败再解析完整 JSON）解析为统一 `Message` + `Usage`；Responses/Codex 协议在历史前缀未变化时携带 `previous_response_id`，只发送新增 input，压缩或网关拒绝时自动失效并回退完整历史。若网关报「max_tokens 超限」，自动从错误信息解析上限并降级重试一次（`parse_max_output_token_limit`）。HTTP 200 的 `error` 对象要报「模型返回错误」，不得叫空响应。
 - `chat_stream`：把一次 chat 结果拆成 `StreamEvent` 序列（文本/思考/工具调用/用量/Done），供流式消费。
 - `list_models`：`/v1/models` 分页拉取（最多 500，去重、排序）。
 - `probe`：发送最小请求测通渠道。
@@ -150,7 +150,7 @@ OpenAI chat/completions 协议：`build_openai_body`（stream + stream_options.i
 Anthropic messages 协议：`build_anthropic_body`（system 提取、thinking 开启时按 effort 计算 budget 并抬高 max_tokens、tools 用 input_schema、图片用 base64 source）、`anthropic_messages` / `anthropic_tools`、`parse_anthropic_sse` / `parse_anthropic_json`（content_block_start/delta、非流式 content[]，含 thinking）、`thinking_budget_tokens`（effort → token 预算）。
 
 #### `model/responses.rs`
-OpenAI Responses（codex）协议：`build_responses_body`（instructions/input、function 工具、reasoning.effort、max_output_tokens、input_image 内容）、`responses_input` / `responses_tools`、`parse_responses_sse` / `parse_responses_json`（output_text.delta/done、function_call、completed.output 正文）。
+OpenAI Responses（codex）协议：`build_responses_body`（instructions/input、function 工具、reasoning.effort、max_output_tokens、input_image 内容）、`responses_input` / `responses_tools`、`parse_responses_sse_with_id` / `parse_responses_json_with_id`（读取 response id，支持 `previous_response_id` 续接；同时兼容 output_text.delta/done、function_call、completed.output 正文）。
 
 ### `tools/` — 工具运行时
 
@@ -158,7 +158,7 @@ OpenAI Responses（codex）协议：`build_responses_body`（instructions/input�
 模块声明，重导出 `CancelFlag`、`tool_specs`、`execute_tool`、`ToolCtx`、`LocalWorkspace`。
 
 #### `tools/catalog.rs`
-工具声明 `tool_specs()`：Read、Write、Edit、Bash、Glob、Grep、TodoRead、TodoWrite、WebFetch、WebSearch、Agent。`Agent` 仅父循环（depth=0 且非只读）注入，用于会话内委派；`explore` 只读，`general` 可写。同一轮连续 `Agent` 调用并行，上限为 `native-settings.json` 的 `max_concurrent_subagents`（默认 3）。委派勤快程度由 `subagent_policy`（conservative / balanced / aggressive，默认 balanced）写入系统提示，不强制调工具。子 Agent 类型仍只有 explore / general。子循环不占 run_queue、不新建 `codex_sessions`。
+工具声明 `tool_specs()`：Read、Write、Edit、Bash、Glob、Grep、TodoRead、TodoWrite、WebFetch、WebSearch、Agent。`Agent` 仅父循环（depth=0 且非只读）注入，用于会话内委派；`explore` 只读，`general` 可写。同一轮连续 `Agent` 调用并行，上限为 `native-settings.json` 的 `max_concurrent_subagents`（默认 1）。委派勤快程度由 `subagent_policy`（conservative / balanced / aggressive，默认 conservative）写入系统提示，不强制调工具。子 Agent 类型仍只有 explore / general。子循环共享父 Agent 的 `RolloutBudget`，不占 run_queue、不新建 `codex_sessions`。
 
 #### `tools/dispatch.rs` — `execute_tool` 分发
 `ToolCtx` 保存会话工具状态：工作区（本地或 SSH）、取消标志、已读文件集合（先读后写校验）、待办列表。`execute_tool` 按名称分发到具体实现；每个工具都先判取消、解析 JSON 参数（`parse_args` / `string_arg`），并区分本地（`LocalWorkspace`）与 SSH（`SshToolRuntime`）两条执行路径；写/编辑类工具要求目标文件已先被 Read。

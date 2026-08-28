@@ -1,5 +1,6 @@
-use std::collections::HashMap;
-use std::sync::Arc;
+use std::collections::{hash_map::DefaultHasher, HashMap};
+use std::hash::{Hash, Hasher};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use serde_json::Value;
@@ -15,7 +16,10 @@ use super::anthropic::{build_anthropic_body, parse_anthropic_json, parse_anthrop
 use super::openai::{
     build_openai_body, parse_max_output_token_limit, parse_openai_json, parse_openai_sse,
 };
-use super::responses::{build_responses_body, parse_responses_json, parse_responses_sse};
+use super::responses::{
+    build_responses_body, parse_responses_json, parse_responses_json_with_id, parse_responses_sse,
+    parse_responses_sse_with_id, responses_input,
+};
 use super::retry::{
     format_http_error, format_retry_line, is_retryable_error, redact_secrets, RetryConfig,
 };
@@ -43,12 +47,55 @@ pub struct ChatRequest<'a> {
 
 pub type RetryHook = Arc<dyn Fn(&str) + Send + Sync>;
 
-#[derive(Clone)]
 pub struct ModelClient {
     http: reqwest::Client,
     config: ModelClientConfig,
     on_retry: Option<RetryHook>,
     cancel: Option<CancelFlag>,
+    /// Responses continuation ids are kept per conversation anchor. A client
+    /// is cloned for child agents, so a map prevents a child request from
+    /// accidentally continuing the parent's server-side conversation.
+    continuations: Arc<Mutex<HashMap<String, ResponseContinuation>>>,
+}
+
+#[derive(Debug, Clone)]
+struct ResponseContinuation {
+    response_id: String,
+    message_count: usize,
+    anchor: String,
+    prefix_hash: u64,
+}
+
+impl Clone for ModelClient {
+    fn clone(&self) -> Self {
+        Self {
+            http: self.http.clone(),
+            config: self.config.clone(),
+            on_retry: self.on_retry.clone(),
+            cancel: self.cancel.clone(),
+            // A cloned client is used for child agents and must start its own
+            // Responses conversation. Sharing this map would let a child with
+            // a matching prompt accidentally attach to its parent's
+            // `previous_response_id`.
+            continuations: Arc::new(Mutex::new(HashMap::new())),
+        }
+    }
+}
+
+impl ModelClient {
+    /// Clone the transport and hooks while retaining the Responses
+    /// continuation state for one logical session. `Clone` intentionally
+    /// starts a fresh state for child agents; session wrappers use this
+    /// variant so follow-up turns can continue the parent's response.
+    pub(crate) fn clone_for_conversation(&self) -> Self {
+        Self {
+            http: self.http.clone(),
+            config: self.config.clone(),
+            on_retry: self.on_retry.clone(),
+            cancel: self.cancel.clone(),
+            continuations: self.continuations.clone(),
+        }
+    }
 }
 
 impl ModelClient {
@@ -62,6 +109,7 @@ impl ModelClient {
             config,
             on_retry: None,
             cancel: None,
+            continuations: Arc::new(Mutex::new(HashMap::new())),
         })
     }
 
@@ -76,6 +124,15 @@ impl ModelClient {
     }
 
     pub fn build_body(&self, request: &ChatRequest<'_>, stream: bool) -> Result<Value, String> {
+        self.build_body_with_continuation(request, stream, None)
+    }
+
+    fn build_body_with_continuation(
+        &self,
+        request: &ChatRequest<'_>,
+        stream: bool,
+        previous_response_id: Option<&str>,
+    ) -> Result<Value, String> {
         match self.config.protocol.as_str() {
             PROTOCOL_ANTHROPIC => Ok(build_anthropic_body(
                 request.messages,
@@ -86,15 +143,42 @@ impl ModelClient {
                 request.thinking_enabled,
                 stream,
             )),
-            PROTOCOL_CODEX => Ok(build_responses_body(
-                request.messages,
-                request.tools,
-                request.model,
-                request.effort,
-                request.max_output_tokens,
-                request.thinking_enabled,
-                stream,
-            )),
+            PROTOCOL_CODEX => {
+                let mut body = build_responses_body(
+                    request.messages,
+                    request.tools,
+                    request.model,
+                    request.effort,
+                    request.max_output_tokens,
+                    request.thinking_enabled,
+                    stream,
+                );
+                let Some(previous_response_id) = previous_response_id
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                else {
+                    return Ok(body);
+                };
+
+                let key = continuation_key(request.messages);
+                let Some(continuation) = self.continuation_for(&key, request.messages) else {
+                    return Ok(body);
+                };
+                if continuation.response_id != previous_response_id {
+                    return Ok(body);
+                }
+                let start = continuation.message_count.saturating_add(1);
+                if start >= request.messages.len() {
+                    return Ok(body);
+                }
+                let (_, input) = responses_input(&request.messages[start..]);
+                if input.is_empty() {
+                    return Ok(body);
+                }
+                body["input"] = Value::Array(input);
+                body["previous_response_id"] = Value::String(previous_response_id.to_string());
+                Ok(body)
+            }
             PROTOCOL_OPENAI => Ok(build_openai_body(
                 request.messages,
                 request.tools,
@@ -121,6 +205,8 @@ impl ModelClient {
         let url = channel_chat_url(&self.config.base_url, &self.config.protocol)?;
         let mut max_output_tokens = request.max_output_tokens;
         let mut retried_limit = false;
+        let mut retried_continuation = false;
+        let conversation_key = continuation_key(request.messages);
         loop {
             let adjusted = ChatRequest {
                 messages: request.messages,
@@ -130,9 +216,26 @@ impl ModelClient {
                 max_output_tokens,
                 thinking_enabled: request.thinking_enabled,
             };
-            let body = self.build_body(&adjusted, true)?;
+            let continuation = self.continuation_for(&conversation_key, request.messages);
+            let body = self.build_body_with_continuation(
+                &adjusted,
+                true,
+                continuation.as_ref().map(|item| item.response_id.as_str()),
+            )?;
             match self.post_stream(&url, &body).await {
-                Ok(result) => return Ok(result),
+                Ok((message, usage, response_id)) => {
+                    self.update_continuation(&conversation_key, request.messages, response_id);
+                    return Ok((message, usage));
+                }
+                Err(error)
+                    if continuation.is_some()
+                        && !retried_continuation
+                        && is_continuation_rejection(&error) =>
+                {
+                    self.clear_continuation(&conversation_key);
+                    retried_continuation = true;
+                    continue;
+                }
                 Err(error) if !retried_limit => {
                     let Some(limit) = parse_max_output_token_limit(&error) else {
                         return Err(error);
@@ -220,7 +323,11 @@ impl ModelClient {
         Ok(rx)
     }
 
-    async fn post_stream(&self, url: &str, body: &Value) -> Result<(Message, Usage), String> {
+    async fn post_stream(
+        &self,
+        url: &str,
+        body: &Value,
+    ) -> Result<(Message, Usage, Option<String>), String> {
         let attempts = self.config.retry.max_retries.saturating_add(1);
         let mut last_error = "模型请求失败".to_string();
         for attempt in 0..attempts {
@@ -229,7 +336,7 @@ impl ModelClient {
             }
             match self.post_raw(url, body).await {
                 Ok((status, text)) if (200..300).contains(&status) => {
-                    match self.parse_success_body(&text) {
+                    match self.parse_success_body_with_id(&text) {
                         Ok(result) => return Ok(result),
                         Err(error) => last_error = error,
                     }
@@ -268,6 +375,7 @@ impl ModelClient {
         attempts: u32,
     ) -> bool {
         parse_max_output_token_limit(error).is_some()
+            || is_continuation_rejection(error)
             || !is_retryable_error(status, error)
             || attempt + 1 >= attempts
     }
@@ -358,7 +466,10 @@ impl ModelClient {
         Ok((status, text))
     }
 
-    fn parse_success_body(&self, text: &str) -> Result<(Message, Usage), String> {
+    fn parse_success_body_with_id(
+        &self,
+        text: &str,
+    ) -> Result<(Message, Usage, Option<String>), String> {
         let trimmed = text.trim_start_matches('\u{feff}').trim();
         if trimmed.is_empty() {
             return Err("模型返回空响应：正文为空".to_string());
@@ -366,16 +477,24 @@ impl ModelClient {
         if let Some(error) = extract_gateway_error(trimmed) {
             return Err(format_gateway_error(&error));
         }
-        if let Ok(parsed) = self.parse_sse(trimmed) {
-            return Ok(parsed);
+        if self.config.protocol == PROTOCOL_CODEX {
+            if let Ok(parsed) = parse_responses_sse_with_id(trimmed) {
+                return Ok(parsed);
+            }
+        } else if let Ok(parsed) = self.parse_sse(trimmed) {
+            return Ok((parsed.0, parsed.1, None));
         }
         if let Ok(value) = serde_json::from_str::<Value>(trimmed) {
             let payload = unwrap_gateway_payload(&value);
             if let Some(error) = json_error_message(payload) {
                 return Err(format_gateway_error(&error));
             }
-            if let Ok(parsed) = self.parse_complete_json(payload) {
-                return Ok(parsed);
+            if self.config.protocol == PROTOCOL_CODEX {
+                if let Ok(parsed) = parse_responses_json_with_id(payload) {
+                    return Ok(parsed);
+                }
+            } else if let Ok(parsed) = self.parse_complete_json(payload) {
+                return Ok((parsed.0, parsed.1, None));
             }
         }
         Err(empty_response_error(trimmed))
@@ -389,6 +508,109 @@ impl ModelClient {
             other => Err(format!("不支持的渠道协议: {other}")),
         }
     }
+
+    fn continuation_for(&self, key: &str, messages: &[Message]) -> Option<ResponseContinuation> {
+        if self.config.protocol != PROTOCOL_CODEX {
+            return None;
+        }
+        let mut continuations = self.continuations.lock().ok()?;
+        let state = continuations.get(key).cloned()?;
+        // A compacted or freshly started message list must not be attached to
+        // an old server response. The anchor check also isolates child agents
+        // that share the same ModelClient instance.
+        if state.anchor != continuation_anchor(messages)
+            || messages.len() <= state.message_count
+            || message_prefix_hash(messages, state.message_count) != state.prefix_hash
+        {
+            continuations.remove(key);
+            return None;
+        }
+        Some(state)
+    }
+
+    fn update_continuation(&self, key: &str, messages: &[Message], response_id: Option<String>) {
+        if self.config.protocol != PROTOCOL_CODEX {
+            return;
+        }
+        let Ok(mut continuations) = self.continuations.lock() else {
+            return;
+        };
+        let Some(response_id) = response_id
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty())
+        else {
+            continuations.remove(key);
+            return;
+        };
+        continuations.insert(
+            key.to_string(),
+            ResponseContinuation {
+                response_id,
+                message_count: messages.len(),
+                anchor: continuation_anchor(messages),
+                prefix_hash: message_prefix_hash(messages, messages.len()),
+            },
+        );
+    }
+
+    fn clear_continuation(&self, key: &str) {
+        if let Ok(mut continuations) = self.continuations.lock() {
+            continuations.remove(key);
+        }
+    }
+}
+
+fn continuation_key(messages: &[Message]) -> String {
+    let mut hasher = DefaultHasher::new();
+    for message in messages.iter().take(2) {
+        std::mem::discriminant(&message.role).hash(&mut hasher);
+        message.content.hash(&mut hasher);
+        message.tool_call_id.hash(&mut hasher);
+        message.name.hash(&mut hasher);
+    }
+    format!("{:016x}", hasher.finish())
+}
+
+fn continuation_anchor(messages: &[Message]) -> String {
+    continuation_key(messages)
+}
+
+fn message_prefix_hash(messages: &[Message], count: usize) -> u64 {
+    let mut hasher = DefaultHasher::new();
+    for message in messages.iter().take(count) {
+        std::mem::discriminant(&message.role).hash(&mut hasher);
+        message.content.hash(&mut hasher);
+        message.reasoning_content.hash(&mut hasher);
+        message.tool_call_id.hash(&mut hasher);
+        message.name.hash(&mut hasher);
+        for call in &message.tool_calls {
+            call.id.hash(&mut hasher);
+            call.name.hash(&mut hasher);
+            call.arguments.hash(&mut hasher);
+        }
+        for image in &message.images {
+            image.name.hash(&mut hasher);
+            image.mime_type.hash(&mut hasher);
+            image.data_base64.hash(&mut hasher);
+        }
+    }
+    hasher.finish()
+}
+
+fn is_continuation_rejection(error: &str) -> bool {
+    let lower = error.to_ascii_lowercase();
+    // Gateways vary in how they report an unsupported continuation field:
+    // some return 4xx, while others return HTTP 200 with an `{error: ...}`
+    // body. The caller only checks this after a continuation was attached, so
+    // the field-specific match is sufficient and avoids retrying ten times.
+    [
+        "previous_response_id",
+        "previous response",
+        "response_id",
+        "response id",
+    ]
+    .iter()
+    .any(|needle| lower.contains(needle))
 }
 
 fn extract_gateway_error(text: &str) -> Option<String> {
@@ -537,6 +759,64 @@ mod tests {
             }
         });
         format!("http://{addr}")
+    }
+
+    async fn serve_capture_sequence(
+        responses: Vec<(u16, String)>,
+    ) -> (String, Arc<Mutex<Vec<Value>>>) {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind mock server");
+        let addr = listener.local_addr().expect("local addr");
+        let requests = Arc::new(Mutex::new(Vec::new()));
+        let captured = requests.clone();
+        tokio::spawn(async move {
+            for (status, body) in responses {
+                let (mut stream, _) = listener.accept().await.expect("accept");
+                let mut bytes = Vec::new();
+                let mut chunk = [0u8; 4096];
+                let header_end;
+                loop {
+                    let read = stream.read(&mut chunk).await.expect("read request");
+                    if read == 0 {
+                        return;
+                    }
+                    bytes.extend_from_slice(&chunk[..read]);
+                    if let Some(position) = bytes.windows(4).position(|item| item == b"\r\n\r\n") {
+                        header_end = position + 4;
+                        break;
+                    }
+                }
+                let headers = String::from_utf8_lossy(&bytes[..header_end]);
+                let content_length = headers
+                    .lines()
+                    .find_map(|line| {
+                        line.strip_prefix("Content-Length:")
+                            .or_else(|| line.strip_prefix("content-length:"))
+                            .and_then(|value| value.trim().parse::<usize>().ok())
+                    })
+                    .unwrap_or(0);
+                while bytes.len().saturating_sub(header_end) < content_length {
+                    let read = stream.read(&mut chunk).await.expect("read request body");
+                    if read == 0 {
+                        return;
+                    }
+                    bytes.extend_from_slice(&chunk[..read]);
+                }
+                if let Ok(value) =
+                    serde_json::from_slice::<Value>(&bytes[header_end..header_end + content_length])
+                {
+                    captured.lock().expect("captured requests").push(value);
+                }
+                let header = format!(
+                    "HTTP/1.1 {status} OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                    body.len()
+                );
+                let _ = stream.write_all(header.as_bytes()).await;
+                let _ = stream.write_all(body.as_bytes()).await;
+            }
+        });
+        (format!("http://{addr}"), requests)
     }
 
     fn client(base_url: String) -> ModelClient {
@@ -715,6 +995,220 @@ mod tests {
             .await
             .expect("responses json");
         assert_eq!(message.content, "done plan");
+    }
+
+    #[tokio::test]
+    async fn responses_reuses_previous_response_id_and_only_sends_new_items() {
+        let first = r#"{"id":"resp_1","output":[{"type":"message","content":[{"type":"output_text","text":"need tool"}]}]}"#;
+        let second = r#"{"id":"resp_2","output":[{"type":"message","content":[{"type":"output_text","text":"done"}]}]}"#;
+        let (base, requests) =
+            serve_capture_sequence(vec![(200, first.to_string()), (200, second.to_string())]).await;
+        let client = client_with_protocol(base, PROTOCOL_CODEX);
+        let mut messages = vec![Message::system("rules"), Message::user("inspect")];
+        client
+            .chat(ChatRequest {
+                messages: &messages,
+                tools: &[],
+                model: "gpt-5.4",
+                effort: None,
+                max_output_tokens: None,
+                thinking_enabled: false,
+            })
+            .await
+            .expect("first response");
+        messages.push(Message::assistant_text("need tool"));
+        messages.push(Message::tool_result("call_1", "tool output"));
+        client
+            .chat(ChatRequest {
+                messages: &messages,
+                tools: &[],
+                model: "gpt-5.4",
+                effort: None,
+                max_output_tokens: None,
+                thinking_enabled: false,
+            })
+            .await
+            .expect("continued response");
+
+        let requests = requests.lock().expect("captured requests");
+        assert_eq!(requests.len(), 2);
+        assert!(requests[0].get("previous_response_id").is_none());
+        assert_eq!(requests[0]["input"].as_array().map(Vec::len), Some(1));
+        assert_eq!(requests[1]["previous_response_id"], "resp_1");
+        let input = requests[1]["input"].as_array().expect("continued input");
+        assert_eq!(input.len(), 1);
+        assert_eq!(input[0]["type"], "function_call_output");
+    }
+
+    #[tokio::test]
+    async fn responses_falls_back_when_gateway_rejects_continuation() {
+        let first = r#"{"id":"resp_1","output":[{"type":"message","content":[{"type":"output_text","text":"first"}]}]}"#;
+        let rejected = r#"{"error":{"message":"unknown parameter previous_response_id"}}"#;
+        let third = r#"{"id":"resp_3","output":[{"type":"message","content":[{"type":"output_text","text":"fallback"}]}]}"#;
+        let (base, requests) = serve_capture_sequence(vec![
+            (200, first.to_string()),
+            (400, rejected.to_string()),
+            (200, third.to_string()),
+        ])
+        .await;
+        let client = client_with_protocol(base, PROTOCOL_CODEX);
+        let mut messages = vec![Message::system("rules"), Message::user("inspect")];
+        client
+            .chat(ChatRequest {
+                messages: &messages,
+                tools: &[],
+                model: "gpt-5.4",
+                effort: None,
+                max_output_tokens: None,
+                thinking_enabled: false,
+            })
+            .await
+            .expect("first response");
+        messages.push(Message::assistant_text("first"));
+        messages.push(Message::tool_result("call_1", "tool output"));
+        let (message, _) = client
+            .chat(ChatRequest {
+                messages: &messages,
+                tools: &[],
+                model: "gpt-5.4",
+                effort: None,
+                max_output_tokens: None,
+                thinking_enabled: false,
+            })
+            .await
+            .expect("fallback response");
+        assert_eq!(message.content, "fallback");
+
+        let requests = requests.lock().expect("captured requests");
+        assert_eq!(requests.len(), 3);
+        assert_eq!(requests[1]["previous_response_id"], "resp_1");
+        assert!(requests[2].get("previous_response_id").is_none());
+        assert_eq!(requests[2]["input"].as_array().map(Vec::len), Some(3));
+    }
+
+    #[tokio::test]
+    async fn responses_falls_back_when_http_200_rejects_continuation() {
+        let first = r#"{"id":"resp_1","output":[{"type":"message","content":[{"type":"output_text","text":"first"}]}]}"#;
+        let rejected = r#"{"error":{"message":"unsupported previous_response_id"}}"#;
+        let fallback = r#"{"id":"resp_2","output":[{"type":"message","content":[{"type":"output_text","text":"fallback"}]}]}"#;
+        let (base, requests) = serve_capture_sequence(vec![
+            (200, first.to_string()),
+            (200, rejected.to_string()),
+            (200, fallback.to_string()),
+        ])
+        .await;
+        let client = client_with_protocol(base, PROTOCOL_CODEX);
+        let mut messages = vec![Message::system("rules"), Message::user("inspect")];
+        client
+            .chat(ChatRequest {
+                messages: &messages,
+                tools: &[],
+                model: "gpt-5.4",
+                effort: None,
+                max_output_tokens: None,
+                thinking_enabled: false,
+            })
+            .await
+            .expect("first response");
+        messages.push(Message::assistant_text("first"));
+        messages.push(Message::tool_result("call_1", "tool output"));
+        let (message, _) = client
+            .chat(ChatRequest {
+                messages: &messages,
+                tools: &[],
+                model: "gpt-5.4",
+                effort: None,
+                max_output_tokens: None,
+                thinking_enabled: false,
+            })
+            .await
+            .expect("fallback response");
+        assert_eq!(message.content, "fallback");
+
+        let requests = requests.lock().expect("captured requests");
+        assert_eq!(requests.len(), 3);
+        assert_eq!(requests[1]["previous_response_id"], "resp_1");
+        assert!(requests[2].get("previous_response_id").is_none());
+        assert_eq!(requests[2]["input"].as_array().map(Vec::len), Some(3));
+    }
+
+    #[tokio::test]
+    async fn cloned_responses_client_does_not_inherit_parent_continuation() {
+        let first = r#"{"id":"resp_parent","output":[{"type":"message","content":[{"type":"output_text","text":"first"}]}]}"#;
+        let second = r#"{"id":"resp_child","output":[{"type":"message","content":[{"type":"output_text","text":"child"}]}]}"#;
+        let (base, requests) =
+            serve_capture_sequence(vec![(200, first.to_string()), (200, second.to_string())]).await;
+        let parent = client_with_protocol(base, PROTOCOL_CODEX);
+        let mut messages = vec![Message::system("rules"), Message::user("inspect")];
+        parent
+            .chat(ChatRequest {
+                messages: &messages,
+                tools: &[],
+                model: "gpt-5.4",
+                effort: None,
+                max_output_tokens: None,
+                thinking_enabled: false,
+            })
+            .await
+            .expect("parent response");
+        messages.push(Message::assistant_text("first"));
+        let child = parent.clone();
+        child
+            .chat(ChatRequest {
+                messages: &messages,
+                tools: &[],
+                model: "gpt-5.4",
+                effort: None,
+                max_output_tokens: None,
+                thinking_enabled: false,
+            })
+            .await
+            .expect("child response");
+
+        let requests = requests.lock().expect("captured requests");
+        assert_eq!(requests.len(), 2);
+        assert!(requests[1].get("previous_response_id").is_none());
+        assert_eq!(requests[1]["input"].as_array().map(Vec::len), Some(2));
+    }
+
+    #[tokio::test]
+    async fn conversation_clone_preserves_responses_continuation() {
+        let first = r#"{"id":"resp_parent","output":[{"type":"message","content":[{"type":"output_text","text":"first"}]}]}"#;
+        let second = r#"{"id":"resp_next","output":[{"type":"message","content":[{"type":"output_text","text":"next"}]}]}"#;
+        let (base, requests) =
+            serve_capture_sequence(vec![(200, first.to_string()), (200, second.to_string())]).await;
+        let client = client_with_protocol(base, PROTOCOL_CODEX);
+        let mut messages = vec![Message::system("rules"), Message::user("inspect")];
+        client
+            .chat(ChatRequest {
+                messages: &messages,
+                tools: &[],
+                model: "gpt-5.4",
+                effort: None,
+                max_output_tokens: None,
+                thinking_enabled: false,
+            })
+            .await
+            .expect("first response");
+        messages.push(Message::assistant_text("first"));
+        let session_client = client.clone_for_conversation();
+        messages.push(Message::user("continue"));
+        session_client
+            .chat(ChatRequest {
+                messages: &messages,
+                tools: &[],
+                model: "gpt-5.4",
+                effort: None,
+                max_output_tokens: None,
+                thinking_enabled: false,
+            })
+            .await
+            .expect("continued response");
+
+        let requests = requests.lock().expect("captured requests");
+        assert_eq!(requests.len(), 2);
+        assert_eq!(requests[1]["previous_response_id"], "resp_parent");
+        assert_eq!(requests[1]["input"].as_array().map(Vec::len), Some(1));
     }
 
     #[tokio::test]

@@ -166,6 +166,7 @@
     "ai_channel_tested": "Tested AI channel",
     "ai_channel_models_fetched": "Fetched AI channel models",
     "native_settings_updated": "Updated built-in Agent settings",
+    "native_token_diagnostics": "Built-in Agent token diagnostics",
     "native_subagent_started": "Started sub-agent",
     "native_subagent_finished": "Sub-agent finished",
     "native_subagent_created": "Created sub-agent",

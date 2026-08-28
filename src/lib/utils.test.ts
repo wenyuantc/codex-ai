@@ -40,6 +40,7 @@ describe("getActivityActionLabel", () => {
     expect(getActivityActionLabel("native_plan_question_asked")).toBe("内置 Agent 计划提问");
     expect(getActivityActionLabel("native_plan_content_saved")).toBe("保存计划运行内容");
     expect(getActivityActionLabel("notification_sound_settings_updated")).toBe("更新通知声音设置");
+    expect(getActivityActionLabel("native_token_diagnostics")).toBe("内置 Agent Token 诊断");
   });
 
   it("falls back to the raw key for unmapped actions", () => {
