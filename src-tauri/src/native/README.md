@@ -72,7 +72,7 @@ src-tauri/src/native/
 - 辅助函数：`load_native_client`（员工 → 渠道 → 模型配置 → `ModelClient`）、`emit_native_line`（写 `codex_session_events` 并广播 `native-stdout`）、`resolve_run_model_config`（渠道模型配置缺失时回填模型目录）。
 
 #### `settings.rs` — 设置持久化
-将内置 Agent 设置保存到 `$APPCONFIG/native-settings.json`（结构体 `RawNativeSettings`）。字段包括最大模型工具轮次 `max_turns`（默认 40，0 表示不限制，上限 500）、高风险确认、同轮子 Agent 并发上限（默认 1，范围 1–16）、子 Agent 策略（默认 conservative），上下文窗口上限 `context_window_tokens`（默认 128,000，范围 8,000–1,000,000）、会话 rollout 预算 `rollout_token_budget`（默认 256,000，0 表示不限制，上限 10,000,000）和单条工具结果上限 `max_tool_output_tokens`（默认 4,096，范围 256–65,536）。缺少新增字段的旧 JSON 会按保守默认值归一化。提供 Tauri 命令 `get_native_settings` / `update_native_settings`，修改时写活动日志（`native_settings_updated`）。
+将内置 Agent 设置保存到 `$APPCONFIG/native-settings.json`（结构体 `RawNativeSettings`）。字段包括最大模型工具轮次 `max_turns`（默认 40，0 表示不限制，上限 500）、高风险确认、同轮子 Agent 并发上限（默认 1，范围 1–16）、子 Agent 策略（默认 conservative），上下文窗口上限 `context_window_tokens`（默认 128,000，范围 8,000–1,000,000）、会话 rollout 预算 `rollout_token_budget`（默认 10,000,000，0 表示不限制，上限 100,000,000）和单条工具结果上限 `max_tool_output_tokens`（默认 4,096，范围 256–65,536）。缺少新增字段的旧 JSON 会按保守默认值归一化。提供 Tauri 命令 `get_native_settings` / `update_native_settings`，修改时写活动日志（`native_settings_updated`）。
 
 #### `channels.rs` — AI 渠道管理
 管理 `ai_channels` 表（内置 Agent 的模型来源）。Tauri 命令：`list_ai_channels`、`create_ai_channel`、`update_ai_channel`、`delete_ai_channel`（被员工引用时拒绝删除）、`test_ai_channel`（发一条 probe 请求测通）、`list_ai_channel_models`（调用 `/v1/models` 拉取模型列表）。包含 API Key 的迁移逻辑：旧字段 `api_key_ref`（keyring 引用）自动迁移到 `api_key` 列（`hydrate_channel_record`、`require_channel_api_key`），模型配置写入时经 `fill_from_catalog` 回填目录默认值。

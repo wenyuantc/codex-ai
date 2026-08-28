@@ -621,14 +621,14 @@ export function RuntimeSettingsTab({
                 className="pr-8"
                 type="number"
                 min={0}
-                max={10_000}
+                max={100_000}
                 step={1}
                 value={nativeRolloutTokenBudgetK}
                 onChange={(event) => onNativeRolloutTokenBudgetKChange(event.target.value)}
                 onBlur={(event) => {
                   const parsed = Number.parseFloat(event.target.value);
                   onNativeRolloutTokenBudgetKCommit(
-                    Number.isNaN(parsed) ? 256 : Math.min(10_000, Math.max(0, parsed)),
+                    Number.isNaN(parsed) ? 10_000 : Math.min(100_000, Math.max(0, parsed)),
                   );
                 }}
               />

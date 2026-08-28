@@ -199,7 +199,7 @@ export function SettingsPage() {
   const [nativeSubagentPolicy, setNativeSubagentPolicy] = useState("conservative");
   const [nativeConfirmHighRisk, setNativeConfirmHighRisk] = useState(true);
   const [nativeContextWindowK, setNativeContextWindowK] = useState("128");
-  const [nativeRolloutTokenBudgetK, setNativeRolloutTokenBudgetK] = useState("256");
+  const [nativeRolloutTokenBudgetK, setNativeRolloutTokenBudgetK] = useState("10000");
   const [nativeMaxToolOutputK, setNativeMaxToolOutputK] = useState("4.096");
   const [codexHealth, setCodexHealth] = useState<CodexHealthCheck | RemoteCodexHealthCheck | null>(
     null,
@@ -408,7 +408,9 @@ export function SettingsPage() {
     setNativeSubagentPolicy(settings.subagent_policy || "conservative");
     setNativeConfirmHighRisk(settings.confirm_high_risk !== false);
     setNativeContextWindowK(String(nativeTokensToK(settings.context_window_tokens ?? 128_000)));
-    setNativeRolloutTokenBudgetK(String(nativeTokensToK(settings.rollout_token_budget ?? 256_000)));
+    setNativeRolloutTokenBudgetK(
+      String(nativeTokensToK(settings.rollout_token_budget ?? 10_000_000)),
+    );
     setNativeMaxToolOutputK(String(nativeTokensToK(settings.max_tool_output_tokens ?? 4_096)));
   }
 
@@ -475,7 +477,7 @@ export function SettingsPage() {
   }
 
   async function persistNativeRolloutTokenBudgetK(value: number) {
-    const normalizedK = normalizeNativeTokenK(value, 0, 10_000_000, 256_000);
+    const normalizedK = normalizeNativeTokenK(value, 0, 100_000_000, 10_000_000);
     const normalized = nativeKToTokens(normalizedK);
     setNativeRolloutTokenBudgetK(String(normalizedK));
     try {
