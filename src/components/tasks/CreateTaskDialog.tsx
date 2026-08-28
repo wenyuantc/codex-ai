@@ -426,12 +426,12 @@ export function CreateTaskDialog({
 
   return (
     <Dialog open={open} onOpenChange={handleOpen}>
-      <DialogContent className="max-h-[min(92vh,calc(100vh-2rem))] w-[min(96vw,64rem)] max-w-[min(96vw,64rem)] overflow-y-auto sm:max-w-[min(96vw,64rem)]">
+      <DialogContent className="flex max-h-[min(92vh,calc(100vh-2rem))] w-[min(96vw,64rem)] max-w-[min(96vw,64rem)] flex-col overflow-hidden sm:max-w-[min(96vw,64rem)]">
         <DialogHeader>
           <DialogTitle>{t("createDialog.title")}</DialogTitle>
         </DialogHeader>
 
-        <div className="space-y-3">
+        <div className="min-h-0 flex-1 space-y-3 overflow-y-auto pb-4">
           <div>
             <label className="text-xs font-medium text-muted-foreground">
               {t("createDialog.fields.title")}
@@ -1023,52 +1023,52 @@ export function CreateTaskDialog({
               emptyText={t("createDialog.noAttachmentsYet")}
             />
           </div>
+        </div>
 
-          {createError && (
-            <div className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
-              {createError}
-            </div>
-          )}
-
-          <div className="flex flex-wrap justify-end gap-2 pt-2">
-            <button
-              type="button"
-              onClick={() => handleOpen(false)}
-              disabled={busy}
-              className="px-3 py-1.5 text-sm border border-input rounded-md hover:bg-accent disabled:opacity-50"
-            >
-              {t("common:cancel")}
-            </button>
-            <button
-              type="button"
-              onClick={() => void handleCreate()}
-              disabled={!title.trim() || !selectedProjectId || busy || defaultsLoading}
-              className="px-3 py-1.5 text-sm border border-input rounded-md hover:bg-accent disabled:opacity-50"
-            >
-              {saving
-                ? t("createDialog.creating")
-                : defaultsLoading
-                  ? t("createDialog.loadingDefaults")
-                  : t("common:create")}
-            </button>
-            <button
-              type="button"
-              onClick={() => void handleCreateAndRun()}
-              disabled={!title.trim() || !selectedProjectId || busy || defaultsLoading}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-primary text-primary-foreground rounded-md hover:bg-primary/90 disabled:opacity-50"
-            >
-              {busy ? (
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              ) : (
-                <Play className="h-3.5 w-3.5" />
-              )}
-              {defaultsLoading
-                ? t("createDialog.loadingDefaults")
-                : busy
-                  ? t("createDialog.creating")
-                  : t("createDialog.createAndRun")}
-            </button>
+        {createError && (
+          <div className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+            {createError}
           </div>
+        )}
+
+        <div className="flex flex-wrap justify-end gap-2 border-t pt-3">
+          <button
+            type="button"
+            onClick={() => handleOpen(false)}
+            disabled={busy}
+            className="px-3 py-1.5 text-sm border border-input rounded-md hover:bg-accent disabled:opacity-50"
+          >
+            {t("common:cancel")}
+          </button>
+          <button
+            type="button"
+            onClick={() => void handleCreate()}
+            disabled={!title.trim() || !selectedProjectId || busy || defaultsLoading}
+            className="px-3 py-1.5 text-sm border border-input rounded-md hover:bg-accent disabled:opacity-50"
+          >
+            {saving
+              ? t("createDialog.creating")
+              : defaultsLoading
+                ? t("createDialog.loadingDefaults")
+                : t("common:create")}
+          </button>
+          <button
+            type="button"
+            onClick={() => void handleCreateAndRun()}
+            disabled={!title.trim() || !selectedProjectId || busy || defaultsLoading}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-primary text-primary-foreground rounded-md hover:bg-primary/90 disabled:opacity-50"
+          >
+            {busy ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <Play className="h-3.5 w-3.5" />
+            )}
+            {defaultsLoading
+              ? t("createDialog.loadingDefaults")
+              : busy
+                ? t("createDialog.creating")
+                : t("createDialog.createAndRun")}
+          </button>
         </div>
       </DialogContent>
     </Dialog>
