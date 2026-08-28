@@ -1,4 +1,4 @@
-import { memo, useEffect, useRef, useState } from "react";
+import { memo, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { createPortal } from "react-dom";
 import { useSortable } from "@dnd-kit/sortable";
@@ -52,6 +52,7 @@ import { getPipelineKanbanBadgeLabel } from "@/lib/pipelineUi";
 import { onTaskAutomationStateChanged } from "@/lib/codex";
 import { resolveTaskPrimaryCta } from "@/lib/taskPrimaryCta";
 import { mapAutomationNote } from "@/lib/i18n/mapAutomationNote";
+import { CONTEXT_MENU_VIEWPORT_PADDING, fitContextMenuToViewport } from "@/lib/contextMenuPosition";
 import { countStageableGitFiles } from "@/lib/gitWorkingTree";
 import { buildTaskExecutionInput } from "@/lib/taskPrompt";
 import { hasSavedTaskPlan } from "@/lib/taskPlanRun";
@@ -220,7 +221,16 @@ function TaskCardComponent({
   const [pipelineError, setPipelineError] = useState<string | null>(null);
   const [pipelineNotice, setPipelineNotice] = useState<string | null>(null);
   const [testerAcceptanceLoading, setTesterAcceptanceLoading] = useState(false);
-  const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
+  const [contextMenu, setContextMenu] = useState<{
+    originX: number;
+    originY: number;
+    x: number;
+    y: number;
+    maxHeight: number;
+  } | null>(null);
+  const contextMenuRef = useRef<HTMLDivElement>(null);
+  const contextMenuOriginX = contextMenu?.originX;
+  const contextMenuOriginY = contextMenu?.originY;
   const [taskTags, setTaskTags] = useState<Tag[]>([]);
   const [dependencyCount, setDependencyCount] = useState(0);
   const [incompleteDependencyTitles, setIncompleteDependencyTitles] = useState<string[]>([]);
@@ -635,6 +645,44 @@ function TaskCardComponent({
     };
   }, [contextMenu]);
 
+  useLayoutEffect(() => {
+    if (contextMenuOriginX == null || contextMenuOriginY == null) {
+      return;
+    }
+    const menuEl = contextMenuRef.current;
+    if (!menuEl) {
+      return;
+    }
+
+    const originX = contextMenuOriginX;
+    const originY = contextMenuOriginY;
+    const applyFit = () => {
+      const rect = menuEl.getBoundingClientRect();
+      const next = fitContextMenuToViewport({
+        originX,
+        originY,
+        width: rect.width,
+        height: rect.height,
+        viewportWidth: window.innerWidth,
+        viewportHeight: window.innerHeight,
+      });
+      setContextMenu((prev) => {
+        if (!prev) {
+          return prev;
+        }
+        if (prev.x === next.x && prev.y === next.y && prev.maxHeight === next.maxHeight) {
+          return prev;
+        }
+        return { ...prev, x: next.x, y: next.y, maxHeight: next.maxHeight };
+      });
+    };
+
+    applyFit();
+    const observer = new ResizeObserver(applyFit);
+    observer.observe(menuEl);
+    return () => observer.disconnect();
+  }, [contextMenuOriginX, contextMenuOriginY]);
+
   useEffect(() => {
     if (typeof persistedAutomationState === "undefined") {
       void fetchTaskAutomationState(task.id);
@@ -830,8 +878,11 @@ function TaskCardComponent({
     e.preventDefault();
     e.stopPropagation();
     setContextMenu({
-      x: Math.max(8, Math.min(e.clientX, window.innerWidth - 200)),
-      y: Math.max(8, Math.min(e.clientY, window.innerHeight - 160)),
+      originX: e.clientX,
+      originY: e.clientY,
+      x: e.clientX,
+      y: e.clientY,
+      maxHeight: Math.max(0, window.innerHeight - CONTEXT_MENU_VIEWPORT_PADDING * 2),
     });
   };
 
@@ -1602,8 +1653,13 @@ function TaskCardComponent({
           <>
             <div className="fixed inset-0 z-40" onMouseDown={() => setContextMenu(null)} />
             <div
-              className="fixed z-50 w-48 rounded-lg border border-border bg-popover p-1 shadow-lg"
-              style={{ left: contextMenu.x, top: contextMenu.y }}
+              ref={contextMenuRef}
+              className="fixed z-50 w-48 overflow-y-auto rounded-lg border border-border bg-popover p-1 shadow-lg"
+              style={{
+                left: contextMenu.x,
+                top: contextMenu.y,
+                maxHeight: contextMenu.maxHeight,
+              }}
               role="menu"
               aria-label={t("card.actionsAria", { title: task.title })}
               onMouseDown={(e) => e.stopPropagation()}
