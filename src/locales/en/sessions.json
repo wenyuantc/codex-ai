@@ -61,6 +61,7 @@
   "nextPage": "Next",
   "kindExecution": "Execution",
   "kindReview": "Review",
+  "kindCoordinator": "Coordinator",
   "kindPipeline": "Orchestration",
   "statusPending": "Pending",
   "statusRunning": "Running",

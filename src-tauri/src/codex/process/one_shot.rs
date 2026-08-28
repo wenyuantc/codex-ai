@@ -107,6 +107,7 @@ impl AiCommandResult {
 pub(crate) struct AiCommandOptions {
     pub progress_request_id: Option<String>,
     pub task_id_for_progress: Option<String>,
+    pub session_record_id: Option<String>,
     pub read_only_tools: bool,
 }
 
@@ -117,31 +118,69 @@ struct AiCommandOutput {
     line: String,
 }
 
-pub(crate) fn emit_ai_command_line<R: Runtime>(
+pub(crate) async fn emit_ai_command_line<R: Runtime>(
     app: &AppHandle<R>,
     options: &AiCommandOptions,
     line: impl Into<String>,
 ) {
-    let Some(request_id) = options
+    let line = line.into();
+    if line.trim().is_empty() {
+        return;
+    }
+    if let Some(request_id) = options
         .progress_request_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        let _ = app.emit(
+            "ai-command-stdout",
+            AiCommandOutput {
+                request_id: request_id.to_string(),
+                task_id: options.task_id_for_progress.clone(),
+                line: line.clone(),
+            },
+        );
+    }
+    persist_ai_command_session_line(app, options, &line).await;
+}
+
+async fn persist_ai_command_session_line<R: Runtime>(
+    app: &AppHandle<R>,
+    options: &AiCommandOptions,
+    line: &str,
+) {
+    let Some(session_id) = options
+        .session_record_id
         .as_deref()
         .map(str::trim)
         .filter(|value| !value.is_empty())
     else {
         return;
     };
-    let line = line.into();
-    if line.trim().is_empty() {
+    let Ok(pool) = sqlite_pool(app).await else {
         return;
-    }
-    let _ = app.emit(
-        "ai-command-stdout",
-        AiCommandOutput {
-            request_id: request_id.to_string(),
-            task_id: options.task_id_for_progress.clone(),
-            line,
-        },
-    );
+    };
+    let _ = insert_codex_session_event(&pool, session_id, "stdout", Some(line)).await;
+}
+
+async fn apply_ai_command_session_usage<R: Runtime>(
+    app: &AppHandle<R>,
+    options: &AiCommandOptions,
+    usage: &crate::engine::UsageDelta,
+) {
+    let Some(session_id) = options
+        .session_record_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    else {
+        return;
+    };
+    let Ok(pool) = sqlite_pool(app).await else {
+        return;
+    };
+    let _ = apply_codex_session_usage(&pool, session_id, usage).await;
 }
 
 fn ai_command_options_streaming(options: &AiCommandOptions) -> bool {
@@ -193,15 +232,16 @@ async fn wait_sdk_bridge_output<R: Runtime>(
             continue;
         }
         if let Some(usage) = parse_sdk_usage_event(&line) {
+            apply_ai_command_session_usage(app, options, &usage).await;
             if let Some(usage_line) = usage.format_terminal_line() {
-                emit_ai_command_line(app, options, usage_line);
+                emit_ai_command_line(app, options, usage_line).await;
             }
             continue;
         }
         if parse_sdk_file_change_event(&line).is_some() {
             continue;
         }
-        emit_ai_command_line(app, options, line);
+        emit_ai_command_line(app, options, line).await;
     }
     let status = child
         .wait()
@@ -313,13 +353,16 @@ async fn wait_exec_json_output<R: Runtime>(
         .map_err(|error| format!("Failed to read codex exec stdout: {error}"))?
     {
         if let Some(parsed) = parse_cli_json_event_line(&line, &mut state) {
+            if let Some(usage) = parsed.usage {
+                apply_ai_command_session_usage(app, options, &usage).await;
+            }
             for item in parsed.lines {
-                emit_ai_command_line(app, options, item);
+                emit_ai_command_line(app, options, item).await;
             }
             continue;
         }
         if !line.trim().is_empty() && !line.trim_start().starts_with('{') {
-            emit_ai_command_line(app, options, line);
+            emit_ai_command_line(app, options, line).await;
         }
     }
     let status = child
@@ -1111,6 +1154,7 @@ pub(crate) async fn run_native_ai_command(
             image_paths,
             model_override,
             reasoning_effort_override,
+            options.session_record_id.as_deref(),
         )
         .await?;
         return Ok(AiCommandResult {
@@ -1136,7 +1180,8 @@ pub(crate) async fn run_native_ai_command(
             app,
             options,
             "[WARN] 未配置工作目录，规划将不读取仓库。".to_string(),
-        );
+        )
+        .await;
         let shot = crate::native::run_native_one_shot(
             app,
             &employee_id,
@@ -1144,6 +1189,7 @@ pub(crate) async fn run_native_ai_command(
             image_paths,
             model_override,
             reasoning_effort_override,
+            options.session_record_id.as_deref(),
         )
         .await?;
         return Ok(AiCommandResult {
@@ -1173,7 +1219,7 @@ pub(crate) async fn run_native_ai_command(
     let options_for_emit = options.clone();
     let drain = tokio::spawn(async move {
         while let Some(line) = event_rx.recv().await {
-            emit_ai_command_line(&app_for_emit, &options_for_emit, line);
+            emit_ai_command_line(&app_for_emit, &options_for_emit, line).await;
         }
     });
     let shot_result = crate::native::run_native_read_only_one_shot(
@@ -1187,6 +1233,7 @@ pub(crate) async fn run_native_ai_command(
         &execution_context.execution_target,
         execution_context.ssh_config_id.as_deref(),
         event_tx,
+        options.session_record_id.as_deref(),
     )
     .await;
     let _ = drain.await;
@@ -1249,6 +1296,7 @@ pub(crate) async fn run_ai_command_with_options<R: Runtime>(
             image_paths,
             model_override,
             reasoning_effort_override,
+            options.session_record_id.as_deref(),
         )
         .await?;
         return Ok(AiCommandResult {

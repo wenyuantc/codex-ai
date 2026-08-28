@@ -22,7 +22,7 @@ import { useEmployeeStore } from "@/stores/employeeStore";
 import { getSessionStatusLabel } from "./taskDetailViewHelpers";
 import { TokenUsageBreakdown } from "./TokenUsageBreakdown";
 
-type ChainRole = "execute" | "review" | "fix" | "pipeline";
+type ChainRole = "execute" | "review" | "fix" | "pipeline" | "coordinator";
 
 interface ChainItem {
   session: CodexSessionListItem;
@@ -97,6 +97,8 @@ function roleBadgeClassName(role: ChainRole) {
   switch (role) {
     case "review":
       return sessionKindBadgeClassName("review");
+    case "coordinator":
+      return sessionKindBadgeClassName("coordinator");
     case "pipeline":
       return sessionKindBadgeClassName("pipeline");
     case "fix":
@@ -111,6 +113,8 @@ function formatChainRole(role: ChainRole, translate: (key: string) => string) {
   switch (role) {
     case "review":
       return translate("detail.chain.role.review");
+    case "coordinator":
+      return translate("detail.chain.role.coordinator");
     case "pipeline":
       return translate("detail.chain.role.pipeline");
     case "fix":
@@ -154,6 +158,10 @@ export function buildTaskSessionChain(
   return sorted.map((session, index) => {
     if (session.session_kind === "review") {
       return { session, role: "review" as const };
+    }
+
+    if (session.session_kind === "coordinator") {
+      return { session, role: "coordinator" as const };
     }
 
     if (session.session_origin === "pipeline") {
@@ -405,11 +413,13 @@ export function TaskSessionChainPanel({ taskId, active = true }: TaskSessionChai
                   className={`absolute -left-[1.29rem] top-1.5 h-2.5 w-2.5 rounded-full border-2 border-background ${
                     role === "review"
                       ? "bg-blue-500"
-                      : role === "pipeline"
-                        ? "bg-violet-500"
-                        : role === "fix"
-                          ? "bg-amber-500"
-                          : "bg-emerald-500"
+                      : role === "coordinator"
+                        ? "bg-teal-500"
+                        : role === "pipeline"
+                          ? "bg-violet-500"
+                          : role === "fix"
+                            ? "bg-amber-500"
+                            : "bg-emerald-500"
                   }`}
                   aria-hidden
                 />

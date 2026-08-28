@@ -155,6 +155,15 @@ describe("sessionDisplayKind", () => {
     );
   });
 
+  it("treats coordinator kind as coordinator even when origin is pipeline", () => {
+    expect(sessionDisplayKind({ session_kind: "coordinator", session_origin: "pipeline" })).toBe(
+      "coordinator",
+    );
+    expect(sessionDisplayKind({ session_kind: "coordinator", session_origin: "direct" })).toBe(
+      "coordinator",
+    );
+  });
+
   it("defaults missing or unknown origin to execution", () => {
     expect(sessionDisplayKind({ session_kind: "execution" })).toBe("execution");
     expect(sessionDisplayKind({ session_kind: "execution", session_origin: null })).toBe(
@@ -174,13 +183,15 @@ describe("formatSessionKind", () => {
       "编排",
     );
     expect(formatSessionKind({ session_kind: "execution" })).toBe("执行");
+    expect(formatSessionKind({ session_kind: "coordinator" })).toBe("协调");
   });
 });
 
 describe("sessionKindBadgeClassName", () => {
-  it("uses distinct colors for review, pipeline, and execution", () => {
+  it("uses distinct colors for review, pipeline, coordinator, and execution", () => {
     expect(sessionKindBadgeClassName("review")).toContain("text-blue-700");
     expect(sessionKindBadgeClassName("pipeline")).toContain("text-violet-700");
+    expect(sessionKindBadgeClassName("coordinator")).toContain("text-teal-700");
     expect(sessionKindBadgeClassName("execution")).toContain("text-emerald-700");
   });
 });

@@ -1221,3 +1221,66 @@ mod tests {
     }
 }
 
+#[cfg(test)]
+mod coordinator_session_kind_tests {
+    use super::latest_execution_session_id;
+    use crate::app::build_current_migrator;
+
+    #[test]
+    fn latest_execution_session_id_ignores_coordinator_rows() {
+        tauri::async_runtime::block_on(async {
+            let pool = sqlx::SqlitePool::connect("sqlite::memory:")
+                .await
+                .expect("create sqlite memory pool");
+            let migrator = build_current_migrator();
+            let mut connection = pool.acquire().await.expect("acquire sqlite connection");
+            migrator
+                .run_direct(&mut *connection)
+                .await
+                .expect("run migrations");
+            drop(connection);
+
+            sqlx::query(
+                r#"
+                INSERT INTO projects (id, name, status, project_type, created_at, updated_at)
+                VALUES ('proj-1', 'demo', 'active', 'local', '2026-04-28 00:00:00', '2026-04-28 00:00:00')
+                "#,
+            )
+            .execute(&pool)
+            .await
+            .expect("insert project");
+            sqlx::query(
+                r#"
+                INSERT INTO tasks (
+                    id, title, status, priority, project_id, use_worktree, automation_mode,
+                    created_at, updated_at
+                ) VALUES (
+                    'task-1', 'demo', 'todo', 'medium', 'proj-1', 0, 'off',
+                    '2026-04-28 00:00:00', '2026-04-28 00:00:00'
+                )
+                "#,
+            )
+            .execute(&pool)
+            .await
+            .expect("insert task");
+            sqlx::query(
+                r#"
+                INSERT INTO codex_sessions (id, task_id, session_kind, status, started_at, created_at)
+                VALUES
+                    ('sess-exec', 'task-1', 'execution', 'exited', '2026-04-28 09:00:00', '2026-04-28 09:00:00'),
+                    ('sess-coord', 'task-1', 'coordinator', 'exited', '2026-04-28 10:00:00', '2026-04-28 10:00:00')
+                "#,
+            )
+            .execute(&pool)
+            .await
+            .expect("insert sessions");
+
+            let latest = latest_execution_session_id(&pool, "task-1")
+                .await
+                .expect("resolve latest execution session");
+            assert_eq!(latest.as_deref(), Some("sess-exec"));
+            pool.close().await;
+        });
+    }
+}
+

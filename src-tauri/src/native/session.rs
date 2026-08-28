@@ -325,6 +325,7 @@ fn native_startup_banner(
 pub struct NativeOneShotResult {
     pub text: String,
     pub usage_line: Option<String>,
+    usage: Option<crate::engine::UsageDelta>,
 }
 
 fn resolve_run_model_config(
@@ -490,11 +491,36 @@ async fn run_native_one_shot_with_run(
             }
         }
     }
+    let usage = crate::native::model::usage_to_delta(usage);
     Ok(NativeOneShotResult {
         text: native_one_shot_text(&message)?,
-        usage_line: crate::native::model::usage_to_delta(usage)
+        usage_line: usage
+            .as_ref()
             .and_then(|delta| delta.format_terminal_line()),
+        usage,
     })
+}
+
+async fn apply_native_one_shot_session_usage<R: Runtime>(
+    app: &AppHandle<R>,
+    session_record_id: Option<&str>,
+    shot: &NativeOneShotResult,
+) {
+    let Some(session_id) = session_record_id
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    else {
+        return;
+    };
+    let Ok(pool) = sqlite_pool(app).await else {
+        return;
+    };
+    if let Some(delta) = shot.usage.as_ref() {
+        let _ = apply_codex_session_usage(&pool, session_id, delta).await;
+    }
+    if let Some(line) = shot.usage_line.as_deref() {
+        let _ = insert_codex_session_event(&pool, session_id, "stdout", Some(line)).await;
+    }
 }
 
 /// Employee-scoped HTTP one-shot (tester acceptance and no-workspace fallback).
@@ -506,6 +532,7 @@ pub async fn run_native_one_shot<R: Runtime>(
     image_paths: Option<Vec<String>>,
     model_override: Option<String>,
     reasoning_effort_override: Option<String>,
+    session_record_id: Option<&str>,
 ) -> Result<NativeOneShotResult, String> {
     let pool = sqlite_pool(app).await?;
     let mut employee = fetch_employee_by_id(&pool, employee_id).await?;
@@ -524,7 +551,9 @@ pub async fn run_native_one_shot<R: Runtime>(
         employee.reasoning_effort = effort.to_string();
     }
     let run = load_native_client(&pool, &employee).await?;
-    run_native_one_shot_with_run(run, prompt, image_paths).await
+    let shot = run_native_one_shot_with_run(run, prompt, image_paths).await?;
+    apply_native_one_shot_session_usage(app, session_record_id, &shot).await;
+    Ok(shot)
 }
 
 /// Settings-level HTTP one-shot bound to an AI channel instead of an employee.
@@ -556,6 +585,7 @@ pub async fn run_native_read_only_one_shot(
     execution_target: &str,
     ssh_config_id: Option<&str>,
     event_tx: mpsc::UnboundedSender<String>,
+    session_record_id: Option<&str>,
 ) -> Result<NativeOneShotResult, String> {
     let pool = sqlite_pool(app).await?;
     let mut employee = fetch_employee_by_id(&pool, employee_id).await?;
@@ -656,6 +686,8 @@ pub async fn run_native_read_only_one_shot(
         .messages
         .push(crate::native::model::types::Message::system(system));
     runner.on_event = Some(event_tx);
+    let (usage_tx, mut usage_rx) = mpsc::unbounded_channel();
+    runner.on_usage = Some(usage_tx);
     if let Some(tx) = &runner.on_event {
         let _ = tx.send(native_startup_banner(
             &run.channel_name,
@@ -665,7 +697,24 @@ pub async fn run_native_read_only_one_shot(
             run.thinking_enabled,
         ));
     }
-    let text = runner
+    let usage_app = app.clone();
+    let usage_session = session_record_id
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned);
+    let usage_join = tokio::spawn(async move {
+        let mut combined = crate::engine::UsageDelta::default();
+        while let Some(delta) = usage_rx.recv().await {
+            combined = combined.saturating_add(delta);
+            if let Some(session_id) = usage_session.as_deref() {
+                if let Ok(pool) = sqlite_pool(&usage_app).await {
+                    let _ = apply_codex_session_usage(&pool, session_id, &delta).await;
+                }
+            }
+        }
+        combined
+    });
+    let text = match runner
         .run_with_client(
             &run.client,
             &prompt,
@@ -676,13 +725,23 @@ pub async fn run_native_read_only_one_shot(
             loaded.images,
         )
         .await
-        .map_err(|error| format!("内置 Agent 规划调用失败：{error}"))?;
+    {
+        Ok(text) => text,
+        Err(error) => {
+            runner.on_usage.take();
+            let _ = usage_join.await;
+            return Err(format!("内置 Agent 规划调用失败：{error}"));
+        }
+    };
+    runner.on_usage.take();
+    let usage = usage_join.await.unwrap_or_default();
     if text.trim().is_empty() {
         return Err("内置 Agent 未返回可用内容".to_string());
     }
     Ok(NativeOneShotResult {
         text,
-        usage_line: None,
+        usage_line: usage.format_terminal_line(),
+        usage: if usage.is_empty() { None } else { Some(usage) },
     })
 }
 

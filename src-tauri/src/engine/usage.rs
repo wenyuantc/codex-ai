@@ -6,6 +6,14 @@
 
 use serde_json::Value;
 
+fn add_opt_u64(left: Option<u64>, right: Option<u64>) -> Option<u64> {
+    match (left, right) {
+        (None, None) => None,
+        (Some(value), None) | (None, Some(value)) => Some(value),
+        (Some(left), Some(right)) => Some(left.saturating_add(right)),
+    }
+}
+
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct UsageDelta {
     pub input_tokens: Option<u64>,
@@ -22,6 +30,24 @@ impl UsageDelta {
             && self.total_tokens.is_none()
             && self.reasoning_tokens.is_none()
             && self.cached_tokens.is_none()
+    }
+
+    pub fn saturating_add(self, other: Self) -> Self {
+        let input_tokens = add_opt_u64(self.input_tokens, other.input_tokens);
+        let output_tokens = add_opt_u64(self.output_tokens, other.output_tokens);
+        let reasoning_tokens = add_opt_u64(self.reasoning_tokens, other.reasoning_tokens);
+        let cached_tokens = add_opt_u64(self.cached_tokens, other.cached_tokens);
+        let total_tokens = match (input_tokens, output_tokens) {
+            (Some(input), Some(output)) => Some(input.saturating_add(output)),
+            _ => add_opt_u64(self.total_tokens, other.total_tokens),
+        };
+        Self {
+            input_tokens,
+            output_tokens,
+            total_tokens,
+            reasoning_tokens,
+            cached_tokens,
+        }
     }
 
     /// 终端展示行，例如 `[用量] in=812 out=45 reason=12 total=857`。
@@ -221,6 +247,29 @@ mod tests {
             delta.format_terminal_line().as_deref(),
             Some("[用量] in=100 out=50 total=150")
         );
+    }
+
+    #[test]
+    fn saturating_add_sums_known_fields_and_keeps_unknown_none() {
+        let combined = UsageDelta {
+            input_tokens: Some(10),
+            output_tokens: Some(4),
+            total_tokens: Some(14),
+            reasoning_tokens: None,
+            cached_tokens: Some(2),
+        }
+        .saturating_add(UsageDelta {
+            input_tokens: Some(3),
+            output_tokens: None,
+            total_tokens: None,
+            reasoning_tokens: Some(1),
+            cached_tokens: None,
+        });
+        assert_eq!(combined.input_tokens, Some(13));
+        assert_eq!(combined.output_tokens, Some(4));
+        assert_eq!(combined.total_tokens, Some(17));
+        assert_eq!(combined.reasoning_tokens, Some(1));
+        assert_eq!(combined.cached_tokens, Some(2));
     }
 
     #[test]

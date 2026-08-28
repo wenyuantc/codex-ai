@@ -334,6 +334,10 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
     // Status is owned by backend (manual updates / task_automation) and refreshed via
     // fetchTasks / updateTaskStatus / automation events. Forcing in_progress|review here
     // races with automation transitions (e.g. execution exit → review).
+    // Coordinator plan sessions are one-shot records and must not overwrite execution ids.
+    if (sessionKind !== "review" && sessionKind !== "execution") {
+      return;
+    }
     set((state) => ({
       tasks: state.tasks.map((task) =>
         task.id === taskId

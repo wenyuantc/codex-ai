@@ -4,14 +4,15 @@ use tauri::{AppHandle, Runtime};
 use super::{
     build_ai_generate_commit_message_prompt, build_ai_generate_plan_prompt,
     build_ai_generate_plan_prompt_with_attachments, build_ai_generate_tester_acceptance_prompt,
-    build_ai_optimize_prompt_prompt, parse_ai_subtasks_response, resolve_project_execution_context,
-    resolve_task_project_execution_context, run_ai_command, run_ai_command_with_options,
-    run_native_ai_command, AiCommandOptions, ExecutionContext,
+    build_ai_optimize_prompt_prompt, parse_ai_subtasks_response, resolve_one_shot_working_dir,
+    resolve_project_execution_context, resolve_task_project_execution_context, run_ai_command,
+    run_ai_command_with_options, run_native_ai_command, AiCommandOptions, ExecutionContext,
 };
 use crate::app::{
     fetch_employee_by_id, fetch_project_by_id, fetch_task_attachments, fetch_task_by_id,
     fetch_task_file_refs, fetch_task_subtasks, format_task_file_refs_prompt_section,
-    insert_activity_log, new_id, now_sqlite, sqlite_pool, task_attachment_is_image,
+    insert_activity_log, insert_codex_session_event, insert_codex_session_record, new_id,
+    now_sqlite, sqlite_pool, task_attachment_is_image, update_codex_session_record,
     PROJECT_TYPE_SSH,
 };
 use crate::codex::{
@@ -205,6 +206,8 @@ fn build_plan_attachment_prompt_items(
         .collect()
 }
 
+const COORDINATOR_SESSION_KIND: &str = "coordinator";
+
 fn format_task_plan_generated_activity_details(
     task_title: &str,
     coordinator_name: &str,
@@ -212,11 +215,60 @@ fn format_task_plan_generated_activity_details(
     model: &str,
     reasoning_effort: &str,
     generated_at: &str,
+    usage_line: Option<&str>,
 ) -> String {
-    format!(
+    let base = format!(
         "任务：{}；协调员：{}；Provider：{}；模型：{}；推理等级：{}；生成时间：{}",
         task_title, coordinator_name, provider, model, reasoning_effort, generated_at
+    );
+    let Some(usage) = usage_line.map(str::trim).filter(|value| !value.is_empty()) else {
+        return base;
+    };
+    let usage = usage
+        .strip_prefix("[用量]")
+        .or_else(|| usage.strip_prefix("[计划] 用量："))
+        .unwrap_or(usage)
+        .trim();
+    format!("{base}；用量：{usage}")
+}
+
+async fn finish_coordinator_plan_session(
+    app: &AppHandle,
+    session_id: &str,
+    ok: bool,
+) -> Result<(), String> {
+    let ended_at = now_sqlite();
+    update_codex_session_record(
+        app,
+        session_id,
+        Some(if ok { "exited" } else { "failed" }),
+        None,
+        Some(Some(if ok { 0 } else { 1 })),
+        Some(Some(ended_at.as_str())),
     )
+    .await
+}
+
+async fn coordinator_session_usage_line(
+    pool: &sqlx::SqlitePool,
+    session_id: &str,
+) -> Option<String> {
+    let row = sqlx::query_as::<_, (Option<i64>, Option<i64>, Option<i64>, Option<i64>, Option<i64>)>(
+        "SELECT input_tokens, output_tokens, total_tokens, reasoning_tokens, cached_tokens FROM codex_sessions WHERE id = $1",
+    )
+    .bind(session_id)
+    .fetch_optional(pool)
+    .await
+    .ok()
+    .flatten()?;
+    crate::engine::UsageDelta {
+        input_tokens: row.0.and_then(|value| u64::try_from(value).ok()),
+        output_tokens: row.1.and_then(|value| u64::try_from(value).ok()),
+        total_tokens: row.2.and_then(|value| u64::try_from(value).ok()),
+        reasoning_tokens: row.3.and_then(|value| u64::try_from(value).ok()),
+        cached_tokens: row.4.and_then(|value| u64::try_from(value).ok()),
+    }
+    .format_terminal_line()
 }
 
 fn format_tester_acceptance_generated_activity_details(
@@ -324,10 +376,7 @@ fn resolve_commit_message_ai_selection(
             provider_override: Some(provider.clone()),
             model_override: Some(settings.git_preferences.ai_commit_model.clone()),
             reasoning_override: Some(settings.git_preferences.ai_commit_reasoning_effort.clone()),
-            native_channel_id: settings
-                .git_preferences
-                .ai_commit_native_channel_id
-                .clone(),
+            native_channel_id: settings.git_preferences.ai_commit_native_channel_id.clone(),
             effective_provider: provider,
             effective_model: settings.git_preferences.ai_commit_model.clone(),
             effective_reasoning_effort: settings.git_preferences.ai_commit_reasoning_effort.clone(),
@@ -510,8 +559,9 @@ pub(crate) async fn generate_commit_message_for_project<R: Runtime>(
         &settings.git_preferences.ai_commit_message_length,
     );
     let ai_selection = resolve_commit_message_ai_selection(&settings);
-    let raw_text = run_commit_message_ai_command(app, prompt.clone(), project.id.clone(), &ai_selection)
-        .await?;
+    let raw_text =
+        run_commit_message_ai_command(app, prompt.clone(), project.id.clone(), &ai_selection)
+            .await?;
     let normalized = normalize_generated_commit_message(&raw_text)?;
     let validation_error = match validate_generated_commit_message(
         &normalized,
@@ -957,12 +1007,51 @@ pub async fn ai_generate_coordinator_task_plan(
         .map(|attachment| attachment.stored_path.clone())
         .collect::<Vec<_>>();
 
+    let execution_context = resolve_task_project_execution_context(&app, &task.id)
+        .await
+        .unwrap_or_else(|_| ExecutionContext::local_default());
+    let working_dir = resolve_one_shot_working_dir(
+        &app,
+        Some(&task.id),
+        Some(&task.project_id),
+        payload.working_dir.as_deref(),
+    )
+    .await
+    .ok()
+    .flatten()
+    .or_else(|| execution_context.working_dir.clone());
+    let session = insert_codex_session_record(
+        &app,
+        Some(&coordinator.id),
+        Some(&task.id),
+        None,
+        working_dir.as_deref(),
+        None,
+        COORDINATOR_SESSION_KIND,
+        "running",
+        &execution_context.execution_target,
+        execution_context.ssh_config_id.as_deref(),
+        execution_context.target_host_label.as_deref(),
+        &execution_context.artifact_capture_mode,
+        Some(coordinator.ai_provider.as_str()),
+        None,
+    )
+    .await?;
+    insert_codex_session_event(
+        &pool,
+        &session.id,
+        "session_requested",
+        Some("协调员计划会话已创建"),
+    )
+    .await?;
+
     let command_options = AiCommandOptions {
         progress_request_id: payload.request_id.clone(),
         task_id_for_progress: Some(task.id.clone()),
+        session_record_id: Some(session.id.clone()),
         read_only_tools: true,
     };
-    let result = if coordinator.ai_provider.trim() == "native" {
+    let run_result = if coordinator.ai_provider.trim() == "native" {
         run_native_ai_command(
             &app,
             coordinator.id.clone(),
@@ -975,7 +1064,7 @@ pub async fn ai_generate_coordinator_task_plan(
             Some(coordinator.reasoning_effort.clone()),
             &command_options,
         )
-        .await?
+        .await
     } else {
         run_ai_command_with_options(
             &app,
@@ -990,52 +1079,70 @@ pub async fn ai_generate_coordinator_task_plan(
             Some(coordinator.id.clone()),
             &command_options,
         )
-        .await?
+        .await
+    };
+    let result = match run_result {
+        Ok(result) => result,
+        Err(error) => {
+            let _ = finish_coordinator_plan_session(&app, &session.id, false).await;
+            return Err(error);
+        }
     };
 
-    let (markdown, steps) = parse_coordinator_structured_plan(&result.text)?;
-    let step_count =
-        replace_task_pipeline_steps_from_plan(&pool, &task.id, &steps, &valid_employee_ids).await?;
+    let outcome = async {
+        let (markdown, steps) = parse_coordinator_structured_plan(&result.text)?;
+        let step_count =
+            replace_task_pipeline_steps_from_plan(&pool, &task.id, &steps, &valid_employee_ids)
+                .await?;
 
-    sqlx::query("UPDATE tasks SET plan_content = $1 WHERE id = $2")
-        .bind(&markdown)
-        .bind(&task.id)
-        .execute(&pool)
-        .await
-        .map_err(|error| format!("Failed to save plan_content: {}", error))?;
+        sqlx::query("UPDATE tasks SET plan_content = $1 WHERE id = $2")
+            .bind(&markdown)
+            .bind(&task.id)
+            .execute(&pool)
+            .await
+            .map_err(|error| format!("Failed to save plan_content: {}", error))?;
 
-    let generated_at = now_sqlite();
-    let details = format_task_plan_generated_activity_details(
-        &task.title,
-        &coordinator.name,
-        &coordinator.ai_provider,
-        &coordinator.model,
-        &coordinator.reasoning_effort,
-        &generated_at,
-    );
-    insert_activity_log(
-        &pool,
-        "task_plan_generated",
-        &details,
-        Some(&coordinator.id),
-        Some(&task.id),
-        Some(&task.project_id),
-    )
-    .await?;
-    insert_activity_log(
-        &pool,
-        "task_pipeline_plan_saved",
-        &format!("{}（工作包 {} 步）", task.title, step_count),
-        Some(&coordinator.id),
-        Some(&task.id),
-        Some(&task.project_id),
-    )
-    .await?;
+        let usage_line = match result.usage_line.clone() {
+            Some(line) => Some(line),
+            None => coordinator_session_usage_line(&pool, &session.id).await,
+        };
+        let generated_at = now_sqlite();
+        let details = format_task_plan_generated_activity_details(
+            &task.title,
+            &coordinator.name,
+            &coordinator.ai_provider,
+            &coordinator.model,
+            &coordinator.reasoning_effort,
+            &generated_at,
+            usage_line.as_deref(),
+        );
+        insert_activity_log(
+            &pool,
+            "task_plan_generated",
+            &details,
+            Some(&coordinator.id),
+            Some(&task.id),
+            Some(&task.project_id),
+        )
+        .await?;
+        insert_activity_log(
+            &pool,
+            "task_pipeline_plan_saved",
+            &format!("{}（工作包 {} 步）", task.title, step_count),
+            Some(&coordinator.id),
+            Some(&task.id),
+            Some(&task.project_id),
+        )
+        .await?;
 
-    Ok(CoordinatorTaskPlanResult {
-        markdown,
-        usage_line: result.usage_line,
-    })
+        Ok(CoordinatorTaskPlanResult {
+            markdown,
+            usage_line,
+        })
+    }
+    .await;
+    let _ = finish_coordinator_plan_session(&app, &session.id, outcome.is_ok()).await;
+    outcome
 }
 
 #[tauri::command]
@@ -1427,11 +1534,30 @@ mod tests {
             "sonnet",
             "high",
             "2026-04-28 09:00:00",
+            None,
         );
 
         assert_eq!(
             details,
             "任务：任务 A；协调员：协调员小张；Provider：claude；模型：sonnet；推理等级：high；生成时间：2026-04-28 09:00:00"
+        );
+    }
+
+    #[test]
+    fn formats_task_plan_generated_activity_details_with_usage() {
+        let details = format_task_plan_generated_activity_details(
+            "任务 A",
+            "协调员小张",
+            "native",
+            "gpt-4o",
+            "high",
+            "2026-04-28 09:00:00",
+            Some("[用量] in=10 out=4 total=14"),
+        );
+
+        assert_eq!(
+            details,
+            "任务：任务 A；协调员：协调员小张；Provider：native；模型：gpt-4o；推理等级：high；生成时间：2026-04-28 09:00:00；用量：in=10 out=4 total=14"
         );
     }
 

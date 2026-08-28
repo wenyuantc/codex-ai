@@ -380,7 +380,8 @@
         "execute": "Execute",
         "review": "Review",
         "fix": "Fix",
-        "pipeline": "Orchestration"
+        "pipeline": "Orchestration",
+        "coordinator": "Coordinator"
       },
       "resume": {
         "ready": "Resumable",

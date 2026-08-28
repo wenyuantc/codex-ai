@@ -89,7 +89,7 @@ export function aiProviderBadgeVariant(provider: AiProvider): "default" | "secon
   }
 }
 
-export type SessionDisplayKind = "execution" | "review" | "pipeline";
+export type SessionDisplayKind = "execution" | "review" | "pipeline" | "coordinator";
 
 export function sessionDisplayKind(session: {
   session_kind?: string | null;
@@ -97,6 +97,9 @@ export function sessionDisplayKind(session: {
 }): SessionDisplayKind {
   if (session.session_kind === "review") {
     return "review";
+  }
+  if (session.session_kind === "coordinator") {
+    return "coordinator";
   }
   if (session.session_origin === "pipeline") {
     return "pipeline";
@@ -111,6 +114,8 @@ export function formatSessionKind(session: {
   switch (sessionDisplayKind(session)) {
     case "review":
       return i18n.t("sessions:kindReview");
+    case "coordinator":
+      return i18n.t("sessions:kindCoordinator");
     case "pipeline":
       return i18n.t("sessions:kindPipeline");
     default:
@@ -122,6 +127,8 @@ export function sessionKindBadgeClassName(kind: SessionDisplayKind): string {
   switch (kind) {
     case "review":
       return "border-blue-500/30 bg-blue-500/10 text-blue-700";
+    case "coordinator":
+      return "border-teal-500/30 bg-teal-500/10 text-teal-700";
     case "pipeline":
       return "border-violet-500/30 bg-violet-500/10 text-violet-700";
     default:

@@ -295,7 +295,7 @@ async fn update_pipeline_step_status(
     Ok(())
 }
 
-async fn latest_execution_session_id(
+pub(super) async fn latest_execution_session_id(
     pool: &SqlitePool,
     task_id: &str,
 ) -> Result<Option<String>, String> {

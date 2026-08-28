@@ -380,7 +380,8 @@
         "execute": "执行",
         "review": "审核",
         "fix": "修复",
-        "pipeline": "编排"
+        "pipeline": "编排",
+        "coordinator": "协调"
       },
       "resume": {
         "ready": "可继续",

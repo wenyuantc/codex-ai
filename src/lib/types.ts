@@ -950,7 +950,7 @@ export interface DatabaseRestoreResult {
   message: string;
 }
 
-export type CodexSessionKind = "execution" | "review";
+export type CodexSessionKind = "execution" | "review" | "coordinator";
 export type SessionOrigin = "direct" | "pipeline";
 export type CodexSessionResumeStatus =
   "ready" | "running" | "missing_employee" | "missing_cli_session" | "stopping" | "invalid";

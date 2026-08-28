@@ -772,6 +772,8 @@ fn search_project_type_label(project_type: &str) -> &str {
 fn search_session_kind_label(session_kind: &str, session_origin: &str) -> &'static str {
     if session_kind == "review" {
         "审核对话"
+    } else if session_kind == "coordinator" {
+        "协调对话"
     } else if session_origin == "pipeline" {
         "编排对话"
     } else {
@@ -1188,6 +1190,7 @@ async fn query_codex_session_list<R: Runtime>(
                 t.title,
                 CASE
                     WHEN s.session_kind = 'review' THEN '代码审核对话'
+                    WHEN s.session_kind = 'coordinator' THEN '协调对话'
                     WHEN s.session_origin = 'pipeline' THEN '编排对话'
                     ELSE 'Codex 执行对话'
                 END
@@ -1548,6 +1551,14 @@ mod tests {
         );
         assert_eq!(search_session_kind_label("execution", "direct"), "执行对话");
         assert_eq!(search_session_kind_label("execution", ""), "执行对话");
+        assert_eq!(
+            search_session_kind_label("coordinator", "direct"),
+            "协调对话"
+        );
+        assert_eq!(
+            search_session_kind_label("coordinator", "pipeline"),
+            "协调对话"
+        );
     }
 
     #[test]

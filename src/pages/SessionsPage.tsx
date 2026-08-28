@@ -649,6 +649,7 @@ export function SessionsPage() {
                       <option value="all">{t("allKinds")}</option>
                       <option value="execution">{t("kindExecution")}</option>
                       <option value="review">{t("kindReview")}</option>
+                      <option value="coordinator">{t("kindCoordinator")}</option>
                       <option value="pipeline">{t("kindPipeline")}</option>
                     </select>
                   </div>
