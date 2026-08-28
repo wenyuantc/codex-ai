@@ -247,7 +247,13 @@ export function getAcceptanceStatusClassName(status: string | null | undefined):
   }
 }
 
-export function getTaskAutomationStatusLabel(status: string): string {
+export function getTaskAutomationStatusLabel(
+  status: string,
+  options?: { executionRunning?: boolean },
+): string {
+  if (status === "idle" && options?.executionRunning) {
+    return i18n.t("common:automation.idle_awaiting_execution");
+  }
   return i18n.t(`common:automation.${status}`, { defaultValue: status });
 }
 

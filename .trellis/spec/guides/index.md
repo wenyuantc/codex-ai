@@ -30,6 +30,7 @@ Most regressions in this repo come from boundary mistakes, not syntax:
 - [ ] Task/session/git flow touching local + SSH
 - [ ] Nullable update field (omit vs clear)
 - [ ] Engine event shape change
+- [ ] Auto QC badge / `task_automation_state.phase` (first execution stays `idle`; display overlay ≠ new phase)
 - [ ] `start_*` return value or run-queue / concurrency cap
 - [ ] Fifth engine / in-process native agent (`ai_channels`, `NativeAgentManager`, never `EngineChild`)
 - [ ] Task template apply (batch create + tags/subtasks, no `create_task` attachments)

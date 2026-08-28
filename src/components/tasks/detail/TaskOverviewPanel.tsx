@@ -49,6 +49,7 @@ interface TaskOverviewPanelProps {
   coordinatorCandidates: Employee[];
   saveError: string | null;
   automationDisplay: TaskAutomationDisplayState;
+  executionRunning?: boolean;
   canGenerateTesterAcceptance?: boolean;
   testerAcceptanceLoading?: boolean;
   testerAcceptanceError?: string | null;
@@ -109,6 +110,7 @@ export function TaskOverviewPanel({
   coordinatorCandidates,
   saveError,
   automationDisplay,
+  executionRunning = false,
   canGenerateTesterAcceptance = false,
   testerAcceptanceLoading = false,
   testerAcceptanceError = null,
@@ -406,7 +408,9 @@ export function TaskOverviewPanel({
             <div className="grid gap-2 sm:grid-cols-2">
               <DetailStat
                 label={t("detail.overview.loopPhase")}
-                value={getTaskAutomationStatusLabel(automationDisplay.status)}
+                value={getTaskAutomationStatusLabel(automationDisplay.status, {
+                  executionRunning,
+                })}
               />
               <DetailStat
                 label={t("detail.overview.autoFixRounds")}

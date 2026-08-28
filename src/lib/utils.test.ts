@@ -3,6 +3,7 @@ import { describe, it, expect } from "vitest";
 import {
   formatDuration,
   getActivityActionLabel,
+  getTaskAutomationStatusLabel,
   isEmployeeRunningStatus,
   isTaskOverdue,
   matchesEmployeeRuntimeFilter,
@@ -75,6 +76,29 @@ describe("isTaskOverdue", () => {
 
   it("accepts a datetime due_date and compares only the date part", () => {
     expect(isTaskOverdue({ due_date: "2026-08-05 23:59:59", status: "todo" }, today)).toBe(true);
+  });
+});
+
+describe("getTaskAutomationStatusLabel", () => {
+  it("keeps idle as 待命 when no execution is running", () => {
+    expect(getTaskAutomationStatusLabel("idle")).toBe("待命");
+    expect(getTaskAutomationStatusLabel("idle", { executionRunning: false })).toBe("待命");
+  });
+
+  it("overlays idle with 执行中 when execution is running", () => {
+    expect(getTaskAutomationStatusLabel("idle", { executionRunning: true })).toBe("执行中");
+  });
+
+  it("does not overlay waiting_review even if executionRunning is true", () => {
+    expect(getTaskAutomationStatusLabel("waiting_review", { executionRunning: true })).toBe(
+      "自动审核中",
+    );
+  });
+
+  it("does not overlay waiting_execution even if executionRunning is true", () => {
+    expect(getTaskAutomationStatusLabel("waiting_execution", { executionRunning: true })).toBe(
+      "自动修复中",
+    );
   });
 });
 

@@ -1350,7 +1350,9 @@ function TaskCardComponent({
               >
                 <Bot className="h-3 w-3" />
                 {t("card.autoQcPrefix", {
-                  status: getTaskAutomationStatusLabel(automationState.status),
+                  status: getTaskAutomationStatusLabel(automationState.status, {
+                    executionRunning: executionActions.isRunning,
+                  }),
                 })}
               </span>
               <span
@@ -1881,7 +1883,9 @@ function TaskCardComponent({
               )}
               <div className="px-2 pb-1 text-[11px] text-muted-foreground">
                 {t("card.automationCurrent", {
-                  status: getTaskAutomationStatusLabel(automationState.status),
+                  status: getTaskAutomationStatusLabel(automationState.status, {
+                    executionRunning: executionActions.isRunning,
+                  }),
                 })}
               </div>
               <div className="my-1 h-px bg-border" />

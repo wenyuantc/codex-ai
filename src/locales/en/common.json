@@ -58,6 +58,7 @@
     "disabled": "Off",
     "enabled": "On",
     "idle": "Idle",
+    "idle_awaiting_execution": "Executing",
     "launching_review": "Starting review",
     "waiting_review": "Auto reviewing",
     "launching_fix": "Starting fix",

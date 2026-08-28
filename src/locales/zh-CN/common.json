@@ -58,6 +58,7 @@
     "disabled": "未开启",
     "enabled": "已开启",
     "idle": "待命",
+    "idle_awaiting_execution": "执行中",
     "launching_review": "启动审核中",
     "waiting_review": "自动审核中",
     "launching_fix": "启动修复中",

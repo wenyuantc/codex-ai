@@ -1694,6 +1694,7 @@ export function TaskDetailDialog({
                     coordinatorCandidates={coordinatorCandidates}
                     saveError={saveError}
                     automationDisplay={resolvedAutomationState}
+                    executionRunning={isExecutionProcessRunning}
                     canGenerateTesterAcceptance={canGenerateTesterAcceptance}
                     testerAcceptanceLoading={testerAcceptanceLoading}
                     testerAcceptanceError={testerAcceptanceError}
@@ -1917,7 +1918,9 @@ export function TaskDetailDialog({
                 primaryCta={primaryCta}
                 automationLabel={
                   resolvedAutomationState.enabled
-                    ? getTaskAutomationStatusLabel(resolvedAutomationState.status)
+                    ? getTaskAutomationStatusLabel(resolvedAutomationState.status, {
+                        executionRunning: isExecutionProcessRunning,
+                      })
                     : null
                 }
                 loading={primaryActionLoading}
