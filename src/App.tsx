@@ -6,6 +6,7 @@ import { ProjectDetailPage } from "@/pages/ProjectDetailPage";
 import { KanbanPage } from "@/pages/KanbanPage";
 import { EmployeesPage } from "@/pages/EmployeesPage";
 import { SessionsPage } from "@/pages/SessionsPage";
+import { ApiCallLogsPage } from "@/pages/ApiCallLogsPage";
 import { SettingsPage } from "@/pages/SettingsPage";
 import { TrashPage } from "@/pages/TrashPage";
 import { ShortcutsHelpDialog } from "@/components/keyboard/ShortcutsHelpDialog";
@@ -49,6 +50,7 @@ function GlobalShortcuts() {
   });
   useHotkeys(shortcutKeys(NAV_SHORTCUTS[5]), () => navigate("/settings"), { preventDefault: true });
   useHotkeys(shortcutKeys(NAV_SHORTCUTS[6]), () => navigate("/trash"), { preventDefault: true });
+  useHotkeys(shortcutKeys(NAV_SHORTCUTS[7]), () => navigate("/api-logs"), { preventDefault: true });
 
   return null;
 }
@@ -103,6 +105,7 @@ function App() {
           <Route path="/kanban" element={<KanbanPage />} />
           <Route path="/sessions" element={<SessionsPage />} />
           <Route path="/employees" element={<EmployeesPage />} />
+          <Route path="/api-logs" element={<ApiCallLogsPage />} />
           <Route path="/settings" element={<SettingsPage />} />
           <Route path="/trash" element={<TrashPage />} />
         </Route>

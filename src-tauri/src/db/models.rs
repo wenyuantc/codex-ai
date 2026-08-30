@@ -2047,6 +2047,171 @@ pub struct CodexSession {
     pub session_id: String,
 }
 
+// ========== Native Agent API call logs ==========
+
+/// Full table row. Collection/insert paths should use this shape.
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+pub struct NativeApiCallLogRecord {
+    pub id: String,
+    pub call_id: String,
+    pub attempt: i64,
+    pub channel_id: Option<String>,
+    pub channel_name: Option<String>,
+    pub protocol: String,
+    pub response_encoding: Option<String>,
+    pub model: Option<String>,
+    pub thinking_enabled: i64,
+    pub thinking_level: Option<String>,
+    pub request_format: String,
+    pub request_body: Option<String>,
+    pub request_truncated: i64,
+    pub response_body: Option<String>,
+    pub response_truncated: i64,
+    pub input_tokens: Option<i64>,
+    pub output_tokens: Option<i64>,
+    pub cached_tokens: Option<i64>,
+    pub total_tokens: Option<i64>,
+    pub first_token_ms: Option<i64>,
+    pub duration_ms: Option<i64>,
+    pub status: String,
+    pub http_status: Option<i64>,
+    pub error_message: Option<String>,
+    pub session_id: Option<String>,
+    pub employee_id: Option<String>,
+    pub task_id: Option<String>,
+    pub project_id: Option<String>,
+    pub subagent_id: Option<String>,
+    pub call_kind: Option<String>,
+    pub execution_target: Option<String>,
+    pub created_at: String,
+}
+
+/// List row without request/response bodies.
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+pub struct NativeApiCallLogListItem {
+    pub id: String,
+    pub call_id: String,
+    pub attempt: i64,
+    pub channel_id: Option<String>,
+    pub channel_name: Option<String>,
+    pub protocol: String,
+    pub response_encoding: Option<String>,
+    pub model: Option<String>,
+    pub thinking_enabled: i64,
+    pub thinking_level: Option<String>,
+    pub request_format: String,
+    pub input_tokens: Option<i64>,
+    pub output_tokens: Option<i64>,
+    pub cached_tokens: Option<i64>,
+    pub total_tokens: Option<i64>,
+    pub first_token_ms: Option<i64>,
+    pub duration_ms: Option<i64>,
+    pub status: String,
+    pub http_status: Option<i64>,
+    pub session_id: Option<String>,
+    pub employee_id: Option<String>,
+    pub task_id: Option<String>,
+    pub project_id: Option<String>,
+    pub project_name: Option<String>,
+    pub employee_name: Option<String>,
+    pub execution_target: Option<String>,
+    pub call_kind: Option<String>,
+    pub created_at: String,
+}
+
+/// Detail row including request/response bodies. Auth secrets must never be stored or returned.
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+pub struct NativeApiCallLogDetail {
+    pub id: String,
+    pub call_id: String,
+    pub attempt: i64,
+    pub channel_id: Option<String>,
+    pub channel_name: Option<String>,
+    pub protocol: String,
+    pub response_encoding: Option<String>,
+    pub model: Option<String>,
+    pub thinking_enabled: i64,
+    pub thinking_level: Option<String>,
+    pub request_format: String,
+    pub request_body: Option<String>,
+    pub request_truncated: i64,
+    pub response_body: Option<String>,
+    pub response_truncated: i64,
+    pub input_tokens: Option<i64>,
+    pub output_tokens: Option<i64>,
+    pub cached_tokens: Option<i64>,
+    pub total_tokens: Option<i64>,
+    pub first_token_ms: Option<i64>,
+    pub duration_ms: Option<i64>,
+    pub status: String,
+    pub http_status: Option<i64>,
+    pub error_message: Option<String>,
+    pub session_id: Option<String>,
+    pub employee_id: Option<String>,
+    pub task_id: Option<String>,
+    pub project_id: Option<String>,
+    pub project_name: Option<String>,
+    pub employee_name: Option<String>,
+    pub subagent_id: Option<String>,
+    pub call_kind: Option<String>,
+    pub execution_target: Option<String>,
+    pub created_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct ListNativeApiCallLogsPayload {
+    #[serde(default)]
+    pub limit: Option<i64>,
+    #[serde(default)]
+    pub offset: Option<i64>,
+    #[serde(default)]
+    pub channel_name: Option<String>,
+    #[serde(default)]
+    pub model: Option<String>,
+    #[serde(default)]
+    pub status: Option<String>,
+    #[serde(default)]
+    pub session_id: Option<String>,
+    #[serde(default)]
+    pub start_date: Option<String>,
+    #[serde(default)]
+    pub end_date: Option<String>,
+    #[serde(default)]
+    pub execution_target: Option<String>,
+    #[serde(default)]
+    pub include_total: Option<bool>,
+    #[serde(default)]
+    pub environment_mode: Option<String>,
+    #[serde(default)]
+    pub selected_ssh_config_id: Option<String>,
+    #[serde(default)]
+    pub project_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, FromRow)]
+pub struct NativeApiCallLogStats {
+    pub call_count: i64,
+    /// Sum of non-NULL `input_tokens` for the current filter. NULL when every matching row is unknown.
+    pub input_tokens_sum: Option<i64>,
+    /// Sum of non-NULL `output_tokens` for the current filter. NULL when every matching row is unknown.
+    pub output_tokens_sum: Option<i64>,
+    /// Sum of non-NULL `cached_tokens` for the current filter. NULL when every matching row is unknown.
+    pub cached_tokens_sum: Option<i64>,
+    /// Sum of non-NULL `total_tokens` for the current filter. NULL when every matching row is unknown.
+    pub total_tokens_sum: Option<i64>,
+    /// Average of non-NULL `first_token_ms` (floating-point milliseconds). NULL when none are known.
+    pub avg_first_token_ms: Option<f64>,
+    /// Average of non-NULL `duration_ms` (floating-point milliseconds). NULL when none are known.
+    pub avg_duration_ms: Option<f64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NativeApiCallLogPage {
+    pub items: Vec<NativeApiCallLogListItem>,
+    pub total: i64,
+    pub stats: NativeApiCallLogStats,
+}
+
 #[cfg(test)]
 mod tests {
     use super::{

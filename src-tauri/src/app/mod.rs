@@ -67,7 +67,7 @@ pub(crate) mod templates;
 #[allow(unused_imports)]
 pub(crate) use database::{
     build_current_migrator, ensure_statement_terminated, fetch_database_migration_status,
-    sanitize_sql_backup_script,
+    parse_activity_date_bound, resolve_scoped_project_ids_for_stats, sanitize_sql_backup_script,
 };
 #[allow(unused_imports)]
 pub(crate) use employees::fetch_employee_by_id;

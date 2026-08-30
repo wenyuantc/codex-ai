@@ -1248,6 +1248,71 @@ pub fn get_all_migrations() -> Vec<Migration> {
             "#,
             kind: tauri_plugin_sql::MigrationKind::Up,
         },
+        Migration {
+            version: 54,
+            description: "native agent api call logs",
+            sql: r#"
+                CREATE TABLE native_api_call_logs (
+                    id TEXT PRIMARY KEY,
+                    call_id TEXT NOT NULL,
+                    attempt INTEGER NOT NULL DEFAULT 1,
+                    channel_id TEXT,
+                    channel_name TEXT,
+                    protocol TEXT NOT NULL,
+                    response_encoding TEXT,
+                    model TEXT,
+                    thinking_enabled INTEGER NOT NULL DEFAULT 0,
+                    thinking_level TEXT,
+                    request_format TEXT NOT NULL,
+                    request_body TEXT,
+                    request_truncated INTEGER NOT NULL DEFAULT 0,
+                    response_body TEXT,
+                    response_truncated INTEGER NOT NULL DEFAULT 0,
+                    input_tokens INTEGER,
+                    output_tokens INTEGER,
+                    cached_tokens INTEGER,
+                    total_tokens INTEGER,
+                    first_token_ms INTEGER,
+                    duration_ms INTEGER,
+                    status TEXT NOT NULL,
+                    http_status INTEGER,
+                    error_message TEXT,
+                    session_id TEXT,
+                    employee_id TEXT,
+                    task_id TEXT,
+                    project_id TEXT,
+                    subagent_id TEXT,
+                    call_kind TEXT,
+                    execution_target TEXT,
+                    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+                );
+
+                CREATE INDEX idx_native_api_call_logs_created_at
+                    ON native_api_call_logs(created_at DESC);
+                CREATE INDEX idx_native_api_call_logs_channel_name
+                    ON native_api_call_logs(channel_name);
+                CREATE INDEX idx_native_api_call_logs_model
+                    ON native_api_call_logs(model);
+                CREATE INDEX idx_native_api_call_logs_status
+                    ON native_api_call_logs(status);
+                CREATE INDEX idx_native_api_call_logs_session_id
+                    ON native_api_call_logs(session_id);
+                CREATE INDEX idx_native_api_call_logs_call_id
+                    ON native_api_call_logs(call_id);
+            "#,
+            kind: tauri_plugin_sql::MigrationKind::Up,
+        },
+        Migration {
+            version: 55,
+            description: "native api call log scope indexes",
+            sql: r#"
+                CREATE INDEX IF NOT EXISTS idx_native_api_call_logs_project_created
+                    ON native_api_call_logs(project_id, created_at DESC);
+                CREATE INDEX IF NOT EXISTS idx_native_api_call_logs_execution_target
+                    ON native_api_call_logs(execution_target, created_at DESC);
+            "#,
+            kind: tauri_plugin_sql::MigrationKind::Up,
+        },
     ]
 }
 
@@ -1289,7 +1354,13 @@ mod tests {
 
     #[test]
     fn latest_migration_version_includes_session_events_retention_index() {
-        assert_eq!(latest_migration_version(), 53);
+        assert_eq!(latest_migration_version(), 55);
+        assert_eq!(
+            get_all_migrations()
+                .last()
+                .map(|migration| migration.version),
+            Some(latest_migration_version())
+        );
     }
 
     #[test]
@@ -1513,6 +1584,85 @@ mod tests {
             .await
             .expect("read default session_origin");
             assert_eq!(default_origin, "direct");
+        });
+    }
+
+    #[test]
+    fn migration_54_creates_native_api_call_logs() {
+        tauri::async_runtime::block_on(async {
+            let pool = setup_test_pool_through(54).await;
+
+            let columns: Vec<String> = sqlx::query(
+                "SELECT name FROM pragma_table_info('native_api_call_logs') WHERE name IN ('id', 'call_id', 'attempt', 'protocol', 'status', 'input_tokens', 'first_token_ms', 'session_id', 'execution_target') ORDER BY name",
+            )
+            .fetch_all(&pool)
+            .await
+            .expect("read native_api_call_logs columns")
+            .into_iter()
+            .map(|row| row.get::<String, _>("name"))
+            .collect();
+
+            assert_eq!(
+                columns,
+                vec![
+                    "attempt",
+                    "call_id",
+                    "execution_target",
+                    "first_token_ms",
+                    "id",
+                    "input_tokens",
+                    "protocol",
+                    "session_id",
+                    "status",
+                ]
+            );
+
+            let indexes: Vec<String> = sqlx::query(
+                "SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 'native_api_call_logs' AND name IN ('idx_native_api_call_logs_created_at', 'idx_native_api_call_logs_channel_name', 'idx_native_api_call_logs_model', 'idx_native_api_call_logs_status', 'idx_native_api_call_logs_session_id', 'idx_native_api_call_logs_call_id') ORDER BY name",
+            )
+            .fetch_all(&pool)
+            .await
+            .expect("read native_api_call_logs indexes")
+            .into_iter()
+            .map(|row| row.get::<String, _>("name"))
+            .collect();
+
+            assert_eq!(
+                indexes,
+                vec![
+                    "idx_native_api_call_logs_call_id",
+                    "idx_native_api_call_logs_channel_name",
+                    "idx_native_api_call_logs_created_at",
+                    "idx_native_api_call_logs_model",
+                    "idx_native_api_call_logs_session_id",
+                    "idx_native_api_call_logs_status",
+                ]
+            );
+        });
+    }
+
+    #[test]
+    fn migration_55_adds_native_api_call_log_scope_indexes() {
+        tauri::async_runtime::block_on(async {
+            let pool = setup_test_pool_through(55).await;
+
+            let indexes: Vec<String> = sqlx::query(
+                "SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 'native_api_call_logs' AND name IN ('idx_native_api_call_logs_project_created', 'idx_native_api_call_logs_execution_target') ORDER BY name",
+            )
+            .fetch_all(&pool)
+            .await
+            .expect("read native_api_call_logs scope indexes")
+            .into_iter()
+            .map(|row| row.get::<String, _>("name"))
+            .collect();
+
+            assert_eq!(
+                indexes,
+                vec![
+                    "idx_native_api_call_logs_execution_target",
+                    "idx_native_api_call_logs_project_created",
+                ]
+            );
         });
     }
 

@@ -1,0 +1,13 @@
+{
+  "phase": "4",
+  "level": "max",
+  "scope": "HEAD~10..HEAD",
+  "agents": [
+    "explore:trace-deps",
+    "explore:security-pass",
+    "general-purpose:adversarial",
+    "general-purpose:architecture"
+  ],
+  "agents_completed": 4,
+  "truncated": false
+}

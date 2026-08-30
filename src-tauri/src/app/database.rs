@@ -1153,7 +1153,7 @@ fn escape_sql_like(value: &str) -> String {
         .replace('_', "\\_")
 }
 
-fn parse_activity_date_bound(date: &str, end_of_day: bool) -> Option<i64> {
+pub(crate) fn parse_activity_date_bound(date: &str, end_of_day: bool) -> Option<i64> {
     let trimmed = date.trim();
     if trimmed.is_empty() {
         return None;

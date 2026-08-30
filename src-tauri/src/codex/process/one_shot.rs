@@ -1398,6 +1398,7 @@ pub(crate) async fn run_ai_command_with_options<R: Runtime>(
             &one_shot_reasoning_effort,
             prompt,
             Some(image_paths),
+            project_id.as_deref(),
         )
         .await?;
         return Ok(AiCommandResult {

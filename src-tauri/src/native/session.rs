@@ -17,14 +17,18 @@ use crate::codex::mcp::{mcp_summary_line, resolve_effective_mcp_for_task};
 use crate::codex::{CodexExecutionProvider, CodexSessionKind, ExecutionChangeBaseline};
 use crate::db::models::ChannelModelConfig;
 use crate::db::models::{CodexExit, CodexOutput, CodexSession, SshConfigRecord};
-use crate::engine::context::resolve_session_execution_context;
+use crate::engine::context::{resolve_project_execution_target, resolve_session_execution_context};
 use crate::native::agent::compact::{BudgetSnapshot, ContextWindow};
 use crate::native::agent::r#loop::AgentDiagnosticsSnapshot;
 use crate::native::agent::r#loop::AgentRunner;
+use crate::native::api_logs::sqlite_call_log_sink;
 use crate::native::channels::{fetch_channel_record, require_channel_api_key};
 use crate::native::manager::{
     NativeAgentManager, NativeFollowup, NativeLiveSession, NativeSessionInfo, PendingPermission,
     PendingPlanQuestion, PermissionRequest, PlanQuestionRequest,
+};
+use crate::native::model::call_log::{
+    CallLogContext, CALL_KIND_CHAT, CALL_KIND_ONE_SHOT, CALL_KIND_PLAN,
 };
 use crate::native::model::{ModelClient, ModelClientConfig, RetryConfig};
 use crate::native::model_catalog::{apply_catalog_defaults, fill_from_catalog};
@@ -302,6 +306,7 @@ struct NativeRunSettings {
     context_tokens: Option<u32>,
     employee_system_prompt: Option<String>,
     protocol: String,
+    channel_id: String,
     channel_name: String,
     bound_subagent: Option<crate::native::subagents::NativeSubagent>,
     catalog_project_id: Option<String>,
@@ -434,7 +439,21 @@ async fn load_native_client_from_channel(
         extra_headers: extra_headers_map(channel.extra_headers_json.as_deref()),
         retry: RetryConfig::default(),
         timeout: Duration::from_secs(if thinking_enabled { 300 } else { 120 }),
-    })?;
+    })?
+    .with_call_log(
+        CallLogContext {
+            channel_id: Some(channel.id.clone()),
+            channel_name: Some(channel.name.clone()),
+            session_id: None,
+            employee_id: None,
+            task_id: None,
+            project_id: None,
+            subagent_id: None,
+            call_kind: Some(CALL_KIND_CHAT.to_string()),
+            execution_target: None,
+        },
+        sqlite_call_log_sink(pool.clone()),
+    );
     Ok(NativeRunSettings {
         client,
         model,
@@ -444,6 +463,7 @@ async fn load_native_client_from_channel(
         context_tokens: model_config.context_tokens,
         employee_system_prompt: None,
         protocol: channel.protocol.clone(),
+        channel_id: channel.id.clone(),
         channel_name: channel.name.clone(),
         bound_subagent: None,
         catalog_project_id: None,
@@ -486,6 +506,16 @@ fn native_one_shot_text(message: &crate::native::model::types::Message) -> Resul
         "模型只返回了思考内容（{} 字），没有正文。请将推理强度从 max 改为 high 或 low 后重试。",
         reasoning.chars().count()
     ))
+}
+
+async fn resolve_one_shot_call_log_execution_target(
+    pool: &sqlx::SqlitePool,
+    project_id: Option<&str>,
+) -> Result<String, String> {
+    match project_id.map(str::trim).filter(|value| !value.is_empty()) {
+        Some(project_id) => resolve_project_execution_target(pool, project_id).await,
+        None => Ok(EXECUTION_TARGET_LOCAL.to_string()),
+    }
 }
 
 fn one_shot_reasoning_usable(text: &str) -> bool {
@@ -603,7 +633,24 @@ pub async fn run_native_one_shot<R: Runtime>(
     {
         employee.reasoning_effort = effort.to_string();
     }
-    let run = load_native_client(&pool, &employee).await?;
+    let mut run = load_native_client(&pool, &employee).await?;
+    let execution_target =
+        resolve_one_shot_call_log_execution_target(&pool, employee.project_id.as_deref()).await?;
+    run.client = run
+        .client
+        .with_call_log_context(CallLogContext::for_session(
+            Some(run.channel_id.clone()),
+            Some(run.channel_name.clone()),
+            session_record_id
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(ToOwned::to_owned),
+            Some(employee.id.clone()),
+            None,
+            employee.project_id.clone(),
+            CALL_KIND_ONE_SHOT,
+            Some(execution_target),
+        ));
     let shot = run_native_one_shot_with_run(run, prompt, image_paths).await?;
     apply_native_one_shot_session_usage(app, session_record_id, &shot).await;
     Ok(shot)
@@ -618,10 +665,29 @@ pub async fn run_native_one_shot_via_channel<R: Runtime>(
     reasoning_effort: &str,
     prompt: String,
     image_paths: Option<Vec<String>>,
+    project_id: Option<&str>,
 ) -> Result<NativeOneShotResult, String> {
     let pool = sqlite_pool(app).await?;
-    let run =
+    let mut run =
         load_native_client_from_channel(&pool, channel_id, model, Some(reasoning_effort)).await?;
+    let project_id = project_id
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned);
+    let execution_target =
+        resolve_one_shot_call_log_execution_target(&pool, project_id.as_deref()).await?;
+    run.client = run
+        .client
+        .with_call_log_context(CallLogContext::for_session(
+            Some(run.channel_id.clone()),
+            Some(run.channel_name.clone()),
+            None,
+            None,
+            None,
+            project_id,
+            CALL_KIND_ONE_SHOT,
+            Some(execution_target),
+        ));
     run_native_one_shot_with_run(run, prompt, image_paths).await
 }
 
@@ -663,6 +729,21 @@ pub async fn run_native_read_only_one_shot(
         .map(str::trim)
         .filter(|item| !item.is_empty())
         .map(ToOwned::to_owned);
+    run.client = run
+        .client
+        .with_call_log_context(CallLogContext::for_session(
+            Some(run.channel_id.clone()),
+            Some(run.channel_name.clone()),
+            session_record_id
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(ToOwned::to_owned),
+            Some(employee.id.clone()),
+            None,
+            employee.project_id.clone(),
+            CALL_KIND_PLAN,
+            Some(execution_target.to_string()),
+        ));
 
     let run_cwd = if execution_target == EXECUTION_TARGET_LOCAL {
         validate_runtime_working_dir(Some(working_dir))?
@@ -999,6 +1080,23 @@ pub async fn start_native_with_manager(
         Some("内置 Agent 会话已创建"),
     )
     .await?;
+
+    run.client = run
+        .client
+        .with_call_log_context(CallLogContext::for_session(
+            Some(run.channel_id.clone()),
+            Some(run.channel_name.clone()),
+            Some(session_record.id.clone()),
+            Some(employee.id.clone()),
+            task_id.clone(),
+            session_record.project_id.clone(),
+            if plan_mode {
+                CALL_KIND_PLAN
+            } else {
+                CALL_KIND_CHAT
+            },
+            Some(execution_context.execution_target.clone()),
+        ));
 
     let ssh = if execution_context.execution_target == EXECUTION_TARGET_SSH {
         let ssh_id = execution_context
@@ -2165,6 +2263,51 @@ mod tests {
         let error = super::native_one_shot_text(&message).unwrap_err();
         assert!(error.contains("思考内容"));
         assert!(error.contains("没有正文"));
+    }
+
+    #[test]
+    fn one_shot_call_log_target_uses_project_type_without_remote_repo() {
+        tauri::async_runtime::block_on(async {
+            let pool = sqlx::SqlitePool::connect("sqlite::memory:")
+                .await
+                .expect("create sqlite memory pool");
+            for migration in crate::db::migrations::get_all_migrations() {
+                sqlx::raw_sql(migration.sql)
+                    .execute(&pool)
+                    .await
+                    .unwrap_or_else(|error| {
+                        panic!("run migration {}: {}", migration.version, error)
+                    });
+            }
+
+            sqlx::query(
+                r#"
+                INSERT INTO projects (
+                    id, name, description, status, repo_path, project_type, ssh_config_id,
+                    remote_repo_path, created_at, updated_at
+                ) VALUES (
+                    'proj-ssh-incomplete', 'SSH Incomplete', NULL, 'active', NULL, 'ssh', NULL,
+                    NULL, '2026-08-01 10:00:00', '2026-08-01 10:00:00'
+                )
+                "#,
+            )
+            .execute(&pool)
+            .await
+            .expect("insert incomplete ssh project");
+
+            let missing = super::resolve_one_shot_call_log_execution_target(&pool, None)
+                .await
+                .expect("default local");
+            assert_eq!(missing, crate::app::EXECUTION_TARGET_LOCAL);
+
+            let ssh = super::resolve_one_shot_call_log_execution_target(
+                &pool,
+                Some("proj-ssh-incomplete"),
+            )
+            .await
+            .expect("ssh project type");
+            assert_eq!(ssh, crate::app::EXECUTION_TARGET_SSH);
+        });
     }
 
     #[test]

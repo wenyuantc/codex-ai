@@ -10,6 +10,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Bot,
+  ScrollText,
   Trash2,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -24,6 +25,7 @@ const navItems = [
   { to: "/kanban", icon: Columns3, labelKey: "nav:kanban" },
   { to: "/sessions", icon: MessagesSquare, labelKey: "nav:sessions" },
   { to: "/employees", icon: Users, labelKey: "nav:employees" },
+  { to: "/api-logs", icon: ScrollText, labelKey: "nav:apiLogs" },
   { to: "/settings", icon: Settings, labelKey: "nav:settings" },
   { to: "/trash", icon: Trash2, labelKey: "nav:trash" },
 ] as const;

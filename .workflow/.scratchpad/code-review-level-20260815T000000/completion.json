@@ -1,0 +1,27 @@
+{
+  "status": "DONE_WITH_CONCERNS",
+  "level": "max",
+  "total_findings": 18,
+  "by_severity": {
+    "Critical": 0,
+    "High": 8,
+    "Medium": 8,
+    "Low": 2,
+    "Info": 0
+  },
+  "report_path": ".workflow/.scratchpad/code-review-level-20260815T000000/review-report.md",
+  "quality": {
+    "has_overview": true,
+    "has_level_summary": true,
+    "findings_have_location": true,
+    "findings_have_suggestion": true,
+    "severity_counts_match": true
+  },
+  "truncated": false,
+  "concerns": [
+    "闸门竞态与丢队为代码审阅结论，未在 tauri dev 中动态复现",
+    "最近 10 次提交含 journal/规划文档，审查重心放在三块运行时代码",
+    "未跑 npm run tauri:dev 手工冒烟"
+  ],
+  "completed_at": "2026-08-15T08:40:00Z"
+}

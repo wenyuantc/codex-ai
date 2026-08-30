@@ -7,7 +7,9 @@ use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager, Runtime};
 
 use crate::app::{insert_activity_log, new_id, sqlite_pool};
+use crate::native::api_logs::sqlite_call_log_sink;
 use crate::native::channels::{fetch_channel_record, require_channel_api_key};
+use crate::native::model::call_log::{CallLogContext, CALL_KIND_SUBAGENT};
 use crate::native::model::{ModelClient, ModelClientConfig, RetryConfig};
 use crate::native::model_catalog::{apply_catalog_defaults, fill_from_catalog};
 use crate::native::protocol::record_to_channel;
@@ -484,7 +486,21 @@ pub async fn resolve_child_model<R: Runtime>(
         extra_headers: extra_headers_map(channel.extra_headers_json.as_deref()),
         retry: RetryConfig::default(),
         timeout: Duration::from_secs(if thinking_enabled { 300 } else { 120 }),
-    })?;
+    })?
+    .with_call_log(
+        CallLogContext {
+            channel_id: Some(channel.id),
+            channel_name: Some(channel.name),
+            session_id: None,
+            employee_id: None,
+            task_id: None,
+            project_id: None,
+            subagent_id: None,
+            call_kind: Some(CALL_KIND_SUBAGENT.to_string()),
+            execution_target: None,
+        },
+        sqlite_call_log_sink(pool.clone()),
+    );
     Ok(ChildModelSettings {
         client,
         model: model.to_string(),

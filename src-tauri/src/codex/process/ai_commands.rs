@@ -422,6 +422,7 @@ async fn run_commit_message_ai_command<R: Runtime>(
             &ai_selection.effective_reasoning_effort,
             prompt,
             None,
+            Some(project_id.as_str()),
         )
         .await?;
         return Ok(shot.text);

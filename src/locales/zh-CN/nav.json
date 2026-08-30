@@ -4,6 +4,7 @@
   "kanban": "看板管理",
   "sessions": "对话管理",
   "employees": "员工管理",
+  "apiLogs": "API 调用记录",
   "settings": "设置",
   "settingsFull": "系统设置",
   "trash": "回收站"

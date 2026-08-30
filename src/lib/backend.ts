@@ -414,6 +414,114 @@ export async function logActivity(input: LogActivityInput): Promise<void> {
   return invoke("log_activity", { payload: input });
 }
 
+export interface NativeApiCallLogListItem {
+  id: string;
+  call_id: string;
+  attempt: number;
+  channel_id: string | null;
+  channel_name: string | null;
+  protocol: string;
+  response_encoding: string | null;
+  model: string | null;
+  thinking_enabled: number;
+  thinking_level: string | null;
+  request_format: string;
+  input_tokens: number | null;
+  output_tokens: number | null;
+  cached_tokens: number | null;
+  total_tokens: number | null;
+  first_token_ms: number | null;
+  duration_ms: number | null;
+  status: string;
+  http_status: number | null;
+  session_id: string | null;
+  employee_id: string | null;
+  task_id: string | null;
+  project_id: string | null;
+  project_name?: string | null;
+  employee_name?: string | null;
+  execution_target: string | null;
+  call_kind: string | null;
+  created_at: string;
+}
+
+export interface NativeApiCallLogDetail extends NativeApiCallLogListItem {
+  request_body: string | null;
+  request_truncated: number;
+  response_body: string | null;
+  response_truncated: number;
+  error_message: string | null;
+  subagent_id?: string | null;
+}
+
+export interface NativeApiCallLogStats {
+  call_count: number;
+  input_tokens_sum: number | null;
+  output_tokens_sum: number | null;
+  cached_tokens_sum: number | null;
+  total_tokens_sum: number | null;
+  avg_first_token_ms: number | null;
+  avg_duration_ms: number | null;
+}
+
+export interface NativeApiCallLogPage {
+  items: NativeApiCallLogListItem[];
+  total: number;
+  stats: NativeApiCallLogStats;
+}
+
+export interface ListNativeApiCallLogsInput {
+  limit?: number | null;
+  offset?: number | null;
+  channel_name?: string | null;
+  model?: string | null;
+  status?: string | null;
+  session_id?: string | null;
+  start_date?: string | null;
+  end_date?: string | null;
+  execution_target?: string | null;
+  include_total?: boolean | null;
+  environment_mode?: string | null;
+  selected_ssh_config_id?: string | null;
+  project_id?: string | null;
+}
+
+function nativeApiCallLogScopePayload(input?: ListNativeApiCallLogsInput) {
+  return {
+    limit: input?.limit ?? null,
+    offset: input?.offset ?? null,
+    channel_name: input?.channel_name ?? null,
+    model: input?.model ?? null,
+    status: input?.status ?? null,
+    session_id: input?.session_id ?? null,
+    start_date: input?.start_date ?? null,
+    end_date: input?.end_date ?? null,
+    execution_target: input?.execution_target ?? input?.environment_mode ?? null,
+    include_total: input?.include_total ?? true,
+    environment_mode: input?.environment_mode ?? null,
+    selected_ssh_config_id: input?.selected_ssh_config_id ?? null,
+    project_id: input?.project_id ?? null,
+  };
+}
+
+export async function listNativeApiCallLogs(
+  input?: ListNativeApiCallLogsInput,
+): Promise<NativeApiCallLogPage> {
+  return invoke("list_native_api_call_logs", {
+    payload: nativeApiCallLogScopePayload(input),
+  });
+}
+
+export async function getNativeApiCallLog(
+  id: string,
+  input?: ListNativeApiCallLogsInput,
+): Promise<NativeApiCallLogDetail> {
+  return invoke("get_native_api_call_log", {
+    id,
+    payload: input ? nativeApiCallLogScopePayload(input) : null,
+  });
+}
+
 export interface DatabaseBackupScope {
   includes: string[];
   excludes: string[];

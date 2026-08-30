@@ -66,6 +66,14 @@ export const NAV_SHORTCUTS: ShortcutDef[] = [
     category: "navigation",
     page: "/trash",
   },
+  {
+    id: "nav-api-logs",
+    keys: "meta+8",
+    display: "⌘8",
+    description: "API 调用记录",
+    category: "navigation",
+    page: "/api-logs",
+  },
 ];
 
 export const GLOBAL_SHORTCUTS: ShortcutDef[] = [
@@ -133,6 +141,14 @@ export const PAGE_SHORTCUTS: ShortcutDef[] = [
     description: "刷新对话列表",
     category: "page",
     page: "/sessions",
+  },
+  {
+    id: "page-api-logs-refresh",
+    keys: "r",
+    display: "R",
+    description: "刷新 API 调用记录",
+    category: "page",
+    page: "/api-logs",
   },
 ];
 

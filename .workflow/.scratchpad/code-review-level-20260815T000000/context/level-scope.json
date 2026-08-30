@@ -1,0 +1,132 @@
+{
+  "level": "max",
+  "scope": {
+    "mode": "branch_diff",
+    "staged_only": false,
+    "base_ref": "HEAD~10",
+    "paths": [],
+    "files": [
+      ".trellis/spec/backend/ai-engines.md",
+      ".trellis/spec/backend/dashboard-report.md",
+      ".trellis/spec/backend/database-migrations.md",
+      ".trellis/spec/backend/directory-structure.md",
+      ".trellis/spec/backend/index.md",
+      ".trellis/spec/backend/testing.md",
+      ".trellis/spec/guides/cross-layer-thinking-guide.md",
+      ".trellis/tasks/08-12-b1-run-queue/prd.md",
+      ".trellis/tasks/08-12-product-gap-wave/design.md",
+      ".trellis/tasks/08-12-product-gap-wave/implement.md",
+      ".trellis/workspace/wenyuantc/journal-1.md",
+      "src-tauri/src/app/database.rs",
+      "src-tauri/src/app/mod.rs",
+      "src-tauri/src/app/sessions.rs",
+      "src-tauri/src/app/tests/dashboard_report.rs",
+      "src-tauri/src/app/tests/runtime_and_paths.rs",
+      "src-tauri/src/app/tests/sql_and_session.rs",
+      "src-tauri/src/claude/claude_sdk_bridge.mjs",
+      "src-tauri/src/claude/process/mod.rs",
+      "src-tauri/src/claude/process/session_runtime.rs",
+      "src-tauri/src/claude/process/stream.rs",
+      "src-tauri/src/codex/process/ai_commands.rs",
+      "src-tauri/src/codex/process/mod.rs",
+      "src-tauri/src/codex/process/session_runtime.rs",
+      "src-tauri/src/codex/process/stream.rs",
+      "src-tauri/src/codex/process/tests.rs",
+      "src-tauri/src/codex/sdk_bridge.mjs",
+      "src-tauri/src/codex/settings.rs",
+      "src-tauri/src/db/migrations.rs",
+      "src-tauri/src/db/models.rs",
+      "src-tauri/src/engine/mod.rs",
+      "src-tauri/src/engine/usage.rs",
+      "src-tauri/src/grok/process/mod.rs",
+      "src-tauri/src/grok/process/session_runtime.rs",
+      "src-tauri/src/grok/process/stream.rs",
+      "src-tauri/src/lib.rs",
+      "src-tauri/src/opencode/manager.rs",
+      "src-tauri/src/opencode/opencode_sdk_bridge.mjs",
+      "src-tauri/src/opencode/process/mod.rs",
+      "src-tauri/src/run_queue.rs",
+      "src/components/codex/CodexTerminal.tsx",
+      "src/components/tasks/TaskDetailDialog.tsx",
+      "src/components/tasks/detail/TaskExecutionPanel.tsx",
+      "src/lib/backend.ts",
+      "src/lib/dashboardReport.test.ts",
+      "src/lib/dashboardReport.ts",
+      "src/lib/types.ts",
+      "src/locales/en/dashboard.json",
+      "src/locales/en/sessions.json",
+      "src/locales/en/tasks.json",
+      "src/locales/zh-CN/dashboard.json",
+      "src/locales/zh-CN/sessions.json",
+      "src/locales/zh-CN/tasks.json",
+      "src/pages/DashboardPage.tsx"
+    ],
+    "diff_stat": "82 files changed, 3232 insertions(+), 477 deletions(-); scope=HEAD~10..HEAD (last 10 commits)",
+    "commits": [
+      {
+        "hash": "40befb3",
+        "subject": "chore: record journal"
+      },
+      {
+        "hash": "45c2d80",
+        "subject": "chore(task): archive 08-12-a2-log-export"
+      },
+      {
+        "hash": "564c89e",
+        "subject": "docs(task): 添加产品缺口下一波 Trellis 规划产物"
+      },
+      {
+        "hash": "8dbd82a",
+        "subject": "feat(engine): 增加全局并发闸门与持久化运行队列"
+      },
+      {
+        "hash": "7c63fde",
+        "subject": "chore: record journal"
+      },
+      {
+        "hash": "1828409",
+        "subject": "chore(task): archive 08-12-a1-token-usage"
+      },
+      {
+        "hash": "bb01242",
+        "subject": "docs(spec): 记录会话 token 用量契约与空值语义"
+      },
+      {
+        "hash": "429f772",
+        "subject": "test(sessions): 补齐 token 用量解析与 NULL 累加断言"
+      },
+      {
+        "hash": "7d48973",
+        "subject": "feat(sessions): 终端日志一键复制与导出为文件"
+      },
+      {
+        "hash": "c0acc3c",
+        "subject": "feat(sessions): 四引擎 token 用量解析落库与任务/仪表盘成本展示"
+      }
+    ]
+  },
+  "policy": {
+    "depth": "exhaustive",
+    "dimensions": [
+      "correctness",
+      "readability",
+      "performance",
+      "security",
+      "testing",
+      "architecture"
+    ],
+    "severity_floor": "Info",
+    "max_files": 500,
+    "max_lines_per_file": 2000,
+    "agents": ["Explore", "general-purpose"],
+    "tools": ["Read", "Grep", "Glob", "Bash", "Agent"],
+    "cross_file": true,
+    "dependency_trace": true,
+    "adversarial": true,
+    "architecture_deep": true,
+    "parallel": true
+  },
+  "user_args": "max 审核最近10次提价代码",
+  "created_at": "2026-08-15T00:00:00Z",
+  "notes": "User typo 提价=提交. Scope interpreted as last 10 commits (HEAD~10..HEAD), not working-tree default."
+}

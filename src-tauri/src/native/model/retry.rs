@@ -102,18 +102,30 @@ fn is_transient_message(message: &str) -> bool {
         || lower.contains("529")
 }
 
+fn is_token_boundary(text: &str, index: usize) -> bool {
+    if index == 0 {
+        return true;
+    }
+    text[..index]
+        .chars()
+        .next_back()
+        .is_none_or(|ch| !(ch.is_ascii_alphanumeric() || ch == '-' || ch == '_'))
+}
+
 pub fn redact_secrets(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
     let lower = text.to_ascii_lowercase();
     let mut i = 0;
     while i < text.len() {
-        if lower[i..].starts_with("bearer ") {
+        if is_token_boundary(text, i) && lower[i..].starts_with("bearer ") {
             out.push_str("[redacted]");
             i += "bearer ".len();
             i = skip_token(text, i);
             continue;
         }
-        if lower[i..].starts_with("sk-") {
+        if is_token_boundary(text, i)
+            && (lower[i..].starts_with("sk-") || lower[i..].starts_with("sk_"))
+        {
             out.push_str("[redacted]");
             i = skip_token(text, i);
             continue;

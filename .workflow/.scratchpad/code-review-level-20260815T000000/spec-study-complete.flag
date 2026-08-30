@@ -1,0 +1,20 @@
+{
+  "status": "completed",
+  "specs_loaded": 8,
+  "internalized": {
+    "levels": ["low", "medium", "high", "xhigh", "max"],
+    "dimensions": [
+      "correctness",
+      "readability",
+      "performance",
+      "security",
+      "testing",
+      "architecture"
+    ],
+    "default_level": "medium",
+    "default_scope": "git_diff",
+    "current_level": "max",
+    "current_scope": "git log -10 / HEAD~10..HEAD"
+  },
+  "timestamp": "2026-08-15T00:00:00Z"
+}

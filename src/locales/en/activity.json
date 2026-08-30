@@ -177,6 +177,7 @@
     "native_plan_mode_executed": "Built-in Agent started executing plan",
     "native_plan_question_asked": "Built-in Agent asked a plan question",
     "native_plan_content_saved": "Saved plan-run content",
-    "notification_sound_settings_updated": "Updated notification sound settings"
+    "notification_sound_settings_updated": "Updated notification sound settings",
+    "api_call_logs_viewed": "Viewed API call logs"
   }
 }

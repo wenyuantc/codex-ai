@@ -23,6 +23,7 @@ import trashZh from "@/locales/zh-CN/trash.json";
 import notificationsZh from "@/locales/zh-CN/notifications.json";
 import searchZh from "@/locales/zh-CN/search.json";
 import tasksZh from "@/locales/zh-CN/tasks.json";
+import apiLogsZh from "@/locales/zh-CN/apiLogs.json";
 
 import commonEn from "@/locales/en/common.json";
 import navEn from "@/locales/en/nav.json";
@@ -39,6 +40,7 @@ import trashEn from "@/locales/en/trash.json";
 import notificationsEn from "@/locales/en/notifications.json";
 import searchEn from "@/locales/en/search.json";
 import tasksEn from "@/locales/en/tasks.json";
+import apiLogsEn from "@/locales/en/apiLogs.json";
 
 export const I18N_NAMESPACES = [
   "common",
@@ -56,6 +58,7 @@ export const I18N_NAMESPACES = [
   "notifications",
   "search",
   "tasks",
+  "apiLogs",
 ] as const;
 
 export type I18nNamespace = (typeof I18N_NAMESPACES)[number];
@@ -77,6 +80,7 @@ const resources = {
     notifications: notificationsZh,
     search: searchZh,
     tasks: tasksZh,
+    apiLogs: apiLogsZh,
   },
   en: {
     common: commonEn,
@@ -94,6 +98,7 @@ const resources = {
     notifications: notificationsEn,
     search: searchEn,
     tasks: tasksEn,
+    apiLogs: apiLogsEn,
   },
 };
 

@@ -32,6 +32,7 @@ const pageTitleKeys: Record<string, string> = {
   "/kanban": "nav:kanban",
   "/employees": "nav:employees",
   "/sessions": "nav:sessions",
+  "/api-logs": "nav:apiLogs",
   "/settings": "nav:settingsFull",
   "/trash": "nav:trash",
 };

@@ -1,4 +1,5 @@
 pub mod agent;
+pub mod api_logs;
 pub mod channels;
 pub mod images;
 pub mod manager;

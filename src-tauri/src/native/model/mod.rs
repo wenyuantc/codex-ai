@@ -1,8 +1,8 @@
-//! Native model clients. Chat/stream parsers are consumed by the agent loop
-//! in a follow-up task; keep them compiled even before that wiring lands.
+//! Native model clients used by the in-process agent loop.
 #![allow(dead_code)]
 
 pub mod anthropic;
+pub mod call_log;
 pub mod client;
 pub mod openai;
 pub mod responses;

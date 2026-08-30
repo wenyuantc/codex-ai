@@ -1,11 +1,13 @@
 use std::collections::{hash_map::DefaultHasher, HashMap};
 use std::hash::{Hash, Hasher};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
+use futures_util::StreamExt;
 use serde_json::Value;
 use tokio::sync::mpsc;
 
+use crate::app::new_id;
 use crate::native::protocol::{
     channel_chat_url, channel_models_url, model_list_next_page, parse_model_list_json,
     PROTOCOL_ANTHROPIC, PROTOCOL_CODEX, PROTOCOL_OPENAI,
@@ -13,6 +15,13 @@ use crate::native::protocol::{
 use crate::native::tools::CancelFlag;
 
 use super::anthropic::{build_anthropic_body, parse_anthropic_json, parse_anthropic_sse};
+use super::call_log::{
+    detect_response_encoding, extract_request_model, extract_thinking_level,
+    first_meaningful_event_offset, logged_usage_from_parsed, parse_usage_from_body,
+    provider_reported_usage, redact_and_truncate_json, redact_and_truncate_text,
+    request_thinking_enabled, CallLogContext, NativeApiCallLogInsert, CALL_STATUS_CANCELLED,
+    CALL_STATUS_FAILED, CALL_STATUS_SUCCESS,
+};
 use super::openai::{
     build_openai_body, parse_max_output_token_limit, parse_openai_json, parse_openai_sse,
 };
@@ -25,6 +34,14 @@ use super::retry::{
 };
 use super::sse::parse_sse;
 use super::types::{Message, StreamEvent, ToolSpec, Usage};
+
+struct TimedHttpBody {
+    status: u16,
+    text: String,
+    first_token_ms: Option<i64>,
+    duration_ms: i64,
+    cancelled: bool,
+}
 
 #[derive(Debug, Clone)]
 pub struct ModelClientConfig {
@@ -46,12 +63,15 @@ pub struct ChatRequest<'a> {
 }
 
 pub type RetryHook = Arc<dyn Fn(&str) + Send + Sync>;
+pub type CallLogSink = Arc<dyn Fn(NativeApiCallLogInsert) + Send + Sync>;
 
 pub struct ModelClient {
     http: reqwest::Client,
     config: ModelClientConfig,
     on_retry: Option<RetryHook>,
     cancel: Option<CancelFlag>,
+    call_log: Option<CallLogContext>,
+    call_log_sink: Option<CallLogSink>,
     /// Responses continuation ids are kept per conversation anchor. A client
     /// is cloned for child agents, so a map prevents a child request from
     /// accidentally continuing the parent's server-side conversation.
@@ -73,6 +93,8 @@ impl Clone for ModelClient {
             config: self.config.clone(),
             on_retry: self.on_retry.clone(),
             cancel: self.cancel.clone(),
+            call_log: self.call_log.clone(),
+            call_log_sink: self.call_log_sink.clone(),
             // A cloned client is used for child agents and must start its own
             // Responses conversation. Sharing this map would let a child with
             // a matching prompt accidentally attach to its parent's
@@ -93,6 +115,8 @@ impl ModelClient {
             config: self.config.clone(),
             on_retry: self.on_retry.clone(),
             cancel: self.cancel.clone(),
+            call_log: self.call_log.clone(),
+            call_log_sink: self.call_log_sink.clone(),
             continuations: self.continuations.clone(),
         }
     }
@@ -109,6 +133,8 @@ impl ModelClient {
             config,
             on_retry: None,
             cancel: None,
+            call_log: None,
+            call_log_sink: None,
             continuations: Arc::new(Mutex::new(HashMap::new())),
         })
     }
@@ -121,6 +147,25 @@ impl ModelClient {
     pub fn with_cancel(mut self, cancel: CancelFlag) -> Self {
         self.cancel = Some(cancel);
         self
+    }
+
+    pub fn with_call_log(mut self, context: CallLogContext, sink: CallLogSink) -> Self {
+        self.call_log = Some(context);
+        self.call_log_sink = Some(sink);
+        self
+    }
+
+    pub fn with_call_log_context(mut self, context: CallLogContext) -> Self {
+        self.call_log = Some(context);
+        self
+    }
+
+    pub fn call_log_context(&self) -> Option<&CallLogContext> {
+        self.call_log.as_ref()
+    }
+
+    pub fn call_log_sink(&self) -> Option<CallLogSink> {
+        self.call_log_sink.clone()
     }
 
     pub fn build_body(&self, request: &ChatRequest<'_>, stream: bool) -> Result<Value, String> {
@@ -304,11 +349,11 @@ impl ModelClient {
             thinking_enabled: false,
         };
         let body = self.build_body(&request, false)?;
-        let (status, text) = self.post_raw(&url, &body).await?;
-        if (200..300).contains(&status) {
+        let timed = self.post_raw(&url, &body).await?;
+        if (200..300).contains(&timed.status) {
             return Ok(());
         }
-        Err(format_http_error(status, &url, &text))
+        Err(format_http_error(timed.status, &url, &timed.text))
     }
 
     pub async fn chat_stream(
@@ -329,30 +374,101 @@ impl ModelClient {
         body: &Value,
     ) -> Result<(Message, Usage, Option<String>), String> {
         let attempts = self.config.retry.max_retries.saturating_add(1);
+        let call_id = new_id();
         let mut last_error = "模型请求失败".to_string();
         for attempt in 0..attempts {
             if self.is_cancelled() {
+                self.emit_call_log(
+                    &call_id,
+                    i64::from(attempt.saturating_add(1)),
+                    body,
+                    None,
+                    None,
+                    CALL_STATUS_CANCELLED,
+                    None,
+                    Some("已取消"),
+                );
                 return Err("已取消".to_string());
             }
             match self.post_raw(url, body).await {
-                Ok((status, text)) if (200..300).contains(&status) => {
-                    match self.parse_success_body_with_id(&text) {
-                        Ok(result) => return Ok(result),
+                Ok(timed) if timed.cancelled => {
+                    self.emit_call_log(
+                        &call_id,
+                        i64::from(attempt.saturating_add(1)),
+                        body,
+                        Some(&timed),
+                        None,
+                        CALL_STATUS_CANCELLED,
+                        Some(i64::from(timed.status)),
+                        Some("已取消"),
+                    );
+                    return Err("已取消".to_string());
+                }
+                Ok(timed) if (200..300).contains(&timed.status) => {
+                    match self.parse_success_body_with_id(&timed.text) {
+                        Ok(result) => {
+                            self.emit_call_log(
+                                &call_id,
+                                i64::from(attempt.saturating_add(1)),
+                                body,
+                                Some(&timed),
+                                Some(&result.1),
+                                CALL_STATUS_SUCCESS,
+                                Some(i64::from(timed.status)),
+                                None,
+                            );
+                            return Ok(result);
+                        }
                         Err(error) => last_error = error,
                     }
-                    if self.should_stop_retry(&last_error, Some(status), attempt, attempts) {
+                    self.emit_call_log(
+                        &call_id,
+                        i64::from(attempt.saturating_add(1)),
+                        body,
+                        Some(&timed),
+                        None,
+                        CALL_STATUS_FAILED,
+                        Some(i64::from(timed.status)),
+                        Some(&last_error),
+                    );
+                    if self.should_stop_retry(&last_error, Some(timed.status), attempt, attempts) {
                         return Err(last_error);
                     }
                 }
-                Ok((status, text)) => {
-                    last_error = format_http_error(status, url, &text);
-                    if self.should_stop_retry(&last_error, Some(status), attempt, attempts) {
+                Ok(timed) => {
+                    last_error = format_http_error(timed.status, url, &timed.text);
+                    self.emit_call_log(
+                        &call_id,
+                        i64::from(attempt.saturating_add(1)),
+                        body,
+                        Some(&timed),
+                        None,
+                        CALL_STATUS_FAILED,
+                        Some(i64::from(timed.status)),
+                        Some(&last_error),
+                    );
+                    if self.should_stop_retry(&last_error, Some(timed.status), attempt, attempts) {
                         return Err(last_error);
                     }
                 }
                 Err(error) => {
                     last_error = error;
-                    if self.is_cancelled() {
+                    let cancelled = self.is_cancelled() || last_error == "已取消";
+                    self.emit_call_log(
+                        &call_id,
+                        i64::from(attempt.saturating_add(1)),
+                        body,
+                        None,
+                        None,
+                        if cancelled {
+                            CALL_STATUS_CANCELLED
+                        } else {
+                            CALL_STATUS_FAILED
+                        },
+                        None,
+                        Some(&last_error),
+                    );
+                    if cancelled {
                         return Err("已取消".to_string());
                     }
                     if self.should_stop_retry(&last_error, None, attempt, attempts) {
@@ -362,7 +478,19 @@ impl ModelClient {
             }
             let delay = self.config.retry.delay_for_attempt(attempt);
             self.emit_retry(&last_error, attempt.saturating_add(1), delay);
-            self.wait_before_retry(delay).await?;
+            if let Err(error) = self.wait_before_retry(delay).await {
+                self.emit_call_log(
+                    &call_id,
+                    i64::from(attempt.saturating_add(1)),
+                    body,
+                    None,
+                    None,
+                    CALL_STATUS_CANCELLED,
+                    None,
+                    Some(&error),
+                );
+                return Err(error);
+            }
         }
         Err(last_error)
     }
@@ -449,7 +577,8 @@ impl ModelClient {
         Ok((status, text))
     }
 
-    async fn post_raw(&self, url: &str, body: &Value) -> Result<(u16, String), String> {
+    async fn post_raw(&self, url: &str, body: &Value) -> Result<TimedHttpBody, String> {
+        let started = Instant::now();
         let request = self
             .http
             .post(url)
@@ -462,8 +591,98 @@ impl ModelClient {
             .await
             .map_err(|error| format!("模型请求失败: {error}"))?;
         let status = response.status().as_u16();
-        let text = response.text().await.unwrap_or_default();
-        Ok((status, text))
+        let mut first_token_ms = None;
+        let mut bytes = Vec::new();
+        let mut stream = response.bytes_stream();
+        let mut cancelled = false;
+        while let Some(chunk) = stream.next().await {
+            if self.is_cancelled() {
+                cancelled = true;
+                break;
+            }
+            let chunk = chunk.map_err(|error| format!("读取模型响应失败: {error}"))?;
+            bytes.extend_from_slice(&chunk);
+            if first_token_ms.is_none() {
+                if let Ok(partial) = std::str::from_utf8(&bytes) {
+                    if first_meaningful_event_offset(partial).is_some() {
+                        first_token_ms = Some(elapsed_ms(started));
+                    }
+                }
+            }
+        }
+        if !cancelled && self.is_cancelled() {
+            cancelled = true;
+        }
+        let text = String::from_utf8_lossy(&bytes).into_owned();
+        Ok(TimedHttpBody {
+            status,
+            text,
+            first_token_ms,
+            duration_ms: elapsed_ms(started),
+            cancelled,
+        })
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn emit_call_log(
+        &self,
+        call_id: &str,
+        attempt: i64,
+        request_body: &Value,
+        timed: Option<&TimedHttpBody>,
+        parsed_usage: Option<&Usage>,
+        status: &str,
+        http_status: Option<i64>,
+        error_message: Option<&str>,
+    ) {
+        let Some(sink) = &self.call_log_sink else {
+            return;
+        };
+        let context = self.call_log.clone().unwrap_or_default();
+        let request = redact_and_truncate_json(request_body);
+        let response = timed.map(|item| redact_and_truncate_text(&item.text));
+        let usage = logged_usage_from_parsed(
+            parsed_usage
+                .copied()
+                .or_else(|| timed.map(|item| parse_usage_from_body(&item.text)))
+                .unwrap_or_default(),
+            timed.is_some_and(|item| provider_reported_usage(&item.text)),
+        );
+        let thinking_level = extract_thinking_level(request_body);
+        let thinking_enabled = request_thinking_enabled(request_body, thinking_level.as_deref());
+        sink(NativeApiCallLogInsert {
+            id: String::new(),
+            call_id: call_id.to_string(),
+            attempt,
+            channel_id: context.channel_id,
+            channel_name: context.channel_name,
+            protocol: self.config.protocol.clone(),
+            response_encoding: timed.map(|item| detect_response_encoding(&item.text).to_string()),
+            model: extract_request_model(request_body),
+            thinking_enabled,
+            thinking_level,
+            request_format: self.config.protocol.clone(),
+            request_body: Some(request.text),
+            request_truncated: request.truncated,
+            response_body: response.as_ref().map(|item| item.text.clone()),
+            response_truncated: response.as_ref().is_some_and(|item| item.truncated),
+            input_tokens: usage.input_tokens,
+            output_tokens: usage.output_tokens,
+            cached_tokens: usage.cached_tokens,
+            total_tokens: usage.total_tokens,
+            first_token_ms: timed.and_then(|item| item.first_token_ms),
+            duration_ms: timed.map(|item| item.duration_ms),
+            status: status.to_string(),
+            http_status,
+            error_message: error_message.map(ToOwned::to_owned),
+            session_id: context.session_id,
+            employee_id: context.employee_id,
+            task_id: context.task_id,
+            project_id: context.project_id,
+            subagent_id: context.subagent_id,
+            call_kind: context.call_kind,
+            execution_target: context.execution_target,
+        });
     }
 
     fn parse_success_body_with_id(
@@ -558,6 +777,10 @@ impl ModelClient {
             continuations.remove(key);
         }
     }
+}
+
+fn elapsed_ms(started: Instant) -> i64 {
+    i64::try_from(started.elapsed().as_millis()).unwrap_or(i64::MAX)
 }
 
 fn continuation_key(messages: &[Message]) -> String {
@@ -1353,5 +1576,195 @@ mod tests {
             .expect("join")
             .expect_err("retry wait should cancel");
         assert_eq!(error, "已取消");
+    }
+
+    fn capturing_sink() -> (CallLogSink, Arc<Mutex<Vec<NativeApiCallLogInsert>>>) {
+        let records = Arc::new(Mutex::new(Vec::new()));
+        let captured = records.clone();
+        let sink: CallLogSink = Arc::new(move |record: NativeApiCallLogInsert| {
+            captured.lock().expect("call logs").push(record);
+        });
+        (sink, records)
+    }
+
+    #[tokio::test]
+    async fn chat_writes_success_call_log_with_first_token() {
+        let ping = ": keep-alive\n\ndata: {\"choices\":[{\"delta\":{\"content\":\"ok\"}}]}\n\ndata: {\"usage\":{\"prompt_tokens\":10,\"completion_tokens\":4,\"prompt_tokens_details\":{\"cached_tokens\":3}}}\n\ndata: [DONE]\n\n";
+        let base = serve_once(200, ping).await;
+        let (sink, records) = capturing_sink();
+        let _ = client(base)
+            .with_call_log(
+                CallLogContext {
+                    channel_id: Some("ch-1".to_string()),
+                    channel_name: Some("OpenAI".to_string()),
+                    session_id: Some("sess-1".to_string()),
+                    employee_id: Some("emp-1".to_string()),
+                    task_id: Some("task-1".to_string()),
+                    project_id: Some("proj-1".to_string()),
+                    subagent_id: None,
+                    call_kind: Some("chat".to_string()),
+                    execution_target: Some("local".to_string()),
+                },
+                sink,
+            )
+            .chat(ChatRequest {
+                messages: &[Message::user("hi")],
+                tools: &[],
+                model: "gpt-4o",
+                effort: None,
+                max_output_tokens: None,
+                thinking_enabled: false,
+            })
+            .await
+            .expect("chat");
+        let records = records.lock().expect("call logs");
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0].status, CALL_STATUS_SUCCESS);
+        assert_eq!(records[0].attempt, 1);
+        assert_eq!(records[0].model.as_deref(), Some("gpt-4o"));
+        assert_eq!(records[0].channel_name.as_deref(), Some("OpenAI"));
+        assert_eq!(records[0].input_tokens, Some(10));
+        assert_eq!(records[0].output_tokens, Some(4));
+        assert_eq!(records[0].cached_tokens, Some(3));
+        assert_eq!(records[0].total_tokens, Some(14));
+        assert!(records[0].first_token_ms.is_some());
+        assert!(records[0].duration_ms.is_some());
+        let request = records[0].request_body.as_deref().unwrap_or_default();
+        assert!(!request.contains("sk-secret-key"));
+        assert!(!request.to_ascii_lowercase().contains("bearer"));
+    }
+
+    #[tokio::test]
+    async fn chat_writes_failed_and_success_attempts() {
+        let base = serve_sequence(vec![(503, "busy".to_string()), (200, OK_SSE.to_string())]).await;
+        let (sink, records) = capturing_sink();
+        chat_hi_on(
+            client_with_retry(base, fast_retry()).with_call_log(CallLogContext::default(), sink),
+        )
+        .await
+        .expect("retry then success");
+        let records = records.lock().expect("call logs");
+        assert_eq!(records.len(), 2);
+        assert_eq!(records[0].status, CALL_STATUS_FAILED);
+        assert_eq!(records[0].attempt, 1);
+        assert_eq!(records[0].http_status, Some(503));
+        assert_eq!(records[1].status, CALL_STATUS_SUCCESS);
+        assert_eq!(records[1].attempt, 2);
+        assert_eq!(records[0].call_id, records[1].call_id);
+    }
+
+    #[tokio::test]
+    async fn chat_without_sink_does_not_write_call_log() {
+        let base = serve_once(200, OK_SSE).await;
+        chat_hi_on(client(base)).await.expect("chat");
+    }
+
+    #[tokio::test]
+    async fn probe_does_not_write_call_log() {
+        let base = serve_once(200, r#"{"choices":[{"message":{"content":"ok"}}]}"#).await;
+        let (sink, records) = capturing_sink();
+        client(base)
+            .with_call_log(CallLogContext::default(), sink)
+            .probe("gpt-4o")
+            .await
+            .expect("probe");
+        assert!(records.lock().expect("call logs").is_empty());
+    }
+
+    #[tokio::test]
+    async fn chat_cancel_during_retry_wait_reuses_failed_attempt() {
+        let base = serve_once(503, "busy").await;
+        let cancel = CancelFlag::new();
+        let (sink, records) = capturing_sink();
+        let client = client_with_retry(
+            base,
+            RetryConfig {
+                max_retries: 10,
+                base_delay_ms: 2_000,
+                max_delay_ms: 2_000,
+                jitter: false,
+            },
+        )
+        .with_cancel(cancel.clone())
+        .with_call_log(CallLogContext::default(), sink);
+        let task = tokio::spawn(async move { chat_hi_on(client).await });
+        tokio::time::sleep(Duration::from_millis(80)).await;
+        cancel.cancel();
+        let error = task
+            .await
+            .expect("join")
+            .expect_err("retry wait should cancel");
+        assert_eq!(error, "已取消");
+        let records = records.lock().expect("call logs");
+        assert_eq!(records.len(), 2);
+        assert_eq!(records[0].status, CALL_STATUS_FAILED);
+        assert_eq!(records[0].attempt, 1);
+        assert_eq!(records[1].status, CALL_STATUS_CANCELLED);
+        assert_eq!(records[1].attempt, 1);
+    }
+
+    #[tokio::test]
+    async fn chat_logs_partial_body_when_cancelled_mid_stream() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind mock server");
+        let addr = listener.local_addr().expect("local addr");
+        tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.expect("accept");
+            let mut buf = vec![0u8; 4096];
+            let _ = stream.read(&mut buf).await;
+            let body = OK_SSE;
+            let header = "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n";
+            let _ = stream.write_all(header.as_bytes()).await;
+            let chunk = format!("{:x}\r\n{}\r\n", body.len(), body);
+            let _ = stream.write_all(chunk.as_bytes()).await;
+            tokio::time::sleep(Duration::from_millis(400)).await;
+            let _ = stream.write_all(b"0\r\n\r\n").await;
+        });
+        let cancel = CancelFlag::new();
+        let (sink, records) = capturing_sink();
+        let client = client(format!("http://{addr}"))
+            .with_cancel(cancel.clone())
+            .with_call_log(CallLogContext::default(), sink);
+        let task = tokio::spawn(async move { chat_hi_on(client).await });
+        tokio::time::sleep(Duration::from_millis(80)).await;
+        cancel.cancel();
+        let error = task.await.expect("join").expect_err("stream cancel");
+        assert_eq!(error, "已取消");
+        let records = records.lock().expect("call logs");
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0].status, CALL_STATUS_CANCELLED);
+        assert!(records[0].duration_ms.is_some());
+        assert!(records[0]
+            .response_body
+            .as_deref()
+            .is_some_and(|body| body.contains("ok") || !body.is_empty()));
+    }
+
+    #[tokio::test]
+    async fn chat_logs_thinking_disabled_for_deepseek_toggle() {
+        let base = serve_once(200, OK_SSE).await;
+        let (sink, records) = capturing_sink();
+        client(base)
+            .with_call_log(CallLogContext::default(), sink)
+            .chat(ChatRequest {
+                messages: &[Message::user("hi")],
+                tools: &[],
+                model: "deepseek-v4-flash",
+                effort: None,
+                max_output_tokens: None,
+                thinking_enabled: false,
+            })
+            .await
+            .expect("chat");
+        let records = records.lock().expect("call logs");
+        assert_eq!(records.len(), 1);
+        assert!(!records[0].thinking_enabled);
+        assert_eq!(records[0].thinking_level, None);
+        assert!(records[0]
+            .request_body
+            .as_deref()
+            .is_some_and(|body| body.contains("\"type\":\"disabled\"")
+                || body.contains("\"type\": \"disabled\"")));
     }
 }

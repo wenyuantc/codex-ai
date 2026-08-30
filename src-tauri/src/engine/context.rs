@@ -76,19 +76,38 @@ pub async fn resolve_task_project_execution_context<R: Runtime>(
     }
 }
 
-pub async fn resolve_project_execution_context<R: Runtime>(
-    app: &AppHandle<R>,
+pub async fn resolve_project_execution_target(
+    pool: &sqlx::SqlitePool,
+    project_id: &str,
+) -> Result<String, String> {
+    let project_type = sqlx::query_scalar::<_, String>(
+        "SELECT project_type FROM projects WHERE id = $1 AND deleted_at IS NULL LIMIT 1",
+    )
+    .bind(project_id)
+    .fetch_optional(pool)
+    .await
+    .map_err(|error| format!("Failed to resolve project {project_id} execution target: {error}"))?
+    .ok_or_else(|| format!("Project {project_id} not found"))?;
+
+    if project_type == EXECUTION_TARGET_SSH {
+        Ok(EXECUTION_TARGET_SSH.to_string())
+    } else {
+        Ok(EXECUTION_TARGET_LOCAL.to_string())
+    }
+}
+
+pub async fn resolve_project_execution_context_with_pool(
+    pool: &sqlx::SqlitePool,
     project_id: &str,
     engine_label: &str,
 ) -> Result<ExecutionContext, String> {
-    let pool = sqlite_pool(app).await?;
-    let project = fetch_project_by_id(&pool, project_id).await?;
+    let project = fetch_project_by_id(pool, project_id).await?;
 
     if project.project_type == EXECUTION_TARGET_SSH {
         let ssh_config_id = project
             .ssh_config_id
             .ok_or_else(|| format!("当前 SSH 项目缺少 ssh_config_id，无法启动 {engine_label}。"))?;
-        let ssh_config = fetch_ssh_config_record_by_id(&pool, &ssh_config_id).await?;
+        let ssh_config = fetch_ssh_config_record_by_id(pool, &ssh_config_id).await?;
         let working_dir = project
             .remote_repo_path
             .map(|value| normalize_runtime_path_string(&value))
@@ -112,6 +131,15 @@ pub async fn resolve_project_execution_context<R: Runtime>(
             artifact_capture_mode: ARTIFACT_CAPTURE_MODE_LOCAL_FULL.to_string(),
         })
     }
+}
+
+pub async fn resolve_project_execution_context<R: Runtime>(
+    app: &AppHandle<R>,
+    project_id: &str,
+    engine_label: &str,
+) -> Result<ExecutionContext, String> {
+    let pool = sqlite_pool(app).await?;
+    resolve_project_execution_context_with_pool(&pool, project_id, engine_label).await
 }
 
 pub async fn resolve_one_shot_working_dir<R: Runtime>(
@@ -212,7 +240,9 @@ pub async fn resolve_session_execution_context<R: Runtime>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::app::{ARTIFACT_CAPTURE_MODE_LOCAL_FULL, EXECUTION_TARGET_LOCAL};
+    use crate::app::{
+        ARTIFACT_CAPTURE_MODE_LOCAL_FULL, EXECUTION_TARGET_LOCAL, EXECUTION_TARGET_SSH,
+    };
 
     #[test]
     fn local_default_matches_local_full_capture() {
@@ -232,5 +262,51 @@ mod tests {
         let message = format!("当前任务所属项目未配置仓库路径，无法启动 {}。", "Claude");
         assert!(message.contains("Claude"));
         assert!(message.contains("无法启动"));
+    }
+
+    #[test]
+    fn resolve_project_execution_target_reads_project_type_without_remote_repo() {
+        tauri::async_runtime::block_on(async {
+            let pool = sqlx::SqlitePool::connect("sqlite::memory:")
+                .await
+                .expect("create sqlite memory pool");
+            for migration in crate::db::migrations::get_all_migrations() {
+                sqlx::raw_sql(migration.sql)
+                    .execute(&pool)
+                    .await
+                    .unwrap_or_else(|error| {
+                        panic!("run migration {}: {}", migration.version, error)
+                    });
+            }
+
+            sqlx::query(
+                r#"
+                INSERT INTO projects (
+                    id, name, description, status, repo_path, project_type, ssh_config_id,
+                    remote_repo_path, created_at, updated_at
+                ) VALUES (
+                    'proj-ssh-incomplete', 'SSH Incomplete', NULL, 'active', NULL, 'ssh', NULL,
+                    NULL, '2026-08-01 10:00:00', '2026-08-01 10:00:00'
+                )
+                "#,
+            )
+            .execute(&pool)
+            .await
+            .expect("insert incomplete ssh project");
+
+            let target = resolve_project_execution_target(&pool, "proj-ssh-incomplete")
+                .await
+                .expect("read project type");
+            assert_eq!(target, EXECUTION_TARGET_SSH);
+
+            let context_error = resolve_project_execution_context_with_pool(
+                &pool,
+                "proj-ssh-incomplete",
+                "内置 Agent",
+            )
+            .await
+            .expect_err("full context still requires remote repo");
+            assert!(context_error.contains("无法启动"));
+        });
     }
 }

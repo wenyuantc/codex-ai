@@ -9,6 +9,7 @@ use tokio::sync::{mpsc, Semaphore};
 use tokio::task::JoinSet;
 
 use crate::engine::UsageDelta;
+use crate::native::model::call_log::{CALL_KIND_COMPACT, CALL_KIND_SUBAGENT};
 use crate::native::model::client::{ChatRequest, ModelClient};
 use crate::native::model::types::{Message, NativeImage, Role, ToolCall, ToolSpec, Usage};
 use crate::native::model::usage_to_delta;
@@ -298,17 +299,57 @@ impl AgentRunner {
             }))
     }
 
-    fn observe_child_client(&self, client: &ModelClient) -> ModelClient {
+    fn observe_child_client(
+        &self,
+        parent: Option<&ModelClient>,
+        client: &ModelClient,
+        spec: Option<&SubagentSpec>,
+    ) -> ModelClient {
         let on_event = self.on_event.clone();
         let prefix = self.event_prefix.clone();
         // Child agents must begin an independent Responses conversation even
         // when they inherit the parent's transport client.
-        client
+        let mut observed = client
             .clone()
             .with_cancel(self.ctx.cancel.clone())
             .with_retry_hook(Arc::new(move |line: &str| {
                 Self::send_prefixed_event(&on_event, &prefix, line);
-            }))
+            }));
+        let parent_context = parent.and_then(ModelClient::call_log_context);
+        let mut context = client
+            .call_log_context()
+            .cloned()
+            .or_else(|| parent_context.cloned())
+            .unwrap_or_default()
+            .with_call_kind(CALL_KIND_SUBAGENT);
+        if context.session_id.is_none() {
+            context.session_id = parent_context.and_then(|item| item.session_id.clone());
+        }
+        if context.employee_id.is_none() {
+            context.employee_id = parent_context.and_then(|item| item.employee_id.clone());
+        }
+        if context.task_id.is_none() {
+            context.task_id = parent_context.and_then(|item| item.task_id.clone());
+        }
+        if context.project_id.is_none() {
+            context.project_id = parent_context.and_then(|item| item.project_id.clone());
+        }
+        if context.execution_target.is_none() {
+            context.execution_target =
+                parent_context.and_then(|item| item.execution_target.clone());
+        }
+        if let Some(spec) = spec {
+            context = context.with_subagent_id(spec.kind.as_str());
+        }
+        if let Some(sink) = client
+            .call_log_sink()
+            .or_else(|| parent.and_then(ModelClient::call_log_sink))
+        {
+            observed = observed.with_call_log(context, sink);
+        } else {
+            observed = observed.with_call_log_context(context);
+        }
+        observed
     }
 
     fn emit_activity(&self, action: &str, details: &str) {
@@ -420,12 +461,14 @@ impl AgentRunner {
 
     async fn run_child_with_client(
         &mut self,
+        parent: Option<&ModelClient>,
         client: &ModelClient,
         user: &str,
         model: &str,
         effort: Option<&str>,
         max_output_tokens: Option<u32>,
         thinking_enabled: bool,
+        spec: Option<&SubagentSpec>,
     ) -> Result<String, String> {
         self.model_turn = Some(ModelTurnCfg {
             model: model.to_string(),
@@ -434,7 +477,7 @@ impl AgentRunner {
             thinking_enabled,
         });
         self.begin_user_turn(user, Vec::new())?;
-        let client = self.observe_child_client(client);
+        let client = self.observe_child_client(parent, client, spec);
         loop {
             let mut last_turn = self.prepare_model_call(Some(&client)).await?;
             let tools = self.combined_tools();
@@ -622,7 +665,13 @@ impl AgentRunner {
             .as_ref()
             .map(|turn| turn.model.clone())
             .unwrap_or_default();
-        let result = client
+        let compact_client = match client.call_log_context() {
+            Some(context) => client
+                .clone_for_conversation()
+                .with_call_log_context(context.clone().with_call_kind(CALL_KIND_COMPACT)),
+            None => client.clone_for_conversation(),
+        };
+        let result = compact_client
             .chat(ChatRequest {
                 messages: &summary_messages,
                 tools: &[],
@@ -1022,23 +1071,27 @@ impl AgentRunner {
                         let settings = loader(channel_id, model).await?;
                         child
                             .run_child_with_client(
+                                client_owned.as_ref(),
                                 &settings.client,
                                 &job.spec.prompt,
                                 &settings.model,
                                 settings.effort.as_deref(),
                                 settings.max_output_tokens,
                                 settings.thinking_enabled,
+                                Some(&job.spec),
                             )
                             .await
                     } else if let (Some(client), Some(cfg)) = (client_owned.as_ref(), model_turn) {
                         child
                             .run_child_with_client(
+                                Some(client),
                                 client,
                                 &job.spec.prompt,
                                 &cfg.model,
                                 cfg.effort.as_deref(),
                                 cfg.max_output_tokens,
                                 cfg.thinking_enabled,
+                                Some(&job.spec),
                             )
                             .await
                     } else {
@@ -2046,6 +2099,54 @@ mod tests {
             fs::read_to_string(root.join("hello.txt")).expect("read"),
             "hello world\n"
         );
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn compact_and_child_clients_inherit_session_scope() {
+        let (runner, root) = temp_runner();
+        let parent = ModelClient::new(crate::native::model::ModelClientConfig {
+            protocol: "openai".to_string(),
+            base_url: "http://127.0.0.1".to_string(),
+            api_key: "sk-test".to_string(),
+            extra_headers: std::collections::HashMap::new(),
+            retry: crate::native::model::RetryConfig::none(),
+            timeout: Duration::from_secs(1),
+        })
+        .expect("client")
+        .with_call_log_context(
+            crate::native::model::call_log::CallLogContext::for_session(
+                Some("ch-1".to_string()),
+                Some("OpenAI".to_string()),
+                Some("sess-1".to_string()),
+                Some("emp-1".to_string()),
+                Some("task-1".to_string()),
+                Some("proj-ssh".to_string()),
+                crate::native::model::call_log::CALL_KIND_CHAT,
+                Some("ssh".to_string()),
+            ),
+        );
+        let compact = parent.clone_for_conversation().with_call_log_context(
+            parent
+                .call_log_context()
+                .cloned()
+                .unwrap_or_default()
+                .with_call_kind(CALL_KIND_COMPACT),
+        );
+        let compact_ctx = compact.call_log_context().expect("compact context");
+        assert_eq!(compact_ctx.call_kind.as_deref(), Some(CALL_KIND_COMPACT));
+        assert_eq!(compact_ctx.session_id.as_deref(), Some("sess-1"));
+        assert_eq!(compact_ctx.project_id.as_deref(), Some("proj-ssh"));
+        assert_eq!(compact_ctx.execution_target.as_deref(), Some("ssh"));
+
+        let spec = parse_subagent_args(r#"{"prompt":"look","subagent_type":"explore"}"#).unwrap();
+        let child = runner.observe_child_client(Some(&parent), &parent, Some(&spec));
+        let child_ctx = child.call_log_context().expect("child context");
+        assert_eq!(child_ctx.call_kind.as_deref(), Some(CALL_KIND_SUBAGENT));
+        assert_eq!(child_ctx.session_id.as_deref(), Some("sess-1"));
+        assert_eq!(child_ctx.project_id.as_deref(), Some("proj-ssh"));
+        assert_eq!(child_ctx.execution_target.as_deref(), Some("ssh"));
+        assert_eq!(child_ctx.subagent_id.as_deref(), Some("explore"));
         let _ = fs::remove_dir_all(root);
     }
 }
