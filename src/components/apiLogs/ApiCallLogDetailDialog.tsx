@@ -16,6 +16,7 @@ import {
   formatApiCallLogCacheRate,
   formatApiCallLogDurationMs,
   formatApiCallLogThinking,
+  formatApiCallLogThroughput,
   formatApiCallLogTokenCount,
   isTruncatedFlag,
   prettyPrintJsonBody,
@@ -211,6 +212,14 @@ export function ApiCallLogDetailDialog({
               <MetaItem
                 label={t("colDuration")}
                 value={formatApiCallLogDurationMs(detail.duration_ms, unknown, lessThanOneSecond)}
+              />
+              <MetaItem
+                label={t("colThroughput")}
+                value={formatApiCallLogThroughput(
+                  detail.output_tokens,
+                  detail.duration_ms,
+                  unknown,
+                )}
               />
               <MetaItem label={t("colCreatedAt")} value={formatDate(detail.created_at)} />
               <MetaItem label={t("sessionId")} value={detail.session_id?.trim() || unknown} />

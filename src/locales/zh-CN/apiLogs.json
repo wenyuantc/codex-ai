@@ -39,6 +39,7 @@
   "colTotal": "总量",
   "colFirstToken": "首字时间",
   "colDuration": "总耗时",
+  "colThroughput": "生成速率（t/s）",
   "colCreatedAt": "创建时间",
   "colStatus": "状态",
   "statsTitle": "统计概览",

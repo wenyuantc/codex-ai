@@ -16,6 +16,7 @@ import {
   formatApiCallLogCacheRate,
   formatApiCallLogDurationMs,
   formatApiCallLogThinking,
+  formatApiCallLogThroughput,
   formatApiCallLogTokenCount,
   nextApiCallLogRequestPage,
   resolveApiCallLogListPage,
@@ -501,6 +502,7 @@ export function ApiCallLogsPage() {
                         <th className="px-4 py-3 font-medium">{t("colTotal")}</th>
                         <th className="px-4 py-3 font-medium">{t("colFirstToken")}</th>
                         <th className="px-4 py-3 font-medium">{t("colDuration")}</th>
+                        <th className="px-4 py-3 font-medium">{t("colThroughput")}</th>
                         <th className="px-4 py-3 font-medium">{t("colCreatedAt")}</th>
                         <th className="px-4 py-3 font-medium">{t("colStatus")}</th>
                       </tr>
@@ -570,6 +572,13 @@ export function ApiCallLogsPage() {
                               item.duration_ms,
                               unknown,
                               lessThanOneSecond,
+                            )}
+                          </td>
+                          <td className="whitespace-nowrap px-4 py-3">
+                            {formatApiCallLogThroughput(
+                              item.output_tokens,
+                              item.duration_ms,
+                              unknown,
                             )}
                           </td>
                           <td className="whitespace-nowrap px-4 py-3 text-xs text-muted-foreground">

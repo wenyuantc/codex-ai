@@ -6,6 +6,7 @@ import {
   formatApiCallLogCacheRate,
   formatApiCallLogDurationMs,
   formatApiCallLogThinking,
+  formatApiCallLogThroughput,
   formatApiCallLogTokenCount,
   isApiCallLogStatus,
   isTruncatedFlag,
@@ -75,6 +76,41 @@ describe("formatApiCallLogDurationMs", () => {
 
   it("clamps negative durations to <1s", () => {
     expect(formatApiCallLogDurationMs(-12, "未知")).toBe("<1s");
+  });
+});
+
+describe("formatApiCallLogThroughput", () => {
+  it("formats whole-call tokens per second to two decimals", () => {
+    expect(formatApiCallLogThroughput(120, 4500, "未知")).toBe("26.67 t/s");
+    expect(formatApiCallLogThroughput(1, 3, "未知")).toBe("333.33 t/s");
+  });
+
+  it("uses total duration so thinking dumps are not inflated into thousands of t/s", () => {
+    expect(formatApiCallLogThroughput(3388, 64238, "未知")).toBe("52.74 t/s");
+  });
+
+  it("keeps an explicit zero when duration is valid", () => {
+    expect(formatApiCallLogThroughput(0, 4500, "未知")).toBe("0.00 t/s");
+  });
+
+  it("shows unknown when output tokens or duration is missing", () => {
+    expect(formatApiCallLogThroughput(null, 4500, "未知")).toBe("未知");
+    expect(formatApiCallLogThroughput(undefined, 4500, "Unknown")).toBe("Unknown");
+    expect(formatApiCallLogThroughput(120, null, "未知")).toBe("未知");
+    expect(formatApiCallLogThroughput(undefined, undefined, "未知")).toBe("未知");
+  });
+
+  it("shows unknown for non-finite or negative telemetry", () => {
+    expect(formatApiCallLogThroughput(Number.NaN, 4500, "未知")).toBe("未知");
+    expect(formatApiCallLogThroughput(120, Number.POSITIVE_INFINITY, "未知")).toBe("未知");
+    expect(formatApiCallLogThroughput(120, Number.NaN, "未知")).toBe("未知");
+    expect(formatApiCallLogThroughput(-1, 4500, "未知")).toBe("未知");
+    expect(formatApiCallLogThroughput(120, -1, "未知")).toBe("未知");
+  });
+
+  it("shows unknown when duration is not positive", () => {
+    expect(formatApiCallLogThroughput(120, 0, "未知")).toBe("未知");
+    expect(formatApiCallLogThroughput(0, 0, "未知")).toBe("未知");
   });
 });
 

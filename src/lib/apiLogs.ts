@@ -56,6 +56,40 @@ export function formatApiCallLogDurationMs(
   return `${seconds}s`;
 }
 
+/**
+ * Whole-call output throughput: `t/s = output_tokens * 1000 / duration_ms`.
+ *
+ * Usage `output_tokens` includes thinking tokens. Codex thinking streams often
+ * record `first_token_ms` near the end of the request, so subtracting TTFT
+ * would treat the last few hundred milliseconds as the entire generation
+ * window and inflate the rate into thousands of t/s.
+ */
+export function formatApiCallLogThroughput(
+  outputTokens: number | null | undefined,
+  durationMs: number | null | undefined,
+  unknownLabel: string,
+): string {
+  if (
+    outputTokens === null ||
+    outputTokens === undefined ||
+    durationMs === null ||
+    durationMs === undefined ||
+    !Number.isFinite(outputTokens) ||
+    !Number.isFinite(durationMs) ||
+    outputTokens < 0 ||
+    durationMs <= 0
+  ) {
+    return unknownLabel;
+  }
+
+  const tokensPerSecond = (outputTokens * 1000) / durationMs;
+  if (!Number.isFinite(tokensPerSecond)) {
+    return unknownLabel;
+  }
+
+  return `${tokensPerSecond.toFixed(2)} t/s`;
+}
+
 export function formatApiCallLogThinking(
   item: Pick<NativeApiCallLogListItem, "thinking_enabled" | "thinking_level">,
   unknownLabel: string,

@@ -37,6 +37,7 @@ describe("i18n locale preference", () => {
     expect(i18n.t("nav:apiLogs")).toBe("API 调用记录");
     expect(i18n.t("apiLogs:listTitle")).toBe("API 调用记录");
     expect(i18n.t("apiLogs:lessThanOneSecond")).toBe("<1s");
+    expect(i18n.t("apiLogs:colThroughput")).toBe("生成速率（t/s）");
     expect(i18n.t("apiLogs:callKind.one_shot")).toBe("一次性调用");
     expect(i18n.t("tasks:card.planRun")).toBe("计划运行");
     expect(i18n.t("tasks:card.backgroundRun")).toBe("后台运行");
@@ -123,6 +124,7 @@ describe("i18n locale preference", () => {
     expect(i18n.t("nav:apiLogs")).toBe("API Call Logs");
     expect(i18n.t("apiLogs:listTitle")).toBe("API Call Logs");
     expect(i18n.t("apiLogs:lessThanOneSecond")).toBe("<1s");
+    expect(i18n.t("apiLogs:colThroughput")).toBe("Generation rate (t/s)");
     expect(i18n.t("apiLogs:callKind.one_shot")).toBe("One-shot");
     expect(i18n.t("tasks:card.planRun")).toBe("Plan and run");
     expect(i18n.t("tasks:card.backgroundRun")).toBe("Run in background");

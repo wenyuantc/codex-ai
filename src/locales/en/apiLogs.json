@@ -39,6 +39,7 @@
   "colTotal": "Total",
   "colFirstToken": "Time to first token",
   "colDuration": "Duration",
+  "colThroughput": "Generation rate (t/s)",
   "colCreatedAt": "Created",
   "colStatus": "Status",
   "statsTitle": "Overview",
