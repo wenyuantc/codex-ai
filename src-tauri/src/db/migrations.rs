@@ -1313,6 +1313,28 @@ pub fn get_all_migrations() -> Vec<Migration> {
             "#,
             kind: tauri_plugin_sql::MigrationKind::Up,
         },
+        Migration {
+            version: 56,
+            description: "native session transcripts for resume",
+            sql: r#"
+                CREATE TABLE native_session_transcripts (
+                    session_record_id TEXT PRIMARY KEY,
+                    employee_id TEXT,
+                    task_id TEXT,
+                    project_id TEXT,
+                    model TEXT NOT NULL,
+                    turns INTEGER NOT NULL DEFAULT 0,
+                    messages_json TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    deleted_at TEXT
+                );
+
+                CREATE INDEX idx_native_transcripts_task
+                    ON native_session_transcripts(task_id);
+            "#,
+            kind: tauri_plugin_sql::MigrationKind::Up,
+        },
     ]
 }
 
@@ -1354,7 +1376,7 @@ mod tests {
 
     #[test]
     fn latest_migration_version_includes_session_events_retention_index() {
-        assert_eq!(latest_migration_version(), 55);
+        assert_eq!(latest_migration_version(), 56);
         assert_eq!(
             get_all_migrations()
                 .last()

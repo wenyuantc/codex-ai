@@ -12,6 +12,7 @@ pub mod session;
 pub mod settings;
 pub mod subagents;
 pub mod tools;
+pub mod transcript;
 
 pub use manager::NativeAgentManager;
 pub use session::{

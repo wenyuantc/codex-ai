@@ -41,6 +41,7 @@ use crate::native::tools::question::PlanQuestionAnswer;
 use crate::native::tools::{
     connect_mcp_servers, local::LocalWorkspace, ssh::SshToolRuntime, SharedMcp,
 };
+use crate::native::transcript::{load_transcript, save_transcript, NativeTranscriptMeta};
 use serde::Serialize;
 
 const ENGINE_LABEL: &str = "内置 Agent";
@@ -62,6 +63,37 @@ fn format_native_plan_saved_details(task_title: &str, plan_content: &str) -> Str
         task_title,
         plan_content.chars().count()
     )
+}
+
+
+async fn persist_native_transcript(
+    app: &AppHandle,
+    session_record_id: &str,
+    employee_id: &str,
+    task_id: Option<&str>,
+    project_id: Option<&str>,
+    model: &str,
+    turns: u32,
+    messages: &[crate::native::model::types::Message],
+) {
+    let Ok(pool) = sqlite_pool(app).await else {
+        return;
+    };
+    let meta = NativeTranscriptMeta {
+        employee_id: Some(employee_id.to_string()),
+        task_id: task_id.map(ToOwned::to_owned),
+        project_id: project_id.map(ToOwned::to_owned),
+        model: model.to_string(),
+        turns,
+    };
+    let _ = save_transcript(&pool, session_record_id, messages, &meta).await;
+}
+
+fn user_turn_count(messages: &[crate::native::model::types::Message]) -> u32 {
+    messages
+        .iter()
+        .filter(|message| message.role == crate::native::model::types::Role::User)
+        .count() as u32
 }
 
 #[derive(Clone, Serialize)]
@@ -1201,6 +1233,16 @@ pub async fn start_native_with_manager(
     )
     .await?;
 
+    update_codex_session_record(
+        &app,
+        &session_record.id,
+        None,
+        Some(Some(session_record.id.as_str())),
+        None,
+        None,
+    )
+    .await?;
+
     insert_codex_session_event(
         &pool,
         &session_record.id,
@@ -1270,6 +1312,7 @@ pub async fn start_native_with_manager(
     let cancel_run = cancel.clone();
     let allow_all_run = allow_all_high_risk.clone();
     let plan_mode_run = plan_mode;
+    let resume_run = resume_session_id.clone();
     let (loop_ready_tx, loop_ready_rx) = tokio::sync::oneshot::channel();
     let join = tokio::spawn(async move {
         let _ = loop_ready_rx.await;
@@ -1292,6 +1335,7 @@ pub async fn start_native_with_manager(
             image_paths,
             execution_change_baseline,
             plan_mode_run,
+            resume_run,
         )
         .await;
     });
@@ -1369,6 +1413,7 @@ async fn run_native_loop(
     image_paths: Option<Vec<String>>,
     execution_change_baseline: Option<ExecutionChangeBaseline>,
     plan_mode: bool,
+    resume_session_id: Option<String>,
 ) {
     let mut runner = AgentRunner::new(LocalWorkspace::new(PathBuf::from(&run_cwd)));
     runner.ctx.ssh = ssh;
@@ -1575,6 +1620,51 @@ async fn run_native_loop(
     runner
         .messages
         .push(crate::native::model::types::Message::system(system));
+    if let Some(resume_id) = resume_session_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        if let Ok(pool) = sqlite_pool(&app).await {
+            match load_transcript(&pool, resume_id).await {
+                Ok(Some(history)) => {
+                    let restored = history.len();
+                    runner.messages.extend(history);
+                    emit_native_line(
+                        &app,
+                        &session_record_id,
+                        &employee_id,
+                        task_id.as_deref(),
+                        &kind,
+                        format!("[续聊] 已恢复上一会话 {restored} 条上下文（图片附件不恢复）"),
+                    )
+                    .await;
+                }
+                Ok(None) => {
+                    emit_native_line(
+                        &app,
+                        &session_record_id,
+                        &employee_id,
+                        task_id.as_deref(),
+                        &kind,
+                        "[续聊] 未找到可恢复的上下文，已按新对话开始".to_string(),
+                    )
+                    .await;
+                }
+                Err(error) => {
+                    emit_native_line(
+                        &app,
+                        &session_record_id,
+                        &employee_id,
+                        task_id.as_deref(),
+                        &kind,
+                        format!("[续聊] 恢复上下文失败：{error}"),
+                    )
+                    .await;
+                }
+            }
+        }
+    }
     let (event_tx, event_rx) = mpsc::unbounded_channel();
     runner.on_event = Some(event_tx);
     let (usage_tx, mut usage_rx) = mpsc::unbounded_channel();
@@ -1817,6 +1907,17 @@ async fn run_native_loop(
                 break;
             }
         };
+        persist_native_transcript(
+            &app,
+            &session_record_id,
+            &employee_id,
+            task_id.as_deref(),
+            project_id.as_deref(),
+            &run.model,
+            user_turn_count(&runner.messages),
+            &runner.messages,
+        )
+        .await;
         if plan_pending {
             persist_native_plan_content(
                 &app,
@@ -1876,6 +1977,18 @@ async fn run_native_loop(
             Some(NativeFollowup::Finish) | None => break,
         }
     }
+
+    persist_native_transcript(
+        &app,
+        &session_record_id,
+        &employee_id,
+        task_id.as_deref(),
+        project_id.as_deref(),
+        &run.model,
+        user_turn_count(&runner.messages),
+        &runner.messages,
+    )
+    .await;
 
     runner.on_event.take();
     runner.on_usage.take();

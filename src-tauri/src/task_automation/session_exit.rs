@@ -154,9 +154,9 @@ async fn replay_unconsumed_pipeline_exits(
 }
 
 async fn recover_orphaned_running_sessions(pool: &SqlitePool) -> Result<usize, String> {
-    let sessions = sqlx::query_as::<_, (String, Option<String>)>(
+    let sessions = sqlx::query_as::<_, (String, Option<String>, String, Option<String>, Option<String>, Option<String>)>(
         r#"
-        SELECT id, task_git_context_id
+        SELECT id, task_git_context_id, ai_provider, employee_id, task_id, project_id
         FROM codex_sessions
         WHERE status = 'running'
           AND ended_at IS NULL
@@ -168,7 +168,7 @@ async fn recover_orphaned_running_sessions(pool: &SqlitePool) -> Result<usize, S
     .map_err(|error| format!("Failed to fetch orphaned running sessions: {}", error))?;
 
     let mut recovered = 0;
-    for (session_id, task_git_context_id) in sessions {
+    for (session_id, task_git_context_id, ai_provider, employee_id, task_id, project_id) in sessions {
         let result = sqlx::query(
             r#"
             UPDATE codex_sessions
@@ -204,6 +204,20 @@ async fn recover_orphaned_running_sessions(pool: &SqlitePool) -> Result<usize, S
                 task_git_context_id,
                 false,
                 Some(ORPHANED_RUNNING_SESSION_MESSAGE),
+            )
+            .await?;
+        }
+
+        if ai_provider == "native"
+            && crate::native::transcript::has_transcript(pool, &session_id).await?
+        {
+            insert_activity_log(
+                pool,
+                "native_session_resumable",
+                "内置 Agent 会话上次未正常收尾，可继续对话恢复上下文",
+                employee_id.as_deref(),
+                task_id.as_deref(),
+                project_id.as_deref(),
             )
             .await?;
         }
