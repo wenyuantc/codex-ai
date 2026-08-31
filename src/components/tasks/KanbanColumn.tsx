@@ -15,8 +15,8 @@ import { TaskCard } from "./TaskCard";
 
 /** Columns at or above this size use virtualization. */
 const VIRTUALIZE_THRESHOLD = 15;
-/** Estimated TaskCard height including gap; overscan absorbs variance. */
-const ESTIMATED_CARD_HEIGHT = 140;
+/** Initial estimate including gap; actual size comes from measureElement. */
+const ESTIMATED_CARD_HEIGHT = 180;
 const VIRTUAL_OVERSCAN = 4;
 
 interface KanbanColumnProps {
@@ -65,6 +65,7 @@ export const KanbanColumn = memo(function KanbanColumn({
     estimateSize: () => ESTIMATED_CARD_HEIGHT,
     overscan: VIRTUAL_OVERSCAN,
     enabled: shouldVirtualize,
+    getItemKey: (index) => tasks[index]?.id ?? index,
   });
 
   const renderTaskCard = (task: Task) => {
@@ -120,6 +121,7 @@ export const KanbanColumn = memo(function KanbanColumn({
                   <div
                     key={task.id}
                     data-index={virtualRow.index}
+                    ref={virtualizer.measureElement}
                     className="absolute left-0 top-0 w-full pb-2"
                     style={{
                       transform: `translateY(${virtualRow.start}px)`,

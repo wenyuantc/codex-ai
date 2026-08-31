@@ -77,7 +77,8 @@ These come from project docs (`AGENTS.md`) and current code.
 - Listener init belongs in layout/store once, not per card.
 - **Never put `setInterval` on list-item components** for clocks/elapsed time. Use the shared second clock (`src/hooks/useSharedNow.ts`) so the app keeps at most one interval; isolate live labels in a small memoized leaf (e.g. `TaskElapsedSummary`).
 - Memoize hot list rows and columns (`React.memo` on `TaskCard` / `KanbanColumn`); keep callbacks from board parents stable with `useCallback`.
-- Virtualize long scroll lists when item count can grow large. Kanban columns use `@tanstack/react-virtual` at ≥ 25 tasks; keep full id lists for `@dnd-kit` SortableContext.
+- Virtualize long scroll lists when item count can grow large. Kanban columns use `@tanstack/react-virtual` at ≥ 15 tasks; keep full id lists for `@dnd-kit` SortableContext.
+- Variable-height virtual rows **must** attach `ref={virtualizer.measureElement}` (and `data-index`). Overscan only renders extra items; it does not absorb height variance. `CodexTerminal` is the reference. Underestimated `estimateSize` without measuring stacks absolute rows on top of each other.
 
 ## Testing Expectations
 
