@@ -957,6 +957,8 @@ pub struct NativeSettings {
     pub max_tool_output_tokens: i32,
     /// Seconds to wait for a high-risk confirmation. Zero disables timeout.
     pub permission_timeout_secs: i32,
+    /// Share of the parent's remaining rollout budget granted to each child.
+    pub subagent_budget_share_percent: i32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -969,6 +971,7 @@ pub struct UpdateNativeSettings {
     pub rollout_token_budget: Option<i64>,
     pub max_tool_output_tokens: Option<i32>,
     pub permission_timeout_secs: Option<i32>,
+    pub subagent_budget_share_percent: Option<i32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -245,6 +245,7 @@ export interface NativeSettings {
   rollout_token_budget: number;
   max_tool_output_tokens: number;
   permission_timeout_secs: number;
+  subagent_budget_share_percent: number;
 }
 
 export interface UpdateNativeSettings {
@@ -256,6 +257,7 @@ export interface UpdateNativeSettings {
   rollout_token_budget?: number;
   max_tool_output_tokens?: number;
   permission_timeout_secs?: number;
+  subagent_budget_share_percent?: number;
 }
 
 export async function getNativeSettings(): Promise<NativeSettings> {

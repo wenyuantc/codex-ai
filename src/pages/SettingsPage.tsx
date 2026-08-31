@@ -199,6 +199,7 @@ export function SettingsPage() {
   const [nativeSubagentPolicy, setNativeSubagentPolicy] = useState("conservative");
   const [nativeConfirmHighRisk, setNativeConfirmHighRisk] = useState(true);
   const [nativePermissionTimeoutSecs, setNativePermissionTimeoutSecs] = useState(300);
+  const [nativeSubagentBudgetSharePercent, setNativeSubagentBudgetSharePercent] = useState(40);
   const [nativeContextWindowK, setNativeContextWindowK] = useState("128");
   const [nativeRolloutTokenBudgetK, setNativeRolloutTokenBudgetK] = useState("10000");
   const [nativeMaxToolOutputK, setNativeMaxToolOutputK] = useState("4.096");
@@ -409,6 +410,7 @@ export function SettingsPage() {
     setNativeSubagentPolicy(settings.subagent_policy || "conservative");
     setNativeConfirmHighRisk(settings.confirm_high_risk !== false);
     setNativePermissionTimeoutSecs(settings.permission_timeout_secs ?? 300);
+    setNativeSubagentBudgetSharePercent(settings.subagent_budget_share_percent ?? 40);
     setNativeContextWindowK(String(nativeTokensToK(settings.context_window_tokens ?? 128_000)));
     setNativeRolloutTokenBudgetK(
       String(nativeTokensToK(settings.rollout_token_budget ?? 10_000_000)),
@@ -462,6 +464,19 @@ export function SettingsPage() {
       applyNativeSettings(await updateNativeSettings({ confirm_high_risk: value }));
     } catch (error) {
       console.error("Failed to save native high-risk confirmation:", error);
+      await loadNativeMaxTurns();
+    }
+  }
+
+  async function persistNativeSubagentBudgetSharePercent(value: number) {
+    const normalized = Number.isFinite(value) ? Math.min(100, Math.max(5, Math.trunc(value))) : 40;
+    setNativeSubagentBudgetSharePercent(normalized);
+    try {
+      applyNativeSettings(
+        await updateNativeSettings({ subagent_budget_share_percent: normalized }),
+      );
+    } catch (error) {
+      console.error("Failed to save native sub-agent budget share:", error);
       await loadNativeMaxTurns();
     }
   }
@@ -1390,6 +1405,11 @@ export function SettingsPage() {
             onNativePermissionTimeoutSecsChange={setNativePermissionTimeoutSecs}
             onNativePermissionTimeoutSecsCommit={(value) =>
               void persistNativePermissionTimeoutSecs(value)
+            }
+            nativeSubagentBudgetSharePercent={nativeSubagentBudgetSharePercent}
+            onNativeSubagentBudgetSharePercentChange={setNativeSubagentBudgetSharePercent}
+            onNativeSubagentBudgetSharePercentCommit={(value) =>
+              void persistNativeSubagentBudgetSharePercent(value)
             }
             onTaskSdkEnabledChange={setTaskSdkEnabled}
             onOneShotSdkEnabledChange={setOneShotSdkEnabled}

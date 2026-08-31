@@ -27,6 +27,9 @@ const MIN_NATIVE_MAX_TOOL_OUTPUT_TOKENS: i32 = 256;
 const MAX_NATIVE_MAX_TOOL_OUTPUT_TOKENS: i32 = 65_536;
 pub const DEFAULT_NATIVE_PERMISSION_TIMEOUT_SECS: i32 = 300;
 const MAX_NATIVE_PERMISSION_TIMEOUT_SECS: i32 = 86_400;
+pub const DEFAULT_NATIVE_SUBAGENT_BUDGET_SHARE_PERCENT: i32 = 40;
+const MIN_NATIVE_SUBAGENT_BUDGET_SHARE_PERCENT: i32 = 5;
+const MAX_NATIVE_SUBAGENT_BUDGET_SHARE_PERCENT: i32 = 100;
 pub const SUBAGENT_POLICY_CONSERVATIVE: &str = "conservative";
 pub const SUBAGENT_POLICY_BALANCED: &str = "balanced";
 pub const SUBAGENT_POLICY_AGGRESSIVE: &str = "aggressive";
@@ -50,6 +53,8 @@ struct RawNativeSettings {
     max_tool_output_tokens: Option<i32>,
     #[serde(default)]
     permission_timeout_secs: Option<i32>,
+    #[serde(default)]
+    subagent_budget_share_percent: Option<i32>,
 }
 
 pub fn normalize_native_max_turns(value: Option<i32>) -> i32 {
@@ -89,6 +94,19 @@ pub fn normalize_native_permission_timeout_secs(value: Option<i32>) -> i32 {
     match value {
         Some(value) if (0..=MAX_NATIVE_PERMISSION_TIMEOUT_SECS).contains(&value) => value,
         _ => DEFAULT_NATIVE_PERMISSION_TIMEOUT_SECS,
+    }
+}
+
+pub fn normalize_native_subagent_budget_share_percent(value: Option<i32>) -> i32 {
+    match value {
+        Some(value)
+            if (MIN_NATIVE_SUBAGENT_BUDGET_SHARE_PERCENT
+                ..=MAX_NATIVE_SUBAGENT_BUDGET_SHARE_PERCENT)
+                .contains(&value) =>
+        {
+            value
+        }
+        _ => DEFAULT_NATIVE_SUBAGENT_BUDGET_SHARE_PERCENT,
     }
 }
 
@@ -141,6 +159,7 @@ fn default_settings() -> NativeSettings {
         rollout_token_budget: DEFAULT_NATIVE_ROLLOUT_TOKEN_BUDGET,
         max_tool_output_tokens: DEFAULT_NATIVE_MAX_TOOL_OUTPUT_TOKENS,
         permission_timeout_secs: DEFAULT_NATIVE_PERMISSION_TIMEOUT_SECS,
+        subagent_budget_share_percent: DEFAULT_NATIVE_SUBAGENT_BUDGET_SHARE_PERCENT,
     }
 }
 
@@ -157,6 +176,9 @@ fn normalize_settings(raw: RawNativeSettings) -> NativeSettings {
         max_tool_output_tokens: normalize_native_max_tool_output_tokens(raw.max_tool_output_tokens),
         permission_timeout_secs: normalize_native_permission_timeout_secs(
             raw.permission_timeout_secs,
+        ),
+        subagent_budget_share_percent: normalize_native_subagent_budget_share_percent(
+            raw.subagent_budget_share_percent,
         ),
     }
 }
@@ -208,6 +230,9 @@ fn save_native_settings<R: Runtime>(
         permission_timeout_secs: Some(normalize_native_permission_timeout_secs(Some(
             settings.permission_timeout_secs,
         ))),
+        subagent_budget_share_percent: Some(normalize_native_subagent_budget_share_percent(Some(
+            settings.subagent_budget_share_percent,
+        ))),
     };
     let json = serde_json::to_string_pretty(&raw)
         .map_err(|error| format!("序列化内置 Agent 设置失败: {error}"))?;
@@ -257,6 +282,10 @@ async fn merge_native_settings<R: Runtime>(
         next.permission_timeout_secs =
             normalize_native_permission_timeout_secs(Some(permission_timeout_secs));
     }
+    if let Some(subagent_budget_share_percent) = updates.subagent_budget_share_percent {
+        next.subagent_budget_share_percent =
+            normalize_native_subagent_budget_share_percent(Some(subagent_budget_share_percent));
+    }
     save_native_settings(app, &next)?;
     if previous.max_turns != next.max_turns
         || previous.confirm_high_risk != next.confirm_high_risk
@@ -266,6 +295,7 @@ async fn merge_native_settings<R: Runtime>(
         || previous.rollout_token_budget != next.rollout_token_budget
         || previous.max_tool_output_tokens != next.max_tool_output_tokens
         || previous.permission_timeout_secs != next.permission_timeout_secs
+        || previous.subagent_budget_share_percent != next.subagent_budget_share_percent
     {
         if let Ok(pool) = sqlite_pool(app).await {
             let _ = insert_activity_log(
@@ -284,7 +314,7 @@ async fn merge_native_settings<R: Runtime>(
 
 fn native_settings_activity_details(settings: &NativeSettings) -> String {
     format!(
-        "{}；高风险确认：{}；确认超时：{}；同轮子 Agent 上限：{}；子 Agent 策略：{}；上下文窗口：{} token；会话预算：{}；单条工具结果：{} token",
+        "{}；高风险确认：{}；确认超时：{}；同轮子 Agent 上限：{}；子 Agent 策略：{}；子 Agent 预算占比：{}%；上下文窗口：{} token；会话预算：{}；单条工具结果：{} token",
         max_turns_activity_details(settings.max_turns),
         if settings.confirm_high_risk {
             "开启"
@@ -298,6 +328,7 @@ fn native_settings_activity_details(settings: &NativeSettings) -> String {
         },
         settings.max_concurrent_subagents,
         subagent_policy_label_zh(&settings.subagent_policy),
+        settings.subagent_budget_share_percent,
         settings.context_window_tokens,
         if settings.rollout_token_budget == 0 {
             "不限制".to_string()
@@ -352,6 +383,19 @@ pub fn effective_permission_timeout_secs<R: Runtime>(app: &AppHandle<R>) -> u64 
         .unwrap_or(DEFAULT_NATIVE_PERMISSION_TIMEOUT_SECS as u64)
 }
 
+pub fn effective_subagent_budget_share_percent<R: Runtime>(app: &AppHandle<R>) -> u32 {
+    load_native_settings(app)
+        .map(|settings| {
+            settings
+                .subagent_budget_share_percent
+                .clamp(
+                    MIN_NATIVE_SUBAGENT_BUDGET_SHARE_PERCENT,
+                    MAX_NATIVE_SUBAGENT_BUDGET_SHARE_PERCENT,
+                ) as u32
+        })
+        .unwrap_or(DEFAULT_NATIVE_SUBAGENT_BUDGET_SHARE_PERCENT as u32)
+}
+
 pub fn confirm_high_risk_enabled<R: Runtime>(app: &AppHandle<R>) -> bool {
     load_native_settings(app)
         .map(|settings| settings.confirm_high_risk)
@@ -397,6 +441,7 @@ mod tests {
             rollout_token_budget: None,
             max_tool_output_tokens: None,
             permission_timeout_secs: None,
+            subagent_budget_share_percent: None,
         });
         assert!(settings.confirm_high_risk);
         assert_eq!(
@@ -419,6 +464,10 @@ mod tests {
         assert_eq!(
             settings.permission_timeout_secs,
             DEFAULT_NATIVE_PERMISSION_TIMEOUT_SECS
+        );
+        assert_eq!(
+            settings.subagent_budget_share_percent,
+            DEFAULT_NATIVE_SUBAGENT_BUDGET_SHARE_PERCENT
         );
     }
 
@@ -536,6 +585,18 @@ mod tests {
         assert_eq!(
             normalize_native_permission_timeout_secs(Some(-1)),
             DEFAULT_NATIVE_PERMISSION_TIMEOUT_SECS
+        );
+        assert_eq!(
+            normalize_native_subagent_budget_share_percent(Some(40)),
+            40
+        );
+        assert_eq!(
+            normalize_native_subagent_budget_share_percent(Some(4)),
+            DEFAULT_NATIVE_SUBAGENT_BUDGET_SHARE_PERCENT
+        );
+        assert_eq!(
+            normalize_native_subagent_budget_share_percent(Some(100)),
+            100
         );
     }
 }

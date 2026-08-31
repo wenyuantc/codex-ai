@@ -26,7 +26,7 @@ use crate::native::tools::{
 
 use super::compact::{
     compact_local, compact_with_summary, compaction_prompt, reset_local, BudgetSnapshot,
-    ContextWindow, RolloutBudget,
+    ChildQuota, ContextWindow, RolloutBudget,
 };
 use super::subagent::{
     child_max_turns, child_system_prompt, custom_child_system_prompt, format_subagent_log_tag,
@@ -111,6 +111,8 @@ pub struct AgentRunner {
     /// Shared by the parent rollout and all child agents. A zero limit means
     /// unlimited for backwards-compatible programmatic callers.
     pub rollout_budget: Arc<RolloutBudget>,
+    pub child_quota: Option<Arc<ChildQuota>>,
+    pub subagent_budget_share_percent: u32,
     pub context_window: ContextWindow,
     pub tool_result_token_limit: usize,
     pub diagnostics: Arc<AgentDiagnostics>,
@@ -135,6 +137,7 @@ pub struct AgentRunner {
     subagent_seq: u32,
     model_turn: Option<ModelTurnCfg>,
     pending_budget_reservation: u64,
+    pending_child_reservation: u64,
     budget_exhausted: bool,
     streaming: bool,
 }
@@ -179,6 +182,9 @@ impl AgentRunner {
             subagent_policy: crate::native::settings::DEFAULT_NATIVE_SUBAGENT_POLICY.to_string(),
             context_char_limit: DEFAULT_CONTEXT_CHARS,
             rollout_budget: RolloutBudget::shared(DEFAULT_ROLLOUT_TOKEN_BUDGET),
+            child_quota: None,
+            subagent_budget_share_percent:
+                crate::native::settings::DEFAULT_NATIVE_SUBAGENT_BUDGET_SHARE_PERCENT as u32,
             context_window: ContextWindow::new(
                 crate::native::settings::DEFAULT_NATIVE_CONTEXT_WINDOW_TOKENS as usize,
             ),
@@ -205,6 +211,7 @@ impl AgentRunner {
             subagent_seq: 0,
             model_turn: None,
             pending_budget_reservation: 0,
+            pending_child_reservation: 0,
             budget_exhausted: false,
             streaming: false,
         }
@@ -408,14 +415,15 @@ impl AgentRunner {
 
     fn settle_model_usage(&mut self, usage: Usage) {
         let reserved = std::mem::take(&mut self.pending_budget_reservation);
+        let actual =
+            u64::from(usage.prompt_tokens).saturating_add(u64::from(usage.completion_tokens));
+        let actual_opt = (actual > 0).then_some(actual);
         if reserved > 0 {
-            let actual =
-                u64::from(usage.prompt_tokens).saturating_add(u64::from(usage.completion_tokens));
-            self.rollout_budget
-                .settle(reserved, (actual > 0).then_some(actual));
+            self.rollout_budget.settle(reserved, actual_opt);
         } else {
             self.rollout_budget.record_usage(usage);
         }
+        self.settle_child_reservation(if reserved > 0 { actual_opt } else { None });
         self.budget_exhausted = self.rollout_budget.is_exhausted();
     }
 
@@ -423,6 +431,39 @@ impl AgentRunner {
         let reserved = std::mem::take(&mut self.pending_budget_reservation);
         if reserved > 0 {
             self.rollout_budget.release(reserved);
+        }
+        self.release_child_reservation();
+    }
+
+    fn try_reserve_child(&mut self, tokens: u64) -> bool {
+        let Some(quota) = &self.child_quota else {
+            return true;
+        };
+        if quota.try_reserve(tokens) {
+            self.pending_child_reservation = tokens;
+            true
+        } else {
+            false
+        }
+    }
+
+    fn settle_child_reservation(&mut self, actual: Option<u64>) {
+        let reserved = std::mem::take(&mut self.pending_child_reservation);
+        if reserved == 0 {
+            return;
+        }
+        if let Some(quota) = &self.child_quota {
+            quota.settle(reserved, actual);
+        }
+    }
+
+    fn release_child_reservation(&mut self) {
+        let reserved = std::mem::take(&mut self.pending_child_reservation);
+        if reserved == 0 {
+            return;
+        }
+        if let Some(quota) = &self.child_quota {
+            quota.release(reserved);
         }
     }
 
@@ -769,11 +810,18 @@ impl AgentRunner {
             // Unlimited budgets track usage for diagnostics but never rewrite
             // the caller's provider settings.
             let estimate = fixed_tokens.saturating_add(requested_output_tokens);
+            if !self.try_reserve_child(estimate) {
+                self.mark_budget_stop();
+                return None;
+            }
             self.rollout_budget.try_reserve(estimate);
             self.pending_budget_reservation = estimate;
             return Some(ModelCallBudget { max_output_tokens });
         }
-        let available = self.rollout_budget.remaining().saturating_sub(fixed_tokens);
+        let mut available = self.rollout_budget.remaining().saturating_sub(fixed_tokens);
+        if let Some(quota) = &self.child_quota {
+            available = available.min(quota.remaining().saturating_sub(fixed_tokens));
+        }
         if available == 0 {
             self.mark_budget_stop();
             return None;
@@ -791,12 +839,17 @@ impl AgentRunner {
             None => None,
         };
         let estimate = fixed_tokens.saturating_add(reserve_output_tokens);
+        if !self.try_reserve_child(estimate) {
+            self.mark_budget_stop();
+            return None;
+        }
         if self.rollout_budget.try_reserve(estimate) {
             self.pending_budget_reservation = estimate;
             Some(ModelCallBudget {
                 max_output_tokens: request_cap,
             })
         } else {
+            self.release_child_reservation();
             self.mark_budget_stop();
             None
         }
@@ -978,6 +1031,14 @@ impl AgentRunner {
         child.subagent_policy = self.subagent_policy.clone();
         child.context_char_limit = self.context_char_limit;
         child.rollout_budget = self.rollout_budget.clone();
+        child.subagent_budget_share_percent = self.subagent_budget_share_percent;
+        if self.rollout_budget.limit() == 0 {
+            child.child_quota = None;
+        } else {
+            let share = u64::from(self.subagent_budget_share_percent.clamp(5, 100));
+            let limit = self.rollout_budget.remaining().saturating_mul(share) / 100;
+            child.child_quota = Some(ChildQuota::shared(limit));
+        }
         child.context_window = ContextWindow::new(self.context_window.token_limit);
         child.tool_result_token_limit = self.tool_result_token_limit;
         child.diagnostics = self.diagnostics.clone();
@@ -1828,6 +1889,24 @@ mod tests {
         let child = runner.spawn_child_runner(&spec, 1);
         assert!(Arc::ptr_eq(&runner.rollout_budget, &child.rollout_budget));
         assert_eq!(child.budget_snapshot().limit, 10_000);
+        assert_eq!(
+            child.child_quota.as_ref().map(|quota| quota.limit()),
+            Some(4_000)
+        );
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn child_quota_stops_before_parent_budget() {
+        let (mut runner, root) = temp_runner();
+        runner.set_rollout_budget_limit(10_000);
+        runner.subagent_budget_share_percent = 40;
+        let spec = parse_subagent_args(r#"{"prompt":"look","subagent_type":"explore"}"#).unwrap();
+        let mut child = runner.spawn_child_runner(&spec, 1);
+        child.child_quota = Some(ChildQuota::shared(1));
+        child.messages.push(Message::user("hello world"));
+        assert!(child.reserve_model_call(Some(1_000), &[]).is_none());
+        assert_eq!(runner.budget_snapshot().remaining, 10_000);
         let _ = fs::remove_dir_all(root);
     }
 

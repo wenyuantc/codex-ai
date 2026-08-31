@@ -2,7 +2,9 @@ use std::collections::HashSet;
 
 use serde_json::Value;
 
-use crate::native::model::types::{Message, Role, ToolSpec};
+use crate::native::model::types::{Message, NativeImage, Role, ToolSpec};
+
+const IMAGE_REMOVED_NOTICE: &str = "[图片已因上下文超限移除]";
 
 /// The model API does not expose a tokenizer for every configured provider. A
 /// deliberately conservative estimate keeps the context bounded while still
@@ -59,13 +61,37 @@ pub fn message_tokens(message: &Message) -> usize {
     let images = message
         .images
         .iter()
-        .map(|image| estimate_text_tokens(&image.data_base64).saturating_add(16))
+        .map(image_tokens)
         .sum::<usize>();
     4usize
         .saturating_add(content)
         .saturating_add(reasoning)
         .saturating_add(calls)
         .saturating_add(images)
+}
+
+fn decoded_image_bytes(image: &NativeImage) -> usize {
+    let raw = image.data_base64.trim().as_bytes();
+    if raw.is_empty() {
+        return 0;
+    }
+    let padding = raw.iter().rev().take_while(|byte| **byte == b'=').count();
+    raw.len().saturating_mul(3) / 4 - padding
+}
+
+/// Visual-token estimate based on decoded image bytes, not base64 length.
+pub fn image_tokens(image: &NativeImage) -> usize {
+    let bytes = decoded_image_bytes(image);
+    let visual: usize = if bytes < 100 * 1024 {
+        800
+    } else if bytes < 500 * 1024 {
+        1_600
+    } else if bytes < 2 * 1024 * 1024 {
+        2_600
+    } else {
+        4_000
+    };
+    visual.saturating_add(16)
 }
 
 pub fn total_message_tokens(messages: &[Message]) -> usize {
@@ -347,7 +373,7 @@ pub fn truncate_messages_tokens(
                 fit_text_tokens(&messages[index].content, target.saturating_sub(4));
             messages[index].reasoning_content.clear();
             messages[index].tool_calls.clear();
-            messages[index].images.clear();
+            clear_images_with_notice(&mut messages[index]);
             changed |= message_tokens(&messages[index]) < before;
             if total_message_tokens(messages) <= limit_tokens {
                 return;
@@ -403,7 +429,12 @@ pub fn truncate_messages_tokens(
                 fit_text_tokens(&messages[index].content, target.saturating_sub(4));
             messages[index].reasoning_content.clear();
             messages[index].tool_calls.clear();
-            messages[index].images.clear();
+            let skip_protected_images = protected == Some(index)
+                && messages[index].role == Role::User
+                && !messages[index].images.is_empty();
+            if !skip_protected_images {
+                clear_images_with_notice(&mut messages[index]);
+            }
             changed |= message_tokens(&messages[index]) < current;
             if total_message_tokens(messages) <= limit_tokens {
                 break;
@@ -414,11 +445,34 @@ pub fn truncate_messages_tokens(
         }
     }
 
+    if total_message_tokens(messages) > limit_tokens {
+        if let Some(index) = protected {
+            if index < messages.len() {
+                clear_images_with_notice(&mut messages[index]);
+            }
+        }
+    }
+
     // Truncation can remove one side of an assistant tool-call/tool-result
     // pair (or clear an assistant's calls while retaining its result). Such
     // orphaned messages are rejected by both Chat Completions and Responses,
     // so keep only complete pairs before the request is serialized.
     sanitize_tool_message_pairs(messages);
+}
+
+fn clear_images_with_notice(message: &mut Message) {
+    if message.images.is_empty() {
+        return;
+    }
+    if !message.content.contains(IMAGE_REMOVED_NOTICE) {
+        if message.content.trim().is_empty() {
+            message.content = IMAGE_REMOVED_NOTICE.to_string();
+        } else {
+            message.content.push('\n');
+            message.content.push_str(IMAGE_REMOVED_NOTICE);
+        }
+    }
+    message.images.clear();
 }
 
 /// Remove orphaned tool messages and assistant tool calls after history
@@ -479,7 +533,7 @@ pub fn sanitize_tool_message_pairs(messages: &mut Vec<Message>) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::native::model::types::Message;
+    use crate::native::model::types::{Message, NativeImage};
 
     #[test]
     fn estimates_cjk_more_conservatively_than_ascii() {
@@ -631,5 +685,34 @@ mod tests {
         messages.push(Message::tool_result("missing", "orphan"));
         truncate_messages_tokens(&mut messages, 10_000, 4_096);
         assert!(!messages.iter().any(|message| message.role == Role::Tool));
+    }
+
+    #[test]
+    fn megabyte_image_is_not_estimated_as_base64_text() {
+        let mut message = Message::user("see");
+        message.images.push(NativeImage {
+            name: "shot.png".to_string(),
+            mime_type: "image/png".to_string(),
+            data_base64: "A".repeat(1_400_000),
+        });
+        assert!(message_tokens(&message) < 5_000);
+    }
+
+    #[test]
+    fn protected_user_image_survives_128k_window() {
+        let mut message = Message::user("look");
+        message.images.push(NativeImage {
+            name: "shot.png".to_string(),
+            mime_type: "image/png".to_string(),
+            data_base64: "A".repeat(100_000),
+        });
+        let mut messages = vec![Message::system("sys"), message];
+        truncate_messages_tokens(&mut messages, 128_000, 80);
+        assert!(!messages.last().expect("user").images.is_empty());
+        assert!(!messages
+            .last()
+            .expect("user")
+            .content
+            .contains(IMAGE_REMOVED_NOTICE));
     }
 }

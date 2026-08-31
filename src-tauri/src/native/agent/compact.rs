@@ -155,6 +155,91 @@ impl RolloutBudget {
     }
 }
 
+/// Per-child cap on a shared parent rollout budget. Limit `0` means the child
+/// cannot spend any further tokens (unlike [`RolloutBudget`], where `0` is
+/// unlimited).
+#[derive(Debug)]
+pub struct ChildQuota {
+    limit: u64,
+    spent: AtomicU64,
+}
+
+impl ChildQuota {
+    pub fn new(limit: u64) -> Self {
+        Self {
+            limit,
+            spent: AtomicU64::new(0),
+        }
+    }
+
+    pub fn shared(limit: u64) -> Arc<Self> {
+        Arc::new(Self::new(limit))
+    }
+
+    pub fn limit(&self) -> u64 {
+        self.limit
+    }
+
+    pub fn remaining(&self) -> u64 {
+        self.limit.saturating_sub(self.spent.load(Ordering::Acquire))
+    }
+
+    pub fn try_reserve(&self, tokens: u64) -> bool {
+        if tokens == 0 {
+            return true;
+        }
+        if self.limit == 0 {
+            return false;
+        }
+        let mut current = self.spent.load(Ordering::Acquire);
+        loop {
+            if tokens > self.limit || current > self.limit.saturating_sub(tokens) {
+                return false;
+            }
+            match self.spent.compare_exchange_weak(
+                current,
+                current.saturating_add(tokens),
+                Ordering::AcqRel,
+                Ordering::Acquire,
+            ) {
+                Ok(_) => return true,
+                Err(next) => current = next,
+            }
+        }
+    }
+
+    pub fn settle(&self, reserved: u64, actual: Option<u64>) {
+        if reserved == 0 {
+            return;
+        }
+        let actual = actual.unwrap_or(reserved);
+        let mut current = self.spent.load(Ordering::Acquire);
+        loop {
+            let next = current.saturating_sub(reserved).saturating_add(actual);
+            match self.spent.compare_exchange_weak(
+                current,
+                next,
+                Ordering::AcqRel,
+                Ordering::Acquire,
+            ) {
+                Ok(_) => return,
+                Err(value) => current = value,
+            }
+        }
+    }
+
+    pub fn release(&self, reserved: u64) {
+        if reserved == 0 {
+            return;
+        }
+        self.spent
+            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |value| {
+                Some(value.saturating_sub(reserved))
+            })
+            .ok();
+    }
+}
+
 fn decrement_atomic(value: &AtomicU64, amount: u64) {
     if amount == 0 {
         return;

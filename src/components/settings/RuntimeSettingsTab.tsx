@@ -97,6 +97,9 @@ interface RuntimeSettingsTabProps {
   nativePermissionTimeoutSecs: number;
   onNativePermissionTimeoutSecsChange: (value: number) => void;
   onNativePermissionTimeoutSecsCommit: (value: number) => void;
+  nativeSubagentBudgetSharePercent: number;
+  onNativeSubagentBudgetSharePercentChange: (value: number) => void;
+  onNativeSubagentBudgetSharePercentCommit: (value: number) => void;
   onTaskSdkEnabledChange: (value: boolean) => void;
   onOneShotSdkEnabledChange: (value: boolean) => void;
   onOneShotPreferredProviderChange: (value: AiProvider) => void;
@@ -251,6 +254,9 @@ export function RuntimeSettingsTab({
   nativePermissionTimeoutSecs,
   onNativePermissionTimeoutSecsChange,
   onNativePermissionTimeoutSecsCommit,
+  nativeSubagentBudgetSharePercent,
+  onNativeSubagentBudgetSharePercentChange,
+  onNativeSubagentBudgetSharePercentCommit,
   onTaskSdkEnabledChange,
   onOneShotSdkEnabledChange,
   onOneShotPreferredProviderChange,
@@ -742,6 +748,34 @@ export function RuntimeSettingsTab({
             </Select>
             <p className="text-xs text-muted-foreground">
               {t("settings:nativeAgent.subagentPolicyHint")}
+            </p>
+          </div>
+          <div className="mt-4 max-w-xs space-y-2">
+            <label htmlFor="native-subagent-budget-share" className="text-sm font-medium">
+              {t("settings:nativeAgent.subagentBudgetShareLabel")}
+            </label>
+            <Input
+              id="native-subagent-budget-share"
+              type="number"
+              min={5}
+              max={100}
+              step={1}
+              value={nativeSubagentBudgetSharePercent}
+              onChange={(event) => {
+                const parsed = Number.parseInt(event.target.value, 10);
+                onNativeSubagentBudgetSharePercentChange(
+                  Number.isNaN(parsed) ? 40 : Math.min(100, Math.max(5, parsed)),
+                );
+              }}
+              onBlur={(event) => {
+                const parsed = Number.parseInt(event.target.value, 10);
+                onNativeSubagentBudgetSharePercentCommit(
+                  Number.isNaN(parsed) ? 40 : Math.min(100, Math.max(5, parsed)),
+                );
+              }}
+            />
+            <p className="text-xs text-muted-foreground">
+              {t("settings:nativeAgent.subagentBudgetShareHint")}
             </p>
           </div>
           <label className="mt-4 flex items-start gap-3 rounded-md border border-border px-3 py-2">

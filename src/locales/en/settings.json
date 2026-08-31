@@ -56,6 +56,8 @@
     "confirmHighRiskHint": "When on, the built-in Agent prompts before overwrite/delete/push/force git/MCP/opaque commands. Detection is heuristic, not a hard sandbox; MCP is authorized per server. Unanswered prompts time out as deny. Turn off to run those tools immediately. Applies to sessions started after you change it.",
     "permissionTimeoutLabel": "High-risk confirmation timeout (seconds)",
     "permissionTimeoutHint": "How long to wait for confirmation. Timeout is treated as deny and the session continues. 0 = no timeout, default 300.",
+    "subagentBudgetShareLabel": "Sub-agent budget share (%)",
+    "subagentBudgetShareHint": "Each sub-agent may use at most this percent of the parent session's remaining budget. Default 40, range 5–100. The parent can continue after a child hits its cap.",
     "maxConcurrentSubagentsLabel": "Sub-agents per turn",
     "maxConcurrentSubagentsHint": "How many child agents may run in parallel in one model turn. Default 1, range 1–16. Shared by local and SSH. Applies to sessions started after you change it.",
     "subagentPolicyLabel": "Sub-agent policy",
