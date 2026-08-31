@@ -31,11 +31,16 @@ Frontend wrappers in `src/lib/backend.ts`: `getNotificationSoundSettings`, `upda
 - Default `enabled=true` when the file is missing, JSON is invalid, or `enabled` is absent.
 - `update_*` writes the file first; activity log `notification_sound_settings_updated` only when `enabled` actually changes (`声音提醒：开启` / `声音提醒：关闭`, `project_id` null).
 - `play_notification_sound_alert` is fire-from-Rust OS audio:
-  - macOS: `afplay -v 4 /System/Library/Sounds/Glass.aiff`
+  - macOS: `afplay -v 1 /System/Library/Sounds/Glass.aiff` (`1` is afplay’s normal volume; do not use values above `1`)
   - Windows: `MessageBeep(MB_ICONASTERISK)` (Control Panel “Asterisk” sound)
   - Linux: `canberra-gtk-play -i message`, else `paplay`/`pw-play` of `/usr/share/sounds/freedesktop/stereo/message.oga`
-- Frontend plays via the Tauri command; browser-only (`npm run dev`) falls back to a generated WAV and stores the toggle in `localStorage['codex-ai:notification-sound-enabled']` (no activity log).
+- Frontend plays via the Tauri command; browser-only (`npm run dev`) falls back to a generated ~200ms WAV and stores the toggle in `localStorage['codex-ai:notification-sound-enabled']` (no activity log).
+- Do **not** call `HTMLAudioElement.play()` (even muted) to unlock autoplay. WKWebView can ignore `muted`/`volume=0` and leak the fallback beep on the first click. Native playback is OS audio; browser fallback only plays from a real notification/preview.
 - Sound is **not** stored in Zustand. Cache `enabled` in `notificationSound.ts`. Preview ignores the toggle.
+- Do not play real deliveries until the preference JSON has been read. Default `enabled=true` applies to the cached value after that read, not to the first paint.
+- Drop `notification-center-deliver` audio for the first `syncSystemNotifications` after `MainLayout` mount (timeout fallback 4s). List/badge refresh is unchanged. Later deliveries play.
+- Coalesce overlapping deliveries: at most one OS/WAV play per 400ms.
+- Desktop toast window inspect (`isVisible` / `isFocused`) must fail **closed** (treat as focused, do not send). Do not fail-open a system notification on first paint.
 
 ## 4. Validation & Error Matrix
 
@@ -56,8 +61,8 @@ Frontend wrappers in `src/lib/backend.ts`: `getNotificationSoundSettings`, `upda
 ## 6. Tests Required
 
 - Rust path roundtrip: missing file, invalid JSON, missing field, save/load (`cargo test notification_sound`).
-- macOS: `Glass.aiff` exists.
-- Frontend: delivery key, `parseNotificationSoundEnabled`, `shouldPlayNotificationSound`, WAV header (`notificationSound.test.ts`).
+- macOS: `Glass.aiff` exists; volume constant is `"1"`.
+- Frontend: delivery key, `parseNotificationSoundEnabled`, `shouldPlayNotificationSound`, startup/preference/coalesce gates, short WAV header (`notificationSound.test.ts`).
 - Activity labels zh-CN + en in `locale.test.ts` / `utils.test.ts`.
 
 ## 7. Wrong vs Correct

@@ -14,7 +14,7 @@ const DEFAULT_ENABLED: bool = true;
 #[cfg(target_os = "macos")]
 const MACOS_NOTIFICATION_SOUND_PATH: &str = "/System/Library/Sounds/Glass.aiff";
 #[cfg(target_os = "macos")]
-const MACOS_NOTIFICATION_SOUND_VOLUME: &str = "4";
+const MACOS_NOTIFICATION_SOUND_VOLUME: &str = "1";
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 struct RawNotificationSoundSettings {
@@ -274,6 +274,6 @@ mod tests {
     #[test]
     fn macos_uses_system_glass_sound() {
         assert!(std::path::Path::new(MACOS_NOTIFICATION_SOUND_PATH).exists());
-        assert_eq!(MACOS_NOTIFICATION_SOUND_VOLUME, "4");
+        assert_eq!(MACOS_NOTIFICATION_SOUND_VOLUME, "1");
     }
 }

@@ -61,6 +61,19 @@ function shouldBypassFocusSuppression(event: DesktopNotificationEvent) {
   return Boolean(event.task_id);
 }
 
+export function resolveDesktopNotificationWindowGate(
+  hasTaskId: boolean,
+  windowState: { visible: boolean; focused: boolean } | null,
+): boolean {
+  if (hasTaskId) {
+    return true;
+  }
+  if (!windowState) {
+    return false;
+  }
+  return !(windowState.visible && windowState.focused);
+}
+
 async function shouldSendDesktopNotification(event: DesktopNotificationEvent) {
   if (shouldBypassFocusSuppression(event)) {
     return true;
@@ -69,10 +82,10 @@ async function shouldSendDesktopNotification(event: DesktopNotificationEvent) {
   try {
     const window = getCurrentWindow();
     const [visible, focused] = await Promise.all([window.isVisible(), window.isFocused()]);
-    return !(visible && focused);
+    return resolveDesktopNotificationWindowGate(false, { visible, focused });
   } catch (error) {
     console.error("Failed to inspect window visibility for desktop notifications:", error);
-    return true;
+    return resolveDesktopNotificationWindowGate(false, null);
   }
 }
 

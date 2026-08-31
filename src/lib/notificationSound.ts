@@ -4,18 +4,26 @@ import type { DesktopNotificationEvent } from "@/lib/types";
 
 export const NOTIFICATION_SOUND_STORAGE_KEY = "codex-ai:notification-sound-enabled";
 export const NOTIFICATION_SOUND_CHANGE_EVENT = "codex-ai:notification-sound-change";
+export const NOTIFICATION_SOUND_COALESCE_MS = 400;
+export const NOTIFICATION_FALLBACK_BEEP_DURATION_SECONDS = 0.2;
 
 const TRANSIENT_DELIVERY_PREFIX = "transient:";
 const FALLBACK_SAMPLE_RATE = 22050;
-const FALLBACK_DURATION_SECONDS = 1.4;
-const FALLBACK_AMPLITUDE = 0.88;
+const FALLBACK_AMPLITUDE = 0.4;
+const FALLBACK_LOW_HZ = 523.25;
+const FALLBACK_HIGH_HZ = 659.25;
+const STARTUP_SOUND_SUPPRESS_MS = 4000;
 
 let enabledCache = true;
+let preferenceReady = false;
+let startupSoundSuppressed = true;
+let startupSoundReleased = false;
+let startupSoundReleaseTimer: number | null = null;
+let lastCoalescedSoundAt: number | null = null;
 let soundBridgeRefCount = 0;
 let soundBridgeInitPromise: Promise<void> | null = null;
 let soundBridgeCleanup: (() => void) | null = null;
 let fallbackAudio: HTMLAudioElement | null = null;
-let fallbackUnlocked = false;
 const deliveredSoundKeys = new Set<string>();
 
 export function parseNotificationSoundEnabled(value: string | null): boolean {
@@ -35,6 +43,49 @@ export function buildNotificationSoundDeliveryKey(event: DesktopNotificationEven
 
 export function shouldPlayNotificationSound(enabled: boolean, isPreview: boolean): boolean {
   return isPreview || enabled;
+}
+
+export function shouldPlayDeliveredNotificationSound(options: {
+  enabled: boolean;
+  preferenceReady: boolean;
+  startupSuppressed: boolean;
+}): boolean {
+  if (options.startupSuppressed || !options.preferenceReady) {
+    return false;
+  }
+  return shouldPlayNotificationSound(options.enabled, false);
+}
+
+export function shouldPlayCoalescedSound(
+  lastPlayedAt: number | null,
+  now: number,
+  windowMs = NOTIFICATION_SOUND_COALESCE_MS,
+): boolean {
+  return lastPlayedAt == null || now - lastPlayedAt >= windowMs;
+}
+
+export function releaseStartupNotificationSounds() {
+  if (startupSoundReleased) {
+    return;
+  }
+  startupSoundReleased = true;
+  startupSoundSuppressed = false;
+  if (startupSoundReleaseTimer != null) {
+    window.clearTimeout(startupSoundReleaseTimer);
+    startupSoundReleaseTimer = null;
+  }
+}
+
+function armStartupSoundSuppressionTimeout() {
+  if (startupSoundReleased || startupSoundReleaseTimer != null) {
+    return;
+  }
+  if (typeof window === "undefined") {
+    return;
+  }
+  startupSoundReleaseTimer = window.setTimeout(() => {
+    releaseStartupNotificationSounds();
+  }, STARTUP_SOUND_SUPPRESS_MS);
 }
 
 export function setNotificationSoundEnabled(enabled: boolean) {
@@ -59,7 +110,8 @@ function writeAscii(view: DataView, offset: number, value: string) {
 }
 
 export function buildNotificationBeepWavBytes(): Uint8Array {
-  const numSamples = Math.floor(FALLBACK_SAMPLE_RATE * FALLBACK_DURATION_SECONDS);
+  const durationSeconds = NOTIFICATION_FALLBACK_BEEP_DURATION_SECONDS;
+  const numSamples = Math.floor(FALLBACK_SAMPLE_RATE * durationSeconds);
   const dataSize = numSamples * 2;
   const buffer = new ArrayBuffer(44 + dataSize);
   const view = new DataView(buffer);
@@ -80,9 +132,9 @@ export function buildNotificationBeepWavBytes(): Uint8Array {
 
   for (let index = 0; index < numSamples; index += 1) {
     const time = index / FALLBACK_SAMPLE_RATE;
-    const frequency = time < 0.45 ? 784 : 1046.5;
-    const attack = Math.min(1, time / 0.02);
-    const release = Math.min(1, (FALLBACK_DURATION_SECONDS - time) / 0.12);
+    const frequency = time < durationSeconds / 2 ? FALLBACK_LOW_HZ : FALLBACK_HIGH_HZ;
+    const attack = Math.min(1, time / 0.008);
+    const release = Math.min(1, (durationSeconds - time) / 0.04);
     const sample = Math.sin(2 * Math.PI * frequency * time) * attack * release * FALLBACK_AMPLITUDE;
     view.setInt16(44 + index * 2, Math.round(sample * 32767), true);
   }
@@ -101,27 +153,6 @@ function getFallbackAudio(): HTMLAudioElement | null {
     fallbackAudio.preload = "auto";
   }
   return fallbackAudio;
-}
-
-async function unlockWebFallbackAudio() {
-  const audio = getFallbackAudio();
-  if (!audio || fallbackUnlocked) {
-    return;
-  }
-
-  audio.muted = true;
-  audio.volume = 0;
-  try {
-    await audio.play();
-    audio.pause();
-    audio.currentTime = 0;
-    fallbackUnlocked = true;
-  } catch {
-    // Gesture unlock is best-effort; Tauri plays a system sound instead.
-  } finally {
-    audio.muted = false;
-    audio.volume = 1;
-  }
 }
 
 async function playWebFallbackSound() {
@@ -160,6 +191,15 @@ async function loadEnabledPreference(): Promise<boolean> {
   }
 }
 
+function scheduleCoalescedNotificationSound() {
+  const now = Date.now();
+  if (!shouldPlayCoalescedSound(lastCoalescedSoundAt, now)) {
+    return;
+  }
+  lastCoalescedSoundAt = now;
+  void playNotificationSound();
+}
+
 function handleDeliveredNotification(event: DesktopNotificationEvent) {
   const deliveryKey = buildNotificationSoundDeliveryKey(event);
   if (deliveredSoundKeys.has(deliveryKey)) {
@@ -167,11 +207,17 @@ function handleDeliveredNotification(event: DesktopNotificationEvent) {
   }
   deliveredSoundKeys.add(deliveryKey);
 
-  if (!shouldPlayNotificationSound(enabledCache, false)) {
+  if (
+    !shouldPlayDeliveredNotificationSound({
+      enabled: enabledCache,
+      preferenceReady,
+      startupSuppressed: startupSoundSuppressed,
+    })
+  ) {
     return;
   }
 
-  void playNotificationSound();
+  scheduleCoalescedNotificationSound();
 }
 
 function releaseSoundBridge() {
@@ -184,22 +230,18 @@ export function initNotificationSoundBridge() {
   soundBridgeRefCount += 1;
 
   if (!soundBridgeInitPromise && !soundBridgeCleanup) {
-    const handleUnlock = () => {
-      void unlockWebFallbackAudio();
-    };
-    window.addEventListener("pointerdown", handleUnlock, true);
-    window.addEventListener("keydown", handleUnlock, true);
-    void loadEnabledPreference().then((enabled) => {
-      enabledCache = enabled;
-    });
+    armStartupSoundSuppressionTimeout();
 
-    soundBridgeInitPromise = onDesktopNotificationDeliver((payload) => {
-      handleDeliveredNotification(payload);
-    })
+    soundBridgeInitPromise = loadEnabledPreference()
+      .then((enabled) => {
+        enabledCache = enabled;
+        preferenceReady = true;
+        return onDesktopNotificationDeliver((payload) => {
+          handleDeliveredNotification(payload);
+        });
+      })
       .then((unlisten) => {
         soundBridgeCleanup = () => {
-          window.removeEventListener("pointerdown", handleUnlock, true);
-          window.removeEventListener("keydown", handleUnlock, true);
           void unlisten();
         };
         soundBridgeInitPromise = null;
@@ -210,8 +252,6 @@ export function initNotificationSoundBridge() {
       })
       .catch((error) => {
         console.error("Failed to initialize notification sound bridge:", error);
-        window.removeEventListener("pointerdown", handleUnlock, true);
-        window.removeEventListener("keydown", handleUnlock, true);
         soundBridgeInitPromise = null;
         soundBridgeCleanup = null;
       });

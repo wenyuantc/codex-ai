@@ -13,7 +13,10 @@ import { useTaskStore } from "@/stores/taskStore";
 import { useEffect, useEffectEvent } from "react";
 import { showMainWindow } from "@/lib/backend";
 import { initDesktopNotificationBridge } from "@/lib/desktopNotifications";
-import { initNotificationSoundBridge } from "@/lib/notificationSound";
+import {
+  initNotificationSoundBridge,
+  releaseStartupNotificationSounds,
+} from "@/lib/notificationSound";
 import { openNotificationTarget } from "@/lib/notificationNavigation";
 import type { DesktopNotificationExtra } from "@/lib/types";
 
@@ -69,8 +72,20 @@ export function MainLayout() {
   }, []);
 
   useEffect(() => {
-    void syncSystemNotifications(environmentMode, selectedSshConfigId);
-    void fetchNotifications();
+    let cancelled = false;
+
+    const runInitialSync = async () => {
+      try {
+        await syncSystemNotifications(environmentMode, selectedSshConfigId);
+        await fetchNotifications();
+      } finally {
+        if (!cancelled) {
+          releaseStartupNotificationSounds();
+        }
+      }
+    };
+
+    void runInitialSync();
 
     const sync = () => {
       void syncSystemNotifications(environmentMode, selectedSshConfigId);
@@ -82,6 +97,7 @@ export function MainLayout() {
 
     window.addEventListener("focus", handleFocus);
     return () => {
+      cancelled = true;
       window.clearInterval(interval);
       window.removeEventListener("focus", handleFocus);
     };
