@@ -386,12 +386,10 @@ pub fn effective_permission_timeout_secs<R: Runtime>(app: &AppHandle<R>) -> u64 
 pub fn effective_subagent_budget_share_percent<R: Runtime>(app: &AppHandle<R>) -> u32 {
     load_native_settings(app)
         .map(|settings| {
-            settings
-                .subagent_budget_share_percent
-                .clamp(
-                    MIN_NATIVE_SUBAGENT_BUDGET_SHARE_PERCENT,
-                    MAX_NATIVE_SUBAGENT_BUDGET_SHARE_PERCENT,
-                ) as u32
+            settings.subagent_budget_share_percent.clamp(
+                MIN_NATIVE_SUBAGENT_BUDGET_SHARE_PERCENT,
+                MAX_NATIVE_SUBAGENT_BUDGET_SHARE_PERCENT,
+            ) as u32
         })
         .unwrap_or(DEFAULT_NATIVE_SUBAGENT_BUDGET_SHARE_PERCENT as u32)
 }
@@ -586,10 +584,7 @@ mod tests {
             normalize_native_permission_timeout_secs(Some(-1)),
             DEFAULT_NATIVE_PERMISSION_TIMEOUT_SECS
         );
-        assert_eq!(
-            normalize_native_subagent_budget_share_percent(Some(40)),
-            40
-        );
+        assert_eq!(normalize_native_subagent_budget_share_percent(Some(40)), 40);
         assert_eq!(
             normalize_native_subagent_budget_share_percent(Some(4)),
             DEFAULT_NATIVE_SUBAGENT_BUDGET_SHARE_PERCENT

@@ -1,3 +1,6 @@
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
+
 use sqlx::SqlitePool;
 
 use crate::app::now_sqlite;
@@ -25,6 +28,14 @@ pub fn prepare_transcript_messages(messages: &[Message]) -> Vec<Message> {
         .collect();
     sanitize_tool_message_pairs(&mut prepared);
     prepared
+}
+
+pub fn transcript_fingerprint(messages: &[Message]) -> u64 {
+    let prepared = prepare_transcript_messages(messages);
+    let json = serde_json::to_string(&prepared).unwrap_or_default();
+    let mut hasher = DefaultHasher::new();
+    json.hash(&mut hasher);
+    hasher.finish()
 }
 
 pub async fn save_transcript(
@@ -211,5 +222,20 @@ mod tests {
             .await
             .expect("missing")
             .is_none());
+    }
+
+    #[test]
+    fn fingerprint_changes_only_when_messages_change() {
+        let messages = vec![Message::user("fix login"), Message::assistant_text("done")];
+        assert_eq!(
+            transcript_fingerprint(&messages),
+            transcript_fingerprint(&messages)
+        );
+        let mut next = messages.clone();
+        next.push(Message::assistant_text("more"));
+        assert_ne!(
+            transcript_fingerprint(&messages),
+            transcript_fingerprint(&next)
+        );
     }
 }

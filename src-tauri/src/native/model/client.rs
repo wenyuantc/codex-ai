@@ -93,10 +93,12 @@ impl ProtocolStreamState {
     fn finish(self) -> Result<ParsedResponse, String> {
         match self {
             Self::Responses(state) => state.finish(),
-            Self::OpenAi(state) => state.finish().map(|(message, usage)| (message, usage, None)),
-            Self::Anthropic(state) => {
-                state.finish().map(|(message, usage)| (message, usage, None))
-            }
+            Self::OpenAi(state) => state
+                .finish()
+                .map(|(message, usage)| (message, usage, None)),
+            Self::Anthropic(state) => state
+                .finish()
+                .map(|(message, usage)| (message, usage, None)),
         }
     }
 }
@@ -119,6 +121,16 @@ pub struct ChatRequest<'a> {
     pub max_output_tokens: Option<u32>,
     pub thinking_enabled: bool,
 }
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ListedModels {
+    pub models: Vec<String>,
+    pub truncated: bool,
+}
+
+const MODEL_LIST_PAGE_LIMIT: usize = 20;
+const MODEL_LIST_ITEM_LIMIT: usize = 500;
+const MAX_OUTPUT_LIMIT_RETRIES: u8 = 3;
 
 pub type RetryHook = Arc<dyn Fn(&str) + Send + Sync>;
 pub type CallLogSink = Arc<dyn Fn(NativeApiCallLogInsert) + Send + Sync>;
@@ -320,7 +332,7 @@ impl ModelClient {
     pub async fn chat(&self, request: ChatRequest<'_>) -> Result<(Message, Usage), String> {
         let url = channel_chat_url(&self.config.base_url, &self.config.protocol)?;
         let mut max_output_tokens = request.max_output_tokens;
-        let mut retried_limit = false;
+        let mut limit_retries = 0u8;
         let mut retried_continuation = false;
         let conversation_key = continuation_key(request.messages);
         loop {
@@ -352,7 +364,7 @@ impl ModelClient {
                     retried_continuation = true;
                     continue;
                 }
-                Err(error) if !retried_limit => {
+                Err(error) if limit_retries < MAX_OUTPUT_LIMIT_RETRIES => {
                     let Some(limit) = parse_max_output_token_limit(&error) else {
                         return Err(error);
                     };
@@ -361,18 +373,19 @@ impl ModelClient {
                         return Err(error);
                     }
                     max_output_tokens = Some(limit);
-                    retried_limit = true;
+                    limit_retries += 1;
                 }
                 Err(error) => return Err(error),
             }
         }
     }
 
-    pub async fn list_models(&self) -> Result<Vec<String>, String> {
+    pub async fn list_models(&self) -> Result<ListedModels, String> {
         let url = channel_models_url(&self.config.base_url)?;
         let mut collected = Vec::new();
         let mut after_id: Option<String> = None;
-        for _ in 0..20 {
+        let mut truncated = false;
+        for _ in 0..MODEL_LIST_PAGE_LIMIT {
             let mut query: Vec<(&str, String)> = Vec::new();
             if self.config.protocol == PROTOCOL_ANTHROPIC {
                 query.push(("limit", "100".to_string()));
@@ -390,14 +403,16 @@ impl ModelClient {
             }
             let page = parse_model_list_json(&text)?;
             for model in page {
-                if collected.len() >= 500 {
+                if collected.len() >= MODEL_LIST_ITEM_LIMIT {
+                    truncated = true;
                     break;
                 }
                 if !collected.iter().any(|existing| existing == &model) {
                     collected.push(model);
                 }
             }
-            if collected.len() >= 500 {
+            if collected.len() >= MODEL_LIST_ITEM_LIMIT {
+                truncated = truncated || model_list_next_page(&text).is_some();
                 break;
             }
             after_id = model_list_next_page(&text);
@@ -405,8 +420,14 @@ impl ModelClient {
                 break;
             }
         }
+        if after_id.is_some() {
+            truncated = true;
+        }
         collected.sort_by_key(|model| model.to_ascii_lowercase());
-        Ok(collected)
+        Ok(ListedModels {
+            models: collected,
+            truncated,
+        })
     }
 
     pub async fn probe(&self, model: &str) -> Result<(), String> {
@@ -679,7 +700,12 @@ impl ModelClient {
             if bytes.len() < limit {
                 bytes.extend_from_slice(&chunk);
             }
-            self.absorb_events(parser.push_bytes(&chunk), state.as_mut(), started, &mut scan);
+            self.absorb_events(
+                parser.push_bytes(&chunk),
+                state.as_mut(),
+                started,
+                &mut scan,
+            );
         }
         self.absorb_events(parser.finish(), state.as_mut(), started, &mut scan);
         if !cancelled && self.is_cancelled() {
@@ -972,8 +998,8 @@ fn extract_gateway_error(text: &str) -> Option<String> {
         };
         // `response.failed` nests the reason one level down instead of
         // reporting a top-level `error` object.
-        if let Some(error) =
-            json_error_message(&value).or_else(|| value.get("response").and_then(json_error_message))
+        if let Some(error) = json_error_message(&value)
+            .or_else(|| value.get("response").and_then(json_error_message))
         {
             return Some(error);
         }
@@ -1216,8 +1242,27 @@ mod tests {
     async fn list_models_reads_openai_payload() {
         let body = r#"{"data":[{"id":"gpt-4o"},{"id":"o4-mini"}]}"#;
         let base = serve_once(200, body).await;
-        let models = client(base).list_models().await.expect("list models");
-        assert_eq!(models, vec!["gpt-4o".to_string(), "o4-mini".to_string()]);
+        let listed = client(base).list_models().await.expect("list models");
+        assert_eq!(
+            listed.models,
+            vec!["gpt-4o".to_string(), "o4-mini".to_string()]
+        );
+        assert!(!listed.truncated);
+    }
+
+    #[tokio::test]
+    async fn list_models_marks_truncated_when_page_exceeds_cap() {
+        let items = (0..501)
+            .map(|index| format!(r#"{{"id":"model-{index:03}"}}"#))
+            .collect::<Vec<_>>()
+            .join(",");
+        let body = format!(r#"{{"data":[{items}]}}"#);
+        let listed = client(serve_once(200, &body).await)
+            .list_models()
+            .await
+            .expect("list models");
+        assert_eq!(listed.models.len(), 500);
+        assert!(listed.truncated);
     }
 
     #[tokio::test]
@@ -1339,10 +1384,7 @@ mod tests {
         assert_eq!(message.content, "ok");
         assert_eq!(
             deltas.lock().expect("deltas").as_slice(),
-            [
-                StreamDelta::Reset,
-                StreamDelta::Text("ok".to_string())
-            ]
+            [StreamDelta::Reset, StreamDelta::Text("ok".to_string())]
         );
     }
 
@@ -1384,6 +1426,30 @@ mod tests {
             })
             .await
             .expect("chat should retry with gateway limit");
+        assert_eq!(message.content, "ok");
+    }
+
+    #[tokio::test]
+    async fn chat_retries_when_max_tokens_exceeds_gateway_limit_twice() {
+        let first = r#"{"error":{"message":"max_tokens is too large: 384000. This model supports at most 131072 completion tokens."}}"#;
+        let second = r#"{"error":{"message":"max_tokens is too large: 131072. This model supports at most 8192 completion tokens."}}"#;
+        let base = serve_sequence(vec![
+            (400, first.to_string()),
+            (400, second.to_string()),
+            (200, OK_SSE.to_string()),
+        ])
+        .await;
+        let (message, _) = client(base)
+            .chat(ChatRequest {
+                messages: &[Message::user("hi")],
+                tools: &[],
+                model: "deepseek-v4-flash",
+                effort: None,
+                max_output_tokens: Some(384000),
+                thinking_enabled: true,
+            })
+            .await
+            .expect("chat should retry with two smaller gateway limits");
         assert_eq!(message.content, "ok");
     }
 

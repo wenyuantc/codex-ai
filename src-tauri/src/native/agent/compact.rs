@@ -6,7 +6,10 @@ use crate::native::model::types::{Message, Role, Usage};
 use super::truncate::{message_chars, total_message_tokens};
 
 const COMPACT_THRESHOLD_PERCENT: usize = 85;
-const PREVIEW_CHARS: usize = 320;
+const PREVIEW_CHARS: usize = 800;
+const SUMMARY_KEEP: usize = 12;
+const HANDOFF_CHARS: usize = 2_000;
+const HANDOFF_TOTAL_CHARS: usize = 24_000;
 const RESET_KEEP_MESSAGES: usize = 4;
 
 /// A shared token budget for a parent rollout and all of its child agents.
@@ -181,7 +184,8 @@ impl ChildQuota {
     }
 
     pub fn remaining(&self) -> u64 {
-        self.limit.saturating_sub(self.spent.load(Ordering::Acquire))
+        self.limit
+            .saturating_sub(self.spent.load(Ordering::Acquire))
     }
 
     pub fn try_reserve(&self, tokens: u64) -> bool {
@@ -378,10 +382,9 @@ pub fn compact_with_summary(messages: &mut Vec<Message>, summary: &str) -> bool 
     replace_with_summary(messages, summary, &preserved, sys_len)
 }
 
-/// Build a small, tool-free request for a model-generated compaction summary.
-/// The candidate transcript is already reduced to bounded role-aware previews;
-/// this keeps the compaction request inexpensive while allowing the provider
-/// to turn it into a more coherent structured handoff than the local fallback.
+/// Build a tool-free request for a model-generated compaction summary.
+/// The user turn includes a richer `handoff_transcript` (not the 800-char local
+/// preview) so error stacks and tool observations survive the first pass.
 pub fn compaction_prompt(messages: &[Message]) -> Option<Vec<Message>> {
     let (sys_len, to_summarize, _preserved) = compaction_segments(messages)?;
     let constraints = messages[..sys_len]
@@ -397,7 +400,7 @@ pub fn compaction_prompt(messages: &[Message]) -> Option<Vec<Message>> {
         } else {
             &constraints
         },
-        local_summary(&to_summarize)
+        handoff_transcript(&to_summarize)
     );
     Some(vec![
         Message::system(
@@ -518,7 +521,7 @@ fn push_summary_section(sections: &mut Vec<String>, title: &str, items: &[String
     if items.is_empty() {
         return;
     }
-    let keep = items.len().min(8);
+    let keep = items.len().min(SUMMARY_KEEP);
     let lines = items[items.len() - keep..]
         .iter()
         .map(|item| format!("- {item}"))
@@ -545,6 +548,119 @@ fn message_preview(message: &Message) -> String {
     } else {
         text
     }
+}
+
+pub fn is_usable_compaction_summary(text: &str) -> bool {
+    let trimmed = text.trim();
+    if trimmed.chars().count() < 80 {
+        return false;
+    }
+    let lower = trimmed.to_ascii_lowercase();
+    [
+        "user goal",
+        "constraints",
+        "completed work",
+        "verification",
+        "pending work",
+    ]
+    .iter()
+    .filter(|heading| lower.contains(*heading))
+    .count()
+        >= 2
+}
+
+fn handoff_transcript(messages: &[Message]) -> String {
+    let entries: Vec<(bool, String)> = messages
+        .iter()
+        .filter_map(|message| {
+            let text = handoff_message(message);
+            if text.is_empty() {
+                None
+            } else {
+                Some((
+                    message.role == Role::Tool && looks_like_error_observation(&message.content),
+                    text,
+                ))
+            }
+        })
+        .collect();
+    if entries.is_empty() {
+        return "No earlier messages were available.".to_string();
+    }
+    let mut include = vec![true; entries.len()];
+    let mut total: usize = entries.iter().map(|(_, text)| text.chars().count()).sum();
+    for (index, (important, text)) in entries.iter().enumerate() {
+        if total <= HANDOFF_TOTAL_CHARS {
+            break;
+        }
+        if *important {
+            continue;
+        }
+        include[index] = false;
+        total = total.saturating_sub(text.chars().count());
+    }
+    for (index, (_, text)) in entries.iter().enumerate() {
+        if total <= HANDOFF_TOTAL_CHARS {
+            break;
+        }
+        if !include[index] {
+            continue;
+        }
+        include[index] = false;
+        total = total.saturating_sub(text.chars().count());
+    }
+    entries
+        .into_iter()
+        .enumerate()
+        .filter(|(index, _)| include[*index])
+        .map(|(_, (_, text))| text)
+        .collect::<Vec<_>>()
+        .join("\n\n")
+}
+
+fn handoff_message(message: &Message) -> String {
+    let role = match message.role {
+        Role::User => "User",
+        Role::Assistant => "Assistant",
+        Role::Tool => "Tool",
+        Role::System => "System",
+    };
+    let mut body = if message.content.trim().is_empty() && !message.tool_calls.is_empty() {
+        format!(
+            "tool_calls: {}",
+            message
+                .tool_calls
+                .iter()
+                .map(|call| call.name.as_str())
+                .collect::<Vec<_>>()
+                .join(", ")
+        )
+    } else {
+        message.content.clone()
+    };
+    if body.chars().count() > HANDOFF_CHARS {
+        let prefix: String = body.chars().take(HANDOFF_CHARS).collect();
+        body = format!("{prefix}…");
+    }
+    if body.trim().is_empty() {
+        String::new()
+    } else {
+        format!("{role}:\n{body}")
+    }
+}
+
+fn looks_like_error_observation(text: &str) -> bool {
+    let lower = text.to_ascii_lowercase();
+    [
+        "error",
+        "fail",
+        "panic",
+        "assertion",
+        "traceback",
+        "exception",
+    ]
+    .iter()
+    .any(|marker| lower.contains(marker))
 }
 
 fn is_context_summary(message: &Message) -> bool {
@@ -687,5 +803,40 @@ mod tests {
         assert!(messages
             .iter()
             .any(|message| message.content.contains("summarized")));
+    }
+
+    #[test]
+    fn compaction_prompt_keeps_error_stack_beyond_old_preview_limit() {
+        let stack = format!("error: boom\n{}", "frame\n".repeat(80));
+        assert!(stack.chars().count() > 320);
+        let messages = vec![
+            Message::system("keep constraints"),
+            Message::user("first"),
+            Message::assistant_text("ran tests"),
+            Message::tool_result("c1", stack.clone()),
+            Message::user("current"),
+            Message::assistant_text("next"),
+        ];
+        let prompt = compaction_prompt(&messages).expect("compaction prompt");
+        assert!(
+            prompt[1].content.contains("error: boom"),
+            "handoff must include the error stack: {}",
+            prompt[1].content
+        );
+        assert!(
+            prompt[1].content.contains("frame"),
+            "handoff must keep more than a 320-char preview"
+        );
+    }
+
+    #[test]
+    fn usable_compaction_summary_requires_headings_and_length() {
+        assert!(!is_usable_compaction_summary("ok"));
+        assert!(!is_usable_compaction_summary(
+            "This is a long enough paragraph without any required headings at all for a handoff."
+        ));
+        assert!(is_usable_compaction_summary(
+            "### User goal\nFix login.\n\n### Completed work\nUpdated the auth handler and added a regression test for expired tokens."
+        ));
     }
 }

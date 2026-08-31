@@ -26,16 +26,16 @@ use crate::native::tools::{
 };
 
 use super::compact::{
-    compact_local, compact_with_summary, compaction_prompt, reset_local, BudgetSnapshot,
-    ChildQuota, ContextWindow, RolloutBudget,
+    compact_local, compact_with_summary, compaction_prompt, is_usable_compaction_summary,
+    reset_local, BudgetSnapshot, ChildQuota, ContextWindow, RolloutBudget,
 };
 use super::subagent::{
     child_max_turns, child_system_prompt, custom_child_system_prompt, format_subagent_log_tag,
     format_subagent_result, parse_subagent_args_with, SubagentKind, SubagentSpec,
 };
 use super::truncate::{
-    chars_to_tokens, total_message_tokens, total_tool_tokens, truncate_messages_tokens,
-    truncate_tool_result, DEFAULT_TOOL_RESULT_TOKEN_LIMIT,
+    chars_to_tokens, message_tokens, total_message_tokens, total_tool_tokens,
+    truncate_messages_tokens, truncate_tool_result, DEFAULT_TOOL_RESULT_TOKEN_LIMIT,
 };
 const DEFAULT_CONTEXT_CHARS: usize = 120_000;
 /// A finite default prevents a runaway rollout when older settings files do
@@ -45,9 +45,8 @@ pub const DEFAULT_ROLLOUT_TOKEN_BUDGET: u64 =
     crate::native::settings::DEFAULT_NATIVE_ROLLOUT_TOKEN_BUDGET as u64;
 const DEFAULT_FINAL_OUTPUT_RESERVE: u64 = 1_024;
 /// When the caller does not configure `max_output_tokens`, assume one
-/// response stays within this bound. The remaining rollout budget is only
-/// enforced as a hard request cap once it drops below this level, so a
-/// healthy budget never rewrites provider defaults.
+/// response stays within this bound. A finite rollout budget always sends
+/// this (or the remaining budget, whichever is smaller) as a hard request cap.
 const FALLBACK_OUTPUT_TOKEN_GUARD: u64 = 16_384;
 const REPEAT_TOOL_LIMIT: u32 = 3;
 const LAST_TURN_REMINDER: &str = "工具轮次已达上限。请立即给出最终结论，不要再调用工具。";
@@ -442,10 +441,18 @@ impl AgentRunner {
         }
     }
 
-    fn settle_model_usage(&mut self, usage: Usage) {
+    fn settle_model_usage(&mut self, usage: Usage, assistant: Option<&Message>) {
         let reserved = std::mem::take(&mut self.pending_budget_reservation);
-        let actual =
+        let reported =
             u64::from(usage.prompt_tokens).saturating_add(u64::from(usage.completion_tokens));
+        let estimated = assistant
+            .map(|message| message_tokens(message) as u64)
+            .unwrap_or(0);
+        let actual = if reported > 0 {
+            reported
+        } else {
+            estimated.max(reserved)
+        };
         let actual_opt = (actual > 0).then_some(actual);
         if reserved > 0 {
             self.rollout_budget.settle(reserved, actual_opt);
@@ -558,9 +565,15 @@ impl AgentRunner {
                     return Err(error);
                 }
             };
-            self.settle_model_usage(usage);
+            let requested_with_tools = !tools_now.is_empty();
+            self.settle_model_usage(usage, Some(&assistant));
             self.emit_usage(usage);
-            last_turn = last_turn || self.budget_exhausted;
+            last_turn = last_turn_after_response(
+                last_turn,
+                requested_with_tools,
+                &assistant,
+                self.budget_exhausted,
+            );
             match self
                 .consume_assistant(assistant, last_turn, Some(&client))
                 .await?
@@ -625,9 +638,15 @@ impl AgentRunner {
                     return Err(error);
                 }
             };
-            self.settle_model_usage(usage);
+            let requested_with_tools = !tools_now.is_empty();
+            self.settle_model_usage(usage, Some(&assistant));
             self.emit_usage(usage);
-            last_turn = last_turn || self.budget_exhausted;
+            last_turn = last_turn_after_response(
+                last_turn,
+                requested_with_tools,
+                &assistant,
+                self.budget_exhausted,
+            );
             match self.consume_assistant_serial(assistant, last_turn).await? {
                 TurnControl::Stop(text) => return Ok(text),
                 TurnControl::Continue => {}
@@ -644,18 +663,32 @@ impl AgentRunner {
         let mut queue = VecDeque::from(replies);
         loop {
             let mut last_turn = self.prepare_model_call(None).await?;
-            if self.reserve_model_call(None, &[]).is_none() {
+            let tools = self.combined_tools();
+            let mut tools_now: &[ToolSpec] = if last_turn { &[] } else { &tools };
+            if self.reserve_model_call(None, tools_now).is_none() {
                 if !last_turn {
+                    last_turn = true;
                     self.append_budget_reminder();
+                    tools_now = &[];
+                    if self.reserve_model_call(None, tools_now).is_none() {
+                        return self.finish_without_model();
+                    }
+                } else {
+                    return self.finish_without_model();
                 }
-                return self.finish_without_model();
             }
+            let requested_with_tools = !tools_now.is_empty();
             let Some(assistant) = queue.pop_front() else {
                 self.release_model_reservation();
                 return Err("scripted model exhausted".to_string());
             };
-            self.settle_model_usage(Usage::default());
-            last_turn = last_turn || self.budget_exhausted;
+            self.settle_model_usage(Usage::default(), Some(&assistant));
+            last_turn = last_turn_after_response(
+                last_turn,
+                requested_with_tools,
+                &assistant,
+                self.budget_exhausted,
+            );
             match self.consume_assistant(assistant, last_turn, None).await? {
                 TurnControl::Stop(text) => return Ok(text),
                 TurnControl::Continue => {}
@@ -764,12 +797,47 @@ impl AgentRunner {
         let Some(summary_messages) = compaction_prompt(&self.messages) else {
             return false;
         };
+        let Some(summary) = self
+            .request_compaction_summary(client, &summary_messages)
+            .await
+        else {
+            return false;
+        };
+        if apply_usable_summary(&mut self.messages, &summary) {
+            return true;
+        }
+        let mut retry_messages = summary_messages;
+        retry_messages.push(Message::assistant_text(summary.content.clone()));
+        retry_messages.push(Message::user(
+            "Previous summary is unusable. Regenerate a factual structured handoff that includes at least two of these headings: User goal, Constraints, Completed work, Verification, Pending work.",
+        ));
+        if let Some(retry) = self
+            .request_compaction_summary(client, &retry_messages)
+            .await
+        {
+            if apply_usable_summary(&mut self.messages, &retry) {
+                return true;
+            }
+            if retry.content.trim().is_empty() {
+                self.emit("[工具] 模型摘要为空，改用本地摘要");
+            } else {
+                self.emit("[工具] 模型摘要不可用，改用本地摘要");
+            }
+        }
+        false
+    }
+
+    async fn request_compaction_summary(
+        &mut self,
+        client: &ModelClient,
+        messages: &[Message],
+    ) -> Option<Message> {
         let summary_limit = 1_024u64;
-        let request_tokens = total_message_tokens(&summary_messages) as u64;
+        let request_tokens = total_message_tokens(messages) as u64;
         let reservation = request_tokens.saturating_add(summary_limit);
         if !self.rollout_budget.try_reserve(reservation) {
             self.emit("[工具] 上下文压缩预算不足，改用本地摘要");
-            return false;
+            return None;
         }
         self.pending_budget_reservation = reservation;
         let summary_model = self
@@ -785,7 +853,7 @@ impl AgentRunner {
         };
         let result = compact_client
             .chat(ChatRequest {
-                messages: &summary_messages,
+                messages,
                 tools: &[],
                 model: &summary_model,
                 effort: None,
@@ -793,24 +861,18 @@ impl AgentRunner {
                 thinking_enabled: false,
             })
             .await;
-        let (summary, usage) = match result {
-            Ok(value) => value,
+        match result {
+            Ok((summary, usage)) => {
+                self.settle_model_usage(usage, Some(&summary));
+                self.emit_usage(usage);
+                Some(summary)
+            }
             Err(error) => {
                 self.release_model_reservation();
                 self.emit(format!("[工具] 模型摘要失败，改用本地摘要：{error}"));
-                return false;
+                None
             }
-        };
-        self.settle_model_usage(usage);
-        self.emit_usage(usage);
-        if summary.tool_calls.is_empty()
-            && !summary.content.trim().is_empty()
-            && compact_with_summary(&mut self.messages, summary.content.trim())
-        {
-            return true;
         }
-        self.emit("[工具] 模型摘要为空，改用本地摘要");
-        false
     }
 
     fn sync_context_window(&mut self) {
@@ -860,17 +922,15 @@ impl AgentRunner {
             return None;
         }
         // The output reserve is only an estimate that `settle_model_usage`
-        // replaces with actual usage. The request keeps the caller's own
-        // output limit and is tightened solely when a single response could
-        // realistically overrun the remaining shared budget; a healthy budget
-        // must not shrink provider defaults (large Write/Edit tool calls need
-        // the full configured output room).
-        let reserve_output_tokens = requested_output_tokens.min(available);
-        let request_cap = match max_output_tokens {
-            Some(value) => Some(u64::from(value).min(available) as u32),
-            None if available < FALLBACK_OUTPUT_TOKEN_GUARD => Some(available as u32),
-            None => None,
+        // replaces with actual usage. A finite budget always sends a hard
+        // request cap so a provider that omits usage cannot overrun remaining
+        // tokens. Unlimited rollouts still leave the caller's setting alone.
+        let requested_output_tokens = match max_output_tokens {
+            Some(value) => u64::from(value),
+            None => FALLBACK_OUTPUT_TOKEN_GUARD,
         };
+        let reserve_output_tokens = requested_output_tokens.min(available);
+        let request_cap = Some(reserve_output_tokens as u32);
         let estimate = fixed_tokens.saturating_add(reserve_output_tokens);
         if !self.try_reserve_child(estimate) {
             self.mark_budget_stop();
@@ -1046,6 +1106,25 @@ impl AgentRunner {
     }
 
     fn spawn_child_runner(&self, spec: &SubagentSpec, index: u32) -> AgentRunner {
+        self.spawn_child_with_quota(spec, index, self.child_quota_for_share())
+    }
+
+    fn child_quota_for_share(&self) -> Option<Arc<ChildQuota>> {
+        if self.rollout_budget.limit() == 0 {
+            None
+        } else {
+            let share = u64::from(self.subagent_budget_share_percent.clamp(5, 100));
+            let limit = self.rollout_budget.remaining().saturating_mul(share) / 100;
+            Some(ChildQuota::shared(limit))
+        }
+    }
+
+    fn spawn_child_with_quota(
+        &self,
+        spec: &SubagentSpec,
+        index: u32,
+        child_quota: Option<Arc<ChildQuota>>,
+    ) -> AgentRunner {
         let mut child = AgentRunner::new(self.ctx.workspace.clone());
         child.ctx.ssh = self.ctx.ssh.clone();
         child.ctx.cancel = self.ctx.cancel.clone();
@@ -1065,13 +1144,7 @@ impl AgentRunner {
         child.context_char_limit = self.context_char_limit;
         child.rollout_budget = self.rollout_budget.clone();
         child.subagent_budget_share_percent = self.subagent_budget_share_percent;
-        if self.rollout_budget.limit() == 0 {
-            child.child_quota = None;
-        } else {
-            let share = u64::from(self.subagent_budget_share_percent.clamp(5, 100));
-            let limit = self.rollout_budget.remaining().saturating_mul(share) / 100;
-            child.child_quota = Some(ChildQuota::shared(limit));
-        }
+        child.child_quota = child_quota;
         child.context_window = ContextWindow::new(self.context_window.token_limit);
         child.tool_result_token_limit = self.tool_result_token_limit;
         child.diagnostics = self.diagnostics.clone();
@@ -1167,6 +1240,7 @@ impl AgentRunner {
         let stub = self.subagent_stub.clone();
         let model_turn = self.model_turn.clone();
         let client_owned = client.cloned();
+        let batch_quota = self.child_quota_for_share();
         for (pos, job) in jobs {
             self.emit(tool_start_line("Agent", &job.call.arguments));
             self.emit(format!(
@@ -1189,7 +1263,7 @@ impl AgentRunner {
                     .and_then(|item| Some((item.channel_id.clone()?, item.model.clone()?))),
                 _ => None,
             };
-            let mut child = self.spawn_child_runner(&job.spec, job.index);
+            let mut child = self.spawn_child_with_quota(&job.spec, job.index, batch_quota.clone());
             self.diagnostics
                 .subagents_started
                 .fetch_add(1, Ordering::AcqRel);
@@ -1291,6 +1365,26 @@ impl AgentRunner {
         message.name = call.name.clone();
         self.messages.push(message);
     }
+}
+
+fn last_turn_after_response(
+    planned_last_turn: bool,
+    requested_with_tools: bool,
+    assistant: &Message,
+    budget_exhausted: bool,
+) -> bool {
+    let honor_tools = requested_with_tools
+        && assistant
+            .tool_calls
+            .iter()
+            .any(|call| !call.name.trim().is_empty());
+    (planned_last_turn || budget_exhausted) && !honor_tools
+}
+
+fn apply_usable_summary(messages: &mut Vec<Message>, summary: &Message) -> bool {
+    summary.tool_calls.is_empty()
+        && is_usable_compaction_summary(&summary.content)
+        && compact_with_summary(messages, summary.content.trim())
 }
 
 fn append_last_turn_reminder(messages: &mut Vec<Message>) {
@@ -1565,6 +1659,41 @@ mod tests {
             .await
             .expect("run");
         assert_eq!(text, "审查通过");
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[tokio::test]
+    async fn budget_exhaustion_after_tool_response_still_runs_tool_calls() {
+        let (mut probe, probe_root) = temp_runner();
+        probe.set_allowed_tools(&["Read"]);
+        probe.set_rollout_budget_limit(1_000_000);
+        probe.messages.push(Message::user("go"));
+        let tools = probe.combined_tools();
+        assert!(probe.reserve_model_call(None, &tools).is_some());
+        let spent = probe.budget_snapshot().spent;
+        probe.release_model_reservation();
+        let _ = fs::remove_dir_all(probe_root);
+
+        let (mut runner, root) = temp_runner();
+        runner.set_allowed_tools(&["Read"]);
+        runner.set_rollout_budget_limit(spent);
+        let _ = runner
+            .run_scripted(
+                "go",
+                vec![
+                    assistant_tool_call("c1", "Read", r#"{"file_path":"hello.txt"}"#),
+                    Message::assistant_text("已读完"),
+                ],
+            )
+            .await
+            .expect("run");
+        assert!(
+            runner.messages.iter().any(|message| {
+                message.role == Role::Tool && message.content.contains("hello world")
+            }),
+            "tool call from a tools-enabled request must still execute: {:?}",
+            runner.messages
+        );
         let _ = fs::remove_dir_all(root);
     }
 
@@ -1943,6 +2072,31 @@ mod tests {
         let _ = fs::remove_dir_all(root);
     }
 
+    #[test]
+    fn batch_children_share_one_quota_pool() {
+        let (mut runner, root) = temp_runner();
+        runner.set_rollout_budget_limit(10_000);
+        runner.subagent_budget_share_percent = 40;
+        let spec = parse_subagent_args(r#"{"prompt":"look","subagent_type":"explore"}"#).unwrap();
+        let pool = runner.child_quota_for_share();
+        let first = runner.spawn_child_with_quota(&spec, 1, pool.clone());
+        let second = runner.spawn_child_with_quota(&spec, 2, pool.clone());
+        let third = runner.spawn_child_with_quota(&spec, 3, pool.clone());
+        assert!(Arc::ptr_eq(
+            first.child_quota.as_ref().unwrap(),
+            second.child_quota.as_ref().unwrap()
+        ));
+        assert!(Arc::ptr_eq(
+            second.child_quota.as_ref().unwrap(),
+            third.child_quota.as_ref().unwrap()
+        ));
+        assert_eq!(
+            first.child_quota.as_ref().map(|quota| quota.limit()),
+            Some(4_000)
+        );
+        let _ = fs::remove_dir_all(root);
+    }
+
     #[tokio::test]
     async fn budget_exhaustion_forces_tool_free_final_turn() {
         let (mut runner, root) = temp_runner();
@@ -2000,21 +2154,38 @@ mod tests {
     }
 
     #[test]
-    fn ample_budget_preserves_caller_output_settings() {
+    fn ample_budget_caps_unconfigured_output_to_fallback_guard() {
         let (mut runner, root) = temp_runner();
         runner.set_rollout_budget_limit(1_000_000);
         runner.messages.push(Message::user("task"));
-        // No configured limit must stay unlimited at the provider instead of
-        // silently degrading to the internal output reserve.
         let budget = runner.reserve_model_call(None, &[]).expect("reservation");
-        assert_eq!(budget.max_output_tokens, None);
+        assert_eq!(
+            budget.max_output_tokens,
+            Some(FALLBACK_OUTPUT_TOKEN_GUARD as u32)
+        );
         runner.release_model_reservation();
-        // A caller-configured limit above the old 16,384 clamp passes through.
         let budget = runner
             .reserve_model_call(Some(60_000), &[])
             .expect("reservation");
         assert_eq!(budget.max_output_tokens, Some(60_000));
         runner.release_model_reservation();
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn missing_usage_settles_using_response_text() {
+        let (mut runner, root) = temp_runner();
+        runner.set_rollout_budget_limit(100_000);
+        runner.messages.push(Message::user("task"));
+        let _ = runner.reserve_model_call(None, &[]).expect("reserve");
+        let reserved = runner.budget_snapshot().spent;
+        let assistant = Message::assistant_text("x".repeat(80_000));
+        runner.settle_model_usage(Usage::default(), Some(&assistant));
+        assert!(
+            runner.budget_snapshot().spent > reserved,
+            "missing usage must charge the response text, spent={} reserved={reserved}",
+            runner.budget_snapshot().spent
+        );
         let _ = fs::remove_dir_all(root);
     }
 

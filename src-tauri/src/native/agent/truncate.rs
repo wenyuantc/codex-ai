@@ -58,11 +58,7 @@ pub fn message_tokens(message: &Message) -> usize {
                 .saturating_add(estimate_text_tokens(&call.arguments))
         })
         .sum::<usize>();
-    let images = message
-        .images
-        .iter()
-        .map(image_tokens)
-        .sum::<usize>();
+    let images = message.images.iter().map(image_tokens).sum::<usize>();
     4usize
         .saturating_add(content)
         .saturating_add(reasoning)
@@ -155,7 +151,7 @@ pub fn truncate_tool_result(
 
     let head_budget = available.saturating_mul(2) / 3;
     let tail_budget = available.saturating_sub(head_budget);
-    let mut head = take_prefix_tokens(trimmed, head_budget);
+    let mut head = snap_prefix_to_complete_lines(&take_prefix_tokens(trimmed, head_budget));
     let mut tail = take_suffix_tokens(trimmed, tail_budget);
 
     // Estimation is intentionally conservative, but make the bound exact for
@@ -166,7 +162,7 @@ pub fn truncate_tool_result(
     loop {
         marker = format!(
             "\n…[truncated: {original_tokens} tokens, {line_count} lines omitted]\n{}\n",
-            continuation_hint(name, arguments, head.lines().count().saturating_add(1))
+            continuation_hint(name, arguments, continuation_offset_for_head(&head))
         );
         let result = format_parts(&head, &marker, &tail);
         if estimate_text_tokens(&result) <= max_tokens || (head.is_empty() && tail.is_empty()) {
@@ -174,7 +170,7 @@ pub fn truncate_tool_result(
         }
         if estimate_text_tokens(&head) >= estimate_text_tokens(&tail) && !head.is_empty() {
             let budget = estimate_text_tokens(&head).saturating_sub(1);
-            head = take_prefix_tokens(&head, budget);
+            head = snap_prefix_to_complete_lines(&take_prefix_tokens(&head, budget));
         } else {
             let budget = estimate_text_tokens(&tail).saturating_sub(1);
             tail = take_suffix_tokens(&tail, budget);
@@ -190,6 +186,28 @@ fn format_parts(head: &str, marker: &str, tail: &str) -> String {
     } else {
         format!("{head}{marker}{tail}")
     }
+}
+
+fn snap_prefix_to_complete_lines(head: &str) -> String {
+    if head.is_empty() || head.ends_with('\n') || !head.contains('\n') {
+        return head.to_string();
+    }
+    match head.rfind('\n') {
+        Some(index) => head[..=index].to_string(),
+        None => head.to_string(),
+    }
+}
+
+fn continuation_offset_for_head(head: &str) -> usize {
+    if head.is_empty() || !head.contains('\n') {
+        return 1;
+    }
+    let complete_lines = if head.ends_with('\n') {
+        head.lines().count()
+    } else {
+        head.lines().count().saturating_sub(1)
+    };
+    complete_lines.saturating_add(1).max(1)
 }
 
 fn continuation_hint(name: &str, arguments: &str, next_offset: usize) -> String {
@@ -554,6 +572,30 @@ mod tests {
         assert!(result.contains("\"offset\":"));
         assert!(!result.contains("\"offset\":501"));
         assert!(estimate_text_tokens(&result) <= 120);
+    }
+
+    #[test]
+    fn continuation_offset_rereads_partial_line() {
+        let output = format!("line 1\n{}\nline 3", "abcdefghij".repeat(800));
+        let result = truncate_tool_result("Read", r#"{"file_path":"src/lib.rs"}"#, &output, 80);
+        assert!(
+            result.contains("\"offset\":2"),
+            "partial second line must be reread: {result}"
+        );
+        assert!(
+            !result.contains("\"offset\":3"),
+            "must not skip the remainder of line 2: {result}"
+        );
+    }
+
+    #[test]
+    fn continuation_offset_on_single_oversized_line_starts_at_one() {
+        let output = "x".repeat(8_000);
+        let result = truncate_tool_result("Read", r#"{"file_path":"src/lib.rs"}"#, &output, 80);
+        assert!(
+            result.contains("\"offset\":1"),
+            "single truncated line must continue at offset 1: {result}"
+        );
     }
 
     #[test]

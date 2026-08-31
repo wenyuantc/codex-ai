@@ -183,7 +183,7 @@ During run:
 - Keep employee runtime status coherent (`busy` / online / error)
 - When a usage event is parsed, runtime (not `stream.rs`) calls `apply_codex_session_usage` — stream parsers stay pure.
 - Native: `client.chat()` already returns `Usage` (including `cached_tokens` from `native/model/usage.rs`). `AgentRunner` converts it with `usage_to_delta` after each turn, emits `[用量]`, and persists via `on_usage` → `apply_codex_session_usage`. Do not invent a native-only usage table. `chat_stream` is a replay helper and is **not** the persist path.
-- Native HTTP 400 `max_tokens is too large` / `supports at most N`: `chat()` retries **once** with `max_output_tokens = N`. Catalog max is capacity, not a gateway guarantee (e.g. DeepSeek V4 catalog 384000 vs Console Go 131072). Do not treat the first 400 as a terminal Auto QC failure if the limit can be parsed.
+- Native HTTP 400 `max_tokens is too large` / `supports at most N`: `chat()` retries **at most 3 times**, each time with a strictly smaller parsed `max_output_tokens = N`. Catalog max is capacity, not a gateway guarantee (e.g. DeepSeek V4 catalog 384000 vs Console Go 131072). Do not treat the first 400 as a terminal Auto QC failure if the limit can be parsed. Do not spend the `RetryConfig` 10-retry budget on these 400s.
 - Native HTTP **200** body parsing (`ModelClient::parse_success_body`): try protocol SSE, then a complete JSON object (optional one-layer `data`/`result` wrapper). A JSON `error` object on 200 is a gateway error (`模型返回错误：…`), **not** `模型返回空响应`. Responses must also read `response.output_text.done` and `response.completed.output` when deltas are missing. Empty is last-resort and should include a redacted body snippet. Do not treat “gateway returned JSON instead of SSE” as an empty model. Coordinator/tester one-shots share this client — a stub JSON fallback will fail plan generation with `内置 Agent 一次性调用失败：模型返回空响应`.
 - Native API retry (`RetryConfig::default`): **10 retries**, **fixed 3s**, no jitter. `post_stream` retries network/timeout, HTTP 408/409/429/5xx, and retryable HTTP 200 gateway/empty/parse failures. Do **not** retry 401/403/404/other 4xx, `insufficient quota` / `invalid api key` / `unauthorized`. If `parse_max_output_token_limit` matches, return immediately so `chat()` can do its one-shot limit downgrade — do not spend the 10-retry budget. Channel `probe` keeps `RetryConfig::none()`. Before each sleep, emit `[重试] {error}，3 秒后进行第 n/10 次重试` via `on_retry` → `AgentRunner.emit` → `native-stdout` (same path as `[思考]` / `[ERROR]`). Poll `CancelFlag` during the wait so Stop does not block for a full 3s. Tester `run_native_one_shot` still retries HTTP but has no session terminal.
 - DeepSeek V4 (`deepseek-v4-pro` / `deepseek-v4-flash`) **defaults thinking ON**. OpenAI-compat body must send `thinking: {type: enabled|disabled}`; omitting it leaves thinking on. `reasoning_effort` is low/high/max (not `none`). One-shot `未返回可用内容` after a successful parse means empty `content` (often reasoning-only at `max`), **not** HTTP timeout (`模型请求失败`). One-shot: prefer `content`; if empty, use reasoning when it looks like JSON/Markdown; else retry once with thinking disabled. Thinking sessions/one-shots use a 300s HTTP timeout; non-thinking stays 120s.
@@ -267,9 +267,9 @@ When adding another **CLI** engine, prefer **Claude/Grok process shape** over Co
 | HTTP | openai → `POST {base}/v1/chat/completions` SSE; anthropic → `POST {base}/v1/messages` SSE + `anthropic-version: 2023-06-01`; codex → `POST {base}/v1/responses` SSE |
 | Secrets | SQLite `ai_channels.api_key` (plaintext config). DTO returns `api_key` + `api_key_configured`. Legacy `api_key_ref` / keyring `codex-ai-channel` is a one-time migrate-on-read; new writes do not touch the OS keyring. SQL backup includes the key |
 | Employee bind | `employees.ai_channel_id` required iff `ai_provider=native` and channel enabled. Delete channel fails while referenced |
-| Tools | `Read` `Write` `Edit` `Bash` `Glob` `Grep` `TodoRead` `TodoWrite` `WebFetch` `WebSearch` `Agent`. Workspace-only (file tools). Permission = confirm-high-risk (overwrite/delete/push/force git/MCP). `Agent` spawns an in-process child loop (depth 1, only **`general`** or **`explore`**); concurrent children per turn come from `max_concurrent_subagents` (default **1**, range **1–16**). How often the parent *chooses* to call `Agent` is steered by `subagent_policy`. It does **not** insert `codex_sessions` or occupy the run-queue. Web tools run on this machine even for SSH projects |
+| Tools | `Read` `Write` `Edit` `Bash` `Glob` `Grep` `TodoRead` `TodoWrite` `WebFetch` `WebSearch` `Agent`. Workspace-only (file tools). Permission = confirm-high-risk (overwrite/delete/push/force git/MCP/opaque). Bash classification unwraps `env`/`nohup`/`timeout`/`command`/`nice` assignment prefixes, `git -c/-C` globals, and `\rm` basenames; interpreters (`python -c`, `find -exec`, `xargs`) and `${…}` are opaque. `Agent` spawns an in-process child loop (depth 1, only **`general`** or **`explore`**); concurrent children per turn come from `max_concurrent_subagents` (default **1**, range **1–16**). One batch shares a single `ChildQuota` pool of `remaining * subagent_budget_share_percent`. How often the parent *chooses* to call `Agent` is steered by `subagent_policy`. It does **not** insert `codex_sessions` or occupy the run-queue. Web tools run on this machine even for SSH projects |
 | System prompt | `Message::system` = identity.md + **子 Agent 策略块** (`subagent_policy`) + env + optional git + **全局提示词模板** `native_agent_global` (`ai-prompt-templates.json`) + project `AGENTS.md`/`Agents.md`/`CLAUDE.md` + employee `system_prompt`. Task text stays in the user message. SSH reads project files via `SshToolRuntime`. Do **not** load `.zcli/AGENTS.md` |
-| Compact | Estimate serialized message/tool-schema tokens. At 85% of the configured `context_window_tokens` (default **128,000**, range **8,000–1,000,000**), first request a tool-free structured summary from the current model, then fall back to a local summary/window reset. Responses channels reuse `previous_response_id` when the unchanged prefix is valid; compaction invalidates it. Tool results are bounded before entering model history (default **4,096** tokens, range **256–65,536**) with path/offset continuation hints. |
+| Compact | Estimate serialized message/tool-schema tokens. At 85% of the configured `context_window_tokens` (default **128,000**, range **8,000–1,000,000**), first request a tool-free structured summary from a richer handoff transcript (not the 800-char local preview), validate required headings, retry once, then fall back to a local summary/window reset. A finite rollout budget always sends `min(remaining, caller or 16,384)` as `max_output_tokens`; missing provider usage is settled from the response text. A tools-enabled response that exhausts the budget after settle still executes that batch of tool calls. Responses channels reuse `previous_response_id` when the unchanged prefix is valid; compaction invalidates it. Tool results are bounded before entering model history (default **4,096** tokens, range **256–65,536**) with path/offset continuation hints that stay on the first incomplete line. |
 | Images | First user message may include local files as base64. Native never uses remote image paths. Frontend does **not** skip `native` in `resolveImageAttachmentSkip`. |
 | One-shot | Employee-scoped (`ai_generate_coordinator_task_plan`, `ai_generate_tester_acceptance`): `run_native_one_shot` → channel HTTP `chat()`, **no tools**, no `NativeAgentManager` session, no Codex SDK/exec. Return text + optional `[用量]` line. Coordinator plan UI shows `内置 Agent / {model} / {effort}` then `[计划] 用量：…`. Local images only. SSH: HTTP still on this machine. Settings one-shot dropdown stays CLI-only. |
 | SSH tools | Loop stays local. File/shell via `SshToolRuntime` + `build_ssh_command` / `execute_ssh_command_with_input`. Workspace prefix is the remote cwd |
@@ -280,7 +280,7 @@ When adding another **CLI** engine, prefer **Claude/Grok process shape** over Co
 | Frontend | Channel CRUD in `src/lib/backend.ts`; session IPC in `src/lib/native.ts`; start/stop via `aiEngine.ts` |
 | Settings UI | `AiChannelsSettingsTab`; employee dialogs bind enabled channels + `models` from `models_json` |
 
-Channel CRUD commands: `list_ai_channels` `create_ai_channel` `update_ai_channel` `delete_ai_channel` `test_ai_channel` `list_ai_channel_models`. `list_ai_channel_models` uses GET `{base}/v1/models` with the same auth as chat (Bearer or `x-api-key`); it fills the settings form and does **not** write `models_json` until Save. Activity keys: `ai_channel_created` / `updated` / `deleted` / `tested` / `models_fetched`.
+Channel CRUD commands: `list_ai_channels` `create_ai_channel` `update_ai_channel` `delete_ai_channel` `test_ai_channel` `list_ai_channel_models`. `list_ai_channel_models` uses GET `{base}/v1/models` with the same auth as chat (Bearer or `x-api-key`); it fills the settings form and does **not** write `models_json` until Save. Pagination stops at 500 models or 20 pages and sets `truncated` when the list may be incomplete. Activity keys: `ai_channel_created` / `updated` / `deleted` / `tested` / `models_fetched`.
 
 ## Scenario: Token usage parse + persist (A1)
 
@@ -492,6 +492,106 @@ match provider {
 }
 ```
 
+## Scenario: Native model list truncation (IPC)
+
+### 1. Scope / Trigger
+- `list_ai_channel_models` paginates GET `{base}/v1/models` (max **500** ids or **20** pages). Callers must know when the list was cut off. No SQLite migration.
+
+### 2. Signatures
+- Rust client: `ModelClient::list_models() -> Result<ListedModels, String>` with `ListedModels { models: Vec<String>, truncated: bool }`
+- Tauri: `list_ai_channel_models(payload) -> ListAiChannelModelsResult { models, message, truncated }` (`#[serde(default)]` on `truncated`)
+- TS: `src/lib/backend.ts` `ListAiChannelModelsResult { models, message, truncated?: boolean }`
+
+### 3. Contracts
+- `truncated=true` when the collector hit 500 unique ids with leftover page items / `after_id`, or exhausted 20 pages with `after_id` still set.
+- Settings UI shows `channels.messages.modelsFetchedTruncated` when truncated; otherwise `modelsFetched`. Does **not** write `models_json` until Save.
+- Activity key stays `ai_channel_models_fetched`; details may append `（列表已截断）`.
+- Old frontends ignoring the new field still parse (`serde default` / optional TS).
+
+### 4. Validation & Error Matrix
+| Case | Behavior |
+|------|----------|
+| Empty `models` | Chinese `message` that the gateway returned none; UI uses `setError` |
+| HTTP non-2xx | `Err(String)` from `format_http_error`; no truncated payload |
+| Exactly 500 and no next page | `truncated` may still be true if the current page had extra ids after the cap |
+
+### 5. Good / Base / Bad Cases
+- Good: 2 models, one page, `truncated=false`, settings toast 「已获取 2 个模型」
+- Base: 501 ids on one page → 500 returned, `truncated=true`, truncated i18n toast
+- Bad: return `Vec<String>` only so the UI cannot tell a full catalog from a silent cap
+
+### 6. Tests Required
+- `native/model/client.rs`: `list_models_reads_openai_payload` asserts `!truncated`
+- `native/model/client.rs`: `list_models_marks_truncated_when_page_exceeds_cap` (501 ids → len 500 + truncated)
+
+### 7. Wrong vs Correct
+#### Wrong
+```rust
+Ok(collected) // caller cannot see the 500/20-page cap
+```
+#### Correct
+```rust
+Ok(ListedModels { models: collected, truncated })
+```
+
+## Scenario: Native finite rollout budget and last-turn tools
+
+### 1. Scope / Trigger
+- Built-in Agent shared `RolloutBudget` / `ChildQuota`, Bash high-risk classify, compact handoff, transcript upsert. Local and SSH share the same loop.
+
+### 2. Signatures
+- `reserve_model_call(max_output_tokens, tools) -> Option<ModelCallBudget>`
+- `settle_model_usage(usage, assistant: Option<&Message>)`
+- `last_turn_after_response(planned, requested_with_tools, assistant, budget_exhausted) -> bool`
+- `child_quota_for_share() -> Option<Arc<ChildQuota>>` cloned once per `run_agent_batch`
+- `classify_native_tool_risk` / `unwrap_tokens` in `native/tools/permission.rs`
+- `persist_native_transcript(..., last_fingerprint: &mut Option<u64>)`
+
+### 3. Contracts
+- Finite budget (`limit != 0`): always send `max_output_tokens = min(available, caller.unwrap_or(16_384))`. Unlimited (`limit == 0`) does not rewrite caller settings.
+- Missing/zero provider usage: charge `max(reserved, message_tokens(assistant))`.
+- Planned last_turn (`tools_now` empty) still drops tool_calls. A tools-enabled request that exhausts the budget **after** settle still executes that batch.
+- One `Arc<ChildQuota>` per Agent batch; cap = `remaining * subagent_budget_share_percent`. Parent `RolloutBudget` remains the hard total.
+- Compact: model sees `handoff_transcript` (not the 800-char local preview); unusable summaries (need ≥2 required headings) retry once then `compact_local` without `mark_compacted`.
+- Read continuation offset is 1-based and stays on the first incomplete line.
+- Transcript: skip identical fingerprint; log persist failures instead of `let _ =`.
+
+### 4. Validation & Error Matrix
+| Case | Behavior |
+|------|----------|
+| `reserve` cannot fit tools | retry once tool-free; if that fails, `LAST_TURN_FALLBACK` |
+| Compact summary empty | 「模型摘要为空，改用本地摘要」 |
+| Compact summary non-empty but missing headings | one correction request, then 「模型摘要不可用，改用本地摘要」 |
+| Bash `python -c` / `find -exec` / `git -c … push --force` | High / Opaque confirmation |
+| `echo hello` / `git status` | Low |
+
+### 5. Good / Base / Bad Cases
+- Good: unconfigured output + 1M budget → request cap 16384; caller `Some(60000)` still passes when remaining allows
+- Base: single child still gets `remaining * 40%`
+- Bad: three children each `remaining * 40%` (120%); last_turn clearing tool_calls from a tools-enabled response after settle
+
+### 6. Tests Required
+- `loop.rs`: `ample_budget_caps_unconfigured_output_to_fallback_guard`, `missing_usage_settles_using_response_text`, `budget_exhaustion_after_tool_response_still_runs_tool_calls`, `batch_children_share_one_quota_pool`, `last_turn_stops_with_fallback_instead_of_error`
+- `permission.rs`: `bash_wrappers_interpreters_and_git_globals_are_high`
+- `truncate.rs`: continuation offset on partial / single oversized line
+- `compact.rs`: handoff keeps error stacks beyond 320 chars; `is_usable_compaction_summary`
+- `client.rs`: two-step max_tokens down-retry
+- `transcript.rs`: fingerprint changes only when messages change
+
+### 7. Wrong vs Correct
+#### Wrong
+```rust
+None if available >= 16_384 => request_cap = None; reserve 1024
+child.child_quota = Some(ChildQuota::shared(remaining * share / 100)); // per child
+if last_turn { assistant.tool_calls.clear(); } // even when this request had tools
+```
+#### Correct
+```rust
+request_cap = Some(min(available, caller.unwrap_or(16_384)))
+let batch = child_quota_for_share(); // clone Arc to every child in the batch
+honor tool_calls when requested_with_tools && !call names empty
+```
+
 ## Anti-Patterns
 
 - Starting processes without working-dir validation.
@@ -508,3 +608,7 @@ match provider {
 - Passing `None` for `ssh_config` into `capture_execution_change_baseline` on an SSH path — baseline capture then fails at runtime with a generic error while the code looks correct.
 - Hard-failing an execution target with 「尚未实现」. Either implement the channel or return a specific Chinese reason the user can act on (missing Node, SDK not installed, missing `ssh_config_id`).
 - Session SDK bridge returning from `main()` after drain while stdin stays open (listeners keep the event loop alive → process never exits → automation stuck on `[执行中]`). Always `exit(0)` after the drain-then-exit window.
+- Finite Native `RolloutBudget` leaving `max_output_tokens=None` (the model may emit more than remaining). Always send a numeric cap when `limit != 0`.
+- Allocating a fresh `ChildQuota` per Agent child (three children at 40% share = 120% of remaining). Clone one `Arc` for the whole batch.
+- Treating `KEY=VAL bash -c 'rm -rf …'` or `python -c` as Low risk because the first token is not the dangerous command.
+- Returning `list_ai_channel_models` as a silent 500-item `Vec` with no `truncated` flag.

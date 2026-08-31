@@ -937,6 +937,8 @@ pub struct TestAiChannelResult {
 pub struct ListAiChannelModelsResult {
     pub models: Vec<String>,
     pub message: String,
+    #[serde(default)]
+    pub truncated: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

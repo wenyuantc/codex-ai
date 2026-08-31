@@ -645,6 +645,7 @@ export async function testAiChannel(payload: TestAiChannelInput): Promise<TestAi
 export interface ListAiChannelModelsResult {
   models: string[];
   message: string;
+  truncated?: boolean;
 }
 
 export async function listAiChannelModels(

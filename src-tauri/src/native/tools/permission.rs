@@ -150,6 +150,7 @@ fn risk_rank(kind: NativeToolRiskKind) -> u8 {
 
 fn is_opaque_shell(command: &str) -> bool {
     command.contains("$(")
+        || command.contains("${")
         || command.contains('`')
         || command.contains("<<")
         || tokenize(command)
@@ -158,7 +159,8 @@ fn is_opaque_shell(command: &str) -> bool {
 }
 
 fn classify_tokens(tokens: &[String], original: &str) -> Option<(NativeToolRiskKind, String)> {
-    let first = tokens.first()?.as_str();
+    let tokens = unwrap_tokens(tokens);
+    let first = command_basename(tokens.first()?);
     if first.starts_with('$')
         || matches!(first, "eval" | "alias" | "source" | "sudo" | "doas")
         || first == "."
@@ -166,6 +168,12 @@ fn classify_tokens(tokens: &[String], original: &str) -> Option<(NativeToolRiskK
         return Some((
             NativeToolRiskKind::Opaque,
             format!("不透明命令：{original}"),
+        ));
+    }
+    if is_interpreter(first) && has_inline_code_flag(&tokens) {
+        return Some((
+            NativeToolRiskKind::Opaque,
+            format!("解释器内联代码：{original}"),
         ));
     }
     if matches!(first, "sh" | "bash" | "zsh" | "dash" | "ksh")
@@ -176,11 +184,24 @@ fn classify_tokens(tokens: &[String], original: &str) -> Option<(NativeToolRiskK
             format!("嵌套 shell：{original}"),
         ));
     }
-    if first == "chmod" && tokens.iter().any(|token| token == "777" || token == "0777") {
+    if first == "find"
+        && tokens
+            .iter()
+            .any(|token| matches!(token.as_str(), "-exec" | "-execdir" | "-delete"))
+    {
         return Some((
             NativeToolRiskKind::Opaque,
-            format!("chmod 777：{original}"),
+            format!("find 执行动作：{original}"),
         ));
+    }
+    if first == "xargs" {
+        return Some((
+            NativeToolRiskKind::Opaque,
+            format!("xargs 包装命令：{original}"),
+        ));
+    }
+    if first == "chmod" && tokens.iter().any(|token| token == "777" || token == "0777") {
+        return Some((NativeToolRiskKind::Opaque, format!("chmod 777：{original}")));
     }
     if matches!(
         first,
@@ -195,7 +216,7 @@ fn classify_tokens(tokens: &[String], original: &str) -> Option<(NativeToolRiskK
         return Some((NativeToolRiskKind::Delete, format!("删除：{original}")));
     }
     if first == "git" {
-        let sub = tokens.get(1).map(String::as_str).unwrap_or("");
+        let sub = git_subcommand(&tokens);
         if sub == "rm" {
             return Some((NativeToolRiskKind::Delete, format!("git rm：{original}")));
         }
@@ -251,6 +272,148 @@ fn classify_tokens(tokens: &[String], original: &str) -> Option<(NativeToolRiskK
         }
     }
     None
+}
+
+fn unwrap_tokens(tokens: &[String]) -> Vec<String> {
+    let mut index = 0usize;
+    while index < tokens.len() {
+        let token = tokens[index].as_str();
+        if is_env_assignment(token) {
+            index += 1;
+            continue;
+        }
+        let name = command_basename(token);
+        match name {
+            "env" => {
+                index += 1;
+                while index < tokens.len()
+                    && (is_env_assignment(&tokens[index]) || tokens[index].starts_with('-'))
+                {
+                    index += 1;
+                }
+            }
+            "nohup" | "time" | "chronic" => index += 1,
+            "command" => {
+                index += 1;
+                while index < tokens.len() && tokens[index].starts_with('-') {
+                    index += 1;
+                }
+            }
+            "nice" => {
+                index += 1;
+                if index < tokens.len() {
+                    if tokens[index] == "-n" {
+                        index = index.saturating_add(2);
+                    } else if tokens[index].starts_with("-n") || tokens[index].starts_with('-') {
+                        index += 1;
+                    }
+                }
+            }
+            "timeout" => {
+                index += 1;
+                while index < tokens.len() {
+                    let current = tokens[index].as_str();
+                    if matches!(
+                        current,
+                        "-k" | "-s" | "--signal" | "--kill-after" | "--foreground"
+                    ) {
+                        if current == "--foreground" {
+                            index += 1;
+                        } else {
+                            index = index.saturating_add(2);
+                        }
+                        continue;
+                    }
+                    if current.starts_with('-') || looks_like_duration(current) {
+                        index += 1;
+                        continue;
+                    }
+                    break;
+                }
+            }
+            "stdbuf" => {
+                index += 1;
+                while index < tokens.len() && tokens[index].starts_with('-') {
+                    index += 1;
+                }
+            }
+            _ => break,
+        }
+    }
+    tokens[index..].to_vec()
+}
+
+fn command_basename(token: &str) -> &str {
+    let stripped = token.trim_start_matches('\\');
+    stripped
+        .rsplit(['/', '\\'])
+        .next()
+        .filter(|item| !item.is_empty())
+        .unwrap_or(stripped)
+}
+
+fn is_env_assignment(token: &str) -> bool {
+    let Some((key, _)) = token.split_once('=') else {
+        return false;
+    };
+    !key.is_empty()
+        && key
+            .chars()
+            .all(|ch| ch.is_ascii_alphanumeric() || ch == '_')
+}
+
+fn looks_like_duration(token: &str) -> bool {
+    token.chars().next().is_some_and(|ch| ch.is_ascii_digit())
+}
+
+fn is_interpreter(name: &str) -> bool {
+    matches!(
+        name,
+        "python"
+            | "python2"
+            | "python3"
+            | "perl"
+            | "ruby"
+            | "node"
+            | "nodejs"
+            | "php"
+            | "lua"
+            | "osascript"
+    )
+}
+
+fn has_inline_code_flag(tokens: &[String]) -> bool {
+    tokens.iter().any(|token| {
+        matches!(
+            token.as_str(),
+            "-c" | "-e" | "-r" | "--eval" | "-command" | "-Command"
+        )
+    })
+}
+
+fn git_subcommand(tokens: &[String]) -> &str {
+    let mut index = 1usize;
+    while index < tokens.len() {
+        let token = tokens[index].as_str();
+        if token == "-c" || token == "-C" {
+            index = index.saturating_add(2);
+            continue;
+        }
+        if token.starts_with("--git-dir") || token.starts_with("--work-tree") {
+            if token.contains('=') {
+                index += 1;
+            } else {
+                index = index.saturating_add(2);
+            }
+            continue;
+        }
+        if token.starts_with('-') {
+            index += 1;
+            continue;
+        }
+        return token;
+    }
+    ""
 }
 
 fn split_shell_segments(command: &str) -> Vec<String> {
@@ -445,5 +608,39 @@ mod tests {
                 ..
             }
         ));
+    }
+
+    #[test]
+    fn bash_wrappers_interpreters_and_git_globals_are_high() {
+        for command in [
+            r#"{"command":"find . -name '*.rs' -exec rm -rf {} +"}"#,
+            r#"{"command":"printf a | xargs rm -rf"}"#,
+            r#"{"command":"python -c 'import os; os.remove(\"a\")'"}"#,
+            r#"{"command":"perl -e 'unlink @ARGV' a"}"#,
+            r#"{"command":"env rm -rf src"}"#,
+            r#"{"command":"nohup rm -rf src"}"#,
+            r#"{"command":"timeout 5 rm -rf src"}"#,
+            r#"{"command":"command rm -rf src"}"#,
+            r#"{"command":"VAR=x rm -rf src"}"#,
+            r#"{"command":"\\rm -rf src"}"#,
+            r#"{"command":"git -c push.default=simple push --force origin main"}"#,
+            r#"{"command":"echo ${HOME} && rm -rf src"}"#,
+        ] {
+            assert!(
+                matches!(
+                    classify_native_tool_risk("Bash", command, None, false),
+                    NativeToolRisk::High { .. }
+                ),
+                "expected high risk for {command}"
+            );
+        }
+        assert_eq!(
+            classify_native_tool_risk("Bash", r#"{"command":"echo hello"}"#, None, false),
+            NativeToolRisk::Low
+        );
+        assert_eq!(
+            classify_native_tool_risk("Bash", r#"{"command":"git status"}"#, None, false),
+            NativeToolRisk::Low
+        );
     }
 }

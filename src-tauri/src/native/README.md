@@ -75,13 +75,13 @@ src-tauri/src/native/
 - 辅助函数：`load_native_client`（员工 → 渠道 → 模型配置 → `ModelClient`）、`emit_native_line`（写 `codex_session_events` 并广播 `native-stdout`）、`resolve_run_model_config`（渠道模型配置缺失时回填模型目录）。运行时思考等级经 `resolve_runtime_reasoning_effort` 限制到渠道模型允许集合。
 
 #### `transcript.rs` — 会话模型历史
-`native_session_transcripts` 表保存每个 native 会话的模型消息快照（剥图片、sanitize tool 对）。`save_transcript` / `load_transcript` 只吃 `&SqlitePool`。续聊时用当前 `compose_system` 重建 system 提示词，再接上历史。崩溃后会话被标 failed，只要 transcript 仍在即可继续。
+`native_session_transcripts` 表保存每个 native 会话的模型消息快照（剥图片、sanitize tool 对）。`save_transcript` / `load_transcript` 只吃 `&SqlitePool`。按指纹跳过无变化写入；落库失败打 `[native] 保存会话上下文失败`。续聊时用当前 `compose_system` 重建 system 提示词，再接上历史。崩溃后会话被标 failed，只要 transcript 仍在即可继续。
 
 #### `settings.rs` — 设置持久化
-将内置 Agent 设置保存到 `$APPCONFIG/native-settings.json`（结构体 `RawNativeSettings`）。字段包括最大模型工具轮次 `max_turns`（默认 40，0 表示不限制，上限 500）、高风险确认、确认超时 `permission_timeout_secs`（默认 300，0 表示不超时）、同轮子 Agent 并发上限（默认 1，范围 1–16）、子 Agent 策略（默认 conservative）、子 Agent 预算占比 `subagent_budget_share_percent`（默认 40，范围 5–100），上下文窗口上限 `context_window_tokens`（默认 128,000，范围 8,000–1,000,000）、会话 rollout 预算 `rollout_token_budget`（默认 10,000,000，0 表示不限制，上限 100,000,000）和单条工具结果上限 `max_tool_output_tokens`（默认 4,096，范围 256–65,536）。缺少新增字段的旧 JSON 会按保守默认值归一化。提供 Tauri 命令 `get_native_settings` / `update_native_settings`，修改时写活动日志（`native_settings_updated`）。
+将内置 Agent 设置保存到 `$APPCONFIG/native-settings.json`（结构体 `RawNativeSettings`）。字段包括最大模型工具轮次 `max_turns`（默认 40，0 表示不限制，上限 500）、高风险确认、确认超时 `permission_timeout_secs`（默认 300，0 表示不超时）、同轮子 Agent 并发上限（默认 1，范围 1–16）、子 Agent 策略（默认 conservative）、子 Agent 预算占比 `subagent_budget_share_percent`（默认 40，范围 5–100，同一批子 Agent 合计上限），上下文窗口上限 `context_window_tokens`（默认 128,000，范围 8,000–1,000,000）、会话 rollout 预算 `rollout_token_budget`（默认 10,000,000，0 表示不限制，上限 100,000,000）和单条工具结果上限 `max_tool_output_tokens`（默认 4,096，范围 256–65,536）。缺少新增字段的旧 JSON 会按保守默认值归一化。提供 Tauri 命令 `get_native_settings` / `update_native_settings`，修改时写活动日志（`native_settings_updated`）。
 
 #### `channels.rs` — AI 渠道管理
-管理 `ai_channels` 表（内置 Agent 的模型来源）。Tauri 命令：`list_ai_channels`、`create_ai_channel`、`update_ai_channel`、`delete_ai_channel`（被员工引用时拒绝删除）、`test_ai_channel`（发一条 probe 请求测通）、`list_ai_channel_models`（调用 `/v1/models` 拉取模型列表）。包含 API Key 的迁移逻辑：旧字段 `api_key_ref`（keyring 引用）自动迁移到 `api_key` 列（`hydrate_channel_record`、`require_channel_api_key`），模型配置写入时经 `normalize_channel_model_config` 回填目录默认值并校验思考等级。
+管理 `ai_channels` 表（内置 Agent 的模型来源）。Tauri 命令：`list_ai_channels`、`create_ai_channel`、`update_ai_channel`、`delete_ai_channel`（被员工引用时拒绝删除）、`test_ai_channel`（发一条 probe 请求测通）、`list_ai_channel_models`（调用 `/v1/models` 拉取模型列表，截断时 `truncated=true` 并在活动日志中标明）。包含 API Key 的迁移逻辑：旧字段 `api_key_ref`（keyring 引用）自动迁移到 `api_key` 列（`hydrate_channel_record`、`require_channel_api_key`），模型配置写入时经 `normalize_channel_model_config` 回填目录默认值并校验思考等级。
 
 #### `protocol.rs` — 协议与 URL 工具
 协议归一化：`openai`（chat/completions）、`anthropic`（messages）、`codex`（OpenAI Responses）三套及别名。提供 `channel_chat_url` / `channel_models_url` 构造端点、`normalize_base_url`、`normalize_extra_headers_json`（额外请求头）、模型列表 JSON 解析与分页（`parse_model_list_json`、`model_list_next_page`，兼容 OpenAI/Anthropic/网关形态）、`ChannelModelConfig` 的解析/序列化（`parse_channel_models_json` / `serialize_channel_models`，去重、回填目录），以及 `record_to_channel` 将数据库记录转为 UI 用的 `AiChannel` DTO（含 `api_key_configured`，不回传密钥引用）。
@@ -112,16 +112,16 @@ src-tauri/src/native/
 工具循环核心：
 - `run_with_client`：真实模型路径。每轮先 `prepare_model_call`（取消检查、轮次上限、截断/压缩、最后一轮移除工具并追加「停止调用工具」提醒），再调用 `ModelClient::chat`，最后 `consume_assistant`。
 - `run_scripted`：测试专用，用预置的回复序列替代模型调用。
-- `consume_assistant`：处理模型输出 —— 剥离空工具名、最后一轮强制清空工具调用、播报思考字数与文本、执行工具并把结果作为 `tool` 消息回填；无工具调用即返回最终文本。
+- `consume_assistant`：处理模型输出 —— 剥离空工具名、planned last_turn（请求未带 tools）强制清空工具调用；若本轮请求带了 tools，即使 settle 后预算耗尽也执行这批调用，下一轮再收尾。播报思考字数与文本、执行工具并把结果作为 `tool` 消息回填；无工具调用即返回最终文本。
 - 防重复调用：同一工具+相同参数连续调用 3 次（`REPEAT_TOOL_LIMIT`）后直接拒绝，避免死循环。
-- 子 Agent：连续 `Agent` 调用走 `JoinSet`（上限见设置）；子循环 `event_prefix` 为 `[子 Agent n(explore|general) - {description}] `（description 来自工具参数短标题，空白折叠、去括号、最长 32 字）；高风险确认 FIFO；MCP 经 `SharedMcp` Mutex 共享。
+- 子 Agent：连续 `Agent` 调用走 `JoinSet`（上限见设置）；同一批共享一个 `ChildQuota` 池（`remaining * subagent_budget_share_percent`），不是每个 child 各拿一份；子循环 `event_prefix` 为 `[子 Agent n(explore|general) - {description}] `（description 来自工具参数短标题，空白折叠、去括号、最长 32 字）；高风险确认 FIFO；MCP 经 `SharedMcp` Mutex 共享。
 - 事件输出：`[思考] `、`[读取] `、`[命令] `、`[工具结果] `、`[子 Agent] ` 等进度行通过 `on_event` 通道发出；用量通过 `on_usage` 通道发出。`[工具结果]` 事件保留完整工具输出（一条事件，可含换行），不是第一行摘要；TodoWrite 清单仍只报「已更新 N 项」。超过 2000 行或 65536 字时 UI 截断并附中文提示；模型历史使用按 token 限制的头尾片段。
 
 #### `agent/compact.rs`
-上下文窗口与预算管理：`ContextWindow` 按序列化消息 Token 估算，在达到 85% 阈值时优先用当前模型发起无工具结构化摘要，失败或预算不足时回退本地摘要/窗口重置；`RolloutBudget` 由父 Agent 与所有子 Agent 共享并原子预留、结算，达到预算后停止新的工具轮次。每次会话结束写入 `native_token_diagnostics` 诊断事件，包含压缩、重置、截断、子 Agent 和预算停止计数。
+上下文窗口与预算管理：`ContextWindow` 按序列化消息 Token 估算，在达到 85% 阈值时优先用当前模型对更富的 handoff 文本做无工具结构化摘要（校验标题、失败再纠偏一次），失败或预算不足时回退本地摘要/窗口重置；有限 rollout 预算始终向 Provider 传递不超过剩余预算的输出上限，usage 缺失时按响应文本结算。`RolloutBudget` 由父 Agent 与所有子 Agent 共享并原子预留、结算，达到预算后停止新的工具轮次。每次会话结束写入 `native_token_diagnostics` 诊断事件，包含压缩、重置、截断、子 Agent 和预算停止计数。
 
 #### `agent/truncate.rs`
-消息 Token 估算（正文、思考、工具调用、图片和工具 schema）与超长工具结果截断。模型历史中的每条工具结果默认限制 4,096 token，保留头尾并附路径/offset 继续读取提示；`truncate_messages_tokens` 在发送前再执行总窗口保护。旧的字符预算 `truncate_messages` API 保留给兼容调用者，UI/session 事件仍走展示截断而不改变模型消息。
+消息 Token 估算（正文、思考、工具调用、图片和工具 schema）与超长工具结果截断。模型历史中的每条工具结果默认限制 4,096 token，保留头尾并附路径/offset 继续读取提示；head 截到完整行，offset 指向第一个未完整展示的行。`truncate_messages_tokens` 在发送前再执行总窗口保护。旧的字符预算 `truncate_messages` API 保留给兼容调用者，UI/session 事件仍走展示截断而不改变模型消息。
 
 ### `model/` — 模型客户端与协议
 
@@ -130,9 +130,9 @@ src-tauri/src/native/
 
 #### `model/client.rs` — `ModelClient`
 统一的 HTTP 模型客户端：
-- `chat`：按协议构造请求体 → `post_stream` 流式拉取 → `parse_success_body`（SSE，失败再解析完整 JSON）解析为统一 `Message` + `Usage`；Responses/Codex 协议在历史前缀未变化时携带 `previous_response_id`，只发送新增 input，压缩或网关拒绝时自动失效并回退完整历史。若网关报「max_tokens 超限」，自动从错误信息解析上限并降级重试一次（`parse_max_output_token_limit`）。HTTP 200 的 `error` 对象要报「模型返回错误」，不得叫空响应。
+- `chat`：按协议构造请求体 → `post_stream` 流式拉取 → `parse_success_body`（SSE，失败再解析完整 JSON）解析为统一 `Message` + `Usage`；Responses/Codex 协议在历史前缀未变化时携带 `previous_response_id`，只发送新增 input，压缩或网关拒绝时自动失效并回退完整历史。若网关报「max_tokens 超限」，自动从错误信息解析上限并最多连续下调 3 次（`parse_max_output_token_limit`）。HTTP 200 的 `error` 对象要报「模型返回错误」，不得叫空响应。
 - `chat_stream`：把一次 chat 结果拆成 `StreamEvent` 序列（文本/思考/工具调用/用量/Done），供流式消费。
-- `list_models`：`/v1/models` 分页拉取（最多 500，去重、排序）。
+- `list_models`：`/v1/models` 分页拉取（最多 500 / 20 页，去重、排序）；打满上限且仍有下一页时 `truncated=true`。
 - `probe`：发送最小请求测通渠道。
 - `post_raw` / `get_raw` / `apply_auth`：鉴权（Anthropic 用 `x-api-key` + `anthropic-version`，其他用 `Authorization: Bearer`），支持额外请求头（禁止覆盖 authorization/x-api-key），重试由 `RetryConfig` 驱动（默认最多 10 次、固定 3s、无抖动；`none` 用于探测）。HTTP 2xx 网关错误/空响应也可重试；401/4xx/配额不重试。重试前经 `on_retry` 打 `[重试]` 行，等待期可响应 `CancelFlag`。
 - `parse_success_body`：SSE（含缺空行的完整 JSON `data:` 行）失败时解析非流式 JSON（可剥一层 `data`/`result`）；仍空则错误带脱敏正文摘要。

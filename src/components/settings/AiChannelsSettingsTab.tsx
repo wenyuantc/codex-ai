@@ -13,6 +13,7 @@ import {
   updateAiChannel,
 } from "@/lib/backend";
 import {
+  applyCatalogToModel,
   canSaveChannelModels,
   emptyChannelModel,
   materializeThinkingLevels,
@@ -240,7 +241,11 @@ export function AiChannelsSettingsTab() {
       if (result.models.length === 0) {
         setError(result.message);
       } else {
-        setMessage(t("channels.messages.modelsFetched", { count: result.models.length }));
+        setMessage(
+          result.truncated
+            ? t("channels.messages.modelsFetchedTruncated", { count: result.models.length })
+            : t("channels.messages.modelsFetched", { count: result.models.length }),
+        );
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));

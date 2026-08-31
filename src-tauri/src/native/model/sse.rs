@@ -148,7 +148,9 @@ mod tests {
     fn stream_parser_joins_events_split_across_chunks() {
         let mut parser = SseStreamParser::new();
         assert!(parser.push_bytes(b"event: response.out").is_empty());
-        assert!(parser.push_bytes(b"put_text.delta\ndata: {\"del").is_empty());
+        assert!(parser
+            .push_bytes(b"put_text.delta\ndata: {\"del")
+            .is_empty());
         let events = parser.push_bytes(b"ta\":\"hi\"}\n\n");
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].event, "response.output_text.delta");

@@ -42,7 +42,9 @@ use crate::native::tools::question::PlanQuestionAnswer;
 use crate::native::tools::{
     connect_mcp_servers, local::LocalWorkspace, ssh::SshToolRuntime, SharedMcp,
 };
-use crate::native::transcript::{load_transcript, save_transcript, NativeTranscriptMeta};
+use crate::native::transcript::{
+    load_transcript, save_transcript, transcript_fingerprint, NativeTranscriptMeta,
+};
 use serde::Serialize;
 
 const ENGINE_LABEL: &str = "内置 Agent";
@@ -81,10 +83,12 @@ pub(crate) fn next_loop_step(await_followups: bool, event: NativeLoopEvent) -> N
         NativeLoopEvent::TurnFinished { plan_pending: true } => {
             NativeLoopAction::PersistPlanAndExecute
         }
-        NativeLoopEvent::TurnFinished { plan_pending: false } if await_followups => {
-            NativeLoopAction::WaitFollowup
-        }
-        NativeLoopEvent::TurnFinished { plan_pending: false } => NativeLoopAction::Exit,
+        NativeLoopEvent::TurnFinished {
+            plan_pending: false,
+        } if await_followups => NativeLoopAction::WaitFollowup,
+        NativeLoopEvent::TurnFinished {
+            plan_pending: false,
+        } => NativeLoopAction::Exit,
         NativeLoopEvent::FollowupInput => NativeLoopAction::RunFollowup,
         NativeLoopEvent::FollowupFinish => NativeLoopAction::Exit,
     }
@@ -99,8 +103,14 @@ async fn persist_native_transcript(
     model: &str,
     turns: u32,
     messages: &[crate::native::model::types::Message],
+    last_fingerprint: &mut Option<u64>,
 ) {
+    let fingerprint = transcript_fingerprint(messages);
+    if last_fingerprint.as_ref() == Some(&fingerprint) {
+        return;
+    }
     let Ok(pool) = sqlite_pool(app).await else {
+        eprintln!("[native] 保存会话上下文失败: 无法打开数据库");
         return;
     };
     let meta = NativeTranscriptMeta {
@@ -110,7 +120,10 @@ async fn persist_native_transcript(
         model: model.to_string(),
         turns,
     };
-    let _ = save_transcript(&pool, session_record_id, messages, &meta).await;
+    match save_transcript(&pool, session_record_id, messages, &meta).await {
+        Ok(()) => *last_fingerprint = Some(fingerprint),
+        Err(error) => eprintln!("[native] 保存会话上下文失败: {error}"),
+    }
 }
 
 fn user_turn_count(messages: &[crate::native::model::types::Message]) -> u32 {
@@ -369,9 +382,7 @@ impl<R: Runtime> NativeDeltaEmitter<R> {
         {
             self.flush();
         }
-        let (_, buffer) = self
-            .pending
-            .get_or_insert_with(|| (segment, String::new()));
+        let (_, buffer) = self.pending.get_or_insert_with(|| (segment, String::new()));
         buffer.push_str(text);
         if buffer.len() >= DELTA_FLUSH_BYTES {
             self.flush();
@@ -1939,6 +1950,7 @@ async fn run_native_loop(
     let mut next = Some(first_prompt);
     let mut last_error: Option<String> = None;
     let mut plan_pending = plan_mode;
+    let mut last_transcript_fingerprint: Option<u64> = None;
     while let Some(prompt) = next.take() {
         emit_native_line(
             &app,
@@ -1991,6 +2003,7 @@ async fn run_native_loop(
             &run.model,
             user_turn_count(&runner.messages),
             &runner.messages,
+            &mut last_transcript_fingerprint,
         )
         .await;
         match next_loop_step(
@@ -1998,55 +2011,55 @@ async fn run_native_loop(
             NativeLoopEvent::TurnFinished { plan_pending },
         ) {
             NativeLoopAction::PersistPlanAndExecute => {
-            persist_native_plan_content(
-                &app,
-                task_id.as_deref(),
-                &employee_id,
-                project_id.as_deref(),
-                &session_record_id,
-                &kind,
-                &plan_text,
-            )
-            .await;
-            if cancel.is_cancelled() {
-                break;
-            }
-            plan_pending = false;
-            runner.set_read_only(false);
-            runner.set_plan_mode(false);
-            runner.ctx.request_question = None;
-            emit_native_line(
-                &app,
-                &session_record_id,
-                &employee_id,
-                task_id.as_deref(),
-                &kind,
-                "[PLAN] 开始执行".to_string(),
-            )
-            .await;
-            if let Some(task_id) = task_id.as_deref() {
-                if let Ok(pool) = sqlite_pool(&app).await {
-                    let _ = insert_activity_log(
-                        &pool,
-                        "native_plan_mode_executed",
-                        "内置 Agent 计划完成，开始执行",
-                        Some(&employee_id),
-                        Some(task_id),
-                        project_id.as_deref(),
-                    )
-                    .await;
-                }
-            }
-            next = Some(if let Some(def) = run.bound_subagent.as_ref() {
-                runner.required_subagent_type = Some(def.name.clone());
-                crate::native::prompt::wrap_prompt_for_required_subagent(
-                    EXECUTE_AFTER_PLAN,
-                    &def.name,
+                persist_native_plan_content(
+                    &app,
+                    task_id.as_deref(),
+                    &employee_id,
+                    project_id.as_deref(),
+                    &session_record_id,
+                    &kind,
+                    &plan_text,
                 )
-            } else {
-                EXECUTE_AFTER_PLAN.to_string()
-            });
-            continue;
+                .await;
+                if cancel.is_cancelled() {
+                    break;
+                }
+                plan_pending = false;
+                runner.set_read_only(false);
+                runner.set_plan_mode(false);
+                runner.ctx.request_question = None;
+                emit_native_line(
+                    &app,
+                    &session_record_id,
+                    &employee_id,
+                    task_id.as_deref(),
+                    &kind,
+                    "[PLAN] 开始执行".to_string(),
+                )
+                .await;
+                if let Some(task_id) = task_id.as_deref() {
+                    if let Ok(pool) = sqlite_pool(&app).await {
+                        let _ = insert_activity_log(
+                            &pool,
+                            "native_plan_mode_executed",
+                            "内置 Agent 计划完成，开始执行",
+                            Some(&employee_id),
+                            Some(task_id),
+                            project_id.as_deref(),
+                        )
+                        .await;
+                    }
+                }
+                next = Some(if let Some(def) = run.bound_subagent.as_ref() {
+                    runner.required_subagent_type = Some(def.name.clone());
+                    crate::native::prompt::wrap_prompt_for_required_subagent(
+                        EXECUTE_AFTER_PLAN,
+                        &def.name,
+                    )
+                } else {
+                    EXECUTE_AFTER_PLAN.to_string()
+                });
+                continue;
             }
             NativeLoopAction::WaitFollowup => {
                 if cancel.is_cancelled() {
@@ -2083,6 +2096,7 @@ async fn run_native_loop(
         &run.model,
         user_turn_count(&runner.messages),
         &runner.messages,
+        &mut last_transcript_fingerprint,
     )
     .await;
 
@@ -2525,8 +2539,8 @@ pub async fn resume_native_session(
 #[cfg(test)]
 mod tests {
     use super::{
-        format_native_diagnostics, native_kind_to_codex, next_loop_step, NativeLoopAction,
-        NativeLoopEvent, should_capture_native_execution_changes,
+        format_native_diagnostics, native_kind_to_codex, next_loop_step,
+        should_capture_native_execution_changes, NativeLoopAction, NativeLoopEvent,
     };
     use crate::codex::CodexSessionKind;
     use crate::native::agent::compact::{BudgetSnapshot, ContextWindow};
@@ -2681,10 +2695,7 @@ mod tests {
     #[test]
     fn next_loop_step_covers_plan_followup_and_exit() {
         assert_eq!(
-            next_loop_step(
-                false,
-                NativeLoopEvent::TurnFinished { plan_pending: true }
-            ),
+            next_loop_step(false, NativeLoopEvent::TurnFinished { plan_pending: true }),
             NativeLoopAction::PersistPlanAndExecute
         );
         assert_eq!(

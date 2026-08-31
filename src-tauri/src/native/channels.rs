@@ -474,9 +474,12 @@ pub async fn list_ai_channel_models<R: Runtime>(
         &target.api_key,
         target.extra_headers_json.as_deref(),
     )?;
-    let models = client.list_models().await?;
+    let listed = client.list_models().await?;
+    let models = listed.models;
     let message = if models.is_empty() {
         "网关未返回可用模型，请检查协议、Base URL 和密钥".to_string()
+    } else if listed.truncated {
+        format!("已获取 {} 个模型（列表已截断，可能不完整）", models.len())
     } else {
         format!("已获取 {} 个模型", models.len())
     };
@@ -486,10 +489,15 @@ pub async fn list_ai_channel_models<R: Runtime>(
         &pool,
         "ai_channel_models_fetched",
         &format!(
-            "拉取 AI 渠道 {}（{}）模型 {} 个",
+            "拉取 AI 渠道 {}（{}）模型 {} 个{}",
             target.label,
             target.protocol,
-            models.len()
+            models.len(),
+            if listed.truncated {
+                "（列表已截断）"
+            } else {
+                ""
+            }
         ),
         None,
         None,
@@ -497,7 +505,11 @@ pub async fn list_ai_channel_models<R: Runtime>(
     )
     .await?;
 
-    Ok(ListAiChannelModelsResult { models, message })
+    Ok(ListAiChannelModelsResult {
+        models,
+        message,
+        truncated: listed.truncated,
+    })
 }
 
 #[cfg(test)]

@@ -57,7 +57,7 @@
     "permissionTimeoutLabel": "高风险确认超时（秒）",
     "permissionTimeoutHint": "等待确认的秒数。超时按拒绝处理并继续会话。0 = 不超时，默认 300。",
     "subagentBudgetShareLabel": "子 Agent 预算占比（%）",
-    "subagentBudgetShareHint": "每个子 Agent 最多占用父会话剩余预算的百分比。默认 40，范围 5–100。触顶后父会话仍可继续。",
+    "subagentBudgetShareHint": "同一批子 Agent 合计最多占用父会话剩余预算的百分比。默认 40，范围 5–100。触顶后父会话仍可继续。",
     "maxConcurrentSubagentsLabel": "同轮子 Agent 上限",
     "maxConcurrentSubagentsHint": "一次回复里最多并行多少个子 Agent。默认 1，范围 1–16。本地与 SSH 共用。改完对之后新开的会话生效。",
     "subagentPolicyLabel": "子 Agent 策略",
@@ -913,7 +913,8 @@
       "created": "渠道已创建",
       "updated": "渠道已更新",
       "deleted": "渠道已删除",
-      "modelsFetched": "已获取 {{count}} 个模型，保存后生效"
+      "modelsFetched": "已获取 {{count}} 个模型，保存后生效",
+      "modelsFetchedTruncated": "已获取 {{count}} 个模型（列表已截断，可能不完整），保存后生效"
     }
   },
   "subagents": {
