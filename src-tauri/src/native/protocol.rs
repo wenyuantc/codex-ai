@@ -303,6 +303,24 @@ mod tests {
         assert_eq!(from_objects[0].context_tokens, Some(64000));
         assert_eq!(from_objects[0].thinking_enabled, Some(true));
         assert!(from_objects[0].max_output_tokens.is_some());
+        let subset = parse_channel_models_json(
+            r#"[{"id":"gpt-5.6-luna","thinking_enabled":true,"thinking_level":"high","thinking_levels":["low","high"]}]"#,
+        )
+        .unwrap();
+        assert_eq!(
+            subset[0].thinking_levels.as_deref(),
+            Some(["low".to_string(), "high".to_string()].as_slice())
+        );
+        assert_eq!(subset[0].thinking_level.as_deref(), Some("high"));
+        let unknown = parse_channel_models_json(
+            r#"[{"id":"custom-local-model","thinking_enabled":true,"thinking_level":"high"}]"#,
+        )
+        .unwrap();
+        assert_eq!(
+            unknown[0].thinking_levels.as_deref(),
+            Some(["low".to_string(), "medium".to_string(), "high".to_string()].as_slice())
+        );
+        assert_eq!(unknown[0].thinking_level.as_deref(), Some("high"));
     }
 
     #[test]

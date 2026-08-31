@@ -76,6 +76,85 @@ pub fn lookup_catalog(model_id: &str) -> Option<&'static ModelCatalogEntry> {
         .max_by_key(|entry| normalize_model_key(&entry.id).len())
 }
 
+const FALLBACK_THINKING_LEVELS: [&str; 3] = ["low", "medium", "high"];
+
+pub fn unique_thinking_levels(levels: impl IntoIterator<Item = impl AsRef<str>>) -> Vec<String> {
+    let mut seen = std::collections::HashSet::new();
+    let mut next = Vec::new();
+    for level in levels {
+        let trimmed = level.as_ref().trim();
+        if trimmed.is_empty() || seen.contains(trimmed) {
+            continue;
+        }
+        seen.insert(trimmed.to_string());
+        next.push(trimmed.to_string());
+    }
+    next
+}
+
+fn catalog_thinking_levels(entry: Option<&ModelCatalogEntry>) -> Vec<String> {
+    if let Some(entry) = entry {
+        let levels = unique_thinking_levels(&entry.thinking_levels);
+        if !levels.is_empty() {
+            return levels;
+        }
+    }
+    FALLBACK_THINKING_LEVELS
+        .iter()
+        .map(|level| (*level).to_string())
+        .collect()
+}
+
+pub fn default_thinking_level(levels: &[String], preferred: Option<&str>) -> Option<String> {
+    if levels.is_empty() {
+        return None;
+    }
+    if let Some(current) = preferred.map(str::trim).filter(|item| !item.is_empty()) {
+        if levels.iter().any(|item| item == current) {
+            return Some(current.to_string());
+        }
+    }
+    levels
+        .iter()
+        .find(|level| *level == "medium")
+        .cloned()
+        .or_else(|| levels.first().cloned())
+}
+
+pub fn selected_thinking_levels(config: &ChannelModelConfig) -> Vec<String> {
+    match config.thinking_levels.as_ref() {
+        Some(levels) => unique_thinking_levels(levels),
+        None => catalog_thinking_levels(lookup_catalog(&config.id)),
+    }
+}
+
+fn normalize_thinking_config(config: &mut ChannelModelConfig) {
+    if let Some(levels) = config.thinking_levels.as_mut() {
+        *levels = unique_thinking_levels(levels.iter());
+    }
+    if config.thinking_enabled == Some(false) {
+        config.thinking_level = None;
+        return;
+    }
+    if config.thinking_enabled != Some(true) {
+        if let Some(level) = config.thinking_level.as_deref() {
+            let trimmed = level.trim();
+            if trimmed.is_empty() {
+                config.thinking_level = None;
+            } else if trimmed != level {
+                config.thinking_level = Some(trimmed.to_string());
+            }
+        }
+        return;
+    }
+    let allowed = selected_thinking_levels(config);
+    if config.thinking_levels.is_none() {
+        config.thinking_levels = Some(allowed.clone());
+    }
+    config.thinking_level =
+        default_thinking_level(allowed.as_slice(), config.thinking_level.as_deref());
+}
+
 pub fn apply_catalog_defaults(model_id: &str) -> ChannelModelConfig {
     let mut config = ChannelModelConfig {
         id: model_id.trim().to_string(),
@@ -90,38 +169,53 @@ pub fn apply_catalog_defaults(model_id: &str) -> ChannelModelConfig {
 }
 
 pub fn fill_from_catalog(config: &mut ChannelModelConfig) {
-    let Some(entry) = lookup_catalog(&config.id) else {
-        return;
-    };
-    if config.context_tokens.is_none() {
-        config.context_tokens = Some(entry.context_tokens);
+    config.id = config.id.trim().to_string();
+    if let Some(entry) = lookup_catalog(&config.id) {
+        if config.context_tokens.is_none() {
+            config.context_tokens = Some(entry.context_tokens);
+        }
+        if config.max_output_tokens.is_none() {
+            config.max_output_tokens = Some(entry.max_output_tokens);
+        }
+        if config.thinking_enabled.is_none() {
+            config.thinking_enabled = Some(entry.thinking);
+        }
+        if config.thinking_levels.is_none() {
+            config.thinking_levels = Some(entry.thinking_levels.clone());
+        }
     }
-    if config.max_output_tokens.is_none() {
-        config.max_output_tokens = Some(entry.max_output_tokens);
+    normalize_thinking_config(config);
+}
+
+pub fn validate_channel_model_config(config: &ChannelModelConfig) -> Result<(), String> {
+    if config.thinking_enabled == Some(true) && selected_thinking_levels(config).is_empty() {
+        return Err(format!("模型「{}」开启思考时请至少勾选一个等级", config.id));
     }
-    if config.thinking_enabled.is_none() {
-        config.thinking_enabled = Some(entry.thinking);
+    Ok(())
+}
+
+pub fn normalize_channel_model_config(config: &mut ChannelModelConfig) -> Result<(), String> {
+    fill_from_catalog(config);
+    validate_channel_model_config(config)
+}
+
+pub fn resolve_runtime_reasoning_effort(
+    config: &ChannelModelConfig,
+    reasoning_effort: Option<&str>,
+) -> Option<String> {
+    if config.thinking_enabled != Some(true) {
+        return None;
     }
-    if config.thinking_level.is_none() {
-        config.thinking_level = if entry.thinking {
-            entry
-                .thinking_levels
-                .iter()
-                .find(|level| *level == "medium")
-                .cloned()
-                .or_else(|| entry.thinking_levels.first().cloned())
-        } else {
-            None
-        };
+    let allowed = selected_thinking_levels(config);
+    let requested = reasoning_effort
+        .map(str::trim)
+        .filter(|item| !item.is_empty());
+    if let Some(current) = requested {
+        if allowed.iter().any(|item| item == current) {
+            return Some(current.to_string());
+        }
     }
-    let stored_levels = config.thinking_levels.as_deref().unwrap_or(&[]);
-    let catalog_has_new_level = entry
-        .thinking_levels
-        .iter()
-        .any(|level| !stored_levels.iter().any(|item| item == level));
-    if stored_levels.is_empty() || catalog_has_new_level {
-        config.thinking_levels = Some(entry.thinking_levels.clone());
-    }
+    default_thinking_level(allowed.as_slice(), config.thinking_level.as_deref())
 }
 
 #[tauri::command]
@@ -172,26 +266,103 @@ mod tests {
         let entry = lookup_catalog("gpt-5.6-luna").expect("luna");
         assert!(entry.thinking_levels.contains(&"xhigh".to_string()));
         assert!(entry.thinking_levels.contains(&"max".to_string()));
+        let defaults = apply_catalog_defaults("gpt-5.6-luna");
+        assert!(defaults
+            .thinking_levels
+            .as_ref()
+            .is_some_and(|levels| levels.contains(&"xhigh".to_string())
+                && levels.contains(&"max".to_string())));
+    }
+
+    #[test]
+    fn fill_from_catalog_keeps_explicit_thinking_level_subset() {
         let mut config = apply_catalog_defaults("gpt-5.6-luna");
-        config.thinking_levels = Some(vec![
-            "minimal".to_string(),
-            "low".to_string(),
-            "medium".to_string(),
-            "high".to_string(),
-        ]);
+        config.thinking_levels = Some(vec!["low".to_string(), "high".to_string()]);
+        config.thinking_level = Some("high".to_string());
         fill_from_catalog(&mut config);
         assert_eq!(
             config.thinking_levels.as_deref(),
-            Some(
-                [
-                    "low".to_string(),
-                    "medium".to_string(),
-                    "high".to_string(),
-                    "xhigh".to_string(),
-                    "max".to_string()
-                ]
-                .as_slice()
-            )
+            Some(["low".to_string(), "high".to_string()].as_slice())
+        );
+        assert_eq!(config.thinking_level.as_deref(), Some("high"));
+    }
+
+    #[test]
+    fn fill_from_catalog_keeps_explicit_empty_thinking_levels() {
+        let mut config = apply_catalog_defaults("deepseek-reasoner");
+        config.thinking_enabled = Some(false);
+        config.thinking_levels = Some(vec![]);
+        config.thinking_level = Some("medium".to_string());
+        fill_from_catalog(&mut config);
+        assert_eq!(config.thinking_levels.as_deref(), Some([].as_slice()));
+        assert_eq!(config.thinking_level, None);
+    }
+
+    #[test]
+    fn fill_from_catalog_falls_back_when_default_level_is_not_allowed() {
+        let mut config = apply_catalog_defaults("deepseek-reasoner");
+        config.thinking_enabled = Some(true);
+        config.thinking_levels = Some(vec!["low".to_string(), "high".to_string()]);
+        config.thinking_level = Some("medium".to_string());
+        fill_from_catalog(&mut config);
+        assert_eq!(config.thinking_level.as_deref(), Some("low"));
+    }
+
+    fn unknown_thinking_on() -> ChannelModelConfig {
+        ChannelModelConfig {
+            id: "custom-local-model".to_string(),
+            context_tokens: None,
+            max_output_tokens: None,
+            thinking_enabled: Some(true),
+            thinking_level: Some("high".to_string()),
+            thinking_levels: None,
+        }
+    }
+
+    #[test]
+    fn unknown_model_null_levels_materialize_fallback_set() {
+        let mut config = unknown_thinking_on();
+        normalize_channel_model_config(&mut config).expect("legacy unknown model is valid");
+        assert_eq!(
+            config.thinking_levels.as_deref(),
+            Some(["low".to_string(), "medium".to_string(), "high".to_string()].as_slice())
+        );
+        assert_eq!(config.thinking_level.as_deref(), Some("high"));
+    }
+
+    #[test]
+    fn thinking_on_rejects_explicit_empty_levels() {
+        let mut config = apply_catalog_defaults("deepseek-reasoner");
+        config.thinking_enabled = Some(true);
+        config.thinking_levels = Some(vec![]);
+        assert_eq!(
+            normalize_channel_model_config(&mut config).unwrap_err(),
+            "模型「deepseek-reasoner」开启思考时请至少勾选一个等级"
+        );
+
+        let mut unknown = unknown_thinking_on();
+        unknown.thinking_levels = Some(vec![]);
+        assert!(normalize_channel_model_config(&mut unknown).is_err());
+    }
+
+    #[test]
+    fn runtime_effort_falls_back_when_channel_subset_shrinks() {
+        let mut config = apply_catalog_defaults("gpt-5.6-luna");
+        config.thinking_enabled = Some(true);
+        config.thinking_levels = Some(vec!["low".to_string(), "high".to_string()]);
+        config.thinking_level = Some("high".to_string());
+        fill_from_catalog(&mut config);
+        assert_eq!(
+            resolve_runtime_reasoning_effort(&config, Some("max")).as_deref(),
+            Some("high")
+        );
+        assert_eq!(
+            resolve_runtime_reasoning_effort(&config, Some("low")).as_deref(),
+            Some("low")
+        );
+        assert_eq!(
+            resolve_runtime_reasoning_effort(&config, None).as_deref(),
+            Some("high")
         );
     }
 }

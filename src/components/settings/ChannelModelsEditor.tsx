@@ -1,9 +1,17 @@
 import { Plus, Sparkles, Trash2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
-import { applyCatalogToModel, emptyChannelModel, lookupModelCatalog } from "@/lib/modelCatalog";
+import {
+  applyCatalogToModel,
+  displayedThinkingLevels,
+  emptyChannelModel,
+  lookupModelCatalog,
+  selectedThinkingLevels,
+  withThinkingLevels,
+} from "@/lib/modelCatalog";
 import type { AiChannelModel, ModelCatalogEntry } from "@/lib/types";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -19,8 +27,6 @@ interface ChannelModelsEditorProps {
   disabled?: boolean;
   onChange: (models: AiChannelModel[]) => void;
 }
-
-const FALLBACK_LEVELS = ["low", "medium", "high"];
 
 export function ChannelModelsEditor({
   models,
@@ -56,9 +62,10 @@ export function ChannelModelsEditor({
       ) : (
         models.map((model, index) => {
           const entry = lookupModelCatalog(catalog, model.id);
-          const levels =
-            entry && entry.thinking_levels.length > 0 ? entry.thinking_levels : FALLBACK_LEVELS;
           const thinkingOn = model.thinking_enabled === true;
+          const optionLevels = displayedThinkingLevels(model, entry);
+          const selectedLevels = selectedThinkingLevels(model, entry);
+          const emptySelection = thinkingOn && selectedLevels.length === 0;
           return (
             <div
               key={`${model.id}-${index}`}
@@ -140,26 +147,26 @@ export function ChannelModelsEditor({
                   />
                 </div>
               </div>
-              <div className="grid grid-cols-2 gap-2">
+              <div className="space-y-2">
                 <div>
                   <label className="text-[11px] text-muted-foreground">
                     {t("channels.fields.thinking")}
                   </label>
                   <Select
                     value={thinkingOn ? "on" : "off"}
+                    disabled={disabled}
                     onValueChange={(value) => {
                       if (value !== "on" && value !== "off") return;
-                      updateAt(index, {
-                        ...model,
-                        thinking_enabled: value === "on",
-                        thinking_level:
-                          value === "on"
-                            ? (model.thinking_level ??
-                              levels.find((level) => level === "medium") ??
-                              levels[0] ??
-                              null)
-                            : null,
-                      });
+                      const levels =
+                        selectedLevels.length > 0
+                          ? selectedLevels
+                          : displayedThinkingLevels(model, entry);
+                      updateAt(
+                        index,
+                        withThinkingLevels(model, levels, {
+                          thinkingEnabled: value === "on",
+                        }),
+                      );
                     }}
                   >
                     <SelectTrigger className="mt-1 bg-background">
@@ -177,37 +184,63 @@ export function ChannelModelsEditor({
                     </SelectContent>
                   </Select>
                 </div>
-                <div>
-                  <label className="text-[11px] text-muted-foreground">
-                    {t("channels.fields.thinkingLevel")}
-                  </label>
-                  <Select
-                    value={model.thinking_level ?? undefined}
-                    onValueChange={(value) => {
-                      if (typeof value === "string") {
-                        updateAt(index, { ...model, thinking_level: value });
-                      }
-                    }}
-                    disabled={disabled || !thinkingOn}
+                <fieldset
+                  disabled={disabled || !thinkingOn}
+                  className="min-w-0 space-y-1.5 disabled:opacity-50"
+                >
+                  <legend className="text-[11px] text-muted-foreground">
+                    {t("channels.fields.thinkingLevels")}
+                  </legend>
+                  <div
+                    className="flex flex-wrap gap-x-3 gap-y-1.5"
+                    role="group"
+                    aria-label={t("channels.fields.thinkingLevels")}
                   >
-                    <SelectTrigger className="mt-1 bg-background">
-                      <SelectValue>
-                        {(value) =>
-                          typeof value === "string"
-                            ? t(`channels.thinkingLevels.${value}`, { defaultValue: value })
-                            : t("channels.fields.thinkingLevel")
-                        }
-                      </SelectValue>
-                    </SelectTrigger>
-                    <SelectContent>
-                      {levels.map((level) => (
-                        <SelectItem key={level} value={level}>
-                          {t(`channels.thinkingLevels.${level}`, { defaultValue: level })}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
+                    {optionLevels.map((level) => {
+                      const checkboxId = `channel-model-${index}-thinking-${level}`;
+                      const checked = selectedLevels.includes(level);
+                      return (
+                        <label
+                          key={level}
+                          htmlFor={checkboxId}
+                          className="flex cursor-pointer items-center gap-1.5 text-[11px] text-foreground"
+                        >
+                          <Checkbox
+                            id={checkboxId}
+                            checked={checked}
+                            disabled={disabled || !thinkingOn}
+                            aria-label={t(`channels.thinkingLevels.${level}`, {
+                              defaultValue: level,
+                            })}
+                            onCheckedChange={(nextChecked) => {
+                              const next = nextChecked
+                                ? [...selectedLevels, level]
+                                : selectedLevels.filter((item) => item !== level);
+                              updateAt(
+                                index,
+                                withThinkingLevels(model, next, {
+                                  thinkingEnabled: model.thinking_enabled,
+                                }),
+                              );
+                            }}
+                          />
+                          <span>
+                            {t(`channels.thinkingLevels.${level}`, { defaultValue: level })}
+                          </span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                  {emptySelection ? (
+                    <p className="text-[11px] text-destructive">
+                      {t("channels.fields.thinkingLevelsEmpty")}
+                    </p>
+                  ) : (
+                    <p className="text-[11px] text-muted-foreground">
+                      {t("channels.fields.thinkingLevelsHint")}
+                    </p>
+                  )}
+                </fieldset>
               </div>
             </div>
           );

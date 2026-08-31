@@ -31,7 +31,9 @@ use crate::native::model::call_log::{
     CallLogContext, CALL_KIND_CHAT, CALL_KIND_ONE_SHOT, CALL_KIND_PLAN,
 };
 use crate::native::model::{ModelClient, ModelClientConfig, RetryConfig};
-use crate::native::model_catalog::{apply_catalog_defaults, fill_from_catalog};
+use crate::native::model_catalog::{
+    apply_catalog_defaults, fill_from_catalog, resolve_runtime_reasoning_effort,
+};
 use crate::native::protocol::record_to_channel;
 use crate::native::tools::permission::{NativePermissionDecision, NativeToolRiskKind};
 use crate::native::tools::question::PlanQuestionAnswer;
@@ -422,16 +424,7 @@ async fn load_native_client_from_channel(
     };
     let model_config = resolve_run_model_config(&channel.models, &model);
     let thinking_enabled = model_config.thinking_enabled.unwrap_or(false);
-    let effort = if thinking_enabled {
-        let from_effort = reasoning_effort.map(str::trim).unwrap_or_default();
-        if from_effort.is_empty() {
-            model_config.thinking_level.clone()
-        } else {
-            Some(from_effort.to_string())
-        }
-    } else {
-        None
-    };
+    let effort = resolve_runtime_reasoning_effort(&model_config, reasoning_effort);
     let client = ModelClient::new(ModelClientConfig {
         protocol: channel.protocol.clone(),
         base_url: channel.base_url.clone(),
@@ -2325,6 +2318,22 @@ mod tests {
         assert_eq!(
             super::format_native_plan_saved_details("修复登录", "计划内容"),
             "修复登录（计划长度：4 字）"
+        );
+    }
+
+    #[test]
+    fn runtime_effort_clamps_to_channel_allowed_levels() {
+        let mut config = crate::native::model_catalog::apply_catalog_defaults("gpt-5.6-luna");
+        config.thinking_enabled = Some(true);
+        config.thinking_levels = Some(vec!["low".to_string(), "high".to_string()]);
+        config.thinking_level = Some("high".to_string());
+        crate::native::model_catalog::fill_from_catalog(&mut config);
+        let resolved =
+            super::resolve_run_model_config(std::slice::from_ref(&config), "gpt-5.6-luna");
+        assert_eq!(
+            crate::native::model_catalog::resolve_runtime_reasoning_effort(&resolved, Some("max"))
+                .as_deref(),
+            Some("high")
         );
     }
 

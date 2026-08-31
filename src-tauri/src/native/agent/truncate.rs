@@ -441,7 +441,8 @@ pub fn sanitize_tool_message_pairs(messages: &mut Vec<Message>) {
             // retaining a result that happens to share an id with a call
             // later in the history.
             Role::Tool
-                if !message.tool_call_id.is_empty() && seen_calls.contains(&message.tool_call_id) =>
+                if !message.tool_call_id.is_empty()
+                    && seen_calls.contains(&message.tool_call_id) =>
             {
                 valid_calls.insert(message.tool_call_id.clone());
             }

@@ -39,10 +39,13 @@ describe("formatTokenCount", () => {
   it("keeps small numbers and compacts thousands/millions", () => {
     expect(formatTokenCount(0)).toBe("0");
     expect(formatTokenCount(950)).toBe("950");
-    expect(formatTokenCount(12_340)).toBe("12K");
-    expect(formatTokenCount(1_250)).toBe("1.3K");
-    expect(formatTokenCount(4_560_000)).toBe("4.6M");
-    expect(formatTokenCount(12_000_000)).toBe("12M");
+    expect(formatTokenCount(12_340)).toBe("12.34K");
+    expect(formatTokenCount(1_250)).toBe("1.25K");
+    expect(formatTokenCount(999_499)).toBe("999.50K");
+    expect(formatTokenCount(999_995)).toBe("1.00M");
+    expect(formatTokenCount(1_000_000)).toBe("1.00M");
+    expect(formatTokenCount(4_560_000)).toBe("4.56M");
+    expect(formatTokenCount(12_000_000)).toBe("12.00M");
     expect(formatTokenCount(Number.NaN)).toBe("0");
   });
 });
@@ -110,10 +113,10 @@ describe("buildTokenUsageMetrics", () => {
         output_tokens: 4340,
       }),
     ).toEqual({
-      input: { kind: "value", text: "8.0K" },
-      output: { kind: "value", text: "4.3K" },
+      input: { kind: "value", text: "8.00K" },
+      output: { kind: "value", text: "4.34K" },
       cached: { kind: "unknown" },
-      total: { kind: "value", text: "12K" },
+      total: { kind: "value", text: "12.34K" },
       cacheRate: { kind: "unknown" },
     });
   });

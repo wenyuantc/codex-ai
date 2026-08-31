@@ -73,6 +73,8 @@ describe("i18n locale preference", () => {
       "本地 CLI/SDK 可附带图片",
     );
     expect(i18n.t("settings:prompts.scenes.native_agent_global")).toBe("内置 Agent 全局提示词");
+    expect(i18n.t("settings:channels.fields.thinkingLevels")).toBe("允许的思考等级");
+    expect(i18n.t("settings:channels.fields.thinkingLevelsEmpty")).toContain("至少勾选");
 
     await changeAppLocale("en");
     expect(getCurrentAppLocale()).toBe("en");
@@ -150,6 +152,8 @@ describe("i18n locale preference", () => {
     expect(i18n.t("settings:prompts.scenes.native_agent_global")).toBe(
       "Built-in Agent global prompt",
     );
+    expect(i18n.t("settings:channels.fields.thinkingLevels")).toBe("Allowed thinking levels");
+    expect(i18n.t("settings:channels.fields.thinkingLevelsEmpty")).toContain("at least one");
 
     await changeAppLocale("zh-CN");
   });

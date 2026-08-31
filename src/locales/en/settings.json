@@ -867,6 +867,9 @@
       "maxOutputTokens": "Max output (tokens)",
       "thinking": "Thinking",
       "thinkingLevel": "Thinking level",
+      "thinkingLevels": "Allowed thinking levels",
+      "thinkingLevelsHint": "Select one or more levels. Runtime defaults to medium, otherwise the first selected level.",
+      "thinkingLevelsEmpty": "Select at least one thinking level when thinking is on.",
       "extraHeaders": "Extra headers (JSON object, optional)"
     },
     "protocols": {

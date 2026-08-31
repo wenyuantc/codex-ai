@@ -1791,7 +1791,10 @@ mod tests {
             "native"
         );
         assert_eq!(
-            normalized.git_preferences.ai_commit_native_channel_id.as_deref(),
+            normalized
+                .git_preferences
+                .ai_commit_native_channel_id
+                .as_deref(),
             Some("chan-1")
         );
 

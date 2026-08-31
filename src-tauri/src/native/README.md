@@ -69,13 +69,13 @@ src-tauri/src/native/
 - `restart_native_session` / `resume_native_session`：停止后重新启动 / 以 `resume_session_id` 续接会话记录。
 - `send_native_input`：向运行中的会话发送后续输入（`NativeFollowup::Input`）。
 - `stop_native_for_automation_restart`：供任务自动化「重启步骤」使用，校验员工身份与会话标识后才停止。
-- 辅助函数：`load_native_client`（员工 → 渠道 → 模型配置 → `ModelClient`）、`emit_native_line`（写 `codex_session_events` 并广播 `native-stdout`）、`resolve_run_model_config`（渠道模型配置缺失时回填模型目录）。
+- 辅助函数：`load_native_client`（员工 → 渠道 → 模型配置 → `ModelClient`）、`emit_native_line`（写 `codex_session_events` 并广播 `native-stdout`）、`resolve_run_model_config`（渠道模型配置缺失时回填模型目录）。运行时思考等级经 `resolve_runtime_reasoning_effort` 限制到渠道模型允许集合。
 
 #### `settings.rs` — 设置持久化
 将内置 Agent 设置保存到 `$APPCONFIG/native-settings.json`（结构体 `RawNativeSettings`）。字段包括最大模型工具轮次 `max_turns`（默认 40，0 表示不限制，上限 500）、高风险确认、同轮子 Agent 并发上限（默认 1，范围 1–16）、子 Agent 策略（默认 conservative），上下文窗口上限 `context_window_tokens`（默认 128,000，范围 8,000–1,000,000）、会话 rollout 预算 `rollout_token_budget`（默认 10,000,000，0 表示不限制，上限 100,000,000）和单条工具结果上限 `max_tool_output_tokens`（默认 4,096，范围 256–65,536）。缺少新增字段的旧 JSON 会按保守默认值归一化。提供 Tauri 命令 `get_native_settings` / `update_native_settings`，修改时写活动日志（`native_settings_updated`）。
 
 #### `channels.rs` — AI 渠道管理
-管理 `ai_channels` 表（内置 Agent 的模型来源）。Tauri 命令：`list_ai_channels`、`create_ai_channel`、`update_ai_channel`、`delete_ai_channel`（被员工引用时拒绝删除）、`test_ai_channel`（发一条 probe 请求测通）、`list_ai_channel_models`（调用 `/v1/models` 拉取模型列表）。包含 API Key 的迁移逻辑：旧字段 `api_key_ref`（keyring 引用）自动迁移到 `api_key` 列（`hydrate_channel_record`、`require_channel_api_key`），模型配置写入时经 `fill_from_catalog` 回填目录默认值。
+管理 `ai_channels` 表（内置 Agent 的模型来源）。Tauri 命令：`list_ai_channels`、`create_ai_channel`、`update_ai_channel`、`delete_ai_channel`（被员工引用时拒绝删除）、`test_ai_channel`（发一条 probe 请求测通）、`list_ai_channel_models`（调用 `/v1/models` 拉取模型列表）。包含 API Key 的迁移逻辑：旧字段 `api_key_ref`（keyring 引用）自动迁移到 `api_key` 列（`hydrate_channel_record`、`require_channel_api_key`），模型配置写入时经 `normalize_channel_model_config` 回填目录默认值并校验思考等级。
 
 #### `protocol.rs` — 协议与 URL 工具
 协议归一化：`openai`（chat/completions）、`anthropic`（messages）、`codex`（OpenAI Responses）三套及别名。提供 `channel_chat_url` / `channel_models_url` 构造端点、`normalize_base_url`、`normalize_extra_headers_json`（额外请求头）、模型列表 JSON 解析与分页（`parse_model_list_json`、`model_list_next_page`，兼容 OpenAI/Anthropic/网关形态）、`ChannelModelConfig` 的解析/序列化（`parse_channel_models_json` / `serialize_channel_models`，去重、回填目录），以及 `record_to_channel` 将数据库记录转为 UI 用的 `AiChannel` DTO（含 `api_key_configured`，不回传密钥引用）。
@@ -87,7 +87,7 @@ src-tauri/src/native/
 `load_native_images`：把本地图片路径列表加载为 `NativeImage`（base64 + 按扩展名猜 mime）；限制最多 8 张、单张 ≤ 8MB，缺失/超限分别记录到 `missing` / `skipped`；`image_log_lines` 生成会话日志行。
 
 #### `model_catalog.rs` — 内置模型目录
-以 `include_str!` 内嵌 `model_catalog.json`（编译期校验可解析）。`lookup_catalog` 支持精确 ID、别名、归一化匹配（忽略大小写/分隔符/下划线）与前缀模糊匹配；`fill_from_catalog` 为 `ChannelModelConfig` 回填 `context_tokens`、`max_output_tokens`、`thinking_enabled`、`thinking_level`、`thinking_levels`；`apply_catalog_defaults` 按模型 ID 生成完整默认配置。Tauri 命令 `list_model_catalog` 供前端展示。
+以 `include_str!` 内嵌 `model_catalog.json`（编译期校验可解析）。`lookup_catalog` 支持精确 ID、别名、归一化匹配（忽略大小写/分隔符/下划线）与前缀模糊匹配；`fill_from_catalog` / `normalize_channel_model_config` 为 `ChannelModelConfig` 回填缺失的 `context_tokens`、`max_output_tokens`、`thinking_enabled`、`thinking_level`、`thinking_levels`，并统一去空白、去重。`thinking_levels` 仅在 `None` 时采用目录全集（未知模型回退 `low/medium/high`）；用户已保存的显式子集或空数组不会被目录新增等级覆盖。开启思考时写入路径拒绝空集合。运行时默认 `thinking_level` 必须属于已选集合，关闭思考时清空。`resolve_runtime_reasoning_effort` 会把员工或一次性调用传入的等级限制到当前允许集合，越界时回退默认等级。`apply_catalog_defaults` 按模型 ID 生成完整默认配置。Tauri 命令 `list_model_catalog` 供前端展示。
 
 #### `model_catalog.json`
 模型目录数据：每条含 `id`、`aliases`、`vendor`（openai/anthropic/deepseek/minimax/glm/kimi/doubao/hunyuan/gemini/mimo/qwen 等）、`label`、`context_tokens`、`max_output_tokens`、`thinking`、`thinking_levels`。

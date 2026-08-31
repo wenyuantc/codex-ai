@@ -102,7 +102,7 @@ describe("formatSessionTokenUsage", () => {
     );
     expect(
       formatSessionTokenUsage({ total_tokens: 12340, input_tokens: 8000, output_tokens: 4340 }),
-    ).toBe("12K · 入 8.0K / 出 4.3K · 缓存 未知 · 率 未知");
+    ).toBe("12.34K · 入 8.00K / 出 4.34K · 缓存 未知 · 率 未知");
     expect(
       formatSessionTokenUsage({
         total_tokens: 110,

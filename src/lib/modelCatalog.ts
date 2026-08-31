@@ -1,5 +1,7 @@
 import type { AiChannelModel, ModelCatalogEntry } from "@/lib/types";
 
+export const FALLBACK_THINKING_LEVELS = ["low", "medium", "high"];
+
 export function emptyChannelModel(id = ""): AiChannelModel {
   return {
     id,
@@ -9,6 +11,97 @@ export function emptyChannelModel(id = ""): AiChannelModel {
     thinking_level: null,
     thinking_levels: null,
   };
+}
+
+export function catalogThinkingLevels(entry: ModelCatalogEntry | null): string[] {
+  if (entry && entry.thinking_levels.length > 0) {
+    return [...entry.thinking_levels];
+  }
+  return [...FALLBACK_THINKING_LEVELS];
+}
+
+export function uniqueThinkingLevels(levels: string[]): string[] {
+  const seen = new Set<string>();
+  const next: string[] = [];
+  for (const level of levels) {
+    const trimmed = level.trim();
+    if (!trimmed || seen.has(trimmed)) continue;
+    seen.add(trimmed);
+    next.push(trimmed);
+  }
+  return next;
+}
+
+export function defaultThinkingLevel(levels: string[], preferred?: string | null): string | null {
+  if (levels.length === 0) return null;
+  const current = preferred?.trim();
+  if (current && levels.includes(current)) return current;
+  return levels.find((level) => level === "medium") ?? levels[0] ?? null;
+}
+
+export function withThinkingLevels(
+  model: AiChannelModel,
+  levels: string[] | null,
+  options?: { thinkingEnabled?: boolean | null },
+): AiChannelModel {
+  const thinkingEnabled = options?.thinkingEnabled ?? model.thinking_enabled;
+  const nextLevels = levels == null ? null : uniqueThinkingLevels(levels);
+  const thinkingLevel =
+    thinkingEnabled === true
+      ? defaultThinkingLevel(nextLevels ?? [], model.thinking_level)
+      : thinkingEnabled === false
+        ? null
+        : model.thinking_level;
+  return {
+    ...model,
+    thinking_enabled: thinkingEnabled,
+    thinking_levels: nextLevels,
+    thinking_level: thinkingLevel,
+  };
+}
+
+export function displayedThinkingLevels(
+  model: AiChannelModel,
+  entry: ModelCatalogEntry | null,
+): string[] {
+  const catalogLevels = catalogThinkingLevels(entry);
+  const stored = uniqueThinkingLevels(model.thinking_levels ?? []);
+  const extras = stored.filter((level) => !catalogLevels.includes(level));
+  return uniqueThinkingLevels([...catalogLevels, ...extras]);
+}
+
+export function selectedThinkingLevels(
+  model: AiChannelModel,
+  entry: ModelCatalogEntry | null,
+): string[] {
+  if (model.thinking_levels == null) {
+    return catalogThinkingLevels(entry);
+  }
+  return uniqueThinkingLevels(model.thinking_levels);
+}
+
+export function canSaveChannelModels(
+  models: AiChannelModel[],
+  catalog: ModelCatalogEntry[] = [],
+): boolean {
+  return models.every((model) => {
+    if (!model.id.trim()) return true;
+    if (model.thinking_enabled !== true) return true;
+    return selectedThinkingLevels(model, lookupModelCatalog(catalog, model.id)).length > 0;
+  });
+}
+
+export function materializeThinkingLevels(
+  catalog: ModelCatalogEntry[],
+  model: AiChannelModel,
+): AiChannelModel {
+  const next = applyCatalogToModel(catalog, model);
+  if (next.thinking_enabled !== true) {
+    return next;
+  }
+  const entry = lookupModelCatalog(catalog, next.id);
+  const levels = selectedThinkingLevels(next, entry);
+  return withThinkingLevels(next, levels, { thinkingEnabled: true });
 }
 
 export function normalizeModelKey(value: string): string {
@@ -57,22 +150,23 @@ export function applyCatalogToModel(
   if (overwrite || next.context_tokens == null) next.context_tokens = entry.context_tokens;
   if (overwrite || next.max_output_tokens == null) next.max_output_tokens = entry.max_output_tokens;
   if (overwrite || next.thinking_enabled == null) next.thinking_enabled = entry.thinking;
-  if (overwrite || !next.thinking_level) {
-    next.thinking_level = entry.thinking
-      ? (entry.thinking_levels.find((level) => level === "medium") ??
-        entry.thinking_levels[0] ??
-        null)
-      : null;
-  }
-  const storedLevels = next.thinking_levels ?? [];
-  const catalogHasNewLevel = entry.thinking_levels.some((level) => !storedLevels.includes(level));
-  if (overwrite || storedLevels.length === 0 || catalogHasNewLevel) {
-    next.thinking_levels = entry.thinking_levels.length > 0 ? entry.thinking_levels : [];
+  if (overwrite || next.thinking_levels == null) {
+    next.thinking_levels = entry.thinking_levels.length > 0 ? [...entry.thinking_levels] : [];
+  } else {
+    next.thinking_levels = uniqueThinkingLevels(next.thinking_levels);
   }
   if (!entry.thinking && (overwrite || model.thinking_enabled == null)) {
     next.thinking_enabled = false;
     if (overwrite || !model.thinking_level) next.thinking_level = null;
-    if (overwrite || !model.thinking_levels?.length) next.thinking_levels = [];
+    if (overwrite || model.thinking_levels == null) next.thinking_levels = [];
+  }
+  if (next.thinking_enabled === true) {
+    const allowed = uniqueThinkingLevels(next.thinking_levels ?? []);
+    next.thinking_level = overwrite
+      ? defaultThinkingLevel(allowed, null)
+      : defaultThinkingLevel(allowed, next.thinking_level);
+  } else if (overwrite || next.thinking_enabled === false) {
+    next.thinking_level = null;
   }
   return next;
 }

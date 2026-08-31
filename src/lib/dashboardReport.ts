@@ -40,17 +40,21 @@ export function shortTrendPointLabel(label: string, range: DashboardTrendRange):
   return label;
 }
 
-/** Compact token count for chart labels: 950 → "950", 12_340 → "12.3K", 4_560_000 → "4.6M". */
+/** Compact token count: 950 → "950", 12_340 → "12.34K", 1_000_000 → "1.00M". */
 export function formatTokenCount(value: number): string {
   if (!Number.isFinite(value)) {
     return "0";
   }
   const abs = Math.abs(value);
   if (abs >= 1_000_000) {
-    return `${(value / 1_000_000).toFixed(abs >= 10_000_000 ? 0 : 1)}M`;
+    return `${(value / 1_000_000).toFixed(2)}M`;
   }
   if (abs >= 1_000) {
-    return `${(value / 1_000).toFixed(abs >= 10_000 ? 0 : 1)}K`;
+    const kText = (value / 1_000).toFixed(2);
+    if (Math.abs(Number(kText)) >= 1000) {
+      return `${(value / 1_000_000).toFixed(2)}M`;
+    }
+    return `${kText}K`;
   }
   return `${value}`;
 }

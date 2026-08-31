@@ -10,7 +10,7 @@ use crate::db::models::{
     TestAiChannelResult, UpdateAiChannel,
 };
 use crate::native::model::{ModelClient, ModelClientConfig, RetryConfig};
-use crate::native::model_catalog::fill_from_catalog;
+use crate::native::model_catalog::normalize_channel_model_config;
 use crate::native::protocol::{
     normalize_base_url, normalize_extra_headers_json, normalize_protocol,
     parse_channel_models_json, record_to_channel, serialize_channel_models,
@@ -266,7 +266,7 @@ pub async fn create_ai_channel<R: Runtime>(
     let extra_headers_json = normalize_extra_headers_json(payload.extra_headers_json.as_deref())?;
     let mut models = payload.models.unwrap_or_default();
     for model in &mut models {
-        fill_from_catalog(model);
+        normalize_channel_model_config(model)?;
     }
     let models_json = serialize_channel_models(&models);
     let enabled = i64::from(payload.enabled.unwrap_or(true));
@@ -332,7 +332,7 @@ pub async fn update_ai_channel<R: Runtime>(
     let models_json = match updates.models {
         Some(mut models) => {
             for model in &mut models {
-                fill_from_catalog(model);
+                normalize_channel_model_config(model)?;
             }
             serialize_channel_models(&models)
         }

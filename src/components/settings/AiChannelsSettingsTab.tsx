@@ -12,7 +12,11 @@ import {
   testAiChannel,
   updateAiChannel,
 } from "@/lib/backend";
-import { applyCatalogToModel, emptyChannelModel } from "@/lib/modelCatalog";
+import {
+  canSaveChannelModels,
+  emptyChannelModel,
+  materializeThinkingLevels,
+} from "@/lib/modelCatalog";
 import { formatDate } from "@/lib/utils";
 import type { AiChannel, AiChannelModel, AiChannelProtocol, ModelCatalogEntry } from "@/lib/types";
 import { ChannelModelsEditor } from "@/components/settings/ChannelModelsEditor";
@@ -137,12 +141,16 @@ export function AiChannelsSettingsTab() {
   };
 
   const handleSave = async () => {
-    setSaving("save");
     setError(null);
     setMessage(null);
     const models = form.models
-      .map((item) => applyCatalogToModel(catalog, item))
+      .map((item) => materializeThinkingLevels(catalog, item))
       .filter((item) => item.id.trim().length > 0);
+    if (!canSaveChannelModels(models, catalog)) {
+      setError(t("channels.fields.thinkingLevelsEmpty"));
+      return;
+    }
+    setSaving("save");
     const extraHeaders = form.extraHeaders.trim() || null;
     try {
       if (selectedId) {
