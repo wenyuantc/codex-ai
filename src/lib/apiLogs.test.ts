@@ -22,6 +22,17 @@ describe("formatApiCallLogTokenCount", () => {
   it("keeps an explicit zero", () => {
     expect(formatApiCallLogTokenCount(0, "未知")).toBe("0");
   });
+
+  it("compacts thousands as K and millions as M, matching conversation usage", () => {
+    expect(formatApiCallLogTokenCount(950, "未知")).toBe("950");
+    expect(formatApiCallLogTokenCount(1_250, "未知")).toBe("1.25K");
+    expect(formatApiCallLogTokenCount(12_340, "未知")).toBe("12.34K");
+    expect(formatApiCallLogTokenCount(999_499, "未知")).toBe("999.50K");
+    expect(formatApiCallLogTokenCount(999_995, "未知")).toBe("1.00M");
+    expect(formatApiCallLogTokenCount(1_000_000, "未知")).toBe("1.00M");
+    expect(formatApiCallLogTokenCount(4_560_000, "未知")).toBe("4.56M");
+    expect(formatApiCallLogTokenCount(12_000_000, "未知")).toBe("12.00M");
+  });
 });
 
 describe("formatApiCallLogDurationMs", () => {

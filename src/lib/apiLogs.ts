@@ -1,4 +1,5 @@
 import type { NativeApiCallLogListItem, NativeApiCallLogStats } from "@/lib/backend";
+import { formatTokenCount } from "@/lib/dashboardReport";
 
 export const API_CALL_LOG_PAGE_SIZE = 20;
 
@@ -14,10 +15,10 @@ export function formatApiCallLogTokenCount(
   value: number | null | undefined,
   unknownLabel: string,
 ): string {
-  if (value === null || value === undefined || Number.isNaN(value)) {
+  if (value === null || value === undefined || !Number.isFinite(value)) {
     return unknownLabel;
   }
-  return String(value);
+  return formatTokenCount(value);
 }
 
 export function formatApiCallLogDurationMs(
