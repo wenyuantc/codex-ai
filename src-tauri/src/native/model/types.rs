@@ -110,14 +110,15 @@ pub struct Usage {
     pub cached_tokens: u32,
 }
 
+/// Incremental output forwarded while a response is still streaming in.
+/// Deltas are a display-only side channel — the authoritative message is the
+/// one the protocol parser returns once the stream completes.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum StreamEvent {
-    TextDelta(String),
-    ReasoningDelta(String),
-    ToolCall(ToolCall),
-    Usage(Usage),
-    Done,
-    Error(String),
+pub enum StreamDelta {
+    Text(String),
+    Reasoning(String),
+    /// The attempt is being retried; whatever was displayed is now stale.
+    Reset,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

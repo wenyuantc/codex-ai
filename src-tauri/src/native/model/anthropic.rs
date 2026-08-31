@@ -1,8 +1,8 @@
 use serde_json::{json, Value};
 
 use super::openai::normalize_effort;
-use super::sse::parse_sse;
-use super::types::{Message, Role, ToolCall, ToolSpec, Usage};
+use super::sse::{parse_sse, SseEvent};
+use super::types::{Message, Role, StreamDelta, ToolCall, ToolSpec, Usage};
 use super::usage::parse_usage;
 
 pub fn thinking_budget_tokens(effort: Option<&str>) -> u32 {
@@ -131,50 +131,88 @@ fn anthropic_user_content(message: &Message) -> Value {
 }
 
 pub fn parse_anthropic_sse(text: &str) -> Result<(Message, Usage), String> {
-    let mut message = Message::assistant_text("");
-    let mut usage = Usage::default();
-    let mut tools: Vec<(i64, ToolCall)> = Vec::new();
+    let mut state = AnthropicStreamState::new();
     for event in parse_sse(text) {
+        state.apply(&event);
+    }
+    state.finish()
+}
+
+/// Incremental counterpart of [`parse_anthropic_sse`]: the same accumulation
+/// rules applied one event at a time, plus the deltas that can be shown
+/// before the response completes.
+#[derive(Debug)]
+pub struct AnthropicStreamState {
+    message: Message,
+    usage: Usage,
+    tools: Vec<(i64, ToolCall)>,
+}
+
+impl Default for AnthropicStreamState {
+    fn default() -> Self {
+        Self {
+            message: Message::assistant_text(""),
+            usage: Usage::default(),
+            tools: Vec::new(),
+        }
+    }
+}
+
+impl AnthropicStreamState {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn apply(&mut self, event: &SseEvent) -> Vec<StreamDelta> {
         let Ok(payload) = serde_json::from_str::<Value>(&event.data) else {
-            continue;
+            return Vec::new();
         };
         let event_type = payload
             .get("type")
             .and_then(Value::as_str)
             .unwrap_or(event.event.as_str());
         match event_type {
-            "content_block_start" => start_anthropic_block(&mut message, &mut tools, &payload),
-            "content_block_delta" => delta_anthropic_block(&mut message, &mut tools, &payload),
+            "content_block_start" => {
+                start_anthropic_block(&mut self.message, &mut self.tools, &payload)
+            }
+            "content_block_delta" => {
+                delta_anthropic_block(&mut self.message, &mut self.tools, &payload)
+            }
             "message_start" => {
                 if let Some(raw) = payload.pointer("/message/usage") {
                     let parsed = parse_usage(raw);
-                    usage.prompt_tokens = parsed.prompt_tokens;
-                    usage.cached_tokens = parsed.cached_tokens;
+                    self.usage.prompt_tokens = parsed.prompt_tokens;
+                    self.usage.cached_tokens = parsed.cached_tokens;
                 }
+                Vec::new()
             }
             "message_delta" => {
                 if let Some(raw) = payload.get("usage") {
                     let parsed = parse_usage(raw);
                     if parsed.prompt_tokens > 0 {
-                        usage.prompt_tokens = parsed.prompt_tokens;
+                        self.usage.prompt_tokens = parsed.prompt_tokens;
                     }
                     if parsed.completion_tokens > 0 {
-                        usage.completion_tokens = parsed.completion_tokens;
+                        self.usage.completion_tokens = parsed.completion_tokens;
                     }
                     if parsed.cached_tokens > 0 {
-                        usage.cached_tokens = parsed.cached_tokens;
+                        self.usage.cached_tokens = parsed.cached_tokens;
                     }
                 }
+                Vec::new()
             }
-            _ => {}
+            _ => Vec::new(),
         }
     }
-    tools.sort_by_key(|(index, _)| *index);
-    message.tool_calls = tools.into_iter().map(|(_, call)| call).collect();
-    if message_is_empty(&message) {
-        return Err("模型返回空响应".to_string());
+
+    pub fn finish(mut self) -> Result<(Message, Usage), String> {
+        self.tools.sort_by_key(|(index, _)| *index);
+        self.message.tool_calls = self.tools.into_iter().map(|(_, call)| call).collect();
+        if message_is_empty(&self.message) {
+            return Err("模型返回空响应".to_string());
+        }
+        Ok((self.message, self.usage))
     }
-    Ok((message, usage))
 }
 
 pub fn parse_anthropic_json(value: &Value) -> Result<(Message, Usage), String> {
@@ -204,13 +242,22 @@ fn message_is_empty(message: &Message) -> bool {
         && message.tool_calls.is_empty()
 }
 
-fn start_anthropic_block(message: &mut Message, tools: &mut Vec<(i64, ToolCall)>, payload: &Value) {
+fn start_anthropic_block(
+    message: &mut Message,
+    tools: &mut Vec<(i64, ToolCall)>,
+    payload: &Value,
+) -> Vec<StreamDelta> {
     let index = payload.get("index").and_then(Value::as_i64).unwrap_or(0);
     let block = payload.get("content_block").unwrap_or(&Value::Null);
     match block.get("type").and_then(Value::as_str) {
         Some("text") => {
-            if let Some(text) = block.get("text").and_then(Value::as_str) {
+            if let Some(text) = block
+                .get("text")
+                .and_then(Value::as_str)
+                .filter(|item| !item.is_empty())
+            {
                 message.content.push_str(text);
+                return vec![StreamDelta::Text(text.to_string())];
             }
         }
         Some("thinking") | Some("redacted_thinking") => {
@@ -218,8 +265,10 @@ fn start_anthropic_block(message: &mut Message, tools: &mut Vec<(i64, ToolCall)>
                 .get("thinking")
                 .or_else(|| block.get("text"))
                 .and_then(Value::as_str)
+                .filter(|item| !item.is_empty())
             {
                 message.reasoning_content.push_str(text);
+                return vec![StreamDelta::Reasoning(text.to_string())];
             }
         }
         Some("tool_use") => tools.push((
@@ -240,15 +289,25 @@ fn start_anthropic_block(message: &mut Message, tools: &mut Vec<(i64, ToolCall)>
         )),
         _ => {}
     }
+    Vec::new()
 }
 
-fn delta_anthropic_block(message: &mut Message, tools: &mut [(i64, ToolCall)], payload: &Value) {
+fn delta_anthropic_block(
+    message: &mut Message,
+    tools: &mut [(i64, ToolCall)],
+    payload: &Value,
+) -> Vec<StreamDelta> {
     let index = payload.get("index").and_then(Value::as_i64).unwrap_or(0);
     let delta = payload.get("delta").unwrap_or(&Value::Null);
     match delta.get("type").and_then(Value::as_str) {
         Some("text_delta") => {
-            if let Some(text) = delta.get("text").and_then(Value::as_str) {
+            if let Some(text) = delta
+                .get("text")
+                .and_then(Value::as_str)
+                .filter(|item| !item.is_empty())
+            {
                 message.content.push_str(text);
+                return vec![StreamDelta::Text(text.to_string())];
             }
         }
         Some("thinking_delta") => {
@@ -258,6 +317,9 @@ fn delta_anthropic_block(message: &mut Message, tools: &mut [(i64, ToolCall)], p
                 .or_else(|| delta.get("text").and_then(Value::as_str))
                 .unwrap_or_default();
             message.reasoning_content.push_str(chunk);
+            if !chunk.is_empty() {
+                return vec![StreamDelta::Reasoning(chunk.to_string())];
+            }
         }
         Some("input_json_delta") => {
             if let Some(partial) = delta.get("partial_json").and_then(Value::as_str) {
@@ -268,6 +330,7 @@ fn delta_anthropic_block(message: &mut Message, tools: &mut [(i64, ToolCall)], p
         }
         _ => {}
     }
+    Vec::new()
 }
 
 #[cfg(test)]

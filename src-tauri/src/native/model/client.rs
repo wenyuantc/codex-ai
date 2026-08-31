@@ -5,7 +5,6 @@ use std::time::{Duration, Instant};
 
 use futures_util::StreamExt;
 use serde_json::Value;
-use tokio::sync::mpsc;
 
 use crate::app::new_id;
 use crate::native::protocol::{
@@ -14,26 +13,45 @@ use crate::native::protocol::{
 };
 use crate::native::tools::CancelFlag;
 
-use super::anthropic::{build_anthropic_body, parse_anthropic_json, parse_anthropic_sse};
+use super::anthropic::{
+    build_anthropic_body, parse_anthropic_json, parse_anthropic_sse, AnthropicStreamState,
+};
 use super::call_log::{
     detect_response_encoding, extract_request_model, extract_thinking_level,
     first_meaningful_event_offset, logged_usage_from_parsed, parse_usage_from_body,
     provider_reported_usage, redact_and_truncate_json, redact_and_truncate_text,
-    request_thinking_enabled, CallLogContext, NativeApiCallLogInsert, CALL_STATUS_CANCELLED,
-    CALL_STATUS_FAILED, CALL_STATUS_SUCCESS,
+    request_thinking_enabled, sse_event_is_meaningful, sse_event_reports_usage, CallLogContext,
+    NativeApiCallLogInsert, CALL_STATUS_CANCELLED, CALL_STATUS_FAILED, CALL_STATUS_SUCCESS,
 };
 use super::openai::{
     build_openai_body, parse_max_output_token_limit, parse_openai_json, parse_openai_sse,
+    OpenAiStreamState,
 };
 use super::responses::{
     build_responses_body, parse_responses_json, parse_responses_json_with_id, parse_responses_sse,
-    parse_responses_sse_with_id, responses_input,
+    parse_responses_sse_with_id, responses_input, ResponsesStreamState,
 };
 use super::retry::{
     format_http_error, format_retry_line, is_retryable_error, redact_secrets, RetryConfig,
 };
-use super::sse::parse_sse;
-use super::types::{Message, StreamEvent, ToolSpec, Usage};
+use super::sse::{parse_sse, SseEvent, SseStreamParser};
+use super::types::{Message, StreamDelta, ToolSpec, Usage};
+
+/// Once the body is known to be SSE the retained text is only used for the
+/// call log and for error snippets, so a long answer does not need to stay in
+/// memory. A body that is not SSE still needs to be complete for the JSON
+/// fallback parser, hence the much larger guard.
+const SSE_TEXT_BUFFER_LIMIT: usize = 256 * 1024;
+const BODY_TEXT_BUFFER_LIMIT: usize = 8 * 1024 * 1024;
+
+type ParsedResponse = (Message, Usage, Option<String>);
+
+#[derive(Default)]
+struct StreamScan {
+    first_token_ms: Option<i64>,
+    usage_reported: bool,
+    saw_sse_event: bool,
+}
 
 struct TimedHttpBody {
     status: u16,
@@ -41,6 +59,46 @@ struct TimedHttpBody {
     first_token_ms: Option<i64>,
     duration_ms: i64,
     cancelled: bool,
+    usage_reported: bool,
+    /// `Some` when the body arrived as SSE and was consumed incrementally by
+    /// the protocol state machine. `None` means the text fallback still owns
+    /// parsing (complete JSON payloads, empty bodies, gateway errors).
+    parsed: Option<Result<ParsedResponse, String>>,
+}
+
+enum ProtocolStreamState {
+    Responses(ResponsesStreamState),
+    OpenAi(OpenAiStreamState),
+    Anthropic(AnthropicStreamState),
+}
+
+impl ProtocolStreamState {
+    fn new(protocol: &str) -> Option<Self> {
+        match protocol {
+            PROTOCOL_ANTHROPIC => Some(Self::Anthropic(AnthropicStreamState::new())),
+            PROTOCOL_CODEX => Some(Self::Responses(ResponsesStreamState::new())),
+            PROTOCOL_OPENAI => Some(Self::OpenAi(OpenAiStreamState::new())),
+            _ => None,
+        }
+    }
+
+    fn apply(&mut self, event: &SseEvent) -> Vec<StreamDelta> {
+        match self {
+            Self::Responses(state) => state.apply(event),
+            Self::OpenAi(state) => state.apply(event),
+            Self::Anthropic(state) => state.apply(event),
+        }
+    }
+
+    fn finish(self) -> Result<ParsedResponse, String> {
+        match self {
+            Self::Responses(state) => state.finish(),
+            Self::OpenAi(state) => state.finish().map(|(message, usage)| (message, usage, None)),
+            Self::Anthropic(state) => {
+                state.finish().map(|(message, usage)| (message, usage, None))
+            }
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -64,11 +122,16 @@ pub struct ChatRequest<'a> {
 
 pub type RetryHook = Arc<dyn Fn(&str) + Send + Sync>;
 pub type CallLogSink = Arc<dyn Fn(NativeApiCallLogInsert) + Send + Sync>;
+/// Receives text/reasoning fragments while the response streams in. The hook
+/// is deliberately not inherited by clones: child agents and context
+/// compaction reuse the transport but must not write into the live view.
+pub type DeltaHook = Arc<dyn Fn(StreamDelta) + Send + Sync>;
 
 pub struct ModelClient {
     http: reqwest::Client,
     config: ModelClientConfig,
     on_retry: Option<RetryHook>,
+    on_delta: Option<DeltaHook>,
     cancel: Option<CancelFlag>,
     call_log: Option<CallLogContext>,
     call_log_sink: Option<CallLogSink>,
@@ -92,6 +155,7 @@ impl Clone for ModelClient {
             http: self.http.clone(),
             config: self.config.clone(),
             on_retry: self.on_retry.clone(),
+            on_delta: None,
             cancel: self.cancel.clone(),
             call_log: self.call_log.clone(),
             call_log_sink: self.call_log_sink.clone(),
@@ -114,6 +178,7 @@ impl ModelClient {
             http: self.http.clone(),
             config: self.config.clone(),
             on_retry: self.on_retry.clone(),
+            on_delta: None,
             cancel: self.cancel.clone(),
             call_log: self.call_log.clone(),
             call_log_sink: self.call_log_sink.clone(),
@@ -132,6 +197,7 @@ impl ModelClient {
             http,
             config,
             on_retry: None,
+            on_delta: None,
             cancel: None,
             call_log: None,
             call_log_sink: None,
@@ -141,6 +207,11 @@ impl ModelClient {
 
     pub fn with_retry_hook(mut self, hook: RetryHook) -> Self {
         self.on_retry = Some(hook);
+        self
+    }
+
+    pub fn with_delta_hook(mut self, hook: DeltaHook) -> Self {
+        self.on_delta = Some(hook);
         self
     }
 
@@ -356,18 +427,6 @@ impl ModelClient {
         Err(format_http_error(timed.status, &url, &timed.text))
     }
 
-    pub async fn chat_stream(
-        &self,
-        request: ChatRequest<'_>,
-    ) -> Result<mpsc::Receiver<StreamEvent>, String> {
-        let (tx, rx) = mpsc::channel(32);
-        let (message, usage) = self.chat(request).await?;
-        for event in events_from_message(message, usage) {
-            let _ = tx.send(event).await;
-        }
-        Ok(rx)
-    }
-
     async fn post_stream(
         &self,
         url: &str,
@@ -404,8 +463,8 @@ impl ModelClient {
                     );
                     return Err("已取消".to_string());
                 }
-                Ok(timed) if (200..300).contains(&timed.status) => {
-                    match self.parse_success_body_with_id(&timed.text) {
+                Ok(mut timed) if (200..300).contains(&timed.status) => {
+                    match self.take_parsed_response(&mut timed) {
                         Ok(result) => {
                             self.emit_call_log(
                                 &call_id,
@@ -477,6 +536,9 @@ impl ModelClient {
                 }
             }
             let delay = self.config.retry.delay_for_attempt(attempt);
+            // The next attempt regenerates the answer from scratch, so
+            // anything already streamed into the live view is stale.
+            self.emit_delta(StreamDelta::Reset);
             self.emit_retry(&last_error, attempt.saturating_add(1), delay);
             if let Err(error) = self.wait_before_retry(delay).await {
                 self.emit_call_log(
@@ -577,6 +639,9 @@ impl ModelClient {
         Ok((status, text))
     }
 
+    /// Read the response body chunk by chunk. A 2xx SSE body is parsed as it
+    /// arrives so text and reasoning fragments reach the delta hook before the
+    /// model finishes; every other shape falls back to the buffered text.
     async fn post_raw(&self, url: &str, body: &Value) -> Result<TimedHttpBody, String> {
         let started = Instant::now();
         let request = self
@@ -591,7 +656,12 @@ impl ModelClient {
             .await
             .map_err(|error| format!("模型请求失败: {error}"))?;
         let status = response.status().as_u16();
-        let mut first_token_ms = None;
+        let mut state = (200..300)
+            .contains(&status)
+            .then(|| ProtocolStreamState::new(&self.config.protocol))
+            .flatten();
+        let mut parser = SseStreamParser::new();
+        let mut scan = StreamScan::default();
         let mut bytes = Vec::new();
         let mut stream = response.bytes_stream();
         let mut cancelled = false;
@@ -601,26 +671,81 @@ impl ModelClient {
                 break;
             }
             let chunk = chunk.map_err(|error| format!("读取模型响应失败: {error}"))?;
-            bytes.extend_from_slice(&chunk);
-            if first_token_ms.is_none() {
-                if let Ok(partial) = std::str::from_utf8(&bytes) {
-                    if first_meaningful_event_offset(partial).is_some() {
-                        first_token_ms = Some(elapsed_ms(started));
-                    }
-                }
+            let limit = if scan.saw_sse_event {
+                SSE_TEXT_BUFFER_LIMIT
+            } else {
+                BODY_TEXT_BUFFER_LIMIT
+            };
+            if bytes.len() < limit {
+                bytes.extend_from_slice(&chunk);
             }
+            self.absorb_events(parser.push_bytes(&chunk), state.as_mut(), started, &mut scan);
         }
+        self.absorb_events(parser.finish(), state.as_mut(), started, &mut scan);
         if !cancelled && self.is_cancelled() {
             cancelled = true;
         }
         let text = String::from_utf8_lossy(&bytes).into_owned();
+        let parsed = match state {
+            Some(state) if scan.saw_sse_event => Some(state.finish()),
+            _ => None,
+        };
+        if !scan.saw_sse_event {
+            // A complete JSON payload only becomes meaningful once the whole
+            // body has arrived, which is what the per-chunk scan used to
+            // detect on its last iteration.
+            scan.usage_reported = provider_reported_usage(&text);
+            if first_meaningful_event_offset(&text).is_some() {
+                scan.first_token_ms = Some(elapsed_ms(started));
+            }
+        }
         Ok(TimedHttpBody {
             status,
             text,
-            first_token_ms,
+            first_token_ms: scan.first_token_ms,
             duration_ms: elapsed_ms(started),
             cancelled,
+            usage_reported: scan.usage_reported,
+            parsed,
         })
+    }
+
+    fn absorb_events(
+        &self,
+        events: Vec<SseEvent>,
+        mut state: Option<&mut ProtocolStreamState>,
+        started: Instant,
+        scan: &mut StreamScan,
+    ) {
+        for event in events {
+            scan.saw_sse_event = true;
+            if scan.first_token_ms.is_none() && sse_event_is_meaningful(&event) {
+                scan.first_token_ms = Some(elapsed_ms(started));
+            }
+            scan.usage_reported = scan.usage_reported || sse_event_reports_usage(&event);
+            let Some(state) = state.as_mut() else {
+                continue;
+            };
+            for delta in state.apply(&event) {
+                self.emit_delta(delta);
+            }
+        }
+    }
+
+    fn emit_delta(&self, delta: StreamDelta) {
+        if let Some(hook) = &self.on_delta {
+            hook(delta);
+        }
+    }
+
+    /// Prefer the incrementally parsed stream and keep the buffered-text
+    /// parser as the fallback for complete JSON payloads, empty bodies and
+    /// gateway errors.
+    fn take_parsed_response(&self, timed: &mut TimedHttpBody) -> Result<ParsedResponse, String> {
+        match timed.parsed.take() {
+            Some(Ok(parsed)) => Ok(parsed),
+            Some(Err(_)) | None => self.parse_success_body_with_id(&timed.text),
+        }
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -646,7 +771,7 @@ impl ModelClient {
                 .copied()
                 .or_else(|| timed.map(|item| parse_usage_from_body(&item.text)))
                 .unwrap_or_default(),
-            timed.is_some_and(|item| provider_reported_usage(&item.text)),
+            timed.is_some_and(|item| item.usage_reported),
         );
         let thinking_level = extract_thinking_level(request_body);
         let thinking_enabled = request_thinking_enabled(request_body, thinking_level.as_deref());
@@ -845,7 +970,11 @@ fn extract_gateway_error(text: &str) -> Option<String> {
         let Ok(value) = serde_json::from_str::<Value>(&event.data) else {
             continue;
         };
-        if let Some(error) = json_error_message(&value) {
+        // `response.failed` nests the reason one level down instead of
+        // reporting a top-level `error` object.
+        if let Some(error) =
+            json_error_message(&value).or_else(|| value.get("response").and_then(json_error_message))
+        {
             return Some(error);
         }
     }
@@ -921,22 +1050,6 @@ fn snippet_for_error(text: &str) -> String {
         .collect::<String>()
         .trim()
         .to_string()
-}
-
-pub fn events_from_message(message: Message, usage: Usage) -> Vec<StreamEvent> {
-    let mut events = Vec::new();
-    if !message.reasoning_content.is_empty() {
-        events.push(StreamEvent::ReasoningDelta(message.reasoning_content));
-    }
-    if !message.content.is_empty() {
-        events.push(StreamEvent::TextDelta(message.content));
-    }
-    for call in message.tool_calls {
-        events.push(StreamEvent::ToolCall(call));
-    }
-    events.push(StreamEvent::Usage(usage));
-    events.push(StreamEvent::Done);
-    events
 }
 
 #[cfg(test)]
@@ -1118,27 +1231,142 @@ mod tests {
         assert!(!error.contains("sk-secret-key"));
     }
 
+    fn capturing_delta_hook() -> (DeltaHook, Arc<Mutex<Vec<StreamDelta>>>) {
+        let deltas = Arc::new(Mutex::new(Vec::new()));
+        let captured = deltas.clone();
+        let hook: DeltaHook = Arc::new(move |delta: StreamDelta| {
+            captured.lock().expect("deltas").push(delta);
+        });
+        (hook, deltas)
+    }
+
+    /// Serve one chunked response, pausing before each chunk so a test can
+    /// observe output that arrives before the body is complete.
+    async fn serve_delayed_chunks(chunks: Vec<(u64, String)>) -> String {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind mock server");
+        let addr = listener.local_addr().expect("local addr");
+        tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.expect("accept");
+            let mut buf = vec![0u8; 16384];
+            let _ = stream.read(&mut buf).await;
+            let header = "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n";
+            let _ = stream.write_all(header.as_bytes()).await;
+            for (delay_ms, body) in chunks {
+                tokio::time::sleep(Duration::from_millis(delay_ms)).await;
+                let chunk = format!("{:x}\r\n{}\r\n", body.len(), body);
+                let _ = stream.write_all(chunk.as_bytes()).await;
+            }
+            let _ = stream.write_all(b"0\r\n\r\n").await;
+        });
+        format!("http://{addr}")
+    }
+
     #[tokio::test]
-    async fn chat_stream_ends_with_done() {
-        let base = serve_once(200, OK_SSE).await;
-        let mut rx = client(base)
-            .chat_stream(ChatRequest {
+    async fn chat_emits_text_deltas_before_the_body_completes() {
+        let base = serve_delayed_chunks(vec![
+            (
+                0,
+                "data: {\"choices\":[{\"delta\":{\"content\":\"hi \"}}]}\n\n".to_string(),
+            ),
+            (
+                400,
+                "data: {\"choices\":[{\"delta\":{\"content\":\"there\"}}]}\n\ndata: [DONE]\n\n"
+                    .to_string(),
+            ),
+        ])
+        .await;
+        let (hook, deltas) = capturing_delta_hook();
+        let client = client(base).with_delta_hook(hook);
+        let task = tokio::spawn(async move { chat_hi_on(client).await });
+        tokio::time::sleep(Duration::from_millis(150)).await;
+        assert_eq!(
+            deltas.lock().expect("deltas").as_slice(),
+            [StreamDelta::Text("hi ".to_string())],
+            "the first delta must arrive while the response is still open"
+        );
+        let (message, _) = task.await.expect("join").expect("chat");
+        assert_eq!(message.content, "hi there");
+        assert_eq!(
+            deltas.lock().expect("deltas").as_slice(),
+            [
+                StreamDelta::Text("hi ".to_string()),
+                StreamDelta::Text("there".to_string())
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn chat_emits_reasoning_deltas_for_responses_protocol() {
+        let sse = concat!(
+            "event: response.reasoning_text.delta\ndata: {\"type\":\"response.reasoning_text.delta\",\"delta\":\"think\"}\n\n",
+            "event: response.output_text.delta\ndata: {\"type\":\"response.output_text.delta\",\"delta\":\"ok\"}\n\n",
+            "event: response.completed\ndata: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_1\"}}\n\n",
+        );
+        let base = serve_once(200, sse).await;
+        let (hook, deltas) = capturing_delta_hook();
+        let (message, _) = client_with_protocol(base, PROTOCOL_CODEX)
+            .with_delta_hook(hook)
+            .chat(ChatRequest {
                 messages: &[Message::user("hi")],
                 tools: &[],
-                model: "gpt-4o",
+                model: "gpt-5.4",
                 effort: None,
                 max_output_tokens: None,
-                thinking_enabled: false,
+                thinking_enabled: true,
             })
             .await
-            .expect("stream");
-        let mut saw_done = false;
-        while let Some(event) = rx.recv().await {
-            if event == StreamEvent::Done {
-                saw_done = true;
-            }
-        }
-        assert!(saw_done);
+            .expect("chat");
+        assert_eq!(message.content, "ok");
+        assert_eq!(message.reasoning_content, "think");
+        assert_eq!(
+            deltas.lock().expect("deltas").as_slice(),
+            [
+                StreamDelta::Reasoning("think".to_string()),
+                StreamDelta::Text("ok".to_string())
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn chat_resets_deltas_before_retrying() {
+        let base = serve_sequence(vec![(503, "busy".to_string()), (200, OK_SSE.to_string())]).await;
+        let (hook, deltas) = capturing_delta_hook();
+        let (message, _) = chat_hi_on(client_with_retry(base, fast_retry()).with_delta_hook(hook))
+            .await
+            .expect("retry then success");
+        assert_eq!(message.content, "ok");
+        assert_eq!(
+            deltas.lock().expect("deltas").as_slice(),
+            [
+                StreamDelta::Reset,
+                StreamDelta::Text("ok".to_string())
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn complete_json_response_emits_no_deltas() {
+        let body = r#"{"choices":[{"message":{"role":"assistant","content":"json ok"}}]}"#;
+        let base = serve_once(200, body).await;
+        let (hook, deltas) = capturing_delta_hook();
+        let (message, _) = chat_hi_on(client(base).with_delta_hook(hook))
+            .await
+            .expect("json chat");
+        assert_eq!(message.content, "json ok");
+        assert!(deltas.lock().expect("deltas").is_empty());
+    }
+
+    #[tokio::test]
+    async fn cloned_client_does_not_inherit_delta_hook() {
+        let base = serve_once(200, OK_SSE).await;
+        let (hook, deltas) = capturing_delta_hook();
+        let parent = client(base).with_delta_hook(hook);
+        chat_hi_on(parent.clone_for_conversation())
+            .await
+            .expect("chat");
+        assert!(deltas.lock().expect("deltas").is_empty());
     }
 
     #[tokio::test]

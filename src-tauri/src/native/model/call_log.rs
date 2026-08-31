@@ -1,7 +1,7 @@
 use serde_json::{Map, Value};
 
 use super::retry::redact_secrets;
-use super::sse::parse_sse;
+use super::sse::{parse_sse, SseEvent};
 use super::types::Usage;
 use super::usage::parse_usage;
 
@@ -221,6 +221,18 @@ pub fn first_meaningful_event_offset(buffer: &str) -> Option<usize> {
         }
     }
     None
+}
+
+/// Single-event view of [`first_meaningful_event_offset`], used while the
+/// response is still streaming in. Keep-alive comments never reach this
+/// point, and `[DONE]` / usage-only events stay excluded.
+pub fn sse_event_is_meaningful(event: &SseEvent) -> bool {
+    sse_data_is_meaningful(&event.event, std::slice::from_ref(&event.data))
+}
+
+/// Single-event view of [`provider_reported_usage`].
+pub fn sse_event_reports_usage(event: &SseEvent) -> bool {
+    json_has_usage_object_str(&event.data)
 }
 
 fn first_meaningful_sse_offset(text: &str) -> Option<usize> {

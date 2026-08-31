@@ -1,7 +1,7 @@
 use serde_json::{json, Value};
 
-use super::sse::parse_sse;
-use super::types::{Message, Role, ToolCall, ToolSpec, Usage};
+use super::sse::{parse_sse, SseEvent};
+use super::types::{Message, Role, StreamDelta, ToolCall, ToolSpec, Usage};
 use super::usage::parse_usage;
 
 pub fn build_openai_body(
@@ -133,34 +133,72 @@ pub fn openai_tools(tools: &[ToolSpec]) -> Vec<Value> {
 }
 
 pub fn parse_openai_sse(text: &str) -> Result<(Message, Usage), String> {
-    let mut message = Message::assistant_text("");
-    let mut usage = Usage::default();
-    let mut tools: Vec<(i64, ToolCall)> = Vec::new();
+    let mut state = OpenAiStreamState::new();
     for event in parse_sse(text) {
+        state.apply(&event);
+    }
+    state.finish()
+}
+
+/// Incremental counterpart of [`parse_openai_sse`]: the same accumulation
+/// rules applied one event at a time, plus the deltas that can be shown
+/// before the response completes.
+#[derive(Debug)]
+pub struct OpenAiStreamState {
+    message: Message,
+    usage: Usage,
+    tools: Vec<(i64, ToolCall)>,
+    done: bool,
+}
+
+impl Default for OpenAiStreamState {
+    fn default() -> Self {
+        Self {
+            message: Message::assistant_text(""),
+            usage: Usage::default(),
+            tools: Vec::new(),
+            done: false,
+        }
+    }
+}
+
+impl OpenAiStreamState {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn apply(&mut self, event: &SseEvent) -> Vec<StreamDelta> {
+        if self.done {
+            return Vec::new();
+        }
         if event.data == "[DONE]" {
-            break;
+            self.done = true;
+            return Vec::new();
         }
         let Ok(chunk) = serde_json::from_str::<Value>(&event.data) else {
-            continue;
+            return Vec::new();
         };
         if let Some(raw_usage) = chunk.get("usage") {
-            usage = parse_usage(raw_usage);
+            self.usage = parse_usage(raw_usage);
         }
         let Some(choice) = chunk
             .get("choices")
             .and_then(Value::as_array)
             .and_then(|items| items.first())
         else {
-            continue;
+            return Vec::new();
         };
-        apply_openai_choice(&mut message, &mut tools, choice);
+        apply_openai_choice(&mut self.message, &mut self.tools, choice)
     }
-    tools.sort_by_key(|(index, _)| *index);
-    message.tool_calls = tools.into_iter().map(|(_, call)| call).collect();
-    if message_is_empty(&message) {
-        return Err("模型返回空响应".to_string());
+
+    pub fn finish(mut self) -> Result<(Message, Usage), String> {
+        self.tools.sort_by_key(|(index, _)| *index);
+        self.message.tool_calls = self.tools.into_iter().map(|(_, call)| call).collect();
+        if message_is_empty(&self.message) {
+            return Err("模型返回空响应".to_string());
+        }
+        Ok((self.message, self.usage))
     }
-    Ok((message, usage))
 }
 
 pub fn parse_openai_json(value: &Value) -> Result<(Message, Usage), String> {
@@ -189,34 +227,47 @@ fn message_is_empty(message: &Message) -> bool {
         && message.tool_calls.is_empty()
 }
 
-fn apply_openai_choice(message: &mut Message, tools: &mut Vec<(i64, ToolCall)>, choice: &Value) {
+fn apply_openai_choice(
+    message: &mut Message,
+    tools: &mut Vec<(i64, ToolCall)>,
+    choice: &Value,
+) -> Vec<StreamDelta> {
     if let Some(delta) = choice.get("delta") {
-        append_openai_delta(message, tools, delta);
+        let mut deltas = append_openai_delta(message, tools, delta);
         if message.content.is_empty() {
             if let Some(complete) = choice.get("message") {
                 if let Some(text) = delta_text(complete.get("content")) {
                     message.content.push_str(&text);
+                    deltas.push(StreamDelta::Text(text));
                 }
             }
         }
-        return;
+        return deltas;
     }
     if let Some(complete) = choice.get("message") {
-        append_openai_delta(message, tools, complete);
+        return append_openai_delta(message, tools, complete);
     }
+    Vec::new()
 }
 
-fn append_openai_delta(message: &mut Message, tools: &mut Vec<(i64, ToolCall)>, delta: &Value) {
+fn append_openai_delta(
+    message: &mut Message,
+    tools: &mut Vec<(i64, ToolCall)>,
+    delta: &Value,
+) -> Vec<StreamDelta> {
+    let mut deltas = Vec::new();
     if let Some(text) = delta_text(delta.get("content")) {
         message.content.push_str(&text);
+        deltas.push(StreamDelta::Text(text));
     }
     if let Some(text) = reasoning_text(delta.get("reasoning_content"))
         .or_else(|| reasoning_text(delta.get("reasoning")))
     {
         message.reasoning_content.push_str(&text);
+        deltas.push(StreamDelta::Reasoning(text));
     }
     let Some(calls) = delta.get("tool_calls").and_then(Value::as_array) else {
-        return;
+        return deltas;
     };
     for call in calls {
         let index = call
@@ -251,6 +302,7 @@ fn append_openai_delta(message: &mut Message, tools: &mut Vec<(i64, ToolCall)>, 
             slot.arguments.push_str(arguments);
         }
     }
+    deltas
 }
 
 fn delta_text(value: Option<&Value>) -> Option<String> {

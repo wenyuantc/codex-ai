@@ -1218,8 +1218,12 @@ pub(crate) async fn run_native_ai_command(
     let app_for_emit = app.clone();
     let options_for_emit = options.clone();
     let drain = tokio::spawn(async move {
-        while let Some(line) = event_rx.recv().await {
-            emit_ai_command_line(&app_for_emit, &options_for_emit, line).await;
+        // AI commands report progress line by line; live fragments of the
+        // answer are not shown here and carry no persisted state.
+        while let Some(event) = event_rx.recv().await {
+            if let crate::native::agent::r#loop::NativeEvent::Line(line) = event {
+                emit_ai_command_line(&app_for_emit, &options_for_emit, line).await;
+            }
         }
     });
     let shot_result = crate::native::run_native_read_only_one_shot(

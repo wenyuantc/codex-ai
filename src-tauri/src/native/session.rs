@@ -20,7 +20,7 @@ use crate::db::models::{CodexExit, CodexOutput, CodexSession, SshConfigRecord};
 use crate::engine::context::{resolve_project_execution_target, resolve_session_execution_context};
 use crate::native::agent::compact::{BudgetSnapshot, ContextWindow};
 use crate::native::agent::r#loop::AgentDiagnosticsSnapshot;
-use crate::native::agent::r#loop::AgentRunner;
+use crate::native::agent::r#loop::{AgentRunner, NativeEvent};
 use crate::native::api_logs::sqlite_call_log_sink;
 use crate::native::channels::{fetch_channel_record, require_channel_api_key};
 use crate::native::manager::{
@@ -30,6 +30,7 @@ use crate::native::manager::{
 use crate::native::model::call_log::{
     CallLogContext, CALL_KIND_CHAT, CALL_KIND_ONE_SHOT, CALL_KIND_PLAN,
 };
+use crate::native::model::types::StreamDelta;
 use crate::native::model::{ModelClient, ModelClientConfig, RetryConfig};
 use crate::native::model_catalog::{
     apply_catalog_defaults, fill_from_catalog, resolve_runtime_reasoning_effort,
@@ -268,6 +269,140 @@ fn extra_headers_map(raw: Option<&str>) -> HashMap<String, String> {
         return HashMap::new();
     };
     serde_json::from_str::<HashMap<String, String>>(text).unwrap_or_default()
+}
+
+/// Streamed fragments are coalesced before crossing the IPC boundary: one
+/// event per token would mean thousands of emits and store writes per answer.
+const DELTA_FLUSH_INTERVAL: Duration = Duration::from_millis(80);
+const DELTA_FLUSH_BYTES: usize = 512;
+const DELTA_SEGMENT_TEXT: &str = "text";
+const DELTA_SEGMENT_REASONING: &str = "reasoning";
+
+/// Live fragment of the answer being generated. Unlike `native-stdout` this
+/// is never written to `codex_session_events`; the complete line follows and
+/// replaces it.
+#[derive(Clone, Serialize)]
+struct NativeTextDelta {
+    employee_id: String,
+    task_id: Option<String>,
+    session_kind: String,
+    session_record_id: String,
+    segment: String,
+    delta: String,
+    /// Drop what was streamed so far — the persisted line supersedes it.
+    clear: bool,
+}
+
+struct NativeDeltaEmitter<R: Runtime> {
+    app: AppHandle<R>,
+    session_record_id: String,
+    employee_id: String,
+    task_id: Option<String>,
+    session_kind: String,
+    pending: Option<(&'static str, String)>,
+}
+
+impl<R: Runtime> NativeDeltaEmitter<R> {
+    fn push(&mut self, segment: &'static str, text: &str) {
+        if self
+            .pending
+            .as_ref()
+            .is_some_and(|(current, _)| *current != segment)
+        {
+            self.flush();
+        }
+        let (_, buffer) = self
+            .pending
+            .get_or_insert_with(|| (segment, String::new()));
+        buffer.push_str(text);
+        if buffer.len() >= DELTA_FLUSH_BYTES {
+            self.flush();
+        }
+    }
+
+    fn flush(&mut self) {
+        let Some((segment, text)) = self.pending.take() else {
+            return;
+        };
+        if text.is_empty() {
+            return;
+        }
+        self.emit(segment, text, false);
+    }
+
+    fn clear(&mut self) {
+        self.pending = None;
+        self.emit(DELTA_SEGMENT_TEXT, String::new(), true);
+    }
+
+    fn emit(&self, segment: &str, delta: String, clear: bool) {
+        let _ = self.app.emit(
+            "native-text-delta",
+            NativeTextDelta {
+                employee_id: self.employee_id.clone(),
+                task_id: self.task_id.clone(),
+                session_kind: self.session_kind.clone(),
+                session_record_id: self.session_record_id.clone(),
+                segment: segment.to_string(),
+                delta,
+                clear,
+            },
+        );
+    }
+}
+
+/// Single ordered drain of the runner channel: a fragment is always flushed
+/// or dropped before the line that supersedes it is persisted and broadcast.
+async fn forward_native_events<R: Runtime>(
+    app: AppHandle<R>,
+    session_record_id: String,
+    employee_id: String,
+    task_id: Option<String>,
+    session_kind: String,
+    mut event_rx: mpsc::UnboundedReceiver<NativeEvent>,
+) {
+    let mut deltas = NativeDeltaEmitter {
+        app: app.clone(),
+        session_record_id: session_record_id.clone(),
+        employee_id: employee_id.clone(),
+        task_id: task_id.clone(),
+        session_kind: session_kind.clone(),
+        pending: None,
+    };
+    let mut ticker = tokio::time::interval(DELTA_FLUSH_INTERVAL);
+    ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    loop {
+        tokio::select! {
+            event = event_rx.recv() => {
+                let Some(event) = event else {
+                    deltas.flush();
+                    break;
+                };
+                match event {
+                    NativeEvent::Line(line) => {
+                        deltas.flush();
+                        emit_native_line(
+                            &app,
+                            &session_record_id,
+                            &employee_id,
+                            task_id.as_deref(),
+                            &session_kind,
+                            line,
+                        )
+                        .await;
+                    }
+                    NativeEvent::Delta(StreamDelta::Text(text)) => {
+                        deltas.push(DELTA_SEGMENT_TEXT, &text);
+                    }
+                    NativeEvent::Delta(StreamDelta::Reasoning(text)) => {
+                        deltas.push(DELTA_SEGMENT_REASONING, &text);
+                    }
+                    NativeEvent::Delta(StreamDelta::Reset) => deltas.clear(),
+                }
+            }
+            _ = ticker.tick() => deltas.flush(),
+        }
+    }
 }
 
 async fn emit_native_line<R: Runtime>(
@@ -696,7 +831,7 @@ pub async fn run_native_read_only_one_shot(
     working_dir: &str,
     execution_target: &str,
     ssh_config_id: Option<&str>,
-    event_tx: mpsc::UnboundedSender<String>,
+    event_tx: mpsc::UnboundedSender<NativeEvent>,
     session_record_id: Option<&str>,
 ) -> Result<NativeOneShotResult, String> {
     let pool = sqlite_pool(app).await?;
@@ -814,13 +949,13 @@ pub async fn run_native_read_only_one_shot(
     let (usage_tx, mut usage_rx) = mpsc::unbounded_channel();
     runner.on_usage = Some(usage_tx);
     if let Some(tx) = &runner.on_event {
-        let _ = tx.send(native_startup_banner(
+        let _ = tx.send(NativeEvent::Line(native_startup_banner(
             &run.channel_name,
             &run.protocol,
             &run.model,
             run.effort.as_deref(),
             run.thinking_enabled,
-        ));
+        )));
     }
     let usage_app = app.clone();
     let usage_session = session_record_id
@@ -1440,7 +1575,7 @@ async fn run_native_loop(
     runner
         .messages
         .push(crate::native::model::types::Message::system(system));
-    let (event_tx, mut event_rx) = mpsc::unbounded_channel();
+    let (event_tx, event_rx) = mpsc::unbounded_channel();
     runner.on_event = Some(event_tx);
     let (usage_tx, mut usage_rx) = mpsc::unbounded_channel();
     runner.on_usage = Some(usage_tx);
@@ -1584,17 +1719,15 @@ async fn run_native_loop(
     let emit_task = task_id.clone();
     let emit_kind = kind.clone();
     let emit_join = tokio::spawn(async move {
-        while let Some(line) = event_rx.recv().await {
-            emit_native_line(
-                &emit_app,
-                &emit_session,
-                &emit_employee,
-                emit_task.as_deref(),
-                &emit_kind,
-                line,
-            )
-            .await;
-        }
+        forward_native_events(
+            emit_app,
+            emit_session,
+            emit_employee,
+            emit_task,
+            emit_kind,
+            event_rx,
+        )
+        .await;
     });
     let usage_app = app.clone();
     let usage_session = session_record_id.clone();
@@ -1669,7 +1802,7 @@ async fn run_native_loop(
             Err(error) => {
                 last_error = Some(error.clone());
                 if let Some(tx) = &runner.on_event {
-                    let _ = tx.send(format!("[ERROR] {error}"));
+                    let _ = tx.send(NativeEvent::Line(format!("[ERROR] {error}")));
                 } else {
                     emit_native_line(
                         &app,

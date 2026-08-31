@@ -1,8 +1,8 @@
 use serde_json::{json, Value};
 
 use super::openai::normalize_effort;
-use super::sse::parse_sse;
-use super::types::{Message, Role, ToolCall, ToolSpec, Usage};
+use super::sse::{parse_sse, SseEvent};
+use super::types::{Message, Role, StreamDelta, ToolCall, ToolSpec, Usage};
 use super::usage::parse_usage;
 
 pub fn build_responses_body(
@@ -111,35 +111,68 @@ pub fn parse_responses_sse(text: &str) -> Result<(Message, Usage), String> {
 /// is present. The identifier lets the caller use `previous_response_id` on
 /// the next request without re-sending the entire conversation.
 pub fn parse_responses_sse_with_id(text: &str) -> Result<(Message, Usage, Option<String>), String> {
-    let mut message = Message::assistant_text("");
-    let mut usage = Usage::default();
-    let mut tools: Vec<ToolCall> = Vec::new();
-    let mut response_id = None;
+    let mut state = ResponsesStreamState::new();
     for event in parse_sse(text) {
+        state.apply(&event);
+    }
+    state.finish()
+}
+
+/// Incremental counterpart of [`parse_responses_sse_with_id`]: the same
+/// accumulation rules applied one event at a time, plus the text/reasoning
+/// deltas that can be shown before the response completes.
+#[derive(Debug)]
+pub struct ResponsesStreamState {
+    message: Message,
+    tools: Vec<ToolCall>,
+    usage: Usage,
+    response_id: Option<String>,
+}
+
+impl Default for ResponsesStreamState {
+    fn default() -> Self {
+        Self {
+            message: Message::assistant_text(""),
+            tools: Vec::new(),
+            usage: Usage::default(),
+            response_id: None,
+        }
+    }
+}
+
+impl ResponsesStreamState {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn apply(&mut self, event: &SseEvent) -> Vec<StreamDelta> {
         let Ok(payload) = serde_json::from_str::<Value>(&event.data) else {
-            continue;
+            return Vec::new();
         };
         let event_type = payload
             .get("type")
             .and_then(Value::as_str)
             .unwrap_or(event.event.as_str());
         apply_responses_event(
-            &mut message,
-            &mut tools,
-            &mut usage,
-            &mut response_id,
+            &mut self.message,
+            &mut self.tools,
+            &mut self.usage,
+            &mut self.response_id,
             event_type,
             &payload,
-        );
+        )
     }
-    message.tool_calls = tools;
-    if message.content.is_empty()
-        && message.reasoning_content.is_empty()
-        && message.tool_calls.is_empty()
-    {
-        return Err("模型返回空响应".to_string());
+
+    pub fn finish(mut self) -> Result<(Message, Usage, Option<String>), String> {
+        self.message.tool_calls = self.tools;
+        if self.message.content.is_empty()
+            && self.message.reasoning_content.is_empty()
+            && self.message.tool_calls.is_empty()
+        {
+            return Err("模型返回空响应".to_string());
+        }
+        Ok((self.message, self.usage, self.response_id))
     }
-    Ok((message, usage, response_id))
 }
 
 fn apply_responses_event(
@@ -149,7 +182,8 @@ fn apply_responses_event(
     response_id: &mut Option<String>,
     event_type: &str,
     payload: &Value,
-) {
+) -> Vec<StreamDelta> {
+    let mut deltas = Vec::new();
     match event_type {
         "response.created" | "response.in_progress" | "response.completed" | "response.done" => {
             if response_id.is_none() {
@@ -179,24 +213,28 @@ fn apply_responses_event(
         "response.output_text.delta" | "response.content_part.delta" => {
             if let Some(delta) = payload.get("delta").and_then(Value::as_str) {
                 message.content.push_str(delta);
+                deltas.push(StreamDelta::Text(delta.to_string()));
             }
         }
         "response.output_text.done" | "response.output_text.completed" => {
             if message.content.is_empty() {
                 if let Some(text) = payload.get("text").and_then(Value::as_str) {
                     message.content.push_str(text);
+                    deltas.push(StreamDelta::Text(text.to_string()));
                 }
             }
         }
         "response.reasoning_text.delta" | "response.reasoning.delta" => {
             if let Some(delta) = payload.get("delta").and_then(Value::as_str) {
                 message.reasoning_content.push_str(delta);
+                deltas.push(StreamDelta::Reasoning(delta.to_string()));
             }
         }
         "response.reasoning_text.done" | "response.reasoning.done" => {
             if message.reasoning_content.is_empty() {
                 if let Some(text) = payload.get("text").and_then(Value::as_str) {
                     message.reasoning_content.push_str(text);
+                    deltas.push(StreamDelta::Reasoning(text.to_string()));
                 }
             }
         }
@@ -238,10 +276,12 @@ fn apply_responses_event(
             if let Some(text) = payload.get("delta").and_then(Value::as_str) {
                 if event_type.contains("text") {
                     message.content.push_str(text);
+                    deltas.push(StreamDelta::Text(text.to_string()));
                 }
             }
         }
     }
+    deltas
 }
 
 pub fn parse_responses_json(value: &Value) -> Result<(Message, Usage), String> {

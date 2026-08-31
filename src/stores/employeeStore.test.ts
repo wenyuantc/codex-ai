@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 
+import type { NativeTextDelta } from "@/lib/native";
 import type { Employee, EmployeeRuntimeStatus } from "@/lib/types";
-import { applyEmployeeDeleted } from "@/stores/employeeStore";
+import { applyEmployeeDeleted, applyStreamingDelta } from "@/stores/employeeStore";
 
 function employee(id: string): Employee {
   return {
@@ -57,5 +58,50 @@ describe("applyEmployeeDeleted", () => {
     };
 
     expect(applyEmployeeDeleted(state, "missing")).toEqual(state);
+  });
+});
+
+function delta(overrides: Partial<NativeTextDelta> = {}): NativeTextDelta {
+  return {
+    employee_id: "emp-1",
+    task_id: "task-1",
+    session_kind: "execution",
+    session_record_id: "sess-1",
+    segment: "text",
+    delta: "",
+    clear: false,
+    ...overrides,
+  };
+}
+
+describe("applyStreamingDelta", () => {
+  it("appends each segment under both the session and task terminal keys", () => {
+    let state = applyStreamingDelta({}, delta({ segment: "reasoning", delta: "思" }));
+    state = applyStreamingDelta(state, delta({ segment: "reasoning", delta: "考" }));
+    state = applyStreamingDelta(state, delta({ delta: "答案" }));
+
+    expect(state).toEqual({
+      "sess-1": { reasoning: "思考", text: "答案" },
+      "task-1::execution": { reasoning: "思考", text: "答案" },
+    });
+  });
+
+  it("only tracks the session key when the session has no task", () => {
+    const state = applyStreamingDelta({}, delta({ task_id: null, delta: "hi" }));
+
+    expect(state).toEqual({ "sess-1": { reasoning: "", text: "hi" } });
+  });
+
+  it("drops both keys when the committed line arrives", () => {
+    const streamed = applyStreamingDelta({}, delta({ delta: "partial" }));
+
+    expect(applyStreamingDelta(streamed, delta({ clear: true }))).toEqual({});
+  });
+
+  it("keeps the same snapshot when there is nothing to apply", () => {
+    const state = { "sess-2": { reasoning: "", text: "kept" } };
+
+    expect(applyStreamingDelta(state, delta({ delta: "" }))).toBe(state);
+    expect(applyStreamingDelta(state, delta({ clear: true }))).toBe(state);
   });
 });

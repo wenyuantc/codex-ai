@@ -33,9 +33,11 @@ import {
   onNativeExit,
   onNativeOutput,
   onNativeSession,
+  onNativeTextDelta,
   type NativeExit,
   type NativeOutput,
   type NativeSession,
+  type NativeTextDelta,
 } from "@/lib/native";
 import {
   onOpenCodeExit,
@@ -52,12 +54,20 @@ import type {
   EmployeeRuntimeStatus,
 } from "@/lib/types";
 
+/** Fragments of an answer still being generated, keyed the same way as
+ * `taskLogs` / `sessionLogs`. Live only — never persisted or exported. */
+export interface StreamingText {
+  reasoning: string;
+  text: string;
+}
+
 interface EmployeeStore {
   employees: Employee[];
   loading: boolean;
   employeeRuntime: Record<string, EmployeeRuntimeStatus>;
   taskLogs: Record<string, string[]>;
   sessionLogs: Record<string, CodexSessionLogLine[]>;
+  streamingTexts: Record<string, StreamingText>;
   fetchEmployees: () => Promise<void>;
   refreshEmployeeRuntimeStatus: (employeeId: string) => Promise<EmployeeRuntimeStatus | null>;
   createEmployee: (data: {
@@ -99,6 +109,7 @@ interface EmployeeStore {
     sessionRecordId?: string | null,
     sessionEventId?: string | null,
   ) => void;
+  applyNativeTextDelta: (delta: NativeTextDelta) => void;
   clearTaskCodexOutput: (taskId: string, sessionKind?: CodexSessionKind) => void;
   hydrateSessionLog: (sessionRecordId: string, lines: CodexSessionLogLine[]) => void;
   clearSessionCodexOutput: (sessionRecordId: string) => void;
@@ -133,6 +144,49 @@ function deriveEmployeeRuntimeStatus(employee: Employee, runtime: EmployeeRuntim
 
 export function buildTaskLogKey(taskId: string, sessionKind: CodexSessionKind = "execution") {
   return `${taskId}::${sessionKind}`;
+}
+
+const EMPTY_STREAMING_TEXT: StreamingText = { reasoning: "", text: "" };
+
+/** A session is watched either by its record id or, for a task terminal, by
+ * its task log key, so a delta has to land under both. */
+export function streamingTextKeys(
+  delta: Pick<NativeTextDelta, "session_record_id" | "task_id" | "session_kind">,
+): string[] {
+  const keys = [delta.session_record_id];
+  if (delta.task_id) {
+    keys.push(buildTaskLogKey(delta.task_id, delta.session_kind));
+  }
+  return keys;
+}
+
+export function applyStreamingDelta(
+  streamingTexts: Record<string, StreamingText>,
+  delta: NativeTextDelta,
+): Record<string, StreamingText> {
+  const keys = streamingTextKeys(delta);
+  if (delta.clear) {
+    if (!keys.some((key) => key in streamingTexts)) {
+      return streamingTexts;
+    }
+    const next = { ...streamingTexts };
+    for (const key of keys) {
+      delete next[key];
+    }
+    return next;
+  }
+  if (!delta.delta) {
+    return streamingTexts;
+  }
+  const next = { ...streamingTexts };
+  for (const key of keys) {
+    const current = next[key] ?? EMPTY_STREAMING_TEXT;
+    next[key] =
+      delta.segment === "reasoning"
+        ? { ...current, reasoning: current.reasoning + delta.delta }
+        : { ...current, text: current.text + delta.delta };
+  }
+  return next;
 }
 
 export function applyEmployeeDeleted(
@@ -216,6 +270,7 @@ export const useEmployeeStore = create<EmployeeStore>((set, get) => ({
   employeeRuntime: {},
   taskLogs: {},
   sessionLogs: {},
+  streamingTexts: {},
 
   fetchEmployees: async () => {
     set({ loading: true });
@@ -342,13 +397,25 @@ export const useEmployeeStore = create<EmployeeStore>((set, get) => ({
     }));
   },
 
+  applyNativeTextDelta: (delta) => {
+    set((state) => {
+      const streamingTexts = applyStreamingDelta(state.streamingTexts, delta);
+      return streamingTexts === state.streamingTexts ? {} : { streamingTexts };
+    });
+  },
+
   clearTaskCodexOutput: (taskId, sessionKind = "execution") => {
-    set((state) => ({
-      taskLogs: {
-        ...state.taskLogs,
-        [buildTaskLogKey(taskId, sessionKind)]: [],
-      },
-    }));
+    const key = buildTaskLogKey(taskId, sessionKind);
+    set((state) => {
+      const { [key]: _cleared, ...streamingTexts } = state.streamingTexts;
+      return {
+        taskLogs: {
+          ...state.taskLogs,
+          [key]: [],
+        },
+        streamingTexts,
+      };
+    });
   },
 
   hydrateSessionLog: (sessionRecordId, lines) => {
@@ -361,12 +428,16 @@ export const useEmployeeStore = create<EmployeeStore>((set, get) => ({
   },
 
   clearSessionCodexOutput: (sessionRecordId) => {
-    set((state) => ({
-      sessionLogs: {
-        ...state.sessionLogs,
-        [sessionRecordId]: [],
-      },
-    }));
+    set((state) => {
+      const { [sessionRecordId]: _cleared, ...streamingTexts } = state.streamingTexts;
+      return {
+        sessionLogs: {
+          ...state.sessionLogs,
+          [sessionRecordId]: [],
+        },
+        streamingTexts,
+      };
+    });
   },
 
   initCodexListeners: () => {
@@ -569,6 +640,9 @@ export const useEmployeeStore = create<EmployeeStore>((set, get) => ({
             output.session_event_id,
           );
         }),
+        onNativeTextDelta((delta: NativeTextDelta) => {
+          get().applyNativeTextDelta(delta);
+        }),
         onNativeSession((session: NativeSession) => {
           set((state) => ({
             employees: state.employees.map((employee) =>
@@ -578,6 +652,15 @@ export const useEmployeeStore = create<EmployeeStore>((set, get) => ({
           void get().refreshEmployeeRuntimeStatus(session.employee_id);
         }),
         onNativeExit((exit: NativeExit) => {
+          get().applyNativeTextDelta({
+            employee_id: exit.employee_id,
+            task_id: exit.task_id,
+            session_kind: exit.session_kind,
+            session_record_id: exit.session_record_id,
+            segment: "text",
+            delta: "",
+            clear: true,
+          });
           if (exit.line) {
             get().addCodexOutput(
               exit.employee_id,

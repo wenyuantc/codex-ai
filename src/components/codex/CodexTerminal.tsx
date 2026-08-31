@@ -60,6 +60,29 @@ export function CodexTerminal({
   const clearSessionCodexOutput = useEmployeeStore((s) => s.clearSessionCodexOutput);
   const taskLogs = useEmployeeStore((s) => s.taskLogs);
   const sessionLogs = useEmployeeStore((s) => s.sessionLogs);
+  // Live fragments are kept out of `output` so a streaming answer does not
+  // re-format the whole backlog on every flush.
+  const streamKey = lines
+    ? null
+    : (sessionRecordId ?? (taskId ? buildTaskLogKey(taskId, sessionKind) : null));
+  const streaming = useEmployeeStore((s) => (streamKey ? s.streamingTexts[streamKey] : undefined));
+  const streamingLines = useMemo(() => {
+    if (!streaming) {
+      return [] as TerminalLine[];
+    }
+    const items: TerminalLine[] = [];
+    if (streaming.reasoning) {
+      items.push({
+        key: "streaming:reasoning",
+        sourceLine: `[思考] ${streaming.reasoning}`,
+        line: `[思考] ${streaming.reasoning}`,
+      });
+    }
+    if (streaming.text) {
+      items.push({ key: "streaming:text", sourceLine: streaming.text, line: streaming.text });
+    }
+    return items;
+  }, [streaming]);
 
   const output: TerminalLine[] = useMemo(() => {
     const toItem = (key: string, sourceLine: string): TerminalLine => ({
@@ -141,16 +164,26 @@ export function CodexTerminal({
 
   // Stick to bottom when line count changes only — do not depend on `virtualizer`
   // identity (it can change each render and fight user upward scroll).
+  // A streaming answer grows the last line instead of adding lines, so its
+  // length has to drive the effect too.
+  const streamingLength = (streaming?.reasoning.length ?? 0) + (streaming?.text.length ?? 0);
   useEffect(() => {
     if (shouldVirtualize) {
+      if (streamingLength > 0) {
+        const parent = scrollParentRef.current;
+        if (parent) {
+          parent.scrollTop = parent.scrollHeight;
+        }
+        return;
+      }
       if (output.length > 0) {
         virtualizer.scrollToIndex(output.length - 1, { align: "end" });
       }
       return;
     }
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+    bottomRef.current?.scrollIntoView({ behavior: streamingLength > 0 ? "auto" : "smooth" });
     // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional: only re-stick on length / mode
-  }, [output.length, shouldVirtualize]);
+  }, [output.length, shouldVirtualize, streamingLength]);
 
   return (
     <div className={cn("relative flex min-h-0 flex-col", className)}>
@@ -204,37 +237,50 @@ export function CodexTerminal({
           ref={scrollParentRef}
           className={`${heightClassName} overflow-y-auto bg-black ${bodyRoundedClass} p-2 font-mono text-xs`}
         >
-          {output.length === 0 ? (
+          {output.length === 0 && streamingLines.length === 0 ? (
             <div className="text-zinc-600">{t("terminalEmpty")}</div>
           ) : (
-            <div className="relative w-full" style={{ height: `${virtualizer.getTotalSize()}px` }}>
-              {virtualizer.getVirtualItems().map((virtualRow) => {
-                const item = output[virtualRow.index];
-                if (!item) {
-                  return null;
-                }
-                return (
-                  <div
-                    key={item.key}
-                    data-index={virtualRow.index}
-                    ref={virtualizer.measureElement}
-                    className={`absolute left-0 top-0 w-full whitespace-pre-wrap ${getLineColor(item.sourceLine)}`}
-                    style={{ transform: `translateY(${virtualRow.start}px)` }}
-                  >
-                    {item.line}
-                  </div>
-                );
-              })}
-            </div>
+            <>
+              <div
+                className="relative w-full"
+                style={{ height: `${virtualizer.getTotalSize()}px` }}
+              >
+                {virtualizer.getVirtualItems().map((virtualRow) => {
+                  const item = output[virtualRow.index];
+                  if (!item) {
+                    return null;
+                  }
+                  return (
+                    <div
+                      key={item.key}
+                      data-index={virtualRow.index}
+                      ref={virtualizer.measureElement}
+                      className={`absolute left-0 top-0 w-full whitespace-pre-wrap ${getLineColor(item.sourceLine)}`}
+                      style={{ transform: `translateY(${virtualRow.start}px)` }}
+                    >
+                      {item.line}
+                    </div>
+                  );
+                })}
+              </div>
+              {streamingLines.map((item) => (
+                <div
+                  key={item.key}
+                  className={`whitespace-pre-wrap ${getLineColor(item.sourceLine)}`}
+                >
+                  {item.line}
+                </div>
+              ))}
+            </>
           )}
         </div>
       ) : (
         <ScrollArea className={`${heightClassName} bg-black ${bodyRoundedClass}`}>
           <div className="p-2 font-mono text-xs space-y-0.5">
-            {output.length === 0 ? (
+            {output.length === 0 && streamingLines.length === 0 ? (
               <div className="text-zinc-600">{t("terminalEmpty")}</div>
             ) : (
-              output.map((item) => (
+              [...output, ...streamingLines].map((item) => (
                 <div
                   key={item.key}
                   className={`whitespace-pre-wrap ${getLineColor(item.sourceLine)}`}

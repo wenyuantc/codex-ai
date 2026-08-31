@@ -38,6 +38,18 @@ export interface NativeOutput {
   line: string;
 }
 
+/** Live fragment of the answer being generated. Never persisted: the matching
+ * `native-stdout` line arrives right after `clear` and replaces it. */
+export interface NativeTextDelta {
+  employee_id: string;
+  task_id: string | null;
+  session_kind: CodexSessionKind;
+  session_record_id: string;
+  segment: "text" | "reasoning";
+  delta: string;
+  clear: boolean;
+}
+
 export interface NativeExit {
   employee_id: string;
   task_id: string | null;
@@ -127,6 +139,12 @@ export async function finishNativeInput(employeeId: string): Promise<void> {
 
 export function onNativeOutput(callback: (output: NativeOutput) => void): Promise<() => void> {
   return listen<NativeOutput>("native-stdout", (event) => {
+    callback(event.payload);
+  });
+}
+
+export function onNativeTextDelta(callback: (delta: NativeTextDelta) => void): Promise<() => void> {
+  return listen<NativeTextDelta>("native-text-delta", (event) => {
     callback(event.payload);
   });
 }

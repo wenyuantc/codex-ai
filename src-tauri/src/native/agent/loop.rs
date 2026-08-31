@@ -11,7 +11,9 @@ use tokio::task::JoinSet;
 use crate::engine::UsageDelta;
 use crate::native::model::call_log::{CALL_KIND_COMPACT, CALL_KIND_SUBAGENT};
 use crate::native::model::client::{ChatRequest, ModelClient};
-use crate::native::model::types::{Message, NativeImage, Role, ToolCall, ToolSpec, Usage};
+use crate::native::model::types::{
+    Message, NativeImage, Role, StreamDelta, ToolCall, ToolSpec, Usage,
+};
 use crate::native::model::usage_to_delta;
 use crate::native::settings::DEFAULT_NATIVE_MAX_TURNS;
 use crate::native::subagents::{
@@ -112,7 +114,7 @@ pub struct AgentRunner {
     pub context_window: ContextWindow,
     pub tool_result_token_limit: usize,
     pub diagnostics: Arc<AgentDiagnostics>,
-    pub on_event: Option<mpsc::UnboundedSender<String>>,
+    pub on_event: Option<mpsc::UnboundedSender<NativeEvent>>,
     pub on_usage: Option<mpsc::UnboundedSender<UsageDelta>>,
     pub on_activity: Option<mpsc::UnboundedSender<(String, String)>>,
     pub subagent_stub: Option<SubagentStub>,
@@ -134,11 +136,22 @@ pub struct AgentRunner {
     model_turn: Option<ModelTurnCfg>,
     pending_budget_reservation: u64,
     budget_exhausted: bool,
+    streaming: bool,
 }
 
 enum TurnControl {
     Continue,
     Stop(String),
+}
+
+/// Terminal output of one native run. Lines are complete and get persisted as
+/// session events; deltas are live-only fragments of the answer being
+/// generated. Both share one channel so the frontend always sees a fragment
+/// cleared before the matching line lands.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum NativeEvent {
+    Line(String),
+    Delta(StreamDelta),
 }
 
 impl AgentRunner {
@@ -190,6 +203,7 @@ impl AgentRunner {
             model_turn: None,
             pending_budget_reservation: 0,
             budget_exhausted: false,
+            streaming: false,
         }
     }
 
@@ -274,28 +288,47 @@ impl AgentRunner {
     }
 
     fn send_prefixed_event(
-        on_event: &Option<mpsc::UnboundedSender<String>>,
+        on_event: &Option<mpsc::UnboundedSender<NativeEvent>>,
         prefix: &str,
         line: impl Into<String>,
     ) {
         if let Some(tx) = on_event {
             let line = line.into();
-            let _ = tx.send(if prefix.is_empty() {
+            let _ = tx.send(NativeEvent::Line(if prefix.is_empty() {
                 line
             } else {
                 format!("{prefix}{line}")
-            });
+            }));
+        }
+    }
+
+    /// Drop the fragments shown so far: either the complete line is about to
+    /// arrive, or a retry is going to regenerate the answer.
+    fn emit_delta_clear(&self) {
+        if !self.streaming {
+            return;
+        }
+        if let Some(tx) = &self.on_event {
+            let _ = tx.send(NativeEvent::Delta(StreamDelta::Reset));
         }
     }
 
     fn observe_client(&self, client: &ModelClient) -> ModelClient {
         let on_event = self.on_event.clone();
         let prefix = self.event_prefix.clone();
+        let delta_events = self.on_event.clone();
         client
             .clone_for_conversation()
             .with_cancel(self.ctx.cancel.clone())
             .with_retry_hook(Arc::new(move |line: &str| {
                 Self::send_prefixed_event(&on_event, &prefix, line);
+            }))
+            // Only the top-level runner streams: concurrent child agents would
+            // interleave their fragments into one unreadable line.
+            .with_delta_hook(Arc::new(move |delta: StreamDelta| {
+                if let Some(tx) = &delta_events {
+                    let _ = tx.send(NativeEvent::Delta(delta));
+                }
             }))
     }
 
@@ -408,6 +441,7 @@ impl AgentRunner {
         });
         self.begin_user_turn(user, images)?;
         let client = self.observe_client(client);
+        self.streaming = true;
         loop {
             let mut last_turn = self.prepare_model_call(Some(&client)).await?;
             let tools = self.combined_tools();
@@ -443,6 +477,7 @@ impl AgentRunner {
                 Ok(value) => value,
                 Err(error) => {
                     self.release_model_reservation();
+                    self.emit_delta_clear();
                     return Err(error);
                 }
             };
@@ -798,6 +833,8 @@ impl AgentRunner {
         if last_turn {
             assistant.tool_calls.clear();
         }
+        // The persisted lines below supersede whatever streamed live.
+        self.emit_delta_clear();
         if !assistant.reasoning_content.is_empty() {
             let chars = assistant.reasoning_content.chars().count();
             self.emit(format!("[思考] 已生成 {chars} 字"));
@@ -1341,10 +1378,12 @@ mod tests {
         (runner, root)
     }
 
-    fn drain_events(rx: &mut mpsc::UnboundedReceiver<String>) -> Vec<String> {
+    fn drain_events(rx: &mut mpsc::UnboundedReceiver<NativeEvent>) -> Vec<String> {
         let mut lines = Vec::new();
-        while let Ok(line) = rx.try_recv() {
-            lines.push(line);
+        while let Ok(event) = rx.try_recv() {
+            if let NativeEvent::Line(line) = event {
+                lines.push(line);
+            }
         }
         lines
     }
