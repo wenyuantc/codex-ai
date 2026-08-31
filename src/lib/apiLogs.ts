@@ -1,5 +1,9 @@
 import type { NativeApiCallLogListItem, NativeApiCallLogStats } from "@/lib/backend";
-import { formatTokenCount } from "@/lib/dashboardReport";
+import {
+  buildTokenUsageMetrics,
+  formatTokenCount,
+  formatUsageMetricText,
+} from "@/lib/dashboardReport";
 
 export const API_CALL_LOG_PAGE_SIZE = 20;
 
@@ -19,6 +23,20 @@ export function formatApiCallLogTokenCount(
     return unknownLabel;
   }
   return formatTokenCount(value);
+}
+
+export function formatApiCallLogCacheRate(
+  inputTokens: number | null | undefined,
+  cachedTokens: number | null | undefined,
+  labels: { unknown: string; empty: string },
+): string {
+  return formatUsageMetricText(
+    buildTokenUsageMetrics({
+      input_tokens: inputTokens,
+      cached_tokens: cachedTokens,
+    }).cacheRate,
+    labels,
+  );
 }
 
 export function formatApiCallLogDurationMs(

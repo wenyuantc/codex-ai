@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   API_CALL_LOG_PAGE_SIZE,
   emptyApiCallLogStats,
+  formatApiCallLogCacheRate,
   formatApiCallLogDurationMs,
   formatApiCallLogThinking,
   formatApiCallLogTokenCount,
@@ -12,6 +13,8 @@ import {
   prettyPrintJsonBody,
   resolveApiCallLogListPage,
 } from "@/lib/apiLogs";
+
+const CACHE_RATE_LABELS = { unknown: "未知", empty: "—" };
 
 describe("formatApiCallLogTokenCount", () => {
   it("shows the unknown label instead of 0 when tokens are missing", () => {
@@ -32,6 +35,25 @@ describe("formatApiCallLogTokenCount", () => {
     expect(formatApiCallLogTokenCount(1_000_000, "未知")).toBe("1.00M");
     expect(formatApiCallLogTokenCount(4_560_000, "未知")).toBe("4.56M");
     expect(formatApiCallLogTokenCount(12_000_000, "未知")).toBe("12.00M");
+  });
+});
+
+describe("formatApiCallLogCacheRate", () => {
+  it("keeps unknown when either side is missing", () => {
+    expect(formatApiCallLogCacheRate(null, 25, CACHE_RATE_LABELS)).toBe("未知");
+    expect(formatApiCallLogCacheRate(100, null, CACHE_RATE_LABELS)).toBe("未知");
+    expect(formatApiCallLogCacheRate(undefined, undefined, CACHE_RATE_LABELS)).toBe("未知");
+  });
+
+  it("formats zero, normal, and overflow rates", () => {
+    expect(formatApiCallLogCacheRate(100, 0, CACHE_RATE_LABELS)).toBe("0.0%");
+    expect(formatApiCallLogCacheRate(100, 25, CACHE_RATE_LABELS)).toBe("25.0%");
+    expect(formatApiCallLogCacheRate(10, 3, CACHE_RATE_LABELS)).toBe("30.0%");
+    expect(formatApiCallLogCacheRate(50, 200, CACHE_RATE_LABELS)).toBe("80.0%");
+  });
+
+  it("shows the empty placeholder when cache is known but input is zero", () => {
+    expect(formatApiCallLogCacheRate(0, 0, CACHE_RATE_LABELS)).toBe("—");
   });
 });
 
