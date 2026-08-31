@@ -436,14 +436,14 @@ pub fn sanitize_tool_message_pairs(messages: &mut Vec<Message>) {
                     }
                 }
             }
-            Role::Tool => {
-                // A result is valid only when its call appeared earlier in
-                // the transcript. Checking this while walking forward avoids
-                // retaining a result that happens to share an id with a call
-                // later in the history.
-                if !message.tool_call_id.is_empty() && seen_calls.contains(&message.tool_call_id) {
-                    valid_calls.insert(message.tool_call_id.clone());
-                }
+            // A result is valid only when its call appeared earlier in
+            // the transcript. Checking this while walking forward avoids
+            // retaining a result that happens to share an id with a call
+            // later in the history.
+            Role::Tool
+                if !message.tool_call_id.is_empty() && seen_calls.contains(&message.tool_call_id) =>
+            {
+                valid_calls.insert(message.tool_call_id.clone());
             }
             _ => {}
         }
