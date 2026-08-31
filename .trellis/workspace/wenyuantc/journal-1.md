@@ -872,3 +872,24 @@ i18next zh-CN/en framework, main-path extraction, activity single-source, leftov
 ### Status
 
 [OK] **Completed**
+
+
+## Session 30: Native Agent 缺陷修复
+
+**Date**: 2026-08-31
+**Task**: Native Agent 缺陷修复
+**Branch**: `main`
+
+### Summary
+
+修复有限预算 cap、Bash 高风险漏判、截断 offset、compact 交接、last-turn 丢工具、max_tokens 重试、模型列表 truncated、子 Agent 共享配额、transcript 指纹去重；跳过第 10、12 项。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `adcdd49` | (see git log) |
+
+### Status
+
+[OK] **Completed**

@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 29
-- **Last Active**: 2026-08-28
+- **Total Sessions**: 30
+- **Last Active**: 2026-08-31
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~874 | Active |
+| `journal-1.md` | ~895 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 30 | 2026-08-31 | Native Agent 缺陷修复 | `adcdd49` | `main` |
 | 29 | 2026-08-28 | Native Agent token budget K 单位 | `e14d63a` | `main` |
 | 28 | 2026-08-28 | 首次执行中自动质控徽章显示执行中 | `195c686` | `main` |
 | 27 | 2026-08-27 | Git AI 提交信息支持内置 Agent 与 AI 渠道 | `1ec2a74` | `main` |
