@@ -106,7 +106,7 @@
         "claude": "Supports start/stop/resume/mid-session input (SDK bridge keeps stdin). Restart = stop current run then start again (not CLI resume of an old session). CLI batch channel does not support mid-session input. Local CLI/SDK can attach images; SSH skips images. Does not execute in-app MCP config.",
         "opencode": "Supports start/stop/resume/mid-session input (SDK bridge keeps stdin; append prompts on the same OpenCode session). Restart = stop current run then start again (not CLI resume of an old session). Does not execute in-app MCP config.",
         "grok": "Supports start/stop/resume. Restart = stop current run then start again (not CLI resume of an old session). Grok is a headless CLI (-p + Stdio::null) with no writable mid-session stdin (B1 exemption). Does not execute in-app MCP config.",
-        "native": "Supports start/stop/resume/mid-session input (in-process follow-ups). Restart = stop current run then start again. Task sessions exit after one turn; free sessions accept follow-up input. Injects bound MCP tools: local spawn on this machine, SSH spawn on the remote host."
+        "native": "Supports start/stop/resume/mid-session input (in-process follow-ups). Restart = stop current run then start again. Resume restores model history from the database (image attachments are not restored). Task sessions exit after one turn, but follow-up input can be injected at turn boundaries. MCP is authorized per server."
       }
     },
     "databaseDialogs": {
@@ -483,7 +483,12 @@
       "oneShotNativeChannelReady": "Built-in Agent one-shot AI will run through the AI channel \"{{channel}}\"",
       "oneShotNativeChannelMissing": "Select an AI channel first when one-shot AI uses the built-in Agent",
       "oneShotNativeChannelDisabled": "The AI channel bound to one-shot AI is disabled",
-      "oneShotNativeChannelRemote": "In SSH mode, built-in Agent one-shot AI runs through the local AI channel"
+      "oneShotNativeChannelRemote": "In SSH mode, built-in Agent one-shot AI runs through the local AI channel",
+      "cancelled": "Cancelled",
+      "maxModelTurns": "Reached the maximum model turns",
+      "repeatedToolCallRejected": "Repeated tool call rejected",
+      "highRiskDenied": "The user denied this high-risk action",
+      "permissionTimedOut": "Confirmation timed out and was treated as deny"
     }
   },
   "git": {

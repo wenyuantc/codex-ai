@@ -5,10 +5,11 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
 use serde_json::Value;
-use tokio::sync::{mpsc, Semaphore};
+use tokio::sync::{mpsc, Mutex, Semaphore};
 use tokio::task::JoinSet;
 
 use crate::engine::UsageDelta;
+use crate::native::manager::NativeFollowup;
 use crate::native::model::call_log::{CALL_KIND_COMPACT, CALL_KIND_SUBAGENT};
 use crate::native::model::client::{ChatRequest, ModelClient};
 use crate::native::model::types::{
@@ -113,6 +114,7 @@ pub struct AgentRunner {
     pub rollout_budget: Arc<RolloutBudget>,
     pub child_quota: Option<Arc<ChildQuota>>,
     pub subagent_budget_share_percent: u32,
+    pub steer_rx: Option<Arc<Mutex<mpsc::Receiver<NativeFollowup>>>>,
     pub context_window: ContextWindow,
     pub tool_result_token_limit: usize,
     pub diagnostics: Arc<AgentDiagnostics>,
@@ -138,6 +140,7 @@ pub struct AgentRunner {
     model_turn: Option<ModelTurnCfg>,
     pending_budget_reservation: u64,
     pending_child_reservation: u64,
+    pending_steer_finish: bool,
     budget_exhausted: bool,
     streaming: bool,
 }
@@ -185,6 +188,7 @@ impl AgentRunner {
             child_quota: None,
             subagent_budget_share_percent:
                 crate::native::settings::DEFAULT_NATIVE_SUBAGENT_BUDGET_SHARE_PERCENT as u32,
+            steer_rx: None,
             context_window: ContextWindow::new(
                 crate::native::settings::DEFAULT_NATIVE_CONTEXT_WINDOW_TOKENS as usize,
             ),
@@ -212,6 +216,7 @@ impl AgentRunner {
             model_turn: None,
             pending_budget_reservation: 0,
             pending_child_reservation: 0,
+            pending_steer_finish: false,
             budget_exhausted: false,
             streaming: false,
         }
@@ -235,6 +240,30 @@ impl AgentRunner {
 
     pub fn set_plan_mode(&mut self, plan_mode: bool) {
         self.plan_mode = plan_mode;
+    }
+
+    pub fn take_steer_finish(&mut self) -> bool {
+        std::mem::take(&mut self.pending_steer_finish)
+    }
+
+    fn inject_steer_messages(&mut self) {
+        let Some(rx) = self.steer_rx.clone() else {
+            return;
+        };
+        let Ok(mut guard) = rx.try_lock() else {
+            return;
+        };
+        while let Ok(item) = guard.try_recv() {
+            match item {
+                NativeFollowup::Input(text) => {
+                    self.emit(format!("[USER_INPUT] {text}"));
+                    self.messages.push(Message::user(text));
+                }
+                NativeFollowup::Finish => {
+                    self.pending_steer_finish = true;
+                }
+            }
+        }
     }
 
     pub fn set_rollout_budget(&mut self, budget: Arc<RolloutBudget>) {
@@ -487,7 +516,11 @@ impl AgentRunner {
         let client = self.observe_client(client);
         self.streaming = true;
         loop {
+            self.inject_steer_messages();
             let mut last_turn = self.prepare_model_call(Some(&client)).await?;
+            if self.pending_steer_finish {
+                last_turn = true;
+            }
             let tools = self.combined_tools();
             let mut tools_now: &[ToolSpec] = if last_turn { &[] } else { &tools };
             let call_budget =

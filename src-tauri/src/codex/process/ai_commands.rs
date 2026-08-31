@@ -12,8 +12,8 @@ use crate::app::{
     fetch_employee_by_id, fetch_project_by_id, fetch_task_attachments, fetch_task_by_id,
     fetch_task_file_refs, fetch_task_subtasks, format_task_file_refs_prompt_section,
     insert_activity_log, insert_codex_session_event, insert_codex_session_record, new_id,
-    now_sqlite, sqlite_pool, task_attachment_is_image, update_codex_session_record,
-    PROJECT_TYPE_SSH,
+    now_sqlite, save_task_plan_content, sqlite_pool, task_attachment_is_image,
+    update_codex_session_record, PROJECT_TYPE_SSH,
 };
 use crate::codex::{
     find_ai_prompt_template, load_ai_prompt_templates, load_codex_settings,
@@ -1096,12 +1096,7 @@ pub async fn ai_generate_coordinator_task_plan(
             replace_task_pipeline_steps_from_plan(&pool, &task.id, &steps, &valid_employee_ids)
                 .await?;
 
-        sqlx::query("UPDATE tasks SET plan_content = $1 WHERE id = $2")
-            .bind(&markdown)
-            .bind(&task.id)
-            .execute(&pool)
-            .await
-            .map_err(|error| format!("Failed to save plan_content: {}", error))?;
+        save_task_plan_content(&pool, &task.id, &markdown, Some(&coordinator.id)).await?;
 
         let usage_line = match result.usage_line.clone() {
             Some(line) => Some(line),

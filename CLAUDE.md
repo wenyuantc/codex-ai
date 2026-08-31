@@ -45,7 +45,7 @@ Lint gate: ESLint + Prettier + `npm run test:ci` + `cargo clippy --all-targets -
 
 ## Architecture
 
-**Codex AI** is a Tauri v2 desktop app — a project/task manager that drives four AI coding CLIs (Codex, Claude, Grok, OpenCode) as "AI employees", with Git workflow, code review, and task automation on top. Local and SSH-remote projects are both first-class. The data flow is strictly:
+**Codex AI** is a Tauri v2 desktop app — a project/task manager that drives four AI coding CLIs (Codex, Claude, Grok, OpenCode) plus an in-process built-in Agent (native) as "AI employees", with Git workflow, code review, and task automation on top. Local and SSH-remote projects are both first-class. The data flow is strictly:
 
 ```
 React (UI) → Tauri IPC commands → Rust service layer → SQLite
@@ -67,13 +67,13 @@ React (UI) → Tauri IPC commands → Rust service layer → SQLite
 ### Backend (`src-tauri/src/`)
 
 - Rust 2021, Tokio async, SQLx 0.8 (compile-time checked queries)
-- Entry: `lib.rs` → `pub fn run()` registers plugins, the four engine managers, tray, and window restoration
-- **227 Tauri commands**, all registered in the single `invoke_handler!` list in `lib.rs`. Full breakdown:
-  - `git_workflow/` (49), `codex/` (30), `app/tasks.rs` (24), `app/remote.rs` (13), `task_automation` (12), `opencode/` (12), `app/delivery.rs` (12), `claude/` (11), `grok/` (10)
-  - `app/sessions.rs` (10), `app/database.rs` (9), `app/projects.rs` (8), `app/employees.rs` (8), `app/templates.rs` (6), `app/session_events_retention.rs` (4), `notifications` (3), `app/review.rs` (3), `run_queue` (2), `tray` (1)
+- Entry: `lib.rs` → `pub fn run()` registers plugins, the five engine managers, tray, and window restoration
+- **258 Tauri commands**, all registered in the single `invoke_handler!` list in `lib.rs`. Full breakdown:
+  - `git_workflow/` (50), `codex/` (30), `app/tasks.rs` (27), `native/` (24), `app/remote.rs` (13), `task_automation` (12), `opencode/` (12), `app/delivery.rs` (12), `claude/` (11), `grok/` (10)
+  - `app/sessions.rs` (10), `app/database.rs` (9), `app/projects.rs` (8), `app/employees.rs` (8), `app/templates.rs` (6), `app/session_events_retention.rs` (4), `notifications` (3), `app/review.rs` (3), `app/notification_sound.rs` (3), `run_queue` (2), `tray` (1)
 - `app/` submodules: `projects`, `employees`, `tasks`, `templates`, `delivery`, `sessions`, `review`, `remote`, `database`, `session_events_retention`, `session_events_policy`, `shared`
 - `app/session_events_retention.rs` — `codex_session_events` retention policy (purge rows older than N days, VACUUM, stats). Wired into the Settings 数据库维护 tab.
-- `db/migrations.rs` — versioned DDL, **47 migrations** inline (versions must stay contiguous 1..N; enforced by `migration_versions_are_contiguous`)
+- `db/migrations.rs` — versioned DDL, **56 migrations** inline (versions must stay contiguous 1..N; enforced by `migration_versions_are_contiguous`)
 - `db/models.rs` — SQLx `query_as!` type definitions for all tables
 - `task_automation` — review/fix state machine root (`task_automation.rs` + domain slices under `task_automation/`; `prompt.rs` is a real submodule, other slices use `include!`)
 - `git_workflow/` — Git UX commands split by domain (`types`, `runtime`, `worktree`, `context`, `project_ops`, `branch`, `pending_action`, `tests`); composed via `include!` for stable `crate::git_workflow::*` paths
@@ -82,9 +82,9 @@ React (UI) → Tauri IPC commands → Rust service layer → SQLite
 - `notifications.rs` — event notification system
 - `tray.rs`, `window_state.rs`, `window_event.rs` — tray, window size persistence, close-to-tray
 
-### AI engines (`src-tauri/src/{codex,claude,grok,opencode}/`)
+### AI engines (`src-tauri/src/{codex,claude,grok,opencode,native}/`)
 
-Four engines, each with the same internal shape — `manager.rs` + `settings.rs` + `process/{mod,lifecycle,session_runtime,stream,context}.rs`:
+Four CLI engines share the same internal shape — `manager.rs` + `settings.rs` + `process/{mod,lifecycle,session_runtime,stream,context}.rs`. Native is an in-process HTTP agent under `native/`.
 
 | Engine | LOC | Capabilities (`app/database.rs::get_ai_provider_capabilities`) |
 |---|---|---|
@@ -92,6 +92,7 @@ Four engines, each with the same internal shape — `manager.rs` + `settings.rs`
 | `claude/` | 3.4k | start / stop / restart / resume; **`send_input=true`** (SDK bridge keeps stdin; CLI batch rejects) |
 | `opencode/` | 4.0k | start / stop / restart / resume; **`send_input=true`** (SDK bridge keeps stdin; SDK server spawned at startup from `lib.rs`) |
 | `grok/` | 4.2k | start / stop / restart / resume; **`send_input=false`** (B1: headless `-p` + `Stdio::null`) |
+| `native/` | — | start / stop / restart / resume / send_input / mcp; resume restores DB transcript (no images); MCP authorized per server |
 
 Capability matrix is the single UI truth source. `restart_*` = stop live processes then `start_*` (not CLI session resume). Only advertise `send_input` when a verifiable mid-session write path exists; Grok stays B1-exempt.
 
@@ -99,12 +100,13 @@ Capability matrix is the single UI truth source. `restart_*` = stop live process
 
 ### Database
 
-SQLite at `$APPCONFIG/codex-ai.db`, 26 tables:
+SQLite at `$APPCONFIG/codex-ai.db`, 30 tables:
 
 - Core: `projects`, `employees`, `tasks`, `subtasks`, `comments`, `activity_logs`, `employee_metrics`
 - Delivery: `milestones`, `tags`, `task_tags`, `task_dependencies`, `task_attachments`
 - Sessions: `codex_sessions`, `codex_session_events`, `codex_session_file_changes`, `codex_session_file_change_details`
 - Ops: `notifications`, `ssh_configs`, `task_automation_state`, `task_git_contexts`, `task_pipeline_steps`, `task_acceptance_runs`, `task_run_queue`, `task_templates`
+- Native: `ai_channels`, `task_file_refs`, `native_api_call_logs`, `native_session_transcripts`
 - Legacy, not a read/write source: `project_employees`, `codex_sessions_new`
 
 **Constraints**:
@@ -114,9 +116,9 @@ SQLite at `$APPCONFIG/codex-ai.db`, 26 tables:
 
 ### Tests
 
-Rust is the primary suite: **417 test cases**, mostly `#[cfg(test)]` modules colocated with the code they cover. Densest areas include codex process/settings, shared `engine/` kernel, `git_workflow/`, and `task_automation`. Non-codex engines (claude/grok/opencode) still have thinner coverage than codex, but share the kernel tests.
+Rust is the primary suite: **701 test cases**, mostly `#[cfg(test)]` modules colocated with the code they cover. Densest areas include codex process/settings, shared `engine/` kernel, `git_workflow/`, `native/`, and `task_automation`. Non-codex engines (claude/grok/opencode) still have thinner coverage than codex, but share the kernel tests.
 
-Frontend has a minimal Vitest net: **82 tests / 186 assertions across 12 files** (`src/stores/{task,project,dashboard}Store.test.ts`, `src/lib/{utils,kanbanFilters,projects,taskPrimaryCta,dashboardReport,sessions,reviewFindings,appUpdate}.test.ts`, `src/lib/i18n/locale.test.ts`) covering exported pure functions only — store scope filters, SSH host selection, activity label mapping, kanban filters, primary-CTA resolution, dashboard report shaping, session log export, review findings parse, updater payload, locale resolution. No component or e2e tests. `npm run test:ci` is a CI hard gate.
+Frontend has a minimal Vitest net: **219 tests across 31 files** (`src/stores/{task,project,dashboard}Store.test.ts`, `src/lib/{utils,kanbanFilters,projects,taskPrimaryCta,dashboardReport,sessions,reviewFindings,appUpdate}.test.ts`, `src/lib/i18n/locale.test.ts` and related) covering exported pure functions only — store scope filters, SSH host selection, activity label mapping, kanban filters, primary-CTA resolution, dashboard report shaping, session log export, review findings parse, updater payload, locale resolution. No component or e2e tests. `npm run test:ci` is a CI hard gate.
 
 Cross-cutting integration tests live in `src-tauri/src/app/tests/`:
 - `runtime_and_paths.rs` — app runtime setup
@@ -131,7 +133,7 @@ Cross-cutting integration tests live in `src-tauri/src/app/tests/`:
 
 ### Pre-execution validation (all engines)
 
-All four engines call `app/shared.rs::validate_runtime_working_dir` before starting a session. It validates: working directory exists, is a directory, is accessible, and contains `.git`.
+All five engines call `app/shared.rs::validate_runtime_working_dir` before starting a session. It validates: working directory exists, is a directory, is accessible, and contains `.git`.
 
 ### CI/CD
 

@@ -900,7 +900,7 @@ pub fn get_ai_provider_capabilities() -> Vec<crate::db::models::AiProviderCapabi
             send_input: true,
             resume: true,
             mcp: true,
-            notes: "支持启动/停止/续聊/会话中输入（进程内 mpsc 跟进）；重启=停止当前运行后重新启动。续聊从落库的模型历史恢复上下文（不恢复图片附件）。任务会话一轮结束后退出；自由会话可 send_native_input。MCP 按服务器授权：允许该服务器后同会话内该服务器工具不再确认。按任务绑定注入 MCP 工具：本地本机 spawn，SSH 在远端 spawn（失败跳过，不回退本机）。".to_string(),
+            notes: "支持启动/停止/续聊/会话中输入（进程内 mpsc 跟进）；重启=停止当前运行后重新启动。续聊从落库的模型历史恢复上下文（不恢复图片附件）。任务会话一轮结束后退出，但轮边界可注入 send_native_input。MCP 按服务器授权：允许该服务器后同会话内该服务器工具不再确认。按任务绑定注入 MCP 工具：本地本机 spawn，SSH 在远端 spawn（失败跳过，不回退本机）。".to_string(),
         },
     ]
 }

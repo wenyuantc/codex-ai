@@ -106,7 +106,7 @@
         "claude": "支持启动/停止/续聊/会话中输入（SDK bridge 保留 stdin）；重启=停止当前运行后重新启动（非 CLI resume 旧会话）。CLI 批处理通道不支持会话中输入。本地 CLI/SDK 可附带图片；SSH 跳过图片。不执行应用内 MCP 配置。",
         "opencode": "支持启动/停止/续聊/会话中输入（SDK bridge 保留 stdin，同一 OpenCode session 上追加 prompt）；重启=停止当前运行后重新启动（非 CLI resume 旧会话）。不执行应用内 MCP 配置。",
         "grok": "支持启动/停止/续聊；重启=停止当前运行后重新启动（非 CLI resume 旧会话）。Grok 为 headless CLI（-p + Stdio::null），无会话中可写 stdin（B1 豁免）。不执行应用内 MCP 配置。",
-        "native": "支持启动/停止/续聊/会话中输入（进程内跟进）；重启=停止当前运行后重新启动。任务会话一轮结束后退出；自由会话可发送跟进。按任务绑定注入 MCP：本地本机 spawn，SSH 在远端 spawn。"
+        "native": "支持启动/停止/续聊/会话中输入（进程内跟进）；重启=停止当前运行后重新启动。续聊从落库的模型历史恢复上下文（不恢复图片附件）。任务会话一轮结束后退出，但轮边界可注入跟进。MCP 按服务器授权。"
       }
     },
     "databaseDialogs": {
@@ -483,7 +483,12 @@
       "oneShotNativeChannelReady": "内置 Agent 一次性 AI 将通过 AI 渠道「{{channel}}」执行",
       "oneShotNativeChannelMissing": "一次性 AI 使用内置 Agent 时请先选择 AI 渠道",
       "oneShotNativeChannelDisabled": "一次性 AI 绑定的 AI 渠道已停用",
-      "oneShotNativeChannelRemote": "SSH 模式下内置 Agent 一次性 AI 通过本地 AI 渠道执行"
+      "oneShotNativeChannelRemote": "SSH 模式下内置 Agent 一次性 AI 通过本地 AI 渠道执行",
+      "cancelled": "已取消",
+      "maxModelTurns": "达到最大模型轮次",
+      "repeatedToolCallRejected": "重复调用被拒绝",
+      "highRiskDenied": "用户不允许该高风险操作",
+      "permissionTimedOut": "确认超时，已按拒绝处理"
     }
   },
   "git": {

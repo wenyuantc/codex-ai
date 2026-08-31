@@ -148,7 +148,7 @@ pub(crate) use tasks::{
     insert_task_record, is_orchestration_awaiting_session_exit,
     is_task_automation_active_for_archival, list_tasks_with_pool, parse_tasks_json_envelope,
     record_completion_metric, resolve_await_session_followups,
-    resolve_project_task_default_settings, should_await_session_followups,
+    resolve_project_task_default_settings, save_task_plan_content, should_await_session_followups,
     should_clear_task_completed_at, start_task_timer_internal, stop_task_timer_internal,
     tasks_json_payload_is_field_safe, validate_assignee_for_project,
     validate_coordinator_for_project, validate_reviewer_for_project, validate_task_archival_guard,

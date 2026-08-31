@@ -23,6 +23,7 @@
   - [x] **子 Agent**（`08-24-native-subagent`）：会话内 `Agent` 工具（`general` / `explore`），同轮连续调用并行（上限 3），depth=1，不新建会话、不占队列。
   - [x] **自定义子智能体**（`08-25-native-custom-subagents`）：设置 Tab 配置名称/模型/工具/系统提示词/AGENTS.md；`subagent_type=<名称>` 委派。
   - [x] **plan 模式**（`08-25-native-plan-mode`）：看板右键「计划运行」（仅内置 Agent 执行人）；同一会话先只读出计划，计划轮结束自动执行。不替代协调员，不改任务详情「AI 生成计划」。
+  - [x] **续聊/权限/资源收口**（2026-08-31）：transcript 真续聊、Opaque+超时+MCP 按服务器、图片 token 与子 Agent 配额、plan_content 服务层、任务会话中途纠偏。
   - **Skills / Hooks / ApplyPatch / Browser**：均无（已有 WebFetch/WebSearch，无浏览器自动化）。
   - 建议优先级：交互式权限 > 子 Agent > plan 模式 > Skills。
 
@@ -41,7 +42,7 @@
 - [ ] **无内置帮助中心**：页面与组件「帮助/文档」零命中；角色说明散落在员工页。→ 设置页「帮助」tab 或扩展现有 `⌘?`（`shortcuts.ts`）为产品手册入口。
 - [ ] **i18n 扫尾**：`08-10-p3-i18n/leftovers.md` 的触发条件（U1 send_input 落地）已满足；Git 对话框、设置正文、任务详情深面板仍大量硬编码中文。
 - [ ] **报表缺运营指标**：仪表盘已有趋势/燃尽（R1）；缺引擎维度对比（token/会话数）、队列等待时长、审核通过率/修复轮次等指标与导出。
-- [ ] **文档漂移已复发**：README 对 native 零命中、设置页章节仍写「6 个标签页」（实际 7，含 channels）、引擎矩阵 4 行缺 native；CLAUDE.md 仍称四引擎 / 227 命令（native 新增 15 个）/ 26 表 / 47 迁移 / 417 测试。08-11 刚校准过又漂 → 建议把「文档=真源」检查脚本化（数据点由代码生成，接入 CI）。
+- [x] **文档漂移已复发**：README 对 native 零命中、设置页章节仍写「6 个标签页」（实际 7，含 channels）、引擎矩阵 4 行缺 native；CLAUDE.md 仍称四引擎 / 227 命令（native 新增 15 个）/ 26 表 / 47 迁移 / 417 测试。08-11 刚校准过又漂 → 建议把「文档=真源」检查脚本化（数据点由代码生成，接入 CI）。2026-08-31 已再校准为 258 命令 / 30 表 / 56 迁移 / 701 测试；脚本化仍待做。
 
 ## P3 · 技术债（沿用，未关闭且在涨）
 
@@ -194,6 +195,7 @@
 （无）
 
 # 已完成的
+- [x] 2026-08-31 native 缺陷修复 #2–#12（不含流式）：真续聊 transcript、权限硬化（Opaque/超时/MCP 按服务器）、图片 token 与子 Agent 配额、plan_content 走服务层、任务会话中途纠偏、稳定文案 i18n
 - [x] 2026-08-25 native 看板计划运行（`08-25-native-plan-mode`）：右键「计划运行」，计划轮结束自动执行
 - [x] 2026-08-25 native 自定义子智能体（`08-25-native-custom-subagents`）：设置 Tab + `subagent_type` 委派
 - [x] 2026-08-24 native 会话内子 Agent（`08-24-native-subagent`）：`Agent` 工具 general/explore，同轮并行上限 3，depth=1

@@ -1,11 +1,19 @@
 import i18n from "@/lib/i18n";
+import { mapRuntimeStatusMessage } from "@/lib/i18n/mapRuntimeStatusMessage";
 import type { TaskExecutionChangeHistoryItem } from "@/lib/types";
 
 const USER_INPUT_TAG = "[USER_INPUT]";
 const END_SESSION_TAG = "[END_SESSION]";
+const ERROR_TAG = "[ERROR]";
 
 /** Localize stable mid-session terminal tags emitted by Rust. */
 export function formatTerminalLine(line: string): string {
+  if (line.startsWith(`${ERROR_TAG} `)) {
+    return `${ERROR_TAG} ${mapRuntimeStatusMessage(line.slice(ERROR_TAG.length + 1))}`;
+  }
+  if (line === ERROR_TAG) {
+    return ERROR_TAG;
+  }
   if (line.startsWith(`${USER_INPUT_TAG} `)) {
     return `${i18n.t("sessions:terminalUserInputPrefix")} ${line.slice(USER_INPUT_TAG.length + 1)}`;
   }
@@ -22,7 +30,10 @@ export function formatTerminalLine(line: string): string {
   if (line.startsWith("[结束会话]")) {
     return i18n.t("sessions:terminalEndSession");
   }
-  return line;
+  if (line.startsWith("[PERMISSION] ")) {
+    return `[PERMISSION] ${mapRuntimeStatusMessage(line.slice("[PERMISSION] ".length))}`;
+  }
+  return mapRuntimeStatusMessage(line);
 }
 
 export function getLineColor(line: string): string {

@@ -10,8 +10,9 @@ use crate::app::{
     apply_codex_session_usage, fetch_employee_by_id, fetch_ssh_config_record_by_id,
     fetch_task_by_id, insert_activity_log, insert_codex_session_event,
     insert_codex_session_event_with_id, insert_codex_session_record, now_sqlite,
-    persist_review_session_events_from_session_logs, sqlite_pool, update_codex_session_record,
-    validate_runtime_working_dir, EXECUTION_TARGET_LOCAL, EXECUTION_TARGET_SSH,
+    persist_review_session_events_from_session_logs, save_task_plan_content, sqlite_pool,
+    update_codex_session_record, validate_runtime_working_dir, EXECUTION_TARGET_LOCAL,
+    EXECUTION_TARGET_SSH,
 };
 use crate::codex::mcp::{mcp_summary_line, resolve_effective_mcp_for_task};
 use crate::codex::{CodexExecutionProvider, CodexSessionKind, ExecutionChangeBaseline};
@@ -57,14 +58,37 @@ fn usable_native_plan_text(text: &str) -> Option<&str> {
     }
 }
 
-fn format_native_plan_saved_details(task_title: &str, plan_content: &str) -> String {
-    format!(
-        "{}（计划长度：{} 字）",
-        task_title,
-        plan_content.chars().count()
-    )
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum NativeLoopEvent {
+    TurnFinished { plan_pending: bool },
+    FollowupInput,
+    FollowupFinish,
+    Cancelled,
+    Error,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum NativeLoopAction {
+    PersistPlanAndExecute,
+    WaitFollowup,
+    RunFollowup,
+    Exit,
+}
+
+pub(crate) fn next_loop_step(await_followups: bool, event: NativeLoopEvent) -> NativeLoopAction {
+    match event {
+        NativeLoopEvent::Cancelled | NativeLoopEvent::Error => NativeLoopAction::Exit,
+        NativeLoopEvent::TurnFinished { plan_pending: true } => {
+            NativeLoopAction::PersistPlanAndExecute
+        }
+        NativeLoopEvent::TurnFinished { plan_pending: false } if await_followups => {
+            NativeLoopAction::WaitFollowup
+        }
+        NativeLoopEvent::TurnFinished { plan_pending: false } => NativeLoopAction::Exit,
+        NativeLoopEvent::FollowupInput => NativeLoopAction::RunFollowup,
+        NativeLoopEvent::FollowupFinish => NativeLoopAction::Exit,
+    }
+}
 
 async fn persist_native_transcript(
     app: &AppHandle,
@@ -1413,7 +1437,7 @@ async fn run_native_loop(
     ssh: Option<SshToolRuntime>,
     cancel: crate::native::tools::CancelFlag,
     allow_all_high_risk: Arc<std::sync::atomic::AtomicBool>,
-    mut followup_rx: mpsc::Receiver<NativeFollowup>,
+    followup_rx: mpsc::Receiver<NativeFollowup>,
     session_record_id: String,
     employee_id: String,
     task_id: Option<String>,
@@ -1425,10 +1449,12 @@ async fn run_native_loop(
     plan_mode: bool,
     resume_session_id: Option<String>,
 ) {
+    let followup_rx = Arc::new(Mutex::new(followup_rx));
     let mut runner = AgentRunner::new(LocalWorkspace::new(PathBuf::from(&run_cwd)));
     runner.ctx.ssh = ssh;
     runner.ctx.cancel = cancel.clone();
     runner.ctx.allow_all_high_risk = allow_all_high_risk;
+    runner.steer_rx = Some(followup_rx.clone());
     if plan_mode {
         runner.set_read_only(true);
         runner.set_plan_mode(true);
@@ -1952,6 +1978,7 @@ async fn run_native_loop(
                     )
                     .await;
                 }
+                let _ = next_loop_step(await_followups, NativeLoopEvent::Error);
                 break;
             }
         };
@@ -1966,7 +1993,11 @@ async fn run_native_loop(
             &runner.messages,
         )
         .await;
-        if plan_pending {
+        match next_loop_step(
+            await_followups,
+            NativeLoopEvent::TurnFinished { plan_pending },
+        ) {
+            NativeLoopAction::PersistPlanAndExecute => {
             persist_native_plan_content(
                 &app,
                 task_id.as_deref(),
@@ -2016,13 +2047,30 @@ async fn run_native_loop(
                 EXECUTE_AFTER_PLAN.to_string()
             });
             continue;
-        }
-        if !await_followups || cancel.is_cancelled() {
-            break;
-        }
-        match followup_rx.recv().await {
-            Some(NativeFollowup::Input(input)) => next = Some(input),
-            Some(NativeFollowup::Finish) | None => break,
+            }
+            NativeLoopAction::WaitFollowup => {
+                if cancel.is_cancelled() {
+                    let _ = next_loop_step(await_followups, NativeLoopEvent::Cancelled);
+                    break;
+                }
+                if runner.take_steer_finish() {
+                    let _ = next_loop_step(await_followups, NativeLoopEvent::FollowupFinish);
+                    break;
+                }
+                match followup_rx.lock().await.recv().await {
+                    Some(NativeFollowup::Input(input)) => {
+                        match next_loop_step(await_followups, NativeLoopEvent::FollowupInput) {
+                            NativeLoopAction::RunFollowup => next = Some(input),
+                            _ => break,
+                        }
+                    }
+                    Some(NativeFollowup::Finish) | None => {
+                        let _ = next_loop_step(await_followups, NativeLoopEvent::FollowupFinish);
+                        break;
+                    }
+                }
+            }
+            NativeLoopAction::Exit | NativeLoopAction::RunFollowup => break,
         }
     }
 
@@ -2123,7 +2171,7 @@ async fn persist_native_plan_content(
     app: &AppHandle,
     task_id: Option<&str>,
     employee_id: &str,
-    project_id: Option<&str>,
+    _project_id: Option<&str>,
     session_record_id: &str,
     kind: &str,
     plan_text: &str,
@@ -2146,27 +2194,8 @@ async fn persist_native_plan_content(
         .await;
         return;
     };
-    let Ok(task) = fetch_task_by_id(&pool, task_id).await else {
-        emit_native_line(
-            app,
-            session_record_id,
-            employee_id,
-            Some(task_id),
-            kind,
-            "[PLAN] 保存计划失败：任务不存在".to_string(),
-        )
-        .await;
-        return;
-    };
-    let updated_at = now_sqlite();
-    if let Err(error) = sqlx::query(
-        "UPDATE tasks SET plan_content = $1, updated_at = $2 WHERE id = $3 AND deleted_at IS NULL",
-    )
-    .bind(plan_content)
-    .bind(&updated_at)
-    .bind(task_id)
-    .execute(&pool)
-    .await
+    if let Err(error) =
+        save_task_plan_content(&pool, task_id, plan_content, Some(employee_id)).await
     {
         emit_native_line(
             app,
@@ -2179,15 +2208,6 @@ async fn persist_native_plan_content(
         .await;
         return;
     }
-    let _ = insert_activity_log(
-        &pool,
-        "native_plan_content_saved",
-        &format_native_plan_saved_details(&task.title, plan_content),
-        Some(employee_id),
-        Some(task_id),
-        project_id.or(Some(task.project_id.as_str())),
-    )
-    .await;
     emit_native_line(
         app,
         session_record_id,
@@ -2505,7 +2525,8 @@ pub async fn resume_native_session(
 #[cfg(test)]
 mod tests {
     use super::{
-        format_native_diagnostics, native_kind_to_codex, should_capture_native_execution_changes,
+        format_native_diagnostics, native_kind_to_codex, next_loop_step, NativeLoopAction,
+        NativeLoopEvent, should_capture_native_execution_changes,
     };
     use crate::codex::CodexSessionKind;
     use crate::native::agent::compact::{BudgetSnapshot, ContextWindow};
@@ -2608,14 +2629,6 @@ mod tests {
     }
 
     #[test]
-    fn format_native_plan_saved_details_counts_chars() {
-        assert_eq!(
-            super::format_native_plan_saved_details("修复登录", "计划内容"),
-            "修复登录（计划长度：4 字）"
-        );
-    }
-
-    #[test]
     fn runtime_effort_clamps_to_channel_allowed_levels() {
         let mut config = crate::native::model_catalog::apply_catalog_defaults("gpt-5.6-luna");
         config.thinking_enabled = Some(true);
@@ -2663,5 +2676,50 @@ mod tests {
         assert!(details.contains("上下文窗口代数 2"));
         assert!(details.contains("压缩 1 次"));
         assert!(details.contains("重置 1 次"));
+    }
+
+    #[test]
+    fn next_loop_step_covers_plan_followup_and_exit() {
+        assert_eq!(
+            next_loop_step(
+                false,
+                NativeLoopEvent::TurnFinished { plan_pending: true }
+            ),
+            NativeLoopAction::PersistPlanAndExecute
+        );
+        assert_eq!(
+            next_loop_step(
+                true,
+                NativeLoopEvent::TurnFinished {
+                    plan_pending: false
+                }
+            ),
+            NativeLoopAction::WaitFollowup
+        );
+        assert_eq!(
+            next_loop_step(
+                false,
+                NativeLoopEvent::TurnFinished {
+                    plan_pending: false
+                }
+            ),
+            NativeLoopAction::Exit
+        );
+        assert_eq!(
+            next_loop_step(true, NativeLoopEvent::FollowupInput),
+            NativeLoopAction::RunFollowup
+        );
+        assert_eq!(
+            next_loop_step(true, NativeLoopEvent::FollowupFinish),
+            NativeLoopAction::Exit
+        );
+        assert_eq!(
+            next_loop_step(true, NativeLoopEvent::Cancelled),
+            NativeLoopAction::Exit
+        );
+        assert_eq!(
+            next_loop_step(true, NativeLoopEvent::Error),
+            NativeLoopAction::Exit
+        );
     }
 }

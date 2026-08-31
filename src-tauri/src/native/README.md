@@ -9,7 +9,8 @@ src-tauri/src/native/
 ├── mod.rs                    # 模块声明与对外重导出（NativeAgentManager 等）
 ├── manager.rs                # 内存态会话注册表 NativeAgentManager
 ├── session.rs                # 会话生命周期（启动/停止/重启/恢复/输入/一次性调用）
-├── settings.rs               # 内置 Agent 设置（轮次/上下文/Token 预算）持久化
+├── transcript.rs             # native 会话模型历史落库（续聊/崩溃后续跑）
+├── settings.rs               # 内置 Agent 设置（轮次/上下文/Token 预算/权限超时/子预算）
 ├── channels.rs               # AI 渠道 CRUD、测通、拉取模型列表
 ├── protocol.rs               # 协议归一化、URL 构造、模型列表解析、渠道 DTO
 ├── secret_store.rs           # 系统密钥库（keyring）读写渠道 API Key
@@ -23,8 +24,8 @@ src-tauri/src/native/
 │   ├── mod.rs                # 模块声明
 │   ├── loop.rs               # AgentRunner 主循环（模型调用/工具执行/轮次控制/子 Agent 批次）
 │   ├── subagent.rs           # Agent 工具参数、类型、并发/轮次上限、子循环提示词
-│   ├── compact.rs            # 上下文压缩（超阈值时本地摘要旧轮次）
-│   └── truncate.rs           # 超长工具结果截断
+│   ├── compact.rs            # 上下文压缩、RolloutBudget、ChildQuota
+│   └── truncate.rs           # 超长工具结果截断与图片 token 估算
 ├── model/
 │   ├── mod.rs                # 模块声明与重导出
 │   ├── client.rs             # ModelClient：请求/SSE 解析/重试/模型列表/探活/鉴权
@@ -39,6 +40,8 @@ src-tauri/src/native/
     ├── mod.rs                # 模块声明与重导出
     ├── catalog.rs            # 工具清单（ToolSpec 定义，随请求声明给模型）
     ├── dispatch.rs           # execute_tool 分发 + ToolCtx（工作区/SSH/MCP/取消/待办/已读文件）
+    ├── permission.rs         # 高风险/不透明命令分类与权限决策
+    ├── question.rs           # 计划模式 AskQuestion
     ├── cancel.rs             # CancelFlag 原子取消标志
     ├── local.rs              # 本地工作区：读/写/编辑/glob/grep/bash
     ├── mcp.rs                # stdio MCP 客户端（本地 spawn / SSH 远端 spawn，失败跳过不回退）
@@ -71,8 +74,11 @@ src-tauri/src/native/
 - `stop_native_for_automation_restart`：供任务自动化「重启步骤」使用，校验员工身份与会话标识后才停止。
 - 辅助函数：`load_native_client`（员工 → 渠道 → 模型配置 → `ModelClient`）、`emit_native_line`（写 `codex_session_events` 并广播 `native-stdout`）、`resolve_run_model_config`（渠道模型配置缺失时回填模型目录）。运行时思考等级经 `resolve_runtime_reasoning_effort` 限制到渠道模型允许集合。
 
+#### `transcript.rs` — 会话模型历史
+`native_session_transcripts` 表保存每个 native 会话的模型消息快照（剥图片、sanitize tool 对）。`save_transcript` / `load_transcript` 只吃 `&SqlitePool`。续聊时用当前 `compose_system` 重建 system 提示词，再接上历史。崩溃后会话被标 failed，只要 transcript 仍在即可继续。
+
 #### `settings.rs` — 设置持久化
-将内置 Agent 设置保存到 `$APPCONFIG/native-settings.json`（结构体 `RawNativeSettings`）。字段包括最大模型工具轮次 `max_turns`（默认 40，0 表示不限制，上限 500）、高风险确认、同轮子 Agent 并发上限（默认 1，范围 1–16）、子 Agent 策略（默认 conservative），上下文窗口上限 `context_window_tokens`（默认 128,000，范围 8,000–1,000,000）、会话 rollout 预算 `rollout_token_budget`（默认 10,000,000，0 表示不限制，上限 100,000,000）和单条工具结果上限 `max_tool_output_tokens`（默认 4,096，范围 256–65,536）。缺少新增字段的旧 JSON 会按保守默认值归一化。提供 Tauri 命令 `get_native_settings` / `update_native_settings`，修改时写活动日志（`native_settings_updated`）。
+将内置 Agent 设置保存到 `$APPCONFIG/native-settings.json`（结构体 `RawNativeSettings`）。字段包括最大模型工具轮次 `max_turns`（默认 40，0 表示不限制，上限 500）、高风险确认、确认超时 `permission_timeout_secs`（默认 300，0 表示不超时）、同轮子 Agent 并发上限（默认 1，范围 1–16）、子 Agent 策略（默认 conservative）、子 Agent 预算占比 `subagent_budget_share_percent`（默认 40，范围 5–100），上下文窗口上限 `context_window_tokens`（默认 128,000，范围 8,000–1,000,000）、会话 rollout 预算 `rollout_token_budget`（默认 10,000,000，0 表示不限制，上限 100,000,000）和单条工具结果上限 `max_tool_output_tokens`（默认 4,096，范围 256–65,536）。缺少新增字段的旧 JSON 会按保守默认值归一化。提供 Tauri 命令 `get_native_settings` / `update_native_settings`，修改时写活动日志（`native_settings_updated`）。
 
 #### `channels.rs` — AI 渠道管理
 管理 `ai_channels` 表（内置 Agent 的模型来源）。Tauri 命令：`list_ai_channels`、`create_ai_channel`、`update_ai_channel`、`delete_ai_channel`（被员工引用时拒绝删除）、`test_ai_channel`（发一条 probe 请求测通）、`list_ai_channel_models`（调用 `/v1/models` 拉取模型列表）。包含 API Key 的迁移逻辑：旧字段 `api_key_ref`（keyring 引用）自动迁移到 `api_key` 列（`hydrate_channel_record`、`require_channel_api_key`），模型配置写入时经 `normalize_channel_model_config` 回填目录默认值并校验思考等级。

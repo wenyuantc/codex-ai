@@ -39,6 +39,7 @@ describe("getActivityActionLabel", () => {
     expect(getActivityActionLabel("native_plan_mode_executed")).toBe("内置 Agent 开始执行计划");
     expect(getActivityActionLabel("native_plan_question_asked")).toBe("内置 Agent 计划提问");
     expect(getActivityActionLabel("native_plan_content_saved")).toBe("保存计划运行内容");
+    expect(getActivityActionLabel("native_session_resumable")).toBe("内置 Agent 会话可续聊");
     expect(getActivityActionLabel("notification_sound_settings_updated")).toBe("更新通知声音设置");
     expect(getActivityActionLabel("native_token_diagnostics")).toBe("内置 Agent Token 诊断");
     expect(getActivityActionLabel("api_call_logs_viewed")).toBe("查看 API 调用记录");

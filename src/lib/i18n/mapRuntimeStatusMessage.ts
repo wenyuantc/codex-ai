@@ -142,5 +142,21 @@ export function mapRuntimeStatusMessage(message: string | null | undefined): str
     return t("oneShotNativeChannelRemote");
   }
 
+  if (raw === "已取消") {
+    return t("cancelled");
+  }
+  if (raw === "达到最大模型轮次") {
+    return t("maxModelTurns");
+  }
+  if (raw.startsWith("重复调用被拒绝")) {
+    return t("repeatedToolCallRejected");
+  }
+  if (raw === "用户不允许该高风险操作") {
+    return t("highRiskDenied");
+  }
+  if (raw === "确认超时，已按拒绝处理") {
+    return t("permissionTimedOut");
+  }
+
   return raw;
 }

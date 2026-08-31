@@ -354,6 +354,38 @@ fn format_task_plan_saved_details(
     )
 }
 
+pub(crate) async fn save_task_plan_content(
+    pool: &SqlitePool,
+    task_id: &str,
+    plan_content: &str,
+    actor_employee_id: Option<&str>,
+) -> Result<(), String> {
+    let task = fetch_task_by_id(pool, task_id).await?;
+    let updated_at = now_sqlite();
+    sqlx::query(
+        "UPDATE tasks SET plan_content = $1, updated_at = $2 WHERE id = $3 AND deleted_at IS NULL",
+    )
+    .bind(plan_content)
+    .bind(&updated_at)
+    .bind(task_id)
+    .execute(pool)
+    .await
+    .map_err(|error| format!("Failed to save plan_content: {error}"))?;
+    let coordinator_label =
+        resolve_employee_activity_label(pool, actor_employee_id.or(task.coordinator_id.as_deref()))
+            .await;
+    insert_activity_log(
+        pool,
+        "task_plan_saved",
+        &format_task_plan_saved_details(&task.title, &coordinator_label, plan_content),
+        actor_employee_id,
+        Some(task_id),
+        Some(task.project_id.as_str()),
+    )
+    .await?;
+    Ok(())
+}
+
 fn format_task_duration_label(total_seconds: i64) -> String {
     let total_seconds = total_seconds.max(0);
     let hours = total_seconds / 3600;

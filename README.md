@@ -88,19 +88,22 @@
 
 ### AI 会话管理
 
-- 四引擎支持：Codex (OpenAI)、Claude (Anthropic)、Grok (xAI)、OpenCode (开源)
+- 五引擎支持：Codex (OpenAI)、Claude (Anthropic)、Grok (xAI)、OpenCode (开源)、内置 Agent（进程内）
 - 会话生命周期：启动、停止、重启、继续对话、发送输入。各引擎能力不同，以 `get_ai_provider_capabilities` 为准：
 
-  | 引擎 | 启动 | 停止 | 重启\* | 会话中发送输入 | 续聊 |
-  |------|:---:|:---:|:---:|:---:|:---:|
-  | Codex | ✅ | ✅ | ✅ | ✅ | ✅ |
-  | Claude | ✅ | ✅ | ✅ | ✅ | ✅ |
-  | Grok | ✅ | ✅ | ✅ | ❌ | ✅ |
-  | OpenCode | ✅ | ✅ | ✅ | ✅ | ✅ |
+  | 引擎 | 启动 | 停止 | 重启\* | 会话中发送输入 | 续聊 | MCP |
+  |------|:---:|:---:|:---:|:---:|:---:|:---:|
+  | Codex | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+  | Claude | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ |
+  | Grok | ✅ | ✅ | ✅ | ❌ | ✅ | ❌ |
+  | OpenCode | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ |
+  | 内置 Agent | ✅ | ✅ | ✅ | ✅ | ✅\*\* | ✅\*\*\* |
 
   \* 重启 = 停止当前运行的进程后重新启动，**不是** CLI 层面 resume 旧 session id。
+  \*\* 内置 Agent 续聊从落库的模型历史恢复上下文，不恢复图片附件。
+  \*\*\* 内置 Agent 的 MCP 按服务器授权：允许该服务器后，本会话内该服务器工具不再确认。
 
-  会话中发送输入依赖 SDK 通道保留可写 stdin；CLI 批处理通道无 stdin 时命令返回明确错误。Grok 为 headless CLI（`-p` + `Stdio::null`），无会话中可写 stdin，属 B1 豁免。
+  会话中发送输入依赖 SDK 通道保留可写 stdin；CLI 批处理通道无 stdin 时命令返回明确错误。Grok 为 headless CLI（`-p` + `Stdio::null`），无会话中可写 stdin，属 B1 豁免。内置 Agent 用进程内 mpsc：自由会话可跟进，任务会话一轮结束即退出，但轮边界仍可注入 `send_native_input`。
 - 会话列表查询与全文搜索过滤（ID、任务、内容、项目、执行目标）
 - 会话日志实时流式展示，支持复制与导出 `.log`
 - 会话 token 用量落库（无值保持未知，不假装 0）；任务详情与仪表盘按项目/引擎聚合
@@ -168,7 +171,7 @@
 
 ## 数据模型摘要
 
-共 26 张表，由 `src-tauri/src/db/migrations.rs` 内联的 47 个版本化迁移维护。
+共 30 张表，由 `src-tauri/src/db/migrations.rs` 内联的 56 个版本化迁移维护。
 
 **核心业务**
 
@@ -203,6 +206,10 @@
 - `task_acceptance_runs` — 测试员验收运行记录
 - `task_run_queue` — 超并发上限时的任务运行排队（重启可重放）
 - `task_templates` — 任务模板（软删；标题/描述模板、标签名、子任务标题）
+- `ai_channels` — 内置 Agent 的模型渠道
+- `task_file_refs` — 任务引用的项目文件
+- `native_api_call_logs` — 内置 Agent API 调用记录
+- `native_session_transcripts` — 内置 Agent 续聊用的模型历史快照（不含图片）
 
 说明：
 
