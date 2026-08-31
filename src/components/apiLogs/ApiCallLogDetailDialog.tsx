@@ -13,6 +13,7 @@ import {
 } from "@/components/ui/dialog";
 import { getNativeApiCallLog, type NativeApiCallLogDetail } from "@/lib/backend";
 import {
+  formatApiCallLogCacheRate,
   formatApiCallLogDurationMs,
   formatApiCallLogThinking,
   formatApiCallLogTokenCount,
@@ -120,7 +121,9 @@ export function ApiCallLogDetailDialog({
   }, [environmentMode, logId, open, projectId, selectedSshConfigId, t]);
 
   const unknown = t("unknown");
+  const emptyValue = t("emptyValue");
   const lessThanOneSecond = t("lessThanOneSecond");
+  const cacheRateLabels = { unknown, empty: emptyValue };
   const requestBody = prettyPrintJsonBody(detail?.request_body);
   const responseBody = prettyPrintJsonBody(detail?.response_body);
 
@@ -184,6 +187,14 @@ export function ApiCallLogDetailDialog({
               <MetaItem
                 label={t("colCached")}
                 value={formatApiCallLogTokenCount(detail.cached_tokens, unknown)}
+              />
+              <MetaItem
+                label={t("colCacheRate")}
+                value={formatApiCallLogCacheRate(
+                  detail.input_tokens,
+                  detail.cached_tokens,
+                  cacheRateLabels,
+                )}
               />
               <MetaItem
                 label={t("colTotal")}

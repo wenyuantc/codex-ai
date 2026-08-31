@@ -1,12 +1,11 @@
-import { aiGenerateCoordinatorTaskPlan, addTaskDependency, setTaskTags } from "@/lib/backend";
-import { runExclusiveCoordinatorPlanGenerate } from "@/lib/coordinatorPlanSession";
-import { getProjectWorkingDir } from "@/lib/projects";
-import { buildTaskExecutionInput } from "@/lib/taskPrompt";
-import { isImageSkipCancelled } from "@/lib/imageAttachmentSkip";
-import { reportTaskRunSessionError, startTaskRunSession } from "@/lib/taskRunSession";
+import { addTaskDependency, setTaskTags } from "@/lib/backend";
+import { generateAndPersistCoordinatorPlan } from "@/lib/coordinatorPlanPersist";
+import { runExistingTaskInBackground } from "@/lib/taskBackgroundRun";
 import type { Employee, Project, Task } from "@/lib/types";
 import { useTaskBackgroundRunStore } from "@/stores/taskBackgroundRunStore";
 import { useTaskStore } from "@/stores/taskStore";
+
+export { generateAndPersistCoordinatorPlan };
 
 export type CreateAndRunPhase = "idle" | "creating" | "planning" | "starting";
 
@@ -40,30 +39,6 @@ export interface ContinueCreatedTaskRunOptions {
   assignee: Employee;
 }
 
-export async function generateAndPersistCoordinatorPlan(params: {
-  task: Task;
-  coordinatorId: string;
-  workingDir: string | null;
-}): Promise<string> {
-  return runExclusiveCoordinatorPlanGenerate(params.task.id, async () => {
-    const plan = await aiGenerateCoordinatorTaskPlan({
-      task_id: params.task.id,
-      coordinator_id: params.coordinatorId,
-      title: params.task.title,
-      description: params.task.description,
-      status: params.task.status,
-      priority: params.task.priority,
-      working_dir: params.workingDir,
-    });
-    const trimmedPlan = plan.markdown.trim();
-    if (!trimmedPlan) {
-      throw new Error("协调员未返回可用计划。");
-    }
-    await useTaskStore.getState().updateTask(params.task.id, { plan_content: trimmedPlan });
-    return trimmedPlan;
-  });
-}
-
 /** Create task + tags/deps only. Caller closes dialog, then continues in background. */
 export async function createTaskForRun(options: CreateTaskForRunOptions): Promise<Task> {
   const { payload, tagIds, dependencyTaskIds, refreshProjectId } = options;
@@ -94,79 +69,35 @@ export async function createTaskForRun(options: CreateTaskForRunOptions): Promis
  */
 export async function continueCreatedTaskRun(
   options: ContinueCreatedTaskRunOptions,
-): Promise<{ task: Task; planContent: string | null }> {
+): Promise<{ task: Task; planContent: string | null; cancelled?: boolean }> {
   const { payload, project, assignee } = options;
-  let task = options.task;
-  const taskId = task.id;
-  const progress = useTaskBackgroundRunStore.getState();
+  const task = {
+    ...options.task,
+    assignee_id: payload.assignee_id ?? options.task.assignee_id,
+    coordinator_id: payload.coordinator_id ?? options.task.coordinator_id,
+  };
 
   if (!payload.assignee_id) {
-    progress.setPhase(taskId, "error", "请先指定执行员工，再执行任务。");
-    throw new Error("请先指定执行员工，再执行任务。");
+    const message = "请先指定执行员工，再执行任务。";
+    useTaskBackgroundRunStore.getState().setPhase(task.id, "error", message);
+    throw new Error(message);
   }
 
-  const workingDir = getProjectWorkingDir(project);
-  let planContent: string | null = null;
-  const taskStore = useTaskStore.getState();
+  const outcome = await runExistingTaskInBackground({
+    task,
+    assignee,
+    project,
+    regenerateCoordinatorPlan: Boolean(payload.coordinator_id),
+  });
 
-  try {
-    if (payload.coordinator_id) {
-      progress.setPhase(taskId, "planning");
-      planContent = await generateAndPersistCoordinatorPlan({
-        task,
-        coordinatorId: payload.coordinator_id,
-        workingDir,
-      });
-      task = {
-        ...task,
-        plan_content: planContent,
-        coordinator_id: payload.coordinator_id,
-      };
-    }
-
-    progress.setPhase(taskId, "starting");
-    await Promise.all([taskStore.fetchAttachments(task.id), taskStore.fetchFileRefs(task.id)]);
-    const attachments = useTaskStore.getState().attachments[task.id] ?? [];
-    const fileRefs = useTaskStore.getState().fileRefs[task.id] ?? [];
-    const executionInput = buildTaskExecutionInput({
-      title: task.title,
-      description: task.description,
-      planContent,
-      subtasks: useTaskStore.getState().subtasks[task.id] ?? [],
-      attachments,
-      fileRefs,
-    });
-
-    await startTaskRunSession({
-      task,
-      assigneeId: payload.assignee_id,
-      assignee,
-      projectRepoPath: workingDir,
-      executionInput: {
-        prompt: executionInput.prompt,
-        imagePaths: executionInput.imagePaths,
-      },
-      clearTaskOutput: true,
-    });
-
-    progress.clear(taskId);
-    return { task, planContent };
-  } catch (error) {
-    if (isImageSkipCancelled(error)) {
-      progress.clear(taskId);
-      return { task, planContent };
-    }
-    const message = error instanceof Error ? error.message : String(error);
-    // Only report run-session style errors when we already entered starting;
-    // plan failures still get a log line + badge.
-    if (useTaskBackgroundRunStore.getState().byTaskId[taskId]?.phase === "starting") {
-      await reportTaskRunSessionError(error, payload.assignee_id, task.id);
-    } else if (payload.assignee_id) {
-      await reportTaskRunSessionError(error, payload.assignee_id, task.id);
-    }
-    progress.setPhase(taskId, "error", message);
-    throw error instanceof Error ? error : new Error(message);
-  }
+  return {
+    task: {
+      ...task,
+      plan_content: outcome.planContent ?? task.plan_content,
+    },
+    planContent: outcome.planContent,
+    cancelled: outcome.status === "cancelled",
+  };
 }
 
 export function getCreateAndRunPhaseLabel(phase: CreateAndRunPhase): string {

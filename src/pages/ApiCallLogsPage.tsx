@@ -13,6 +13,7 @@ import {
   API_CALL_LOG_PAGE_SIZE,
   API_CALL_LOG_STATUSES,
   emptyApiCallLogStats,
+  formatApiCallLogCacheRate,
   formatApiCallLogDurationMs,
   formatApiCallLogThinking,
   formatApiCallLogTokenCount,
@@ -99,7 +100,9 @@ export function ApiCallLogsPage() {
     Boolean(filters.startDate) ||
     Boolean(filters.endDate);
   const unknown = t("unknown");
+  const emptyValue = t("emptyValue");
   const lessThanOneSecond = t("lessThanOneSecond");
+  const cacheRateLabels = { unknown, empty: emptyValue };
   const totalPages = total > 0 ? Math.ceil(total / API_CALL_LOG_PAGE_SIZE) : 0;
   const rangeStart = total === 0 ? 0 : (page - 1) * API_CALL_LOG_PAGE_SIZE + 1;
   const rangeEnd = total === 0 ? 0 : Math.min(page * API_CALL_LOG_PAGE_SIZE, total);
@@ -423,7 +426,7 @@ export function ApiCallLogsPage() {
 
             <div className="rounded-xl border border-border/70 p-3">
               <div className="mb-2 text-sm font-medium">{t("statsTitle")}</div>
-              <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-7">
+              <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-8">
                 <StatCell label={t("statsCalls")} value={String(stats.call_count)} />
                 <StatCell
                   label={t("statsInput")}
@@ -436,6 +439,14 @@ export function ApiCallLogsPage() {
                 <StatCell
                   label={t("statsCached")}
                   value={formatApiCallLogTokenCount(stats.cached_tokens_sum, unknown)}
+                />
+                <StatCell
+                  label={t("statsCacheRate")}
+                  value={formatApiCallLogCacheRate(
+                    stats.input_tokens_sum,
+                    stats.cached_tokens_sum,
+                    cacheRateLabels,
+                  )}
                 />
                 <StatCell
                   label={t("statsTotal")}
@@ -486,6 +497,7 @@ export function ApiCallLogsPage() {
                         <th className="px-4 py-3 font-medium">{t("colInput")}</th>
                         <th className="px-4 py-3 font-medium">{t("colOutput")}</th>
                         <th className="px-4 py-3 font-medium">{t("colCached")}</th>
+                        <th className="px-4 py-3 font-medium">{t("colCacheRate")}</th>
                         <th className="px-4 py-3 font-medium">{t("colTotal")}</th>
                         <th className="px-4 py-3 font-medium">{t("colFirstToken")}</th>
                         <th className="px-4 py-3 font-medium">{t("colDuration")}</th>
@@ -535,6 +547,13 @@ export function ApiCallLogsPage() {
                           </td>
                           <td className="px-4 py-3">
                             {formatApiCallLogTokenCount(item.cached_tokens, unknown)}
+                          </td>
+                          <td className="px-4 py-3">
+                            {formatApiCallLogCacheRate(
+                              item.input_tokens,
+                              item.cached_tokens,
+                              cacheRateLabels,
+                            )}
                           </td>
                           <td className="px-4 py-3">
                             {formatApiCallLogTokenCount(item.total_tokens, unknown)}

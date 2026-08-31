@@ -1,5 +1,7 @@
 import { create } from "zustand";
 
+import i18n from "@/lib/i18n";
+
 /** Background phases after create-and-run closes the dialog. */
 export type TaskBackgroundRunPhase = "planning" | "starting" | "error";
 
@@ -45,11 +47,11 @@ export function getTaskBackgroundRunLabel(
   }
   switch (entry.phase) {
     case "planning":
-      return "协调员生成计划中";
+      return i18n.t("tasks:card.backgroundPlanning");
     case "starting":
-      return "启动执行中";
+      return i18n.t("tasks:card.backgroundStarting");
     case "error":
-      return entry.error?.trim() ? `后台启动失败` : "后台启动失败";
+      return i18n.t("tasks:card.backgroundFailed");
     default:
       return null;
   }

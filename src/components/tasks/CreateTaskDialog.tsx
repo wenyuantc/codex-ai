@@ -411,8 +411,10 @@ export function CreateTaskDialog({
         project: projectSnapshot,
         assignee: assigneeSnapshot,
       })
-        .then(({ task: startedTask }) => {
-          openLog?.(startedTask.id, "execution");
+        .then(({ task: startedTask, cancelled }) => {
+          if (!cancelled) {
+            openLog?.(startedTask.id, "execution");
+          }
         })
         .catch((error) => {
           console.error("Background create-and-run failed:", error);

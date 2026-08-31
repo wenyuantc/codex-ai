@@ -56,6 +56,12 @@ import { CONTEXT_MENU_VIEWPORT_PADDING, fitContextMenuToViewport } from "@/lib/c
 import { countStageableGitFiles } from "@/lib/gitWorkingTree";
 import { buildTaskExecutionInput } from "@/lib/taskPrompt";
 import { hasSavedTaskPlan } from "@/lib/taskPlanRun";
+import { runExistingTaskInBackground } from "@/lib/taskBackgroundRun";
+import {
+  canOfferTaskBackgroundRun,
+  isTaskBackgroundRunDisabled,
+  resolveTaskBackgroundRunInitialPhase,
+} from "@/lib/taskBackgroundRunPolicy";
 import {
   generateCoordinatorPlanForTask,
   prepareCoordinatorPlanOpen,
@@ -340,13 +346,15 @@ function TaskCardComponent({
     status: task.status,
   });
   const backgroundRun = useTaskBackgroundRunStore((state) => state.byTaskId[task.id]);
+  const setBackgroundRunPhase = useTaskBackgroundRunStore((state) => state.setPhase);
+  const clearBackgroundRun = useTaskBackgroundRunStore((state) => state.clear);
   const isCoordinatorPlanning = coordinatorPlanLoading;
   const isBackgroundPlanning = backgroundRun?.phase === "planning" || isCoordinatorPlanning;
   const isBackgroundStarting = backgroundRun?.phase === "starting";
   const isBackgroundRunBusy = isBackgroundPlanning || isBackgroundStarting;
   const backgroundRunLabel =
     isCoordinatorPlanning && backgroundRun?.phase !== "starting" && backgroundRun?.phase !== "error"
-      ? "协调员生成计划中"
+      ? t("card.backgroundPlanning")
       : getTaskBackgroundRunLabel(backgroundRun);
   const aiCommitEntry = useTaskAiCommitStore((state) => state.byTaskId[task.id]);
   const setAiCommitPhase = useTaskAiCommitStore((state) => state.setPhase);
@@ -739,6 +747,45 @@ function TaskCardComponent({
 
     onOpenLog?.(task.id, "execution");
     await executionActions.runTask();
+  };
+
+  const canBackgroundRun = canOfferTaskBackgroundRun({
+    primaryCtaKind: primaryCta.kind,
+    hideRunAction,
+  });
+  const backgroundRunDisabled = isTaskBackgroundRunDisabled({
+    canOffer: canBackgroundRun,
+    primaryCtaDisabled: primaryCta.disabled,
+    isActionLoading,
+    isRunning,
+    isReviewRunning,
+  });
+
+  const handleBackgroundRun = (e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    setContextMenu(null);
+    if (backgroundRunDisabled) {
+      return;
+    }
+    if (!task.assignee_id || !assignee) {
+      setBackgroundRunPhase(task.id, "error", t("primaryCta.run.reasonNeedAssignee"));
+      return;
+    }
+
+    setBackgroundRunPhase(
+      task.id,
+      resolveTaskBackgroundRunInitialPhase({
+        coordinatorId: task.coordinator_id,
+        savedPlan: task.plan_content,
+      }),
+    );
+    void runExistingTaskInBackground({
+      task,
+      assignee,
+      project,
+    }).catch((error) => {
+      console.error("Background task run failed:", error);
+    });
   };
 
   const canPlanRun =
@@ -1446,22 +1493,31 @@ function TaskCardComponent({
                 </span>
               )}
               {backgroundRunLabel && backgroundRun?.phase === "error" && (
-                <span
-                  className="inline-flex items-center gap-1 rounded-full bg-destructive/10 px-2 py-0.5 text-[11px] text-destructive"
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    clearBackgroundRun(task.id);
+                  }}
+                  className="inline-flex items-center gap-1 rounded-full bg-destructive/10 px-2 py-0.5 text-[11px] text-destructive hover:bg-destructive/15"
                   title={backgroundRun.error ?? backgroundRunLabel}
                 >
                   <Network className="h-3 w-3" />
                   {backgroundRunLabel}
-                </span>
+                </button>
               )}
               {backgroundRunLabel && backgroundRun?.phase !== "error" && (
                 <button
                   type="button"
                   onClick={(e) => {
                     e.stopPropagation();
-                    void openCoordinatorPlanFlow();
+                    if (task.coordinator_id) {
+                      void openCoordinatorPlanFlow();
+                    }
                   }}
-                  className="inline-flex items-center gap-1 rounded-full bg-violet-500/10 px-2 py-0.5 text-[11px] text-violet-700 hover:bg-violet-500/15 dark:text-violet-200"
+                  className={`inline-flex items-center gap-1 rounded-full bg-violet-500/10 px-2 py-0.5 text-[11px] text-violet-700 dark:text-violet-200 ${
+                    task.coordinator_id ? "hover:bg-violet-500/15" : "cursor-default"
+                  }`}
                   title={backgroundRunLabel}
                 >
                   <Loader2 className="h-3 w-3 animate-spin" />
@@ -1711,6 +1767,31 @@ function TaskCardComponent({
                   {primaryCta.kind === "review" && !isReviewRunning
                     ? t("detail.secondary.reviewCode")
                     : primaryCta.label}
+                </button>
+              )}
+              {canBackgroundRun && (
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => handleBackgroundRun()}
+                  disabled={backgroundRunDisabled}
+                  title={
+                    backgroundRunDisabled
+                      ? (primaryCta.reason ?? t("card.backgroundRun"))
+                      : t("card.backgroundRunTitle")
+                  }
+                  className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-left hover:bg-accent hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-50"
+                >
+                  {isBackgroundRunBusy ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Play className="h-4 w-4" />
+                  )}
+                  {isBackgroundPlanning
+                    ? t("card.backgroundPlanning")
+                    : isBackgroundStarting
+                      ? t("card.backgroundStarting")
+                      : t("card.backgroundRun")}
                 </button>
               )}
               {canPlanRun && (

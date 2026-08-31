@@ -39,6 +39,10 @@ describe("i18n locale preference", () => {
     expect(i18n.t("apiLogs:lessThanOneSecond")).toBe("<1s");
     expect(i18n.t("apiLogs:callKind.one_shot")).toBe("一次性调用");
     expect(i18n.t("tasks:card.planRun")).toBe("计划运行");
+    expect(i18n.t("tasks:card.backgroundRun")).toBe("后台运行");
+    expect(i18n.t("tasks:card.backgroundPlanning")).toBe("生成计划中");
+    expect(i18n.t("tasks:card.backgroundStarting")).toBe("启动中");
+    expect(i18n.t("tasks:card.backgroundFailed")).toBe("后台启动失败");
     expect(i18n.t("tasks:detail.overview.openCoordinatorPlan")).toBe("打开协调员计划");
     expect(i18n.t("sessions:kindCoordinator")).toBe("协调");
     expect(i18n.t("tasks:detail.chain.role.coordinator")).toBe("协调");
@@ -121,6 +125,10 @@ describe("i18n locale preference", () => {
     expect(i18n.t("apiLogs:lessThanOneSecond")).toBe("<1s");
     expect(i18n.t("apiLogs:callKind.one_shot")).toBe("One-shot");
     expect(i18n.t("tasks:card.planRun")).toBe("Plan and run");
+    expect(i18n.t("tasks:card.backgroundRun")).toBe("Run in background");
+    expect(i18n.t("tasks:card.backgroundPlanning")).toBe("Generating plan");
+    expect(i18n.t("tasks:card.backgroundStarting")).toBe("Starting");
+    expect(i18n.t("tasks:card.backgroundFailed")).toBe("Background start failed");
     expect(i18n.t("tasks:detail.overview.openCoordinatorPlan")).toBe("Open coordinator plan");
     expect(i18n.t("sessions:kindCoordinator")).toBe("Coordinator");
     expect(i18n.t("tasks:detail.chain.role.coordinator")).toBe("Coordinator");

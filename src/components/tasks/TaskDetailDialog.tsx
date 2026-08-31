@@ -347,7 +347,7 @@ export function TaskDetailDialog({
   const isBackgroundRunBusy = isBackgroundPlanning || isBackgroundStarting;
   const backgroundRunLabel =
     isCoordinatorPlanning && backgroundRun?.phase !== "starting" && backgroundRun?.phase !== "error"
-      ? "协调员生成计划中"
+      ? t("card.backgroundPlanning")
       : getTaskBackgroundRunLabel(backgroundRun);
   const resolvedAutomationState =
     automationState ?? getTaskAutomationDisplayState(task, persistedAutomationState ?? null);
