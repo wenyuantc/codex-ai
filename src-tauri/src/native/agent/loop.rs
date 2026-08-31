@@ -30,7 +30,7 @@ use super::compact::{
     reset_local, BudgetSnapshot, ChildQuota, ContextWindow, RolloutBudget,
 };
 use super::subagent::{
-    child_max_turns, child_system_prompt, custom_child_system_prompt, format_subagent_log_tag,
+    child_system_prompt, custom_child_system_prompt, format_subagent_log_tag,
     format_subagent_result, parse_subagent_args_with, SubagentKind, SubagentSpec,
 };
 use super::truncate::{
@@ -105,6 +105,7 @@ pub struct AgentRunner {
     pub ctx: ToolCtx,
     pub messages: Vec<Message>,
     pub max_turns: u32,
+    pub max_subagent_turns: u32,
     pub max_concurrent_subagents: u32,
     pub subagent_policy: String,
     pub context_char_limit: usize,
@@ -179,6 +180,7 @@ impl AgentRunner {
             },
             messages: Vec::new(),
             max_turns: DEFAULT_NATIVE_MAX_TURNS as u32,
+            max_subagent_turns: crate::native::settings::DEFAULT_NATIVE_MAX_SUBAGENT_TURNS as u32,
             max_concurrent_subagents: crate::native::agent::subagent::MAX_CONCURRENT_SUBAGENTS
                 as u32,
             subagent_policy: crate::native::settings::DEFAULT_NATIVE_SUBAGENT_POLICY.to_string(),
@@ -1138,7 +1140,8 @@ impl AgentRunner {
             "{} ",
             format_subagent_log_tag(index, &spec.kind, &spec.description)
         );
-        child.max_turns = child_max_turns(self.max_turns);
+        child.max_turns = self.max_subagent_turns;
+        child.max_subagent_turns = self.max_subagent_turns;
         child.max_concurrent_subagents = self.max_concurrent_subagents;
         child.subagent_policy = self.subagent_policy.clone();
         child.context_char_limit = self.context_char_limit;
@@ -1953,6 +1956,32 @@ mod tests {
             lines.iter().any(|line| line == "[工具结果] 已更新 3 项"),
             "missing todo result count: {lines:?}"
         );
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn child_uses_dedicated_subagent_turns() {
+        let (mut runner, root) = temp_runner();
+        let spec = parse_subagent_args(r#"{"prompt":"go"}"#).unwrap();
+        let default_child = runner.spawn_child_runner(&spec, 1);
+        assert_eq!(default_child.max_turns, 20);
+        assert_eq!(default_child.max_subagent_turns, 20);
+
+        runner.max_turns = 40;
+        runner.max_subagent_turns = 80;
+        let child = runner.spawn_child_runner(&spec, 2);
+        assert_eq!(child.max_turns, 80);
+        assert_eq!(child.max_subagent_turns, 80);
+
+        runner.max_turns = 0;
+        runner.max_subagent_turns = 20;
+        let limited = runner.spawn_child_runner(&spec, 3);
+        assert_eq!(limited.max_turns, 20);
+
+        runner.max_subagent_turns = 0;
+        let unlimited = runner.spawn_child_runner(&spec, 4);
+        assert_eq!(unlimited.max_turns, 0);
+        assert_eq!(unlimited.max_subagent_turns, 0);
         let _ = fs::remove_dir_all(root);
     }
 

@@ -46,6 +46,8 @@
     "description": "限制一次用户消息里模型最多调用多少轮工具。0 表示不限制。本地与 SSH 项目都在本机循环中执行，共用此上限。",
     "label": "最大工具轮次",
     "hint": "0 = 不限制，默认 40，最大 500",
+    "maxSubagentTurnsLabel": "子 Agent 最大工具轮次",
+    "maxSubagentTurnsHint": "0 = 不限制，默认 20，最大 500。与父 Agent 轮次独立。本地与 SSH 共用。改完对之后新开的会话生效。",
     "contextWindowTokensLabel": "上下文窗口上限（K token）",
     "contextWindowTokensHint": "输入单位为 K token（1K = 1000 token）。达到此窗口大小后优先压缩旧对话再继续。默认 128K，范围 8K–1000K。",
     "rolloutTokenBudgetLabel": "单次会话预算（K token）",

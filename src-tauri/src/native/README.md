@@ -78,7 +78,7 @@ src-tauri/src/native/
 `native_session_transcripts` 表保存每个 native 会话的模型消息快照（剥图片、sanitize tool 对）。`save_transcript` / `load_transcript` 只吃 `&SqlitePool`。按指纹跳过无变化写入；落库失败打 `[native] 保存会话上下文失败`。续聊时用当前 `compose_system` 重建 system 提示词，再接上历史。崩溃后会话被标 failed，只要 transcript 仍在即可继续。
 
 #### `settings.rs` — 设置持久化
-将内置 Agent 设置保存到 `$APPCONFIG/native-settings.json`（结构体 `RawNativeSettings`）。字段包括最大模型工具轮次 `max_turns`（默认 40，0 表示不限制，上限 500）、高风险确认、确认超时 `permission_timeout_secs`（默认 300，0 表示不超时）、同轮子 Agent 并发上限（默认 1，范围 1–16）、子 Agent 策略（默认 conservative）、子 Agent 预算占比 `subagent_budget_share_percent`（默认 40，范围 5–100，同一批子 Agent 合计上限），上下文窗口上限 `context_window_tokens`（默认 128,000，范围 8,000–1,000,000）、会话 rollout 预算 `rollout_token_budget`（默认 10,000,000，0 表示不限制，上限 100,000,000）和单条工具结果上限 `max_tool_output_tokens`（默认 4,096，范围 256–65,536）。缺少新增字段的旧 JSON 会按保守默认值归一化。提供 Tauri 命令 `get_native_settings` / `update_native_settings`，修改时写活动日志（`native_settings_updated`）。
+将内置 Agent 设置保存到 `$APPCONFIG/native-settings.json`（结构体 `RawNativeSettings`）。字段包括最大模型工具轮次 `max_turns`（默认 40，0 表示不限制，上限 500）、子 Agent 最大工具轮次 `max_subagent_turns`（默认 20，0 表示不限制，上限 500，与父 `max_turns` 独立）、高风险确认、确认超时 `permission_timeout_secs`（默认 300，0 表示不超时）、同轮子 Agent 并发上限（默认 1，范围 1–16）、子 Agent 策略（默认 conservative）、子 Agent 预算占比 `subagent_budget_share_percent`（默认 40，范围 5–100，同一批子 Agent 合计上限），上下文窗口上限 `context_window_tokens`（默认 128,000，范围 8,000–1,000,000）、会话 rollout 预算 `rollout_token_budget`（默认 10,000,000，0 表示不限制，上限 100,000,000）和单条工具结果上限 `max_tool_output_tokens`（默认 4,096，范围 256–65,536）。缺少新增字段的旧 JSON 会按保守默认值归一化。提供 Tauri 命令 `get_native_settings` / `update_native_settings`，修改时写活动日志（`native_settings_updated`）。
 
 #### `channels.rs` — AI 渠道管理
 管理 `ai_channels` 表（内置 Agent 的模型来源）。Tauri 命令：`list_ai_channels`、`create_ai_channel`、`update_ai_channel`、`delete_ai_channel`（被员工引用时拒绝删除）、`test_ai_channel`（发一条 probe 请求测通）、`list_ai_channel_models`（调用 `/v1/models` 拉取模型列表，截断时 `truncated=true` 并在活动日志中标明）。包含 API Key 的迁移逻辑：旧字段 `api_key_ref`（keyring 引用）自动迁移到 `api_key` 列（`hydrate_channel_record`、`require_channel_api_key`），模型配置写入时经 `normalize_channel_model_config` 回填目录默认值并校验思考等级。
@@ -114,7 +114,7 @@ src-tauri/src/native/
 - `run_scripted`：测试专用，用预置的回复序列替代模型调用。
 - `consume_assistant`：处理模型输出 —— 剥离空工具名、planned last_turn（请求未带 tools）强制清空工具调用；若本轮请求带了 tools，即使 settle 后预算耗尽也执行这批调用，下一轮再收尾。播报思考字数与文本、执行工具并把结果作为 `tool` 消息回填；无工具调用即返回最终文本。
 - 防重复调用：同一工具+相同参数连续调用 3 次（`REPEAT_TOOL_LIMIT`）后直接拒绝，避免死循环。
-- 子 Agent：连续 `Agent` 调用走 `JoinSet`（上限见设置）；同一批共享一个 `ChildQuota` 池（`remaining * subagent_budget_share_percent`），不是每个 child 各拿一份；子循环 `event_prefix` 为 `[子 Agent n(explore|general) - {description}] `（description 来自工具参数短标题，空白折叠、去括号、最长 32 字）；高风险确认 FIFO；MCP 经 `SharedMcp` Mutex 共享。
+- 子 Agent：连续 `Agent` 调用走 `JoinSet`（上限见设置）；同一批共享一个 `ChildQuota` 池（`remaining * subagent_budget_share_percent`），不是每个 child 各拿一份；子循环 `max_turns` 取父的 `max_subagent_turns`（设置项，默认 20，0 表示不限制，与父 `max_turns` 独立）；子循环 `event_prefix` 为 `[子 Agent n(explore|general) - {description}] `（description 来自工具参数短标题，空白折叠、去括号、最长 32 字）；高风险确认 FIFO；MCP 经 `SharedMcp` Mutex 共享。
 - 事件输出：`[思考] `、`[读取] `、`[命令] `、`[工具结果] `、`[子 Agent] ` 等进度行通过 `on_event` 通道发出；用量通过 `on_usage` 通道发出。`[工具结果]` 事件保留完整工具输出（一条事件，可含换行），不是第一行摘要；TodoWrite 清单仍只报「已更新 N 项」。超过 2000 行或 65536 字时 UI 截断并附中文提示；模型历史使用按 token 限制的头尾片段。
 
 #### `agent/compact.rs`

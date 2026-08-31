@@ -195,6 +195,7 @@ export function SettingsPage() {
   const [locale, setLocale] = useState<AppLocale>(getLocalePreference);
   const [maxConcurrentSessions, setMaxConcurrentSessions] = useState(3);
   const [nativeMaxTurns, setNativeMaxTurns] = useState(40);
+  const [nativeMaxSubagentTurns, setNativeMaxSubagentTurns] = useState(20);
   const [nativeMaxConcurrentSubagents, setNativeMaxConcurrentSubagents] = useState(1);
   const [nativeSubagentPolicy, setNativeSubagentPolicy] = useState("conservative");
   const [nativeConfirmHighRisk, setNativeConfirmHighRisk] = useState(true);
@@ -406,6 +407,7 @@ export function SettingsPage() {
 
   function applyNativeSettings(settings: NativeSettings) {
     setNativeMaxTurns(settings.max_turns ?? 40);
+    setNativeMaxSubagentTurns(settings.max_subagent_turns ?? 20);
     setNativeMaxConcurrentSubagents(settings.max_concurrent_subagents ?? 1);
     setNativeSubagentPolicy(settings.subagent_policy || "conservative");
     setNativeConfirmHighRisk(settings.confirm_high_risk !== false);
@@ -433,6 +435,17 @@ export function SettingsPage() {
       applyNativeSettings(await updateNativeSettings({ max_turns: normalized }));
     } catch (error) {
       console.error("Failed to save native agent max turns:", error);
+      await loadNativeMaxTurns();
+    }
+  }
+
+  async function persistNativeMaxSubagentTurns(value: number) {
+    const normalized = Number.isFinite(value) ? Math.min(500, Math.max(0, Math.trunc(value))) : 20;
+    setNativeMaxSubagentTurns(normalized);
+    try {
+      applyNativeSettings(await updateNativeSettings({ max_subagent_turns: normalized }));
+    } catch (error) {
+      console.error("Failed to save native sub-agent max turns:", error);
       await loadNativeMaxTurns();
     }
   }
@@ -1381,6 +1394,9 @@ export function SettingsPage() {
             nativeMaxTurns={nativeMaxTurns}
             onNativeMaxTurnsChange={setNativeMaxTurns}
             onNativeMaxTurnsCommit={(value) => void persistNativeMaxTurns(value)}
+            nativeMaxSubagentTurns={nativeMaxSubagentTurns}
+            onNativeMaxSubagentTurnsChange={setNativeMaxSubagentTurns}
+            onNativeMaxSubagentTurnsCommit={(value) => void persistNativeMaxSubagentTurns(value)}
             nativeMaxConcurrentSubagents={nativeMaxConcurrentSubagents}
             onNativeMaxConcurrentSubagentsChange={setNativeMaxConcurrentSubagents}
             onNativeMaxConcurrentSubagentsCommit={(value) =>

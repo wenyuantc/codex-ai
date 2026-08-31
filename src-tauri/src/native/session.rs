@@ -537,6 +537,7 @@ fn configure_runner_limits<R: Runtime>(
     runner.tool_result_token_limit =
         crate::native::settings::effective_max_tool_output_tokens(app) as usize;
     runner.set_rollout_budget_limit(crate::native::settings::effective_rollout_token_budget(app));
+    runner.max_subagent_turns = crate::native::settings::effective_max_subagent_turns(app);
     runner.subagent_budget_share_percent =
         crate::native::settings::effective_subagent_budget_share_percent(app);
     let timeout_secs = crate::native::settings::effective_permission_timeout_secs(app);

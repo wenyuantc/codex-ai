@@ -46,6 +46,8 @@
     "description": "Cap how many model-and-tool rounds run for one user message. 0 means unlimited. Local and SSH projects share this cap because the loop always runs on this machine.",
     "label": "Max tool turns",
     "hint": "0 = unlimited, default 40, max 500",
+    "maxSubagentTurnsLabel": "Sub-agent max tool turns",
+    "maxSubagentTurnsHint": "0 = unlimited, default 20, max 500. Independent from the parent agent turn cap. Shared by local and SSH. Applies to sessions started after you change it.",
     "contextWindowTokensLabel": "Context window limit (K tokens)",
     "contextWindowTokensHint": "Enter K tokens (1K = 1,000 tokens). Older history is compacted before this window fills. Default 128K; range 8K–1,000K.",
     "rolloutTokenBudgetLabel": "Per-session budget (K tokens)",

@@ -78,6 +78,9 @@ interface RuntimeSettingsTabProps {
   nativeMaxTurns: number;
   onNativeMaxTurnsChange: (value: number) => void;
   onNativeMaxTurnsCommit: (value: number) => void;
+  nativeMaxSubagentTurns: number;
+  onNativeMaxSubagentTurnsChange: (value: number) => void;
+  onNativeMaxSubagentTurnsCommit: (value: number) => void;
   nativeMaxConcurrentSubagents: number;
   onNativeMaxConcurrentSubagentsChange: (value: number) => void;
   onNativeMaxConcurrentSubagentsCommit: (value: number) => void;
@@ -235,6 +238,9 @@ export function RuntimeSettingsTab({
   nativeMaxTurns,
   onNativeMaxTurnsChange,
   onNativeMaxTurnsCommit,
+  nativeMaxSubagentTurns,
+  onNativeMaxSubagentTurnsChange,
+  onNativeMaxSubagentTurnsCommit,
   nativeMaxConcurrentSubagents,
   onNativeMaxConcurrentSubagentsChange,
   onNativeMaxConcurrentSubagentsCommit,
@@ -593,6 +599,34 @@ export function RuntimeSettingsTab({
               }}
             />
             <p className="text-xs text-muted-foreground">{t("settings:nativeAgent.hint")}</p>
+          </div>
+          <div className="mt-4 max-w-xs space-y-2">
+            <label htmlFor="native-max-subagent-turns" className="text-sm font-medium">
+              {t("settings:nativeAgent.maxSubagentTurnsLabel")}
+            </label>
+            <Input
+              id="native-max-subagent-turns"
+              type="number"
+              min={0}
+              max={500}
+              step={1}
+              value={nativeMaxSubagentTurns}
+              onChange={(event) => {
+                const parsed = Number.parseInt(event.target.value, 10);
+                onNativeMaxSubagentTurnsChange(
+                  Number.isNaN(parsed) ? 0 : Math.min(500, Math.max(0, parsed)),
+                );
+              }}
+              onBlur={(event) => {
+                const parsed = Number.parseInt(event.target.value, 10);
+                onNativeMaxSubagentTurnsCommit(
+                  Number.isNaN(parsed) ? 0 : Math.min(500, Math.max(0, parsed)),
+                );
+              }}
+            />
+            <p className="text-xs text-muted-foreground">
+              {t("settings:nativeAgent.maxSubagentTurnsHint")}
+            </p>
           </div>
           <div className="mt-4 max-w-xs space-y-2">
             <label htmlFor="native-context-window-k" className="text-sm font-medium">

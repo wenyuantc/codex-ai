@@ -9,6 +9,7 @@ use crate::db::models::{NativeSettings, UpdateNativeSettings};
 
 const SETTINGS_FILE_NAME: &str = "native-settings.json";
 pub const DEFAULT_NATIVE_MAX_TURNS: i32 = 40;
+pub const DEFAULT_NATIVE_MAX_SUBAGENT_TURNS: i32 = 20;
 const MAX_NATIVE_MAX_TURNS: i32 = 500;
 pub const DEFAULT_NATIVE_MAX_CONCURRENT_SUBAGENTS: i32 = 1;
 const MAX_NATIVE_MAX_CONCURRENT_SUBAGENTS: i32 = 16;
@@ -40,6 +41,8 @@ struct RawNativeSettings {
     #[serde(default)]
     max_turns: Option<i32>,
     #[serde(default)]
+    max_subagent_turns: Option<i32>,
+    #[serde(default)]
     confirm_high_risk: Option<bool>,
     #[serde(default)]
     max_concurrent_subagents: Option<i32>,
@@ -61,6 +64,13 @@ pub fn normalize_native_max_turns(value: Option<i32>) -> i32 {
     match value {
         Some(value) if (0..=MAX_NATIVE_MAX_TURNS).contains(&value) => value,
         _ => DEFAULT_NATIVE_MAX_TURNS,
+    }
+}
+
+pub fn normalize_native_max_subagent_turns(value: Option<i32>) -> i32 {
+    match value {
+        Some(value) if (0..=MAX_NATIVE_MAX_TURNS).contains(&value) => value,
+        _ => DEFAULT_NATIVE_MAX_SUBAGENT_TURNS,
     }
 }
 
@@ -152,6 +162,7 @@ fn settings_path<R: Runtime>(app: &AppHandle<R>) -> Result<PathBuf, String> {
 fn default_settings() -> NativeSettings {
     NativeSettings {
         max_turns: DEFAULT_NATIVE_MAX_TURNS,
+        max_subagent_turns: DEFAULT_NATIVE_MAX_SUBAGENT_TURNS,
         confirm_high_risk: true,
         max_concurrent_subagents: DEFAULT_NATIVE_MAX_CONCURRENT_SUBAGENTS,
         subagent_policy: DEFAULT_NATIVE_SUBAGENT_POLICY.to_string(),
@@ -166,6 +177,7 @@ fn default_settings() -> NativeSettings {
 fn normalize_settings(raw: RawNativeSettings) -> NativeSettings {
     NativeSettings {
         max_turns: normalize_native_max_turns(raw.max_turns),
+        max_subagent_turns: normalize_native_max_subagent_turns(raw.max_subagent_turns),
         confirm_high_risk: raw.confirm_high_risk.unwrap_or(true),
         max_concurrent_subagents: normalize_native_max_concurrent_subagents(
             raw.max_concurrent_subagents,
@@ -200,6 +212,12 @@ pub fn effective_max_turns<R: Runtime>(app: &AppHandle<R>) -> u32 {
         .unwrap_or(DEFAULT_NATIVE_MAX_TURNS as u32)
 }
 
+pub fn effective_max_subagent_turns<R: Runtime>(app: &AppHandle<R>) -> u32 {
+    load_native_settings(app)
+        .map(|settings| settings.max_subagent_turns.max(0) as u32)
+        .unwrap_or(DEFAULT_NATIVE_MAX_SUBAGENT_TURNS as u32)
+}
+
 fn save_native_settings<R: Runtime>(
     app: &AppHandle<R>,
     settings: &NativeSettings,
@@ -211,6 +229,9 @@ fn save_native_settings<R: Runtime>(
     }
     let raw = RawNativeSettings {
         max_turns: Some(normalize_native_max_turns(Some(settings.max_turns))),
+        max_subagent_turns: Some(normalize_native_max_subagent_turns(Some(
+            settings.max_subagent_turns,
+        ))),
         confirm_high_risk: Some(settings.confirm_high_risk),
         max_concurrent_subagents: Some(normalize_native_max_concurrent_subagents(Some(
             settings.max_concurrent_subagents,
@@ -247,6 +268,14 @@ fn max_turns_activity_details(max_turns: i32) -> String {
     }
 }
 
+fn max_subagent_turns_activity_details(max_subagent_turns: i32) -> String {
+    if max_subagent_turns == 0 {
+        "子 Agent 最大工具轮次：不限制".to_string()
+    } else {
+        format!("子 Agent 最大工具轮次：{max_subagent_turns}")
+    }
+}
+
 async fn merge_native_settings<R: Runtime>(
     app: &AppHandle<R>,
     updates: UpdateNativeSettings,
@@ -255,6 +284,9 @@ async fn merge_native_settings<R: Runtime>(
     let mut next = previous.clone();
     if let Some(max_turns) = updates.max_turns {
         next.max_turns = normalize_native_max_turns(Some(max_turns));
+    }
+    if let Some(max_subagent_turns) = updates.max_subagent_turns {
+        next.max_subagent_turns = normalize_native_max_subagent_turns(Some(max_subagent_turns));
     }
     if let Some(confirm_high_risk) = updates.confirm_high_risk {
         next.confirm_high_risk = confirm_high_risk;
@@ -288,6 +320,7 @@ async fn merge_native_settings<R: Runtime>(
     }
     save_native_settings(app, &next)?;
     if previous.max_turns != next.max_turns
+        || previous.max_subagent_turns != next.max_subagent_turns
         || previous.confirm_high_risk != next.confirm_high_risk
         || previous.max_concurrent_subagents != next.max_concurrent_subagents
         || previous.subagent_policy != next.subagent_policy
@@ -314,8 +347,9 @@ async fn merge_native_settings<R: Runtime>(
 
 fn native_settings_activity_details(settings: &NativeSettings) -> String {
     format!(
-        "{}；高风险确认：{}；确认超时：{}；同轮子 Agent 上限：{}；子 Agent 策略：{}；子 Agent 预算占比：{}%；上下文窗口：{} token；会话预算：{}；单条工具结果：{} token",
+        "{}；{}；高风险确认：{}；确认超时：{}；同轮子 Agent 上限：{}；子 Agent 策略：{}；子 Agent 预算占比：{}%；上下文窗口：{} token；会话预算：{}；单条工具结果：{} token",
         max_turns_activity_details(settings.max_turns),
+        max_subagent_turns_activity_details(settings.max_subagent_turns),
         if settings.confirm_high_risk {
             "开启"
         } else {
@@ -426,12 +460,17 @@ mod tests {
     fn normalize_keeps_default_range() {
         assert_eq!(normalize_native_max_turns(Some(40)), 40);
         assert_eq!(normalize_native_max_turns(Some(500)), 500);
+        assert_eq!(normalize_native_max_subagent_turns(Some(0)), 0);
+        assert_eq!(normalize_native_max_subagent_turns(Some(20)), 20);
+        assert_eq!(normalize_native_max_subagent_turns(Some(80)), 80);
+        assert_eq!(normalize_native_max_subagent_turns(Some(500)), 500);
     }
 
     #[test]
     fn missing_confirm_flag_defaults_on() {
         let settings = normalize_settings(RawNativeSettings {
             max_turns: Some(40),
+            max_subagent_turns: None,
             confirm_high_risk: None,
             max_concurrent_subagents: None,
             subagent_policy: None,
@@ -442,6 +481,10 @@ mod tests {
             subagent_budget_share_percent: None,
         });
         assert!(settings.confirm_high_risk);
+        assert_eq!(
+            settings.max_subagent_turns,
+            DEFAULT_NATIVE_MAX_SUBAGENT_TURNS
+        );
         assert_eq!(
             settings.max_concurrent_subagents,
             DEFAULT_NATIVE_MAX_CONCURRENT_SUBAGENTS
@@ -527,6 +570,29 @@ mod tests {
             normalize_native_max_turns(Some(501)),
             DEFAULT_NATIVE_MAX_TURNS
         );
+        assert_eq!(
+            normalize_native_max_subagent_turns(None),
+            DEFAULT_NATIVE_MAX_SUBAGENT_TURNS
+        );
+        assert_eq!(
+            normalize_native_max_subagent_turns(Some(-1)),
+            DEFAULT_NATIVE_MAX_SUBAGENT_TURNS
+        );
+        assert_eq!(
+            normalize_native_max_subagent_turns(Some(501)),
+            DEFAULT_NATIVE_MAX_SUBAGENT_TURNS
+        );
+    }
+
+    #[test]
+    fn activity_details_include_subagent_turns() {
+        let defaults = default_settings();
+        assert!(native_settings_activity_details(&defaults).contains("子 Agent 最大工具轮次：20"));
+        let mut custom = default_settings();
+        custom.max_subagent_turns = 0;
+        assert!(native_settings_activity_details(&custom).contains("子 Agent 最大工具轮次：不限制"));
+        custom.max_subagent_turns = 80;
+        assert!(native_settings_activity_details(&custom).contains("子 Agent 最大工具轮次：80"));
     }
 
     #[test]

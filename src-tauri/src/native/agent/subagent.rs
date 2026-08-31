@@ -3,7 +3,6 @@ use serde_json::Value;
 use crate::native::subagents::{find_native_subagent, NativeSubagent};
 
 pub const MAX_CONCURRENT_SUBAGENTS: usize = 3;
-pub const SUBAGENT_MAX_TURNS: u32 = 20;
 pub const SUBAGENT_RESULT_CHARS: usize = 16_000;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -111,14 +110,6 @@ fn sanitize_subagent_label(description: &str) -> String {
         .take(SUBAGENT_LABEL_CHARS.saturating_sub(1))
         .collect();
     format!("{prefix}…")
-}
-
-pub fn child_max_turns(parent: u32) -> u32 {
-    if parent == 0 {
-        SUBAGENT_MAX_TURNS
-    } else {
-        parent.min(SUBAGENT_MAX_TURNS)
-    }
 }
 
 pub fn truncate_report(text: &str) -> String {
@@ -237,13 +228,6 @@ mod tests {
         let prompt =
             custom_child_system_prompt(&spec, &no_agents, "cwd=/repo", "## AGENTS.md\n规则");
         assert!(!prompt.contains("规则"));
-    }
-
-    #[test]
-    fn child_turns_cap_at_twenty() {
-        assert_eq!(child_max_turns(0), 20);
-        assert_eq!(child_max_turns(40), 20);
-        assert_eq!(child_max_turns(8), 8);
     }
 
     #[test]

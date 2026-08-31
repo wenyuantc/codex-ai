@@ -238,6 +238,7 @@ export type NativeSubagentPolicy = "conservative" | "balanced" | "aggressive";
 
 export interface NativeSettings {
   max_turns: number;
+  max_subagent_turns: number;
   confirm_high_risk: boolean;
   max_concurrent_subagents: number;
   subagent_policy: NativeSubagentPolicy | string;
@@ -250,6 +251,7 @@ export interface NativeSettings {
 
 export interface UpdateNativeSettings {
   max_turns?: number;
+  max_subagent_turns?: number;
   confirm_high_risk?: boolean;
   max_concurrent_subagents?: number;
   subagent_policy?: NativeSubagentPolicy | string;
