@@ -94,6 +94,9 @@ interface RuntimeSettingsTabProps {
   onNativeSubagentPolicyChange: (value: string) => void;
   nativeConfirmHighRisk: boolean;
   onNativeConfirmHighRiskChange: (value: boolean) => void;
+  nativePermissionTimeoutSecs: number;
+  onNativePermissionTimeoutSecsChange: (value: number) => void;
+  onNativePermissionTimeoutSecsCommit: (value: number) => void;
   onTaskSdkEnabledChange: (value: boolean) => void;
   onOneShotSdkEnabledChange: (value: boolean) => void;
   onOneShotPreferredProviderChange: (value: AiProvider) => void;
@@ -245,6 +248,9 @@ export function RuntimeSettingsTab({
   onNativeSubagentPolicyChange,
   nativeConfirmHighRisk,
   onNativeConfirmHighRiskChange,
+  nativePermissionTimeoutSecs,
+  onNativePermissionTimeoutSecsChange,
+  onNativePermissionTimeoutSecsCommit,
   onTaskSdkEnabledChange,
   onOneShotSdkEnabledChange,
   onOneShotPreferredProviderChange,
@@ -754,6 +760,34 @@ export function RuntimeSettingsTab({
               </p>
             </div>
           </label>
+          <div className="mt-4 max-w-xs space-y-2">
+            <label htmlFor="native-permission-timeout" className="text-sm font-medium">
+              {t("settings:nativeAgent.permissionTimeoutLabel")}
+            </label>
+            <Input
+              id="native-permission-timeout"
+              type="number"
+              min={0}
+              max={86400}
+              step={1}
+              value={nativePermissionTimeoutSecs}
+              onChange={(event) => {
+                const parsed = Number.parseInt(event.target.value, 10);
+                onNativePermissionTimeoutSecsChange(
+                  Number.isNaN(parsed) ? 300 : Math.min(86400, Math.max(0, parsed)),
+                );
+              }}
+              onBlur={(event) => {
+                const parsed = Number.parseInt(event.target.value, 10);
+                onNativePermissionTimeoutSecsCommit(
+                  Number.isNaN(parsed) ? 300 : Math.min(86400, Math.max(0, parsed)),
+                );
+              }}
+            />
+            <p className="text-xs text-muted-foreground">
+              {t("settings:nativeAgent.permissionTimeoutHint")}
+            </p>
+          </div>
         </div>
       </div>
 

@@ -161,9 +161,9 @@ export function onNativeSession(callback: (session: NativeSession) => void): Pro
   });
 }
 
-export type NativePermissionDecision = "allow_session" | "allow_once" | "deny";
+export type NativePermissionDecision = "allow_session" | "allow_once" | "allow_server" | "deny";
 
-export type NativeToolRiskKind = "overwrite" | "delete" | "push" | "force_git" | "mcp";
+export type NativeToolRiskKind = "overwrite" | "delete" | "push" | "force_git" | "mcp" | "opaque";
 
 export interface NativePermissionRequest {
   sessionRecordId: string;
@@ -175,6 +175,7 @@ export interface NativePermissionRequest {
   kind: NativeToolRiskKind;
   summary: string;
   remote: boolean;
+  mcpServerId?: string | null;
 }
 
 export function onNativePermissionRequest(
@@ -243,6 +244,7 @@ export interface NativeSettings {
   context_window_tokens: number;
   rollout_token_budget: number;
   max_tool_output_tokens: number;
+  permission_timeout_secs: number;
 }
 
 export interface UpdateNativeSettings {
@@ -253,6 +255,7 @@ export interface UpdateNativeSettings {
   context_window_tokens?: number;
   rollout_token_budget?: number;
   max_tool_output_tokens?: number;
+  permission_timeout_secs?: number;
 }
 
 export async function getNativeSettings(): Promise<NativeSettings> {

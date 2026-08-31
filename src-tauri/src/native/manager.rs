@@ -32,6 +32,7 @@ pub struct PermissionRequest {
     pub kind: NativeToolRiskKind,
     pub summary: String,
     pub remote: bool,
+    pub mcp_server_id: Option<String>,
 }
 
 pub struct PendingPermission {
@@ -127,7 +128,9 @@ impl NativeAgentManager {
             session.pending_permission.push_front(pending);
             return Err("权限确认请求已过期".to_string());
         }
-        if decision == NativePermissionDecision::AllowSession {
+        if decision == NativePermissionDecision::AllowSession
+            && pending.request.kind != NativeToolRiskKind::Mcp
+        {
             session
                 .allow_all_high_risk
                 .store(true, std::sync::atomic::Ordering::SeqCst);
@@ -140,6 +143,18 @@ impl NativeAgentManager {
             .pending_permission
             .front()
             .map(|item| item.request.clone()))
+    }
+
+    pub fn expire_permission(
+        &mut self,
+        session_record_id: &str,
+        request_id: &str,
+    ) -> Result<Option<PermissionRequest>, String> {
+        self.resolve_permission(
+            session_record_id,
+            request_id,
+            NativePermissionDecision::Deny,
+        )
     }
 
     pub fn enqueue_question(
@@ -285,6 +300,7 @@ mod tests {
                     kind: NativeToolRiskKind::Overwrite,
                     summary: format!("覆盖 {tool}"),
                     remote: false,
+                    mcp_server_id: None,
                 },
                 reply,
             },
@@ -324,6 +340,30 @@ mod tests {
             second_rx.try_recv().expect("second decision"),
             NativePermissionDecision::Deny
         );
+    }
+
+    #[tokio::test]
+    async fn expire_permission_keeps_fifo_order() {
+        let mut manager = NativeAgentManager::new();
+        manager.add_session(live_session("sess-1"));
+        let (first, mut first_rx) = pending("r1", "Write");
+        let (second, mut second_rx) = pending("r2", "Bash");
+        assert!(manager.enqueue_permission("sess-1", first).expect("first"));
+        assert!(!manager
+            .enqueue_permission("sess-1", second)
+            .expect("second"));
+        let next = manager
+            .expire_permission("sess-1", "r1")
+            .expect("expire first");
+        assert_eq!(
+            next.as_ref().map(|item| item.request_id.as_str()),
+            Some("r2")
+        );
+        assert_eq!(
+            first_rx.try_recv().expect("first decision"),
+            NativePermissionDecision::Deny
+        );
+        assert!(second_rx.try_recv().is_err());
     }
 
     #[tokio::test]

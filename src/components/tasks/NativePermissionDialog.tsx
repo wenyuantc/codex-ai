@@ -13,6 +13,7 @@ import {
 import {
   onNativePermissionRequest,
   resolveNativeToolPermission,
+  type NativePermissionDecision,
   type NativePermissionRequest,
 } from "@/lib/native";
 
@@ -38,7 +39,7 @@ export function NativePermissionDialog() {
     };
   }, []);
 
-  const resolve = (decision: "allow_session" | "allow_once" | "deny") => {
+  const resolve = (decision: NativePermissionDecision) => {
     if (!pending) {
       return;
     }
@@ -46,6 +47,8 @@ export function NativePermissionDialog() {
     setPending(null);
     void resolveNativeToolPermission(current.sessionRecordId, current.requestId, decision);
   };
+
+  const isMcp = pending?.kind === "mcp";
 
   return (
     <Dialog
@@ -72,10 +75,17 @@ export function NativePermissionDialog() {
               : null}
           </DialogDescription>
         </DialogHeader>
+        <p className="text-xs text-muted-foreground">{t("nativePermission.heuristicNotice")}</p>
         <DialogFooter className="mt-2 flex-col gap-2 sm:flex-col">
-          <Button type="button" onClick={() => resolve("allow_session")}>
-            {t("nativePermission.allowSession")}
-          </Button>
+          {isMcp ? (
+            <Button type="button" onClick={() => resolve("allow_server")}>
+              {t("nativePermission.allowServer")}
+            </Button>
+          ) : (
+            <Button type="button" onClick={() => resolve("allow_session")}>
+              {t("nativePermission.allowSession")}
+            </Button>
+          )}
           <Button type="button" variant="outline" onClick={() => resolve("allow_once")}>
             {t("nativePermission.allowOnce")}
           </Button>

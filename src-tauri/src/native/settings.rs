@@ -25,6 +25,8 @@ const MAX_NATIVE_ROLLOUT_TOKEN_BUDGET: i64 = 100_000_000;
 pub const DEFAULT_NATIVE_MAX_TOOL_OUTPUT_TOKENS: i32 = 4_096;
 const MIN_NATIVE_MAX_TOOL_OUTPUT_TOKENS: i32 = 256;
 const MAX_NATIVE_MAX_TOOL_OUTPUT_TOKENS: i32 = 65_536;
+pub const DEFAULT_NATIVE_PERMISSION_TIMEOUT_SECS: i32 = 300;
+const MAX_NATIVE_PERMISSION_TIMEOUT_SECS: i32 = 86_400;
 pub const SUBAGENT_POLICY_CONSERVATIVE: &str = "conservative";
 pub const SUBAGENT_POLICY_BALANCED: &str = "balanced";
 pub const SUBAGENT_POLICY_AGGRESSIVE: &str = "aggressive";
@@ -46,6 +48,8 @@ struct RawNativeSettings {
     rollout_token_budget: Option<i64>,
     #[serde(default)]
     max_tool_output_tokens: Option<i32>,
+    #[serde(default)]
+    permission_timeout_secs: Option<i32>,
 }
 
 pub fn normalize_native_max_turns(value: Option<i32>) -> i32 {
@@ -78,6 +82,13 @@ pub fn normalize_native_rollout_token_budget(value: Option<i64>) -> i64 {
     match value {
         Some(value) if (0..=MAX_NATIVE_ROLLOUT_TOKEN_BUDGET).contains(&value) => value,
         _ => DEFAULT_NATIVE_ROLLOUT_TOKEN_BUDGET,
+    }
+}
+
+pub fn normalize_native_permission_timeout_secs(value: Option<i32>) -> i32 {
+    match value {
+        Some(value) if (0..=MAX_NATIVE_PERMISSION_TIMEOUT_SECS).contains(&value) => value,
+        _ => DEFAULT_NATIVE_PERMISSION_TIMEOUT_SECS,
     }
 }
 
@@ -129,6 +140,7 @@ fn default_settings() -> NativeSettings {
         context_window_tokens: DEFAULT_NATIVE_CONTEXT_WINDOW_TOKENS,
         rollout_token_budget: DEFAULT_NATIVE_ROLLOUT_TOKEN_BUDGET,
         max_tool_output_tokens: DEFAULT_NATIVE_MAX_TOOL_OUTPUT_TOKENS,
+        permission_timeout_secs: DEFAULT_NATIVE_PERMISSION_TIMEOUT_SECS,
     }
 }
 
@@ -143,6 +155,9 @@ fn normalize_settings(raw: RawNativeSettings) -> NativeSettings {
         context_window_tokens: normalize_native_context_window_tokens(raw.context_window_tokens),
         rollout_token_budget: normalize_native_rollout_token_budget(raw.rollout_token_budget),
         max_tool_output_tokens: normalize_native_max_tool_output_tokens(raw.max_tool_output_tokens),
+        permission_timeout_secs: normalize_native_permission_timeout_secs(
+            raw.permission_timeout_secs,
+        ),
     }
 }
 
@@ -190,6 +205,9 @@ fn save_native_settings<R: Runtime>(
         max_tool_output_tokens: Some(normalize_native_max_tool_output_tokens(Some(
             settings.max_tool_output_tokens,
         ))),
+        permission_timeout_secs: Some(normalize_native_permission_timeout_secs(Some(
+            settings.permission_timeout_secs,
+        ))),
     };
     let json = serde_json::to_string_pretty(&raw)
         .map_err(|error| format!("序列化内置 Agent 设置失败: {error}"))?;
@@ -235,6 +253,10 @@ async fn merge_native_settings<R: Runtime>(
         next.max_tool_output_tokens =
             normalize_native_max_tool_output_tokens(Some(max_tool_output_tokens));
     }
+    if let Some(permission_timeout_secs) = updates.permission_timeout_secs {
+        next.permission_timeout_secs =
+            normalize_native_permission_timeout_secs(Some(permission_timeout_secs));
+    }
     save_native_settings(app, &next)?;
     if previous.max_turns != next.max_turns
         || previous.confirm_high_risk != next.confirm_high_risk
@@ -243,6 +265,7 @@ async fn merge_native_settings<R: Runtime>(
         || previous.context_window_tokens != next.context_window_tokens
         || previous.rollout_token_budget != next.rollout_token_budget
         || previous.max_tool_output_tokens != next.max_tool_output_tokens
+        || previous.permission_timeout_secs != next.permission_timeout_secs
     {
         if let Ok(pool) = sqlite_pool(app).await {
             let _ = insert_activity_log(
@@ -261,12 +284,17 @@ async fn merge_native_settings<R: Runtime>(
 
 fn native_settings_activity_details(settings: &NativeSettings) -> String {
     format!(
-        "{}；高风险确认：{}；同轮子 Agent 上限：{}；子 Agent 策略：{}；上下文窗口：{} token；会话预算：{}；单条工具结果：{} token",
+        "{}；高风险确认：{}；确认超时：{}；同轮子 Agent 上限：{}；子 Agent 策略：{}；上下文窗口：{} token；会话预算：{}；单条工具结果：{} token",
         max_turns_activity_details(settings.max_turns),
         if settings.confirm_high_risk {
             "开启"
         } else {
             "关闭"
+        },
+        if settings.permission_timeout_secs == 0 {
+            "不超时".to_string()
+        } else {
+            format!("{} 秒", settings.permission_timeout_secs)
         },
         settings.max_concurrent_subagents,
         subagent_policy_label_zh(&settings.subagent_policy),
@@ -318,6 +346,12 @@ pub fn effective_max_tool_output_tokens<R: Runtime>(app: &AppHandle<R>) -> u32 {
         .unwrap_or(DEFAULT_NATIVE_MAX_TOOL_OUTPUT_TOKENS as u32)
 }
 
+pub fn effective_permission_timeout_secs<R: Runtime>(app: &AppHandle<R>) -> u64 {
+    load_native_settings(app)
+        .map(|settings| settings.permission_timeout_secs.max(0) as u64)
+        .unwrap_or(DEFAULT_NATIVE_PERMISSION_TIMEOUT_SECS as u64)
+}
+
 pub fn confirm_high_risk_enabled<R: Runtime>(app: &AppHandle<R>) -> bool {
     load_native_settings(app)
         .map(|settings| settings.confirm_high_risk)
@@ -362,6 +396,7 @@ mod tests {
             context_window_tokens: None,
             rollout_token_budget: None,
             max_tool_output_tokens: None,
+            permission_timeout_secs: None,
         });
         assert!(settings.confirm_high_risk);
         assert_eq!(
@@ -380,6 +415,10 @@ mod tests {
         assert_eq!(
             settings.max_tool_output_tokens,
             DEFAULT_NATIVE_MAX_TOOL_OUTPUT_TOKENS
+        );
+        assert_eq!(
+            settings.permission_timeout_secs,
+            DEFAULT_NATIVE_PERMISSION_TIMEOUT_SECS
         );
     }
 
@@ -487,6 +526,16 @@ mod tests {
         assert_eq!(
             normalize_native_max_tool_output_tokens(Some(MAX_NATIVE_MAX_TOOL_OUTPUT_TOKENS + 1)),
             DEFAULT_NATIVE_MAX_TOOL_OUTPUT_TOKENS
+        );
+
+        assert_eq!(normalize_native_permission_timeout_secs(Some(0)), 0);
+        assert_eq!(
+            normalize_native_permission_timeout_secs(Some(DEFAULT_NATIVE_PERMISSION_TIMEOUT_SECS)),
+            DEFAULT_NATIVE_PERMISSION_TIMEOUT_SECS
+        );
+        assert_eq!(
+            normalize_native_permission_timeout_secs(Some(-1)),
+            DEFAULT_NATIVE_PERMISSION_TIMEOUT_SECS
         );
     }
 }

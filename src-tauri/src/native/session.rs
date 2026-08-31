@@ -108,6 +108,7 @@ struct NativePermissionRequestEvent {
     kind: NativeToolRiskKind,
     summary: String,
     remote: bool,
+    mcp_server_id: Option<String>,
 }
 
 fn session_kind(value: Option<&str>) -> String {
@@ -142,6 +143,7 @@ fn permission_event(
         kind: request.kind,
         summary: request.summary.clone(),
         remote: request.remote,
+        mcp_server_id: request.mcp_server_id.clone(),
     }
 }
 
@@ -500,6 +502,12 @@ fn configure_runner_limits<R: Runtime>(
     runner.tool_result_token_limit =
         crate::native::settings::effective_max_tool_output_tokens(app) as usize;
     runner.set_rollout_budget_limit(crate::native::settings::effective_rollout_token_budget(app));
+    let timeout_secs = crate::native::settings::effective_permission_timeout_secs(app);
+    runner.ctx.permission_timeout = if timeout_secs == 0 {
+        Duration::ZERO
+    } else {
+        Duration::from_secs(timeout_secs)
+    };
 }
 
 fn format_native_diagnostics(
@@ -1450,9 +1458,8 @@ async fn run_native_loop(
             let task_id = task_perm.clone();
             let kind = kind_perm.clone();
             tauri::async_runtime::spawn(async move {
-                let request_id = uuid::Uuid::new_v4().to_string();
                 let request = PermissionRequest {
-                    request_id: request_id.clone(),
+                    request_id: prompt.request_id.clone(),
                     employee_id: employee_id.clone(),
                     task_id: task_id.clone(),
                     session_kind: kind.clone(),
@@ -1460,6 +1467,7 @@ async fn run_native_loop(
                     kind: prompt.kind,
                     summary: prompt.summary.clone(),
                     remote: prompt.remote,
+                    mcp_server_id: prompt.mcp_server_id.clone(),
                 };
                 let should_emit = {
                     let mut manager = manager_state.lock().await;
@@ -1498,6 +1506,44 @@ async fn run_native_loop(
                     );
                 }
             });
+        }));
+        let expire_app = app.clone();
+        let expire_manager = manager_state.clone();
+        let expire_session = session_record_id.clone();
+        let expire_employee = employee_id.clone();
+        let expire_task = task_id.clone();
+        let expire_kind = kind.clone();
+        runner.ctx.expire_permission = Some(std::sync::Arc::new(move |request_id: String| {
+            let app = expire_app.clone();
+            let manager_state = expire_manager.clone();
+            let session_record_id = expire_session.clone();
+            let employee_id = expire_employee.clone();
+            let task_id = expire_task.clone();
+            let kind = expire_kind.clone();
+            tauri::async_runtime::spawn(async move {
+                let next = {
+                    let mut manager = manager_state.lock().await;
+                    manager
+                        .expire_permission(&session_record_id, &request_id)
+                        .ok()
+                        .flatten()
+                };
+                emit_native_line(
+                    &app,
+                    &session_record_id,
+                    &employee_id,
+                    task_id.as_deref(),
+                    &kind,
+                    "[PERMISSION] 确认超时，已按拒绝处理".to_string(),
+                )
+                .await;
+                if let Some(request) = next {
+                    let _ = app.emit(
+                        "native-permission-request",
+                        permission_event(&session_record_id, &request),
+                    );
+                }
+            })
         }));
     }
     if plan_mode {

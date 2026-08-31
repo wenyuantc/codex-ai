@@ -54,14 +54,17 @@
     "local": "本地工作区",
     "remote": "远程工作区",
     "allowSession": "本会话全部允许",
+    "allowServer": "本会话允许该 MCP 服务器",
     "allowOnce": "仅允许一次",
     "deny": "不允许",
+    "heuristicNotice": "启发式检测，非硬沙箱。不确定的命令会一律先确认。",
     "kind": {
       "overwrite": "覆盖文件",
       "delete": "删除",
       "push": "推送",
       "force_git": "强制 Git",
-      "mcp": "MCP 工具"
+      "mcp": "MCP 工具",
+      "opaque": "不透明命令"
     }
   },
   "createDialog": {

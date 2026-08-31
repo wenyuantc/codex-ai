@@ -54,14 +54,17 @@
     "local": "local workspace",
     "remote": "remote workspace",
     "allowSession": "Allow all for this session",
+    "allowServer": "Allow this MCP server for the session",
     "allowOnce": "Allow once",
     "deny": "Don't allow",
+    "heuristicNotice": "Heuristic detection, not a hard sandbox. Opaque commands always require confirmation.",
     "kind": {
       "overwrite": "overwrite",
       "delete": "delete",
       "push": "push",
       "force_git": "force git",
-      "mcp": "MCP tool"
+      "mcp": "MCP tool",
+      "opaque": "opaque command"
     }
   },
   "createDialog": {

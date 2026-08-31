@@ -198,6 +198,7 @@ export function SettingsPage() {
   const [nativeMaxConcurrentSubagents, setNativeMaxConcurrentSubagents] = useState(1);
   const [nativeSubagentPolicy, setNativeSubagentPolicy] = useState("conservative");
   const [nativeConfirmHighRisk, setNativeConfirmHighRisk] = useState(true);
+  const [nativePermissionTimeoutSecs, setNativePermissionTimeoutSecs] = useState(300);
   const [nativeContextWindowK, setNativeContextWindowK] = useState("128");
   const [nativeRolloutTokenBudgetK, setNativeRolloutTokenBudgetK] = useState("10000");
   const [nativeMaxToolOutputK, setNativeMaxToolOutputK] = useState("4.096");
@@ -407,6 +408,7 @@ export function SettingsPage() {
     setNativeMaxConcurrentSubagents(settings.max_concurrent_subagents ?? 1);
     setNativeSubagentPolicy(settings.subagent_policy || "conservative");
     setNativeConfirmHighRisk(settings.confirm_high_risk !== false);
+    setNativePermissionTimeoutSecs(settings.permission_timeout_secs ?? 300);
     setNativeContextWindowK(String(nativeTokensToK(settings.context_window_tokens ?? 128_000)));
     setNativeRolloutTokenBudgetK(
       String(nativeTokensToK(settings.rollout_token_budget ?? 10_000_000)),
@@ -460,6 +462,19 @@ export function SettingsPage() {
       applyNativeSettings(await updateNativeSettings({ confirm_high_risk: value }));
     } catch (error) {
       console.error("Failed to save native high-risk confirmation:", error);
+      await loadNativeMaxTurns();
+    }
+  }
+
+  async function persistNativePermissionTimeoutSecs(value: number) {
+    const normalized = Number.isFinite(value)
+      ? Math.min(86_400, Math.max(0, Math.trunc(value)))
+      : 300;
+    setNativePermissionTimeoutSecs(normalized);
+    try {
+      applyNativeSettings(await updateNativeSettings({ permission_timeout_secs: normalized }));
+    } catch (error) {
+      console.error("Failed to save native permission timeout:", error);
       await loadNativeMaxTurns();
     }
   }
@@ -1371,6 +1386,11 @@ export function SettingsPage() {
             onNativeSubagentPolicyChange={(value) => void persistNativeSubagentPolicy(value)}
             nativeConfirmHighRisk={nativeConfirmHighRisk}
             onNativeConfirmHighRiskChange={(value) => void persistNativeConfirmHighRisk(value)}
+            nativePermissionTimeoutSecs={nativePermissionTimeoutSecs}
+            onNativePermissionTimeoutSecsChange={setNativePermissionTimeoutSecs}
+            onNativePermissionTimeoutSecsCommit={(value) =>
+              void persistNativePermissionTimeoutSecs(value)
+            }
             onTaskSdkEnabledChange={setTaskSdkEnabled}
             onOneShotSdkEnabledChange={setOneShotSdkEnabled}
             onOneShotPreferredProviderChange={(provider) => {

@@ -1,4 +1,6 @@
 use std::collections::HashSet;
+use std::sync::Mutex;
+use std::time::Duration;
 
 use serde::Deserialize;
 use serde_json::Value;
@@ -27,10 +29,12 @@ pub struct TodoItem {
 
 #[derive(Debug, Clone)]
 pub struct PermissionPrompt {
+    pub request_id: String,
     pub tool_name: String,
     pub kind: NativeToolRiskKind,
     pub summary: String,
     pub remote: bool,
+    pub mcp_server_id: Option<String>,
 }
 
 pub type PermissionRequester =
@@ -38,6 +42,9 @@ pub type PermissionRequester =
 
 pub type QuestionRequester =
     Arc<dyn Fn(Vec<super::PlanQuestion>, oneshot::Sender<PlanQuestionAnswer>) + Send + Sync>;
+
+pub type PermissionExpirer =
+    Arc<dyn Fn(String) -> tauri::async_runtime::JoinHandle<()> + Send + Sync>;
 
 pub struct ToolCtx {
     pub workspace: LocalWorkspace,
@@ -47,7 +54,10 @@ pub struct ToolCtx {
     pub todos: Vec<TodoItem>,
     pub mcp: SharedMcp,
     pub allow_all_high_risk: Arc<std::sync::atomic::AtomicBool>,
+    pub allowed_mcp_servers: Arc<Mutex<HashSet<String>>>,
     pub request_permission: Option<PermissionRequester>,
+    pub expire_permission: Option<PermissionExpirer>,
+    pub permission_timeout: Duration,
     pub request_question: Option<QuestionRequester>,
     pub read_only: bool,
 }
@@ -156,17 +166,37 @@ async fn request_permission(
     kind: NativeToolRiskKind,
     summary: String,
 ) -> Result<(), String> {
-    if ctx
-        .allow_all_high_risk
-        .load(std::sync::atomic::Ordering::SeqCst)
+    let mcp_server_id = if kind == NativeToolRiskKind::Mcp {
+        ctx.mcp.server_id_for_tool(name).await
+    } else {
+        None
+    };
+    if kind != NativeToolRiskKind::Mcp
+        && ctx
+            .allow_all_high_risk
+            .load(std::sync::atomic::Ordering::SeqCst)
     {
         return Ok(());
+    }
+    if kind == NativeToolRiskKind::Mcp {
+        if let Some(server_id) = mcp_server_id.as_deref() {
+            if ctx
+                .allowed_mcp_servers
+                .lock()
+                .map(|allowed| allowed.contains(server_id))
+                .unwrap_or(false)
+            {
+                return Ok(());
+            }
+        }
     }
     let Some(requester) = ctx.request_permission.clone() else {
         // Setting off, or tests that skip the UI channel.
         return Ok(());
     };
+    let request_id = uuid::Uuid::new_v4().to_string();
     let prompt = PermissionPrompt {
+        request_id: request_id.clone(),
         tool_name: name.to_string(),
         kind,
         summary: if ctx.ssh.is_some() {
@@ -175,10 +205,17 @@ async fn request_permission(
             summary
         },
         remote: ctx.ssh.is_some(),
+        mcp_server_id,
     };
     let (tx, rx) = oneshot::channel();
     requester(prompt, tx);
-    let decision = tokio::select! {
+    let timeout = ctx.permission_timeout;
+    enum PermissionWait {
+        Cancelled,
+        TimedOut,
+        Decision(NativePermissionDecision),
+    }
+    let wait = tokio::select! {
         biased;
         _ = async {
             loop {
@@ -187,17 +224,50 @@ async fn request_permission(
                 }
                 tokio::time::sleep(std::time::Duration::from_millis(50)).await;
             }
-        } => NativePermissionDecision::Deny,
-        result = rx => result.unwrap_or(NativePermissionDecision::Deny),
+        } => PermissionWait::Cancelled,
+        _ = async {
+            if timeout.is_zero() {
+                std::future::pending::<()>().await;
+            } else {
+                tokio::time::sleep(timeout).await;
+            }
+        } => PermissionWait::TimedOut,
+        result = rx => PermissionWait::Decision(result.unwrap_or(NativePermissionDecision::Deny)),
+    };
+    let decision = match wait {
+        PermissionWait::Cancelled => NativePermissionDecision::Deny,
+        PermissionWait::TimedOut => {
+            if let Some(expire) = &ctx.expire_permission {
+                let _ = expire(request_id).await;
+            }
+            return Err("确认超时，已按拒绝处理".to_string());
+        }
+        PermissionWait::Decision(decision) => decision,
     };
     match decision {
+        NativePermissionDecision::AllowSession if kind == NativeToolRiskKind::Mcp => {
+            allow_mcp_server(ctx, name).await;
+            Ok(())
+        }
         NativePermissionDecision::AllowSession => {
             ctx.allow_all_high_risk
                 .store(true, std::sync::atomic::Ordering::SeqCst);
             Ok(())
         }
+        NativePermissionDecision::AllowServer => {
+            allow_mcp_server(ctx, name).await;
+            Ok(())
+        }
         NativePermissionDecision::AllowOnce => Ok(()),
         NativePermissionDecision::Deny => Err("用户不允许该高风险操作".to_string()),
+    }
+}
+
+async fn allow_mcp_server(ctx: &ToolCtx, tool_name: &str) {
+    if let Some(server_id) = ctx.mcp.server_id_for_tool(tool_name).await {
+        if let Ok(mut allowed) = ctx.allowed_mcp_servers.lock() {
+            allowed.insert(server_id);
+        }
     }
 }
 
@@ -373,6 +443,7 @@ fn string_arg(args: &Value, key: &str) -> Result<String, String> {
 mod tests {
     use super::*;
     use std::sync::Arc;
+    use std::sync::Mutex;
     use tokio::sync::oneshot;
 
     #[tokio::test]
@@ -395,6 +466,9 @@ mod tests {
             todos: Vec::new(),
             mcp: SharedMcp::empty(),
             allow_all_high_risk: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            allowed_mcp_servers: Arc::new(Mutex::new(HashSet::new())),
+            expire_permission: None,
+            permission_timeout: Duration::ZERO,
             request_permission: Some(Arc::new(
                 |_prompt, tx: oneshot::Sender<NativePermissionDecision>| {
                     let _ = tx.send(NativePermissionDecision::Deny);
@@ -435,6 +509,9 @@ mod tests {
             todos: Vec::new(),
             mcp: SharedMcp::empty(),
             allow_all_high_risk: Arc::new(std::sync::atomic::AtomicBool::new(true)),
+            allowed_mcp_servers: Arc::new(Mutex::new(HashSet::new())),
+            expire_permission: None,
+            permission_timeout: Duration::ZERO,
             request_permission: None,
             request_question: None,
             read_only: true,
@@ -463,6 +540,9 @@ mod tests {
             todos: Vec::new(),
             mcp: SharedMcp::empty(),
             allow_all_high_risk: Arc::new(std::sync::atomic::AtomicBool::new(true)),
+            allowed_mcp_servers: Arc::new(Mutex::new(HashSet::new())),
+            expire_permission: None,
+            permission_timeout: Duration::ZERO,
             request_permission: None,
             request_question: None,
             read_only: true,
@@ -490,6 +570,9 @@ mod tests {
             todos: Vec::new(),
             mcp: SharedMcp::empty(),
             allow_all_high_risk: Arc::new(std::sync::atomic::AtomicBool::new(true)),
+            allowed_mcp_servers: Arc::new(Mutex::new(HashSet::new())),
+            expire_permission: None,
+            permission_timeout: Duration::ZERO,
             request_permission: None,
             request_question: Some(Arc::new(|_questions, tx| {
                 let _ = tx.send(PlanQuestionAnswer {

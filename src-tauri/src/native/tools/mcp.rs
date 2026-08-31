@@ -79,6 +79,13 @@ impl SharedMcp {
         }
     }
 
+    pub async fn server_id_for_tool(&self, name: &str) -> Option<String> {
+        match &self.inner {
+            Some(inner) => inner.lock().await.server_id_for_tool(name),
+            None => None,
+        }
+    }
+
     pub async fn call(&self, name: &str, arguments: &str) -> Result<String, String> {
         match &self.inner {
             Some(inner) => inner.lock().await.call(name, arguments).await,
@@ -185,6 +192,16 @@ impl McpSession {
                 .tools
                 .iter()
                 .any(|tool| mcp_tool_name(&server.id, &tool.name) == name)
+        })
+    }
+
+    pub fn server_id_for_tool(&self, name: &str) -> Option<String> {
+        self.servers.iter().find_map(|server| {
+            server
+                .tools
+                .iter()
+                .any(|tool| mcp_tool_name(&server.id, &tool.name) == name)
+                .then(|| server.id.clone())
         })
     }
 

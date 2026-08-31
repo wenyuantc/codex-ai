@@ -955,6 +955,8 @@ pub struct NativeSettings {
     /// Maximum estimated tokens from one tool result retained in model
     /// history. The full result is still available to the event stream.
     pub max_tool_output_tokens: i32,
+    /// Seconds to wait for a high-risk confirmation. Zero disables timeout.
+    pub permission_timeout_secs: i32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -966,6 +968,7 @@ pub struct UpdateNativeSettings {
     pub context_window_tokens: Option<i32>,
     pub rollout_token_budget: Option<i64>,
     pub max_tool_output_tokens: Option<i32>,
+    pub permission_timeout_secs: Option<i32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

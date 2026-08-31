@@ -165,7 +165,10 @@ impl AgentRunner {
                 todos: Vec::new(),
                 mcp: SharedMcp::empty(),
                 allow_all_high_risk: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+                allowed_mcp_servers: std::sync::Arc::new(std::sync::Mutex::new(HashSet::new())),
                 request_permission: None,
+                expire_permission: None,
+                permission_timeout: std::time::Duration::ZERO,
                 request_question: None,
                 read_only: false,
             },
@@ -961,7 +964,10 @@ impl AgentRunner {
         child.ctx.ssh = self.ctx.ssh.clone();
         child.ctx.cancel = self.ctx.cancel.clone();
         child.ctx.allow_all_high_risk = self.ctx.allow_all_high_risk.clone();
+        child.ctx.allowed_mcp_servers = self.ctx.allowed_mcp_servers.clone();
         child.ctx.request_permission = self.ctx.request_permission.clone();
+        child.ctx.expire_permission = self.ctx.expire_permission.clone();
+        child.ctx.permission_timeout = self.ctx.permission_timeout;
         child.depth = self.depth.saturating_add(1);
         child.event_prefix = format!(
             "{} ",
