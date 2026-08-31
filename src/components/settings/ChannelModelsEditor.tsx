@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 
 import {
   applyCatalogToModel,
+  catalogThinkingLevels,
   displayedThinkingLevels,
   emptyChannelModel,
   lookupModelCatalog,
@@ -63,7 +64,7 @@ export function ChannelModelsEditor({
         models.map((model, index) => {
           const entry = lookupModelCatalog(catalog, model.id);
           const thinkingOn = model.thinking_enabled === true;
-          const optionLevels = displayedThinkingLevels(model, entry);
+          const optionLevels = displayedThinkingLevels(model, catalog);
           const selectedLevels = selectedThinkingLevels(model, entry);
           const emptySelection = thinkingOn && selectedLevels.length === 0;
           return (
@@ -158,9 +159,7 @@ export function ChannelModelsEditor({
                     onValueChange={(value) => {
                       if (value !== "on" && value !== "off") return;
                       const levels =
-                        selectedLevels.length > 0
-                          ? selectedLevels
-                          : displayedThinkingLevels(model, entry);
+                        selectedLevels.length > 0 ? selectedLevels : catalogThinkingLevels(entry);
                       updateAt(
                         index,
                         withThinkingLevels(model, levels, {

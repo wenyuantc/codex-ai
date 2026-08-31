@@ -868,7 +868,7 @@
       "thinking": "思考",
       "thinkingLevel": "思考等级",
       "thinkingLevels": "允许的思考等级",
-      "thinkingLevelsHint": "可同时勾选多个等级；运行时默认使用中等级，否则使用第一个已选等级。",
+      "thinkingLevelsHint": "显示全部思考等级，可按需勾选。默认勾选该模型在目录中存在的等级；运行时优先使用中等级，否则使用第一个已选等级。",
       "thinkingLevelsEmpty": "开启思考时请至少勾选一个等级。",
       "extraHeaders": "额外请求头（JSON 对象，可选）"
     },
@@ -884,6 +884,8 @@
       "thinkingOff": "关闭思考"
     },
     "thinkingLevels": {
+      "none": "无",
+      "no_think": "不思考",
       "minimal": "最低",
       "low": "低",
       "medium": "中",

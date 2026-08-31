@@ -1,4 +1,4 @@
-import type { AiChannelModel, ModelCatalogEntry } from "@/lib/types";
+import { NATIVE_THINKING_LEVELS, type AiChannelModel, type ModelCatalogEntry } from "@/lib/types";
 
 export const FALLBACK_THINKING_LEVELS = ["low", "medium", "high"];
 
@@ -62,12 +62,13 @@ export function withThinkingLevels(
 
 export function displayedThinkingLevels(
   model: AiChannelModel,
-  entry: ModelCatalogEntry | null,
+  catalog: ModelCatalogEntry[] = [],
 ): string[] {
-  const catalogLevels = catalogThinkingLevels(entry);
-  const stored = uniqueThinkingLevels(model.thinking_levels ?? []);
-  const extras = stored.filter((level) => !catalogLevels.includes(level));
-  return uniqueThinkingLevels([...catalogLevels, ...extras]);
+  return uniqueThinkingLevels([
+    ...NATIVE_THINKING_LEVELS,
+    ...catalog.flatMap((item) => item.thinking_levels),
+    ...(model.thinking_levels ?? []),
+  ]);
 }
 
 export function selectedThinkingLevels(

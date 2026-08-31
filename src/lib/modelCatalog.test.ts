@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   applyCatalogToModel,
   canSaveChannelModels,
+  catalogThinkingLevels,
   defaultThinkingLevel,
   displayedThinkingLevels,
   emptyChannelModel,
@@ -150,7 +151,37 @@ describe("thinking level selection", () => {
     const entry = lookupModelCatalog(catalog, "deepseek-reasoner");
     const unset = emptyChannelModel("deepseek-reasoner");
     expect(selectedThinkingLevels(unset, entry)).toEqual(["low", "medium", "high"]);
-    expect(displayedThinkingLevels(unset, entry)).toEqual(["low", "medium", "high"]);
+    expect(displayedThinkingLevels(unset, catalog)).toEqual([
+      "none",
+      "no_think",
+      "minimal",
+      "low",
+      "medium",
+      "high",
+      "xhigh",
+      "max",
+    ]);
+  });
+
+  it("shows every known thinking level, not only the model's catalog subset", () => {
+    const entry = lookupModelCatalog(catalog, "deepseek-reasoner");
+    const custom = model({
+      id: "deepseek-reasoner",
+      thinking_enabled: true,
+      thinking_levels: ["high"],
+    });
+    expect(selectedThinkingLevels(custom, entry)).toEqual(["high"]);
+    expect(displayedThinkingLevels(custom, catalog)).toEqual([
+      "none",
+      "no_think",
+      "minimal",
+      "low",
+      "medium",
+      "high",
+      "xhigh",
+      "max",
+    ]);
+    expect(catalogThinkingLevels(entry)).toEqual(["low", "medium", "high"]);
   });
 
   it("keeps custom stored levels in the displayed checkbox list", () => {
@@ -160,7 +191,44 @@ describe("thinking level selection", () => {
       thinking_levels: ["high", "custom"],
     });
     expect(selectedThinkingLevels(custom, entry)).toEqual(["high", "custom"]);
-    expect(displayedThinkingLevels(custom, entry)).toEqual(["low", "medium", "high", "custom"]);
+    expect(displayedThinkingLevels(custom, catalog)).toEqual([
+      "none",
+      "no_think",
+      "minimal",
+      "low",
+      "medium",
+      "high",
+      "xhigh",
+      "max",
+      "custom",
+    ]);
+  });
+
+  it("appends catalog-only extra levels after the known set", () => {
+    const withExtra: ModelCatalogEntry[] = [
+      ...catalog,
+      {
+        id: "future-model",
+        aliases: [],
+        vendor: "openai",
+        label: "Future",
+        context_tokens: 128000,
+        max_output_tokens: 8192,
+        thinking: true,
+        thinking_levels: ["low", "ultra"],
+      },
+    ];
+    expect(displayedThinkingLevels(emptyChannelModel("future-model"), withExtra)).toEqual([
+      "none",
+      "no_think",
+      "minimal",
+      "low",
+      "medium",
+      "high",
+      "xhigh",
+      "max",
+      "ultra",
+    ]);
   });
 
   it("clears the runtime default when thinking is turned off", () => {

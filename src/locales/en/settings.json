@@ -868,7 +868,7 @@
       "thinking": "Thinking",
       "thinkingLevel": "Thinking level",
       "thinkingLevels": "Allowed thinking levels",
-      "thinkingLevelsHint": "Select one or more levels. Runtime defaults to medium, otherwise the first selected level.",
+      "thinkingLevelsHint": "All thinking levels are listed. Defaults to the levels this model has in the catalog. Runtime uses medium when selected, otherwise the first selected level.",
       "thinkingLevelsEmpty": "Select at least one thinking level when thinking is on.",
       "extraHeaders": "Extra headers (JSON object, optional)"
     },
@@ -884,6 +884,8 @@
       "thinkingOff": "Thinking off"
     },
     "thinkingLevels": {
+      "none": "None",
+      "no_think": "No think",
       "minimal": "Minimal",
       "low": "Low",
       "medium": "Medium",

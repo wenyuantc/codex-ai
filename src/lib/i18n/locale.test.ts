@@ -75,6 +75,8 @@ describe("i18n locale preference", () => {
     expect(i18n.t("settings:prompts.scenes.native_agent_global")).toBe("内置 Agent 全局提示词");
     expect(i18n.t("settings:channels.fields.thinkingLevels")).toBe("允许的思考等级");
     expect(i18n.t("settings:channels.fields.thinkingLevelsEmpty")).toContain("至少勾选");
+    expect(i18n.t("settings:channels.thinkingLevels.none")).toBe("无");
+    expect(i18n.t("settings:channels.thinkingLevels.no_think")).toBe("不思考");
 
     await changeAppLocale("en");
     expect(getCurrentAppLocale()).toBe("en");
@@ -154,6 +156,8 @@ describe("i18n locale preference", () => {
     );
     expect(i18n.t("settings:channels.fields.thinkingLevels")).toBe("Allowed thinking levels");
     expect(i18n.t("settings:channels.fields.thinkingLevelsEmpty")).toContain("at least one");
+    expect(i18n.t("settings:channels.thinkingLevels.none")).toBe("None");
+    expect(i18n.t("settings:channels.thinkingLevels.no_think")).toBe("No think");
 
     await changeAppLocale("zh-CN");
   });
