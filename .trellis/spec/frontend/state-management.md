@@ -43,6 +43,8 @@ Example (task create path):
 - backend → Rust `create_task`
 - store → `fetchTasks` via `listTasks` command
 
+Follow-up creates (review → 新建修复任务, template apply, create-and-run) must send `reviewer_id` when the source context already has one. `create_task` does not inherit the parent task's reviewer, and it rejects a missing reviewer when `task_automation_default_enabled` is on. The review-fix path uses `buildReviewFixCreatePayload` (sidebar value first, then the saved source-task field).
+
 ## Read vs Write (Critical)
 
 ```text

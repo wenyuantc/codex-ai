@@ -39,6 +39,50 @@ export interface ContinueCreatedTaskRunOptions {
   assignee: Employee;
 }
 
+export type ReviewFixSourceTask = Pick<
+  Task,
+  "project_id" | "use_worktree" | "reviewer_id" | "coordinator_id" | "native_subagent_id"
+>;
+
+export interface ReviewFixCreatePayloadInput {
+  sourceTask: ReviewFixSourceTask;
+  title: string;
+  description: string;
+  priority: string;
+  assigneeId: string;
+  reviewerId?: string;
+  coordinatorId?: string;
+  nativeSubagentId?: string;
+}
+
+function firstAssignedId(...values: Array<string | null | undefined>): string | undefined {
+  for (const value of values) {
+    const trimmed = value?.trim();
+    if (trimmed) {
+      return trimmed;
+    }
+  }
+  return undefined;
+}
+
+/** Copy assignment fields from the reviewed task onto the follow-up fix task. */
+export function buildReviewFixCreatePayload(input: ReviewFixCreatePayloadInput): CreateTaskPayload {
+  return {
+    title: input.title,
+    description: input.description,
+    priority: input.priority,
+    project_id: input.sourceTask.project_id,
+    use_worktree: input.sourceTask.use_worktree,
+    assignee_id: input.assigneeId,
+    reviewer_id: firstAssignedId(input.reviewerId, input.sourceTask.reviewer_id),
+    coordinator_id: firstAssignedId(input.coordinatorId, input.sourceTask.coordinator_id),
+    native_subagent_id: firstAssignedId(
+      input.nativeSubagentId,
+      input.sourceTask.native_subagent_id,
+    ),
+  };
+}
+
 /** Create task + tags/deps only. Caller closes dialog, then continues in background. */
 export async function createTaskForRun(options: CreateTaskForRunOptions): Promise<Task> {
   const { payload, tagIds, dependencyTaskIds, refreshProjectId } = options;

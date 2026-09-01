@@ -54,6 +54,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { buildTaskExecutionInput } from "@/lib/taskPrompt";
 import { hasSavedTaskPlan } from "@/lib/taskPlanRun";
+import { buildReviewFixCreatePayload } from "@/lib/taskCreateAndRun";
 import {
   generateCoordinatorPlanForTask,
   prepareCoordinatorPlanOpen,
@@ -1485,14 +1486,18 @@ export function TaskDetailDialog({
     setReviewError(null);
     setReviewNotice(null);
     try {
-      const createdTask = await createTask({
-        title: fixTaskTitle,
-        description: fixTaskDescription,
-        priority,
-        project_id: task.project_id,
-        use_worktree: task.use_worktree,
-        assignee_id: assigneeId,
-      });
+      const createdTask = await createTask(
+        buildReviewFixCreatePayload({
+          sourceTask: task,
+          title: fixTaskTitle,
+          description: fixTaskDescription,
+          priority,
+          assigneeId,
+          reviewerId,
+          coordinatorId,
+          nativeSubagentId,
+        }),
+      );
 
       const executionInput = buildTaskExecutionInput({
         title: createdTask.title,
