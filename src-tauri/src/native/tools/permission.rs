@@ -1,6 +1,8 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+use super::patch::{extract_patch_text, parse_patch, patch_counts};
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum NativeToolRiskKind {
@@ -47,6 +49,7 @@ pub fn classify_native_tool_risk(
             kind: NativeToolRiskKind::Overwrite,
             summary: format!("覆盖已有文件 {}", arg_string(arguments, "file_path")),
         },
+        "ApplyPatch" => classify_apply_patch(arguments),
         "Write" => {
             if file_exists.unwrap_or(false) {
                 NativeToolRisk::High {
@@ -59,6 +62,26 @@ pub fn classify_native_tool_risk(
         }
         "Bash" => classify_bash(&arg_string(arguments, "command")),
         _ => NativeToolRisk::Low,
+    }
+}
+
+fn classify_apply_patch(arguments: &str) -> NativeToolRisk {
+    match extract_patch_text(arguments).and_then(|text| parse_patch(&text)) {
+        Ok(actions) => {
+            let counts = patch_counts(&actions);
+            NativeToolRisk::High {
+                kind: if counts.delete > 0 {
+                    NativeToolRiskKind::Delete
+                } else {
+                    NativeToolRiskKind::Overwrite
+                },
+                summary: counts.summary(),
+            }
+        }
+        Err(_) => NativeToolRisk::High {
+            kind: NativeToolRiskKind::Overwrite,
+            summary: "应用补丁（格式无法解析）".to_string(),
+        },
     }
 }
 
@@ -640,6 +663,37 @@ mod tests {
         );
         assert_eq!(
             classify_native_tool_risk("Bash", r#"{"command":"git status"}"#, None, false),
+            NativeToolRisk::Low
+        );
+    }
+
+    #[test]
+    fn apply_patch_delete_is_high_delete_otherwise_overwrite() {
+        let delete = r#"{"patch":"*** Begin Patch\n*** Delete File: gone.txt\n*** End Patch"}"#;
+        assert!(matches!(
+            classify_native_tool_risk("ApplyPatch", delete, None, false),
+            NativeToolRisk::High {
+                kind: NativeToolRiskKind::Delete,
+                ..
+            }
+        ));
+        let add = r#"{"patch":"*** Begin Patch\n*** Add File: a.txt\n+hi\n*** End Patch"}"#;
+        assert!(matches!(
+            classify_native_tool_risk("ApplyPatch", add, None, false),
+            NativeToolRisk::High {
+                kind: NativeToolRiskKind::Overwrite,
+                ..
+            }
+        ));
+        assert!(matches!(
+            classify_native_tool_risk("ApplyPatch", r#"{"patch":"nope"}"#, None, false),
+            NativeToolRisk::High {
+                kind: NativeToolRiskKind::Overwrite,
+                summary,
+            } if summary.contains("无法解析")
+        ));
+        assert_eq!(
+            classify_native_tool_risk("Skill", r#"{"name":"demo"}"#, None, false),
             NativeToolRisk::Low
         );
     }

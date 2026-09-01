@@ -80,6 +80,10 @@ describe("i18n locale preference", () => {
     expect(i18n.t("settings:nativeAgent.maxConcurrentSubagentsLabel")).toBe("同轮子 Agent 上限");
     expect(i18n.t("settings:nativeAgent.subagentPolicyLabel")).toBe("子 Agent 策略");
     expect(i18n.t("settings:nativeAgent.subagentPolicyBalanced")).toBe("均衡");
+    expect(i18n.t("settings:nativeHooks.eventPre")).toBe("工具前（PreToolUse）");
+    expect(i18n.t("settings:nativeHooks.eventPost")).toBe("工具后（PostToolUse）");
+    expect(i18n.t("settings:mcp.actions.addPlaywright")).toBe("添加 Playwright 预设");
+    expect(i18n.t("settings:mcp.browserCapability")).toContain("Playwright MCP");
     expect(i18n.t("settings:page.engineCapabilities.notes.claude")).toContain(
       "本地 CLI/SDK 可附带图片",
     );
@@ -171,6 +175,10 @@ describe("i18n locale preference", () => {
     expect(i18n.t("settings:nativeAgent.maxConcurrentSubagentsLabel")).toBe("Sub-agents per turn");
     expect(i18n.t("settings:nativeAgent.subagentPolicyLabel")).toBe("Sub-agent policy");
     expect(i18n.t("settings:nativeAgent.subagentPolicyBalanced")).toBe("Balanced");
+    expect(i18n.t("settings:nativeHooks.eventPre")).toBe("Before tool (PreToolUse)");
+    expect(i18n.t("settings:nativeHooks.eventPost")).toBe("After tool (PostToolUse)");
+    expect(i18n.t("settings:mcp.actions.addPlaywright")).toBe("Add Playwright preset");
+    expect(i18n.t("settings:mcp.browserCapability")).toContain("Playwright MCP");
     expect(i18n.t("settings:page.engineCapabilities.notes.claude")).toContain(
       "Local CLI/SDK can attach images",
     );

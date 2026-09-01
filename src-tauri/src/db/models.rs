@@ -962,6 +962,18 @@ pub struct NativeSettings {
     pub permission_timeout_secs: i32,
     /// Share of the parent's remaining rollout budget granted to each child.
     pub subagent_budget_share_percent: i32,
+    #[serde(default)]
+    pub hooks: Vec<NativeHook>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct NativeHook {
+    pub id: String,
+    pub event: String,
+    pub matcher: String,
+    pub command: String,
+    pub timeout_secs: i32,
+    pub enabled: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -976,6 +988,7 @@ pub struct UpdateNativeSettings {
     pub max_tool_output_tokens: Option<i32>,
     pub permission_timeout_secs: Option<i32>,
     pub subagent_budget_share_percent: Option<i32>,
+    pub hooks: Option<Vec<NativeHook>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

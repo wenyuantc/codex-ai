@@ -27,6 +27,8 @@ pub const CUSTOM_TOOL_NAMES: &[&str] = &[
     "WebFetch",
     "WebSearch",
     "TodoWrite",
+    "ApplyPatch",
+    "Skill",
 ];
 const RESERVED_NAMES: &[&str] = &["general", "explore", "general-purpose"];
 pub const MODEL_MODE_INHERIT: &str = "inherit";
@@ -194,7 +196,7 @@ pub fn effective_custom_tools(tools: &[String]) -> Vec<String> {
 pub fn custom_tools_are_read_only(tools: &[String]) -> bool {
     !tools
         .iter()
-        .any(|item| item == "Write" || item == "Edit" || item == "Bash")
+        .any(|item| item == "Write" || item == "Edit" || item == "Bash" || item == "ApplyPatch")
 }
 
 fn names_equal(left: &str, right: &str) -> bool {
@@ -704,6 +706,8 @@ mod tests {
             "Grep".to_string()
         ]));
         assert!(!custom_tools_are_read_only(&["Bash".to_string()]));
+        assert!(!custom_tools_are_read_only(&["ApplyPatch".to_string()]));
+        assert!(custom_tools_are_read_only(&["Skill".to_string()]));
     }
 
     #[test]

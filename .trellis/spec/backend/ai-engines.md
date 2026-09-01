@@ -48,7 +48,7 @@ Common internal layout per **CLI** engine:
 `normalize_one_shot_provider_for_target` **must** recognize `"native"`. Employee-scoped one-shots pass the employee's provider; if that employee is `native`, **never** remap `native` → Codex SDK/exec. Missing `employee_id` is a Chinese error, not a Codex fallback.
 
 - **Tester / generic one-shot** (`ai_generate_tester_acceptance`, commit message, prompt optimize): `native::run_native_one_shot` — HTTP `ModelClient.chat()`, `tools: &[]`.
-- **Coordinator plan** (`ai_generate_coordinator_task_plan`): `native::run_native_read_only_one_shot` — in-process `AgentRunner` with read-only tools (`Read`/`Glob`/`Grep`/`Todo*`/`WebFetch`/`WebSearch`). Insert a `codex_sessions` row with `session_kind=coordinator` and apply token usage (`apply_codex_session_usage`); persist progress lines to `codex_session_events`. Optional `revision_instruction` revises the current Markdown + work packages (scene `coordinator_plan_revise`) instead of planning from scratch; still one-shot, still a new coordinator session row. Native saves `native_session_transcripts` after a successful planning run and loads the latest successful coordinator transcript on revise when present; CLI/Grok inject the current plan and emit that resume was skipped. Do **not** register `NativeAgentManager`, do **not** gate run-queue, do **not** call `handle_session_exit`. SSH uses `SshToolRuntime`. Progress lines also go to `ai-command-stdout` (not `native-stdout`). Write/Edit/Bash/MCP are rejected. If working dir is missing, fall back to HTTP no-tools and emit a warning line.
+- **Coordinator plan** (`ai_generate_coordinator_task_plan`): `native::run_native_read_only_one_shot` — in-process `AgentRunner` with read-only tools (`Read`/`Glob`/`Grep`/`Todo*`/`WebFetch`/`WebSearch`/`Skill`). Insert a `codex_sessions` row with `session_kind=coordinator` and apply token usage (`apply_codex_session_usage`); persist progress lines to `codex_session_events`. Optional `revision_instruction` revises the current Markdown + work packages (scene `coordinator_plan_revise`) instead of planning from scratch; still one-shot, still a new coordinator session row. Native saves `native_session_transcripts` after a successful planning run and loads the latest successful coordinator transcript on revise when present; CLI/Grok inject the current plan and emit that resume was skipped. Do **not** register `NativeAgentManager`, do **not** gate run-queue, do **not** call `handle_session_exit`. SSH uses `SshToolRuntime`. Progress lines also go to `ai-command-stdout` (not `native-stdout`). Write/Edit/ApplyPatch/Bash/MCP are rejected. If working dir is missing, fall back to HTTP no-tools and emit a warning line.
 
 Settings Git / one-shot dropdowns still use `CLI_AI_PROVIDER_OPTIONS` (exclude `native`).
 
@@ -56,7 +56,7 @@ Native employees **must** bind `employees.ai_channel_id` to an enabled `ai_chann
 
 ### Native custom sub-agents
 
-App-global catalog in `native-subagents.json` (not SQLite). Settings tab CRUD: `list/create/update/delete_native_subagent`. Name is `Agent.subagent_type` and stays globally unique. Built-in `general` / `explore` stay reserved. `model_mode=inherit` uses the parent session client; `channel` builds a new `ModelClient` from that `ai_channels` row (HTTP stays on this machine; SSH file tools still use the parent workspace). `tool_mode=all` matches `general` (built-in tools minus `Agent` + parent MCP). `tool_mode=custom` is the 9-tool whitelist; `TodoWrite` implies `TodoRead`; no MCP. Custom system prompt replaces parent identity; env/Git always inject; `inject_agents_md` (default true) controls project AGENTS.md. Depth remains 1. Coordinator read-only one-shot still has no `Agent` tool.
+App-global catalog in `native-subagents.json` (not SQLite). Settings tab CRUD: `list/create/update/delete_native_subagent`. Name is `Agent.subagent_type` and stays globally unique. Built-in `general` / `explore` stay reserved. `model_mode=inherit` uses the parent session client; `channel` builds a new `ModelClient` from that `ai_channels` row (HTTP stays on this machine; SSH file tools still use the parent workspace). `tool_mode=all` matches `general` (built-in tools minus `Agent` + parent MCP). `tool_mode=custom` is the 11-tool whitelist; `TodoWrite` implies `TodoRead`; no MCP. Custom system prompt replaces parent identity; env/Git always inject; `inject_agents_md` (default true) controls project AGENTS.md. Depth remains 1. Coordinator read-only one-shot still has no `Agent` tool.
 
 Scope: `scope=all` (default; missing JSON field deserializes as all) is visible to every project. `scope=projects` plus non-empty `project_ids` (live `projects.id` where `deleted_at IS NULL`) limits the task picker and the parent Agent catalog to those projects. Sessions without a task only see `all`. An explicit task bind still runs (and stays in the catalog) if the agent is later edited out of that project. New binds must currently match the task's project.
 
@@ -267,16 +267,16 @@ When adding another **CLI** engine, prefer **Claude/Grok process shape** over Co
 | HTTP | openai → `POST {base}/v1/chat/completions` SSE; anthropic → `POST {base}/v1/messages` SSE + `anthropic-version: 2023-06-01`; codex → `POST {base}/v1/responses` SSE |
 | Secrets | SQLite `ai_channels.api_key` (plaintext config). DTO returns `api_key` + `api_key_configured`. Legacy `api_key_ref` / keyring `codex-ai-channel` is a one-time migrate-on-read; new writes do not touch the OS keyring. SQL backup includes the key |
 | Employee bind | `employees.ai_channel_id` required iff `ai_provider=native` and channel enabled. Delete channel fails while referenced |
-| Tools | `Read` `Write` `Edit` `Bash` `Glob` `Grep` `TodoRead` `TodoWrite` `WebFetch` `WebSearch` `Agent`. Workspace-only (file tools). Permission = confirm-high-risk (overwrite/delete/push/force git/MCP/opaque). Bash classification unwraps `env`/`nohup`/`timeout`/`command`/`nice` assignment prefixes, `git -c/-C` globals, and `\rm` basenames; interpreters (`python -c`, `find -exec`, `xargs`) and `${…}` are opaque. `Agent` spawns an in-process child loop (depth 1, only **`general`** or **`explore`**); concurrent children per turn come from `max_concurrent_subagents` (default **1**, range **1–16**). One batch shares a single `ChildQuota` pool of `remaining * subagent_budget_share_percent`. How often the parent *chooses* to call `Agent` is steered by `subagent_policy`. It does **not** insert `codex_sessions` or occupy the run-queue. Web tools run on this machine even for SSH projects |
-| System prompt | `Message::system` = identity.md + **子 Agent 策略块** (`subagent_policy`) + env + optional git + **全局提示词模板** `native_agent_global` (`ai-prompt-templates.json`) + project `AGENTS.md`/`Agents.md`/`CLAUDE.md` + employee `system_prompt`. Task text stays in the user message. SSH reads project files via `SshToolRuntime`. Do **not** load `.zcli/AGENTS.md` |
+| Tools | `Read` `Write` `Edit` `ApplyPatch` `Bash` `Glob` `Grep` `TodoRead` `TodoWrite` `WebFetch` `WebSearch` `Skill` `Agent`. Workspace-only (file tools). Permission = confirm-high-risk (overwrite/delete/push/force git/MCP/opaque). `ApplyPatch` with any Delete File is Delete, otherwise Overwrite; it does not require a prior Read. `Skill` is read-only (plan mode allowed) and loads a discovered SKILL.md. Skills are discovered from workspace `.agents/skills` / `.claude/skills` and `$APPCONFIG/native-skills`. Hooks in `native-settings.json` run Pre (exit 2 blocks, before permission) and Post (failure is a warning). Browser automation is not built-in CDP; add the Playwright MCP preset. Bash classification unwraps `env`/`nohup`/`timeout`/`command`/`nice` assignment prefixes, `git -c/-C` globals, and `\rm` basenames; interpreters (`python -c`, `find -exec`, `xargs`) and `${…}` are opaque. `Agent` spawns an in-process child loop (depth 1, only **`general`** or **`explore`**); concurrent children per turn come from `max_concurrent_subagents` (default **1**, range **1–16**). One batch shares a single `ChildQuota` pool of `remaining * subagent_budget_share_percent`. How often the parent *chooses* to call `Agent` is steered by `subagent_policy`. It does **not** insert `codex_sessions` or occupy the run-queue. Web tools run on this machine even for SSH projects |
+| System prompt | `Message::system` = identity.md + **子 Agent 策略块** (`subagent_policy`) + env + optional git + **全局提示词模板** `native_agent_global` (`ai-prompt-templates.json`) + project `AGENTS.md`/`Agents.md`/`CLAUDE.md` + **可用技能** (name/description/source; full text via `Skill`) + employee `system_prompt`. Task text stays in the user message. SSH reads project files via `SshToolRuntime`. Do **not** load `.zcli/AGENTS.md` |
 | Compact | Estimate serialized message/tool-schema tokens. At 85% of the configured `context_window_tokens` (default **128,000**, range **8,000–1,000,000**), first request a tool-free structured summary from a richer handoff transcript (not the 800-char local preview), validate required headings, retry once, then fall back to a local summary/window reset. A finite rollout budget always sends `min(remaining, caller or 16,384)` as `max_output_tokens`; missing provider usage is settled from the response text. A tools-enabled response that exhausts the budget after settle still executes that batch of tool calls. Responses channels reuse `previous_response_id` when the unchanged prefix is valid; compaction invalidates it. Tool results are bounded before entering model history (default **4,096** tokens, range **256–65,536**) with path/offset continuation hints that stay on the first incomplete line. |
 | Images | First user message may include local files as base64. Native never uses remote image paths. Frontend does **not** skip `native` in `resolveImageAttachmentSkip`. |
 | One-shot | Employee-scoped (`ai_generate_coordinator_task_plan`, `ai_generate_tester_acceptance`): `run_native_one_shot` → channel HTTP `chat()`, **no tools**, no `NativeAgentManager` session, no Codex SDK/exec. Return text + optional `[用量]` line. Coordinator plan UI shows `内置 Agent / {model} / {effort}` then `[计划] 用量：…`. Local images only. SSH: HTTP still on this machine. Settings one-shot dropdown stays CLI-only. |
 | SSH tools | Loop stays local. File/shell via `SshToolRuntime` + `build_ssh_command` / `execute_ssh_command_with_input`. Workspace prefix is the remote cwd |
-| Commands | `start_native_session` `stop_native_session` `stop_native` `restart_native_session` `resume_native_session` `send_native_input` `finish_native_input` |
+| Commands | `start_native_session` `stop_native_session` `stop_native` `restart_native_session` `resume_native_session` `send_native_input` `finish_native_input` `list_native_global_skills` `open_native_skills_dir` |
 | Internal start | Automation / run-queue drain call `start_native_with_manager` (bypasses gate). Restart-safe stop: `stop_native_for_automation_restart` |
-| Events | `native-stdout`, `native-session`, `native-exit` (no stderr event). First stdout line: `[内置 Agent] 启动会话 渠道=… 协议=… model=… effort=… thinking=on\|off` (Grok-style banner). Then `[USER_INPUT]`, Claude/Grok-compatible tool tags (`[读取]`/`[写入]`/`[编辑]`/`[命令]`/`[工具]`/`[工具结果]`/`[思考]`/`[待办]`), child-agent lines prefixed `[子 Agent {n}({explore|general}) - {description}]` (description = Agent tool short title, collapsed whitespace, max 32 chars), `[用量]`, assistant text, `[ERROR]`. `native-exit.line` is **null** (do not duplicate `[ERROR]` into the log). Tool-loop cap from `native-settings.json` `max_turns` (default **40**, **0** = unlimited, last turn sends no tools and asks for a final answer instead of failing the session). High-risk tools wait on `native-permission-request` (`allow_session | allow_once | deny`); concurrent confirms are FIFO. |
-| Settings | Local file `app_config_dir/native-settings.json`. Commands `get_native_settings` / `update_native_settings`. Fields: `max_turns` (default **40**, **0** = unlimited), `confirm_high_risk` (default **true**; false skips the high-risk permission dialog for sessions started after the change), `max_concurrent_subagents` (default **1**, range **1–16**), `subagent_policy` (`conservative` \| `balanced` \| `aggressive`, default **conservative**), `context_window_tokens` (default **128,000**, range **8,000–1,000,000**), `rollout_token_budget` (default **10,000,000**, **0** = unlimited, max **100,000,000**, shared by parent/children), and `max_tool_output_tokens` (default **4,096**, range **256–65,536**). UI: Settings 界面与运行 displays the three token limits in decimal **K tokens** (`1K = 1,000 tokens`) and converts them back to the persisted token fields at the IPC boundary; persisted JSON and runner APIs remain individual-token values. Policy only changes system prompt + Agent tool description (does not force tool calls). Not per-SSH-profile: the loop always runs on this machine. Activity key `native_settings_updated`; session diagnostics use `native_token_diagnostics`. |
+| Events | `native-stdout`, `native-session`, `native-exit` (no stderr event). First stdout line: `[内置 Agent] 启动会话 渠道=… 协议=… model=… effort=… thinking=on\|off` (Grok-style banner). Then `[USER_INPUT]`, Claude/Grok-compatible tool tags (`[读取]`/`[写入]`/`[编辑]`/`[补丁]`/`[技能]`/`[命令]`/`[工具]`/`[工具结果]`/`[思考]`/`[待办]`), child-agent lines prefixed `[子 Agent {n}({explore|general}) - {description}]` (description = Agent tool short title, collapsed whitespace, max 32 chars), `[用量]`, assistant text, `[ERROR]`. `native-exit.line` is **null** (do not duplicate `[ERROR]` into the log). Tool-loop cap from `native-settings.json` `max_turns` (default **40**, **0** = unlimited, last turn sends no tools and asks for a final answer instead of failing the session). High-risk tools wait on `native-permission-request` (`allow_session | allow_once | deny`); concurrent confirms are FIFO. |
+| Settings | Local file `app_config_dir/native-settings.json`. Commands `get_native_settings` / `update_native_settings`. Fields: `max_turns` (default **40**, **0** = unlimited), `confirm_high_risk` (default **true**; false skips the high-risk permission dialog for sessions started after the change), `max_concurrent_subagents` (default **1**, range **1–16**), `subagent_policy` (`conservative` \| `balanced` \| `aggressive`, default **conservative**), `context_window_tokens` (default **128,000**, range **8,000–1,000,000**), `rollout_token_budget` (default **10,000,000**, **0** = unlimited, max **100,000,000**, shared by parent/children), `max_tool_output_tokens` (default **4,096**, range **256–65,536**), and `hooks[]` (`id`, `event` `pre_tool_use`/`post_tool_use`, `matcher` comma tool names or `*`, `command`, `timeout_secs` 1–120 default 30, `enabled`; max 32; empty command dropped). Global skills live in `$APPCONFIG/native-skills`. UI: Settings 界面与运行 displays the three token limits in decimal **K tokens** (`1K = 1,000 tokens`) and converts them back to the persisted token fields at the IPC boundary; persisted JSON and runner APIs remain individual-token values. Policy only changes system prompt + Agent tool description (does not force tool calls). Not per-SSH-profile: the loop always runs on this machine. Activity key `native_settings_updated`; session diagnostics use `native_token_diagnostics`. |
 | Frontend | Channel CRUD in `src/lib/backend.ts`; session IPC in `src/lib/native.ts`; start/stop via `aiEngine.ts` |
 | Settings UI | `AiChannelsSettingsTab`; employee dialogs bind enabled channels + `models` from `models_json` |
 
@@ -592,6 +592,71 @@ let batch = child_quota_for_share(); // clone Arc to every child in the batch
 honor tool_calls when requested_with_tools && !call names empty
 ```
 
+## Scenario: Native Skills / Hooks / ApplyPatch / Playwright MCP
+
+### 1. Scope / Trigger
+- Built-in Agent gains Skills, tool Hooks, ApplyPatch, and Playwright MCP preset. Local + SSH. No SQLite migration. Browser is MCP, not in-process CDP.
+
+### 2. Signatures
+- Tools: `ApplyPatch { patch }` (write), `Skill { name }` (read-only / plan-ok)
+- Parse/apply: `native/tools/patch.rs` `parse_patch` / `plan_mutations` / `patch_counts`
+- Skills: `list_native_global_skills() -> NativeGlobalSkills { dir, skills }` / `open_native_skills_dir()`
+- Settings: `NativeSettings.hooks: Vec<NativeHook>` / `UpdateNativeSettings.hooks: Option<Vec<NativeHook>>`
+- Hook: `{ id, event: pre_tool_use|post_tool_use, matcher, command, timeout_secs, enabled }`
+- Dispatch: `execute_tool` → Pre hook → permission → impl → Post hook. `Agent` never enters `execute_tool`
+
+### 3. Contracts
+- Skills: workspace `.agents/skills/*/SKILL.md` then `.claude/skills/*/SKILL.md` then `$APPCONFIG/native-skills/*/SKILL.md`. Name clash: agents > claude > global. Cap 50. Frontmatter `name`/`description` parsed by hand (no serde_yaml). Prompt block `# 可用技能`; `Skill` returns SKILL.md + extra file list. SSH global skills warn that extras are not on the remote.
+- Hooks: matcher is comma tool names or `*` (no regex). Empty command dropped. Max 32. Timeout 1–120s (0→30). Pre runs before permission; exit 2 blocks with stderr. Post failure appends `[钩子警告]`. Payload env `NATIVE_HOOK_PAYLOAD` JSON `{event, tool_name, arguments, workspace}` where `arguments` is a JSON object when the tool args parse, otherwise a string. No workspace hook files. No SessionStart/End.
+- ApplyPatch: Codex envelope (`*** Begin Patch` / Add / Update + optional Move to / Delete / `@@`). Exact hunk match, then trim-end fuzzy; else Chinese per-hunk error and no writes. Does **not** require prior Read; success paths enter `read_files`. Delete File → permission `Delete`, else `Overwrite`. Plan mode excluded.
+- Browser: MCP preset `{name: playwright, command: npx, args: ["@playwright/mcp@latest"]}`, default `enabled: false`. Codex + native execute MCP; Claude/Grok/OpenCode do not.
+- Activity: hook edits reuse `native_settings_updated` (details include `钩子：N 条`). IPC wrappers live in `src/lib/native.ts`, not `backend.ts`.
+
+### 4. Validation & Error Matrix
+| Case | Behavior |
+|------|----------|
+| ApplyPatch missing Begin/End / empty ops | Chinese parse error, no FS writes |
+| Hunk context mismatch after fuzzy | `补丁上下文不匹配：{path} 第 N 个 hunk` |
+| Add File already exists / Delete missing / Move dest exists | Chinese plan error, no partial apply |
+| Plan mode `ApplyPatch` | `只读规划模式禁止调用工具 ApplyPatch` |
+| Unknown Skill name | `未找到技能：{name}` |
+| Pre hook exit 2 | `钩子阻断：{stderr or id}`; tool not run |
+| Pre hook timeout | `钩子超时：{id}` |
+| Post hook non-zero | tool result + `[钩子警告]` |
+| Empty hook command in settings | dropped on normalize; UI keeps draft until command is filled |
+| Playwright already in MCP list | UI message, no duplicate |
+
+### 5. Good / Base / Bad Cases
+- Good: local ApplyPatch add/update/delete/move in one call; SSH `read→apply→write`/`rm -f`
+- Good: Pre `exit 2` on Write leaves the file unchanged
+- Base: Skill in plan mode; ApplyPatch absent from plan tools
+- Bad: loading workspace `.hooks` / Claude `settings.json` hooks; built-in CDP; `Agent` going through `execute_tool` so parent hooks fire on child tools
+
+### 6. Tests Required
+- `patch.rs`: add/update/delete/move; trailing-whitespace fuzzy then mismatch
+- `dispatch.rs`: ApplyPatch writes + Pre hook blocks Write; Skill load + plan rejects ApplyPatch
+- `permission.rs`: ApplyPatch delete → Delete, add → Overwrite
+- `skills.rs`: frontmatter parse; workspace name wins over global
+- `settings.rs`: hook normalize (empty command drop, timeout 0→30, matcher `*`)
+- `catalog.rs`: Skill read-only, ApplyPatch not
+- `loop.rs`: plan tool list includes Skill, excludes ApplyPatch
+
+### 7. Wrong vs Correct
+#### Wrong
+```rust
+execute_tool(ctx, "Agent", args).await?; // hooks + high-risk on the parent dispatch
+// require Read before ApplyPatch
+// matcher = Regex::new(&hook.matcher)
+```
+#### Correct
+```rust
+// Agent stays in the loop; only catalog tools + MCP go through execute_tool
+run_pre_tool_hooks(...)?;
+confirm_if_high_risk(...)?;
+call_apply_patch(...) // no prior-read check
+hook_matches("Bash,Write", "write") // comma / * only
+```
+
 ## Anti-Patterns
 
 - Starting processes without working-dir validation.
@@ -612,3 +677,8 @@ honor tool_calls when requested_with_tools && !call names empty
 - Allocating a fresh `ChildQuota` per Agent child (three children at 40% share = 120% of remaining). Clone one `Arc` for the whole batch.
 - Treating `KEY=VAL bash -c 'rm -rf …'` or `python -c` as Low risk because the first token is not the dangerous command.
 - Returning `list_ai_channel_models` as a silent 500-item `Vec` with no `truncated` flag.
+- Executing workspace hook files (`.hooks`, Claude `settings.json` hooks) — that lets a cloned repo inject commands.
+- Built-in CDP/browser for native; browser automation is Playwright MCP preset only.
+- Routing `Agent` through `execute_tool` (parent hooks would wrap the spawn, not child tools).
+- Requiring a prior `Read` before `ApplyPatch` (the patch itself is the mutation plan).
+- Hook matchers as regex — only comma-separated tool names or `*`.

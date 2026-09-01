@@ -1,4 +1,5 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
+use std::fs;
 use std::sync::Mutex;
 use std::time::Duration;
 
@@ -6,8 +7,10 @@ use serde::Deserialize;
 use serde_json::Value;
 
 use super::cancel::CancelFlag;
+use super::hooks::{run_post_tool_hooks, run_pre_tool_hooks};
 use super::local::{apply_edit, format_read, LocalWorkspace};
 use super::mcp::SharedMcp;
+use super::patch::{extract_patch_text, parse_patch, patch_counts, plan_mutations, FileMutation};
 use super::paths::resolve_under_workspace;
 use super::permission::{
     classify_native_tool_risk, NativePermissionDecision, NativeToolRisk, NativeToolRiskKind,
@@ -60,6 +63,8 @@ pub struct ToolCtx {
     pub permission_timeout: Duration,
     pub request_question: Option<QuestionRequester>,
     pub read_only: bool,
+    pub skills: Vec<crate::native::skills::NativeSkill>,
+    pub hooks: Vec<crate::db::models::NativeHook>,
 }
 
 pub async fn execute_tool(
@@ -73,11 +78,21 @@ pub async fn execute_tool(
     if ctx.read_only && !super::is_read_only_native_tool(name) {
         return Err(format!("只读规划模式禁止调用工具 {name}"));
     }
+    run_pre_tool_hooks(
+        &ctx.workspace,
+        ctx.ssh.as_ref(),
+        &ctx.cancel,
+        &ctx.hooks,
+        name,
+        arguments,
+    )
+    .await?;
     confirm_if_high_risk(ctx, name, arguments).await?;
-    match name {
+    let result = match name {
         "Read" => call_read(ctx, arguments).await,
         "Write" => call_write(ctx, arguments).await,
         "Edit" => call_edit(ctx, arguments).await,
+        "ApplyPatch" => call_apply_patch(ctx, arguments).await,
         "Glob" => call_glob(ctx, arguments).await,
         "Grep" => call_grep(ctx, arguments).await,
         "Bash" => call_bash(ctx, arguments).await,
@@ -86,8 +101,28 @@ pub async fn execute_tool(
         "WebFetch" => super::web::web_fetch(arguments).await,
         "WebSearch" => super::web::web_search(arguments).await,
         "AskQuestion" => call_ask_question(ctx, arguments).await,
+        "Skill" => call_skill(ctx, arguments),
         other if ctx.mcp.has_tool(other).await => ctx.mcp.call(other, arguments).await,
         other => Err(format!("unknown tool: {other}")),
+    };
+    match result {
+        Ok(output) => {
+            let warnings = run_post_tool_hooks(
+                &ctx.workspace,
+                ctx.ssh.as_ref(),
+                &ctx.cancel,
+                &ctx.hooks,
+                name,
+                arguments,
+            )
+            .await;
+            if warnings.is_empty() {
+                Ok(output)
+            } else {
+                Ok(format!("{output}\n\n[钩子警告]\n{}", warnings.join("\n")))
+            }
+        }
+        Err(error) => Err(error),
     }
 }
 
@@ -269,6 +304,101 @@ async fn allow_mcp_server(ctx: &ToolCtx, tool_name: &str) {
             allowed.insert(server_id);
         }
     }
+}
+
+fn call_skill(ctx: &ToolCtx, arguments: &str) -> Result<String, String> {
+    let args = parse_args(arguments)?;
+    let name = string_arg(&args, "name")?;
+    let skill = crate::native::skills::find_skill(&ctx.skills, &name)?;
+    Ok(crate::native::skills::render_skill(
+        skill,
+        ctx.ssh.is_some(),
+    ))
+}
+
+async fn call_apply_patch(ctx: &mut ToolCtx, arguments: &str) -> Result<String, String> {
+    let patch = extract_patch_text(arguments)?;
+    let actions = parse_patch(&patch)?;
+    let mut cache: HashMap<String, Option<String>> = HashMap::new();
+    let mut needed = Vec::new();
+    for action in &actions {
+        match action {
+            crate::native::tools::patch::PatchAction::Add { path, .. }
+            | crate::native::tools::patch::PatchAction::Delete { path }
+            | crate::native::tools::patch::PatchAction::Update { path, .. } => {
+                needed.push(path.clone());
+            }
+        }
+        if let crate::native::tools::patch::PatchAction::Update {
+            move_to: Some(dest),
+            ..
+        } = action
+        {
+            needed.push(dest.clone());
+        }
+    }
+    for path in needed {
+        if cache.contains_key(&path) {
+            continue;
+        }
+        let content = load_patch_file(ctx, &path).await?;
+        cache.insert(path, content);
+    }
+    let mutations = plan_mutations(&actions, |path| Ok(cache.get(path).cloned().flatten()))?;
+    let mut notes = Vec::new();
+    for mutation in mutations {
+        match mutation {
+            FileMutation::Write { path, content } => {
+                if let Some(ssh) = ctx.ssh.as_ref() {
+                    ssh.write(&path, &content).await?;
+                    ctx.read_files.insert(path.clone());
+                } else {
+                    let resolved = resolve_under_workspace(&ctx.workspace.root, &path)?;
+                    ctx.workspace.write_file(&path, &content)?;
+                    ctx.read_files
+                        .insert(resolved.to_string_lossy().into_owned());
+                }
+                notes.push(format!("wrote {path}"));
+            }
+            FileMutation::Delete { path } => {
+                if let Some(ssh) = ctx.ssh.as_ref() {
+                    ssh.delete(&path).await?;
+                    ctx.read_files.insert(path.clone());
+                } else {
+                    let resolved = resolve_under_workspace(&ctx.workspace.root, &path)?;
+                    ctx.workspace.delete_file(&path)?;
+                    ctx.read_files
+                        .insert(resolved.to_string_lossy().into_owned());
+                }
+                notes.push(format!("deleted {path}"));
+            }
+        }
+    }
+    Ok(format!(
+        "{}\n{}",
+        patch_counts(&actions).summary(),
+        notes.join("\n")
+    ))
+}
+
+async fn load_patch_file(ctx: &ToolCtx, path: &str) -> Result<Option<String>, String> {
+    if let Some(ssh) = ctx.ssh.as_ref() {
+        return match ssh.read(path).await {
+            Ok(text) if text.trim() == "(no output)" => Ok(Some(String::new())),
+            Ok(text) => Ok(Some(text)),
+            Err(_) => Ok(None),
+        };
+    }
+    let resolved = match resolve_under_workspace(&ctx.workspace.root, path) {
+        Ok(path) => path,
+        Err(error) => return Err(error),
+    };
+    if !resolved.is_file() {
+        return Ok(None);
+    }
+    fs::read_to_string(&resolved)
+        .map(Some)
+        .map_err(|error| format!("读取失败: {error}"))
 }
 
 fn parse_args(arguments: &str) -> Result<Value, String> {
@@ -476,6 +606,8 @@ mod tests {
             )),
             request_question: None,
             read_only: false,
+            skills: Vec::new(),
+            hooks: Vec::new(),
         };
         let err = execute_tool(
             &mut ctx,
@@ -515,6 +647,8 @@ mod tests {
             request_permission: None,
             request_question: None,
             read_only: true,
+            skills: Vec::new(),
+            hooks: Vec::new(),
         };
         let err = execute_tool(
             &mut ctx,
@@ -546,6 +680,8 @@ mod tests {
             request_permission: None,
             request_question: None,
             read_only: true,
+            skills: Vec::new(),
+            hooks: Vec::new(),
         };
         let err = execute_tool(
             &mut ctx,
@@ -581,6 +717,8 @@ mod tests {
                 });
             })),
             read_only: true,
+            skills: Vec::new(),
+            hooks: Vec::new(),
         };
         let result = execute_tool(
             &mut ctx,
@@ -590,6 +728,115 @@ mod tests {
         .await
         .expect("ask");
         assert!(result.contains("用 A"));
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[tokio::test]
+    async fn apply_patch_writes_and_pre_hook_can_block() {
+        let stamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("time")
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("codex-ai-patch-{stamp}"));
+        std::fs::create_dir_all(&root).expect("mkdir");
+        std::fs::write(root.join("a.txt"), "hello\n").expect("write");
+        let mut ctx = ToolCtx {
+            workspace: LocalWorkspace::new(root.clone()),
+            ssh: None,
+            cancel: CancelFlag::new(),
+            read_files: HashSet::new(),
+            todos: Vec::new(),
+            mcp: SharedMcp::empty(),
+            allow_all_high_risk: Arc::new(std::sync::atomic::AtomicBool::new(true)),
+            allowed_mcp_servers: Arc::new(Mutex::new(HashSet::new())),
+            expire_permission: None,
+            permission_timeout: Duration::ZERO,
+            request_permission: None,
+            request_question: None,
+            read_only: false,
+            skills: Vec::new(),
+            hooks: Vec::new(),
+        };
+        let patch = r#"{"patch":"*** Begin Patch\n*** Update File: a.txt\n@@\n-hello\n+hello world\n*** Add File: b.txt\n+new\n*** End Patch"}"#;
+        let result = execute_tool(&mut ctx, "ApplyPatch", patch)
+            .await
+            .expect("patch");
+        assert!(result.contains("新增 1"));
+        assert_eq!(
+            std::fs::read_to_string(root.join("a.txt")).expect("a"),
+            "hello world\n"
+        );
+        assert_eq!(
+            std::fs::read_to_string(root.join("b.txt")).expect("b"),
+            "new\n"
+        );
+
+        ctx.hooks = vec![crate::db::models::NativeHook {
+            id: "block".to_string(),
+            event: crate::native::settings::HOOK_EVENT_PRE_TOOL_USE.to_string(),
+            matcher: "Write".to_string(),
+            command: "printf 'nope' >&2; exit 2".to_string(),
+            timeout_secs: 10,
+            enabled: true,
+        }];
+        let err = execute_tool(&mut ctx, "Write", r#"{"file_path":"c.txt","content":"x"}"#)
+            .await
+            .expect_err("blocked");
+        assert!(err.contains("钩子阻断"));
+        assert!(!root.join("c.txt").exists());
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[tokio::test]
+    async fn skill_tool_loads_named_skill() {
+        let stamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("time")
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("codex-ai-skill-tool-{stamp}"));
+        std::fs::create_dir_all(&root).expect("mkdir");
+        let mut ctx = ToolCtx {
+            workspace: LocalWorkspace::new(root.clone()),
+            ssh: None,
+            cancel: CancelFlag::new(),
+            read_files: HashSet::new(),
+            todos: Vec::new(),
+            mcp: SharedMcp::empty(),
+            allow_all_high_risk: Arc::new(std::sync::atomic::AtomicBool::new(true)),
+            allowed_mcp_servers: Arc::new(Mutex::new(HashSet::new())),
+            expire_permission: None,
+            permission_timeout: Duration::ZERO,
+            request_permission: None,
+            request_question: None,
+            read_only: true,
+            skills: vec![crate::native::skills::NativeSkill {
+                name: "demo".to_string(),
+                description: "desc".to_string(),
+                source: crate::native::skills::SkillSource::Global,
+                dir: "/skills/demo".to_string(),
+                skill_md_path: "/skills/demo/SKILL.md".to_string(),
+                body: "hello skill".to_string(),
+                extra_files: vec!["notes.md".to_string()],
+            }],
+            hooks: Vec::new(),
+        };
+        let result = execute_tool(&mut ctx, "Skill", r#"{"name":"demo"}"#)
+            .await
+            .expect("skill");
+        assert!(result.contains("hello skill"));
+        assert!(result.contains("notes.md"));
+        let err = execute_tool(&mut ctx, "Skill", r#"{"name":"missing"}"#)
+            .await
+            .expect_err("missing");
+        assert!(err.contains("未找到"));
+        let blocked = execute_tool(
+            &mut ctx,
+            "ApplyPatch",
+            r#"{"patch":"*** Begin Patch\n*** Add File: x.txt\n+hi\n*** End Patch"}"#,
+        )
+        .await
+        .expect_err("plan");
+        assert!(blocked.contains("只读"));
         let _ = std::fs::remove_dir_all(root);
     }
 }

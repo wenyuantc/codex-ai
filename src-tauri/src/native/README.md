@@ -10,7 +10,8 @@ src-tauri/src/native/
 ├── manager.rs                # 内存态会话注册表 NativeAgentManager
 ├── session.rs                # 会话生命周期（启动/停止/重启/恢复/输入/一次性调用）
 ├── transcript.rs             # native 会话模型历史落库（续聊/崩溃后续跑）
-├── settings.rs               # 内置 Agent 设置（轮次/上下文/Token 预算/权限超时/子预算）
+├── settings.rs               # 内置 Agent 设置（轮次/上下文/Token 预算/权限超时/子预算/钩子）
+├── skills.rs                 # 工作区与全局 SKILL.md 发现、Skill 工具内容、全局目录命令
 ├── channels.rs               # AI 渠道 CRUD、测通、拉取模型列表
 ├── protocol.rs               # 协议归一化、URL 构造、模型列表解析、渠道 DTO
 ├── secret_store.rs           # 系统密钥库（keyring）读写渠道 API Key
@@ -39,8 +40,10 @@ src-tauri/src/native/
 └── tools/
     ├── mod.rs                # 模块声明与重导出
     ├── catalog.rs            # 工具清单（ToolSpec 定义，随请求声明给模型）
-    ├── dispatch.rs           # execute_tool 分发 + ToolCtx（工作区/SSH/MCP/取消/待办/已读文件）
+    ├── dispatch.rs           # execute_tool 分发 + ToolCtx（工作区/SSH/MCP/取消/待办/已读文件/技能/钩子）
     ├── permission.rs         # 高风险/不透明命令分类与权限决策
+    ├── patch.rs              # ApplyPatch 信封解析与内存应用
+    ├── hooks.rs              # Pre/Post 工具钩子匹配与执行
     ├── question.rs           # 计划模式 AskQuestion
     ├── cancel.rs             # CancelFlag 原子取消标志
     ├── local.rs              # 本地工作区：读/写/编辑/glob/grep/bash
@@ -164,10 +167,10 @@ OpenAI Responses（codex）协议：`build_responses_body`（instructions/input�
 模块声明，重导出 `CancelFlag`、`tool_specs`、`execute_tool`、`ToolCtx`、`LocalWorkspace`。
 
 #### `tools/catalog.rs`
-工具声明 `tool_specs()`：Read、Write、Edit、Bash、Glob、Grep、TodoRead、TodoWrite、WebFetch、WebSearch、Agent。`Agent` 仅父循环（depth=0 且非只读）注入，用于会话内委派；`explore` 只读，`general` 可写。同一轮连续 `Agent` 调用并行，上限为 `native-settings.json` 的 `max_concurrent_subagents`（默认 1）。委派勤快程度由 `subagent_policy`（conservative / balanced / aggressive，默认 conservative）写入系统提示，不强制调工具。子 Agent 类型仍只有 explore / general。子循环共享父 Agent 的 `RolloutBudget`，不占 run_queue、不新建 `codex_sessions`。
+工具声明 `tool_specs()`：Read、Write、Edit、ApplyPatch、Bash、Glob、Grep、TodoRead、TodoWrite、WebFetch、WebSearch、Skill、Agent。`Agent` 仅父循环（depth=0 且非只读）注入，用于会话内委派；`explore` 只读（含 Skill），`general` 可写。同一轮连续 `Agent` 调用并行，上限为 `native-settings.json` 的 `max_concurrent_subagents`（默认 1）。委派勤快程度由 `subagent_policy`（conservative / balanced / aggressive，默认 conservative）写入系统提示，不强制调工具。子循环共享父 Agent 的 `RolloutBudget`，不占 run_queue、不新建 `codex_sessions`。
 
 #### `tools/dispatch.rs` — `execute_tool` 分发
-`ToolCtx` 保存会话工具状态：工作区（本地或 SSH）、取消标志、已读文件集合（先读后写校验）、待办列表。`execute_tool` 按名称分发到具体实现；每个工具都先判取消、解析 JSON 参数（`parse_args` / `string_arg`），并区分本地（`LocalWorkspace`）与 SSH（`SshToolRuntime`）两条执行路径；写/编辑类工具要求目标文件已先被 Read。
+`ToolCtx` 保存会话工具状态：工作区（本地或 SSH）、取消标志、已读文件集合（先读后写校验）、待办列表、已发现技能、用户配置的钩子。`execute_tool` 先跑 Pre 钩子（退出码 2 阻断），再高风险确认，再按名称分发；成功后跑 Post 钩子（失败只警告）。写/编辑类工具要求目标文件已先被 Read；ApplyPatch 不要求事先 Read。
 
 #### `tools/cancel.rs`
 `CancelFlag`：基于 `Arc<AtomicBool>` 的原子取消标志，`cancel` / `is_cancelled`，在循环与 Bash 执行中协作检查。
@@ -176,13 +179,23 @@ OpenAI Responses（codex）协议：`build_responses_body`（instructions/input�
 `LocalWorkspace`（root 目录）：
 - `read_file`：读取 + 行号输出（`format_read`，默认 2000 行、offset/limit），拒绝目录。
 - `write_file`：自动创建父目录后写入。
+- `delete_file`：删除工作区内的普通文件。
 - `glob_files`：递归遍历（跳过 .git）后用 `glob_match` 过滤，最多返回 100 条。
 - `grep_files`：逐行子串匹配（限制 1..1000 条），可按 glob 过滤文件。
 - `bash`：`bash -lc` 在工作区执行（默认 120s、上限 600s、支持取消与 kill_on_drop），stdout+stderr 合并后截断到 3 万字符（`cap_model_output` 保留尾部）。
 - `apply_edit`：精确字符串替换，old_string 非唯一时报错（除非 replace_all）。
 
 #### `tools/ssh.rs` — SSH 工作区
-`SshToolRuntime`：基于既有 SSH 执行通道（`app::execute_ssh_command`）把工具映射为远程命令 —— `cat`（read）、`mkdir -p && cat >`（write）、`find . -type f | head -n 500`（glob，配合本地 `glob_match` 过滤）、`rg -n || grep -R -n`（grep）、`cd <root> && bash -lc`（bash）。所有路径先经 `resolve_under_workspace_posix` 防越界，命令参数经 shell 转义。
+`SshToolRuntime`：基于既有 SSH 执行通道（`app::execute_ssh_command`）把工具映射为远程命令 —— `cat`（read）、`mkdir -p && cat >`（write）、`rm -f`（delete）、`find . -type f | head -n 500`（glob，配合本地 `glob_match` 过滤）、`rg -n || grep -R -n`（grep）、`cd <root> && bash -lc`（bash）。所有路径先经 `resolve_under_workspace_posix` 防越界，命令参数经 shell 转义。
+
+#### `tools/patch.rs`
+解析 Codex 信封补丁（Begin/End Patch、Add/Update/Delete、Move to、`@@` hunk），先在内存中规划写/删，再一次性落到本地或 SSH。上下文精确匹配失败时按去尾空白宽松匹配。
+
+#### `tools/hooks.rs`
+按 `native-settings.json` 的 `hooks[]` 匹配工具名。Pre 退出码 2 阻断；Post 失败把警告追加到工具结果。payload 经 `NATIVE_HOOK_PAYLOAD`。
+
+#### `skills.rs`
+发现工作区 `.agents/skills` / `.claude/skills` 与全局 `$APPCONFIG/native-skills` 下的 `SKILL.md`。系统提示词注入名称+描述；`Skill` 工具返回全文与附属文件清单。
 
 #### `tools/web.rs`
 `web_fetch`：只允许 http/https，GET 拉取（30s 超时、512KB 上限、最多 5 次重定向），去 HTML 标签后截断到 8 万字符；`web_search`：优先使用 Exa（环境变量 `EXA_API_KEY`），否则解析 DuckDuckGo HTML 结果，最多 10 条、截断到 2 万字符。

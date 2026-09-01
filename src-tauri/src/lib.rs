@@ -321,6 +321,8 @@ pub fn run() {
             native::session::answer_native_plan_question,
             native::settings::get_native_settings,
             native::settings::update_native_settings,
+            native::skills::list_native_global_skills,
+            native::skills::open_native_skills_dir,
             native::subagents::list_native_subagents,
             native::subagents::create_native_subagent,
             native::subagents::update_native_subagent,

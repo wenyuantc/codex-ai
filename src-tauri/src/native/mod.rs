@@ -10,6 +10,7 @@ pub mod protocol;
 pub mod secret_store;
 pub mod session;
 pub mod settings;
+pub mod skills;
 pub mod subagents;
 pub mod tools;
 pub mod transcript;

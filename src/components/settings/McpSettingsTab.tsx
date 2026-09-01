@@ -118,6 +118,33 @@ export function McpSettingsTab() {
     }
   };
 
+  const addPlaywrightPreset = () => {
+    setError(null);
+    setMessage(null);
+    const exists = servers.some(
+      (server) =>
+        server.name.trim().toLowerCase() === "playwright" ||
+        server.args.some((arg) => arg.includes("@playwright/mcp")),
+    );
+    if (exists) {
+      setMessage(t("mcp.messages.playwrightExists"));
+      return;
+    }
+    setServers((current) => [
+      ...current,
+      {
+        id: globalThis.crypto?.randomUUID?.() ?? `mcp-playwright-${Date.now()}`,
+        name: "playwright",
+        command: "npx",
+        args: ["@playwright/mcp@latest"],
+        env: [],
+        enabled: false,
+        notes: t("mcp.playwright.notes"),
+      },
+    ]);
+    setMessage(t("mcp.messages.playwrightAdded"));
+  };
+
   if (loading) {
     return (
       <div className="flex items-center gap-2 text-sm text-muted-foreground">
@@ -132,10 +159,14 @@ export function McpSettingsTab() {
       <div className="rounded-lg border border-border bg-card p-4 space-y-2">
         <h3 className="text-sm font-medium">{t("mcp.title")}</h3>
         <p className="text-xs text-muted-foreground">{t("mcp.description")}</p>
+        <p className="text-xs text-muted-foreground">{t("mcp.browserCapability")}</p>
         <div className="flex flex-wrap gap-2">
           <Button size="sm" onClick={() => setServers((c) => [...c, createEmptyServer()])}>
             <Plus className="h-4 w-4" />
             {t("mcp.actions.addServer")}
+          </Button>
+          <Button size="sm" variant="outline" onClick={() => addPlaywrightPreset()}>
+            {t("mcp.actions.addPlaywright")}
           </Button>
           <Button size="sm" variant="outline" onClick={() => void handleSave()} disabled={saving}>
             {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}

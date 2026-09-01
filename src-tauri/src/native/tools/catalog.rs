@@ -10,6 +10,7 @@ pub const READ_ONLY_NATIVE_TOOL_NAMES: &[&str] = &[
     "TodoWrite",
     "WebFetch",
     "WebSearch",
+    "Skill",
 ];
 
 pub fn is_read_only_native_tool(name: &str) -> bool {
@@ -22,6 +23,7 @@ pub fn is_read_only_native_tool(name: &str) -> bool {
             | "TodoWrite"
             | "WebFetch"
             | "WebSearch"
+            | "Skill"
             | "AskQuestion"
     )
 }
@@ -186,6 +188,28 @@ pub fn tool_specs() -> Vec<ToolSpec> {
             }),
         ),
         spec(
+            "ApplyPatch",
+            "Apply a Codex-style multi-file patch. Prefer this over many Edit/Write calls when changing several files. Include enough context in each hunk. Do not use this in plan mode.",
+            json!({
+                "type": "object",
+                "properties": {
+                    "patch": {"type": "string"}
+                },
+                "required": ["patch"]
+            }),
+        ),
+        spec(
+            "Skill",
+            "Load a discovered skill's full SKILL.md and list extra files in its directory. Use after seeing the skill in the available-skills list. Prefer this over guessing skill contents.",
+            json!({
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string"}
+                },
+                "required": ["name"]
+            }),
+        ),
+        spec(
             "Agent",
             "Delegate a self-contained subtask to a child agent. Multiple calls in one turn run in parallel up to the session cap (see Max concurrent sub-agents). The child does not see this conversation. Use explore for read-only research and general for edits. Do not use this for a single Read or Grep.",
             json!({
@@ -219,9 +243,11 @@ mod tests {
         assert!(is_read_only_native_tool("Grep"));
         assert!(is_read_only_native_tool("TodoWrite"));
         assert!(is_read_only_native_tool("AskQuestion"));
+        assert!(is_read_only_native_tool("Skill"));
         assert!(!is_read_only_native_tool("Write"));
         assert!(!is_read_only_native_tool("Edit"));
         assert!(!is_read_only_native_tool("Bash"));
+        assert!(!is_read_only_native_tool("ApplyPatch"));
         assert!(!is_read_only_native_tool("Agent"));
     }
 
@@ -239,6 +265,8 @@ mod tests {
             "TodoWrite",
             "WebFetch",
             "WebSearch",
+            "ApplyPatch",
+            "Skill",
             "Agent",
         ] {
             assert!(names.contains(&expected.to_string()), "missing {expected}");

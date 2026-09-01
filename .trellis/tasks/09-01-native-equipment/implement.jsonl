@@ -1,0 +1,6 @@
+{"file": ".trellis/spec/backend/ai-engines.md", "reason": "Native tool catalog, Skill/ApplyPatch, hooks, Playwright MCP, SSH vs local"}
+{"file": ".trellis/spec/backend/command-guidelines.md", "reason": "list/open native skills commands and native-settings.json hooks field"}
+{"file": ".trellis/spec/frontend/data-access.md", "reason": "IPC in native.ts; MCP save still via backend.ts get/update mcp"}
+{"file": ".trellis/spec/frontend/component-guidelines.md", "reason": "Runtime settings cards and MCP preset button"}
+{"file": ".trellis/spec/frontend/i18n.md", "reason": "nativeSkills/nativeHooks/mcp.playwright locale keys"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "Hooks persist to JSON file not SQLite; SSH bash for remote hooks"}

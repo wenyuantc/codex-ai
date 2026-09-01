@@ -302,6 +302,25 @@ fn apply_bound_subagent(
     runner.required_subagent_type = Some(def.name.clone());
 }
 
+async fn attach_skills_and_hooks(
+    app: &AppHandle,
+    runner: &mut AgentRunner,
+    parts: &mut crate::native::prompt::NativePromptParts,
+) {
+    if let Ok(settings) = crate::native::settings::load_native_settings(app) {
+        runner.ctx.hooks = settings.hooks;
+    }
+    let config_dir = app.path().app_config_dir().ok();
+    let skills = crate::native::skills::load_session_skills(
+        &parts.cwd,
+        runner.ctx.ssh.as_ref(),
+        config_dir.as_deref(),
+    )
+    .await;
+    parts.skills = crate::native::skills::format_skills_prompt(&skills);
+    runner.ctx.skills = skills;
+}
+
 fn attach_subagent_runtime(
     app: &AppHandle,
     runner: &mut AgentRunner,
@@ -1012,7 +1031,9 @@ pub async fn run_native_read_only_one_shot(
         required_subagent_name: String::new(),
         required_subagent_description: String::new(),
         permission_mode: String::new(),
+        skills: String::new(),
     };
+    attach_skills_and_hooks(app, &mut runner, &mut parts).await;
     attach_subagent_runtime(
         app,
         &mut runner,
@@ -1734,7 +1755,9 @@ async fn run_native_loop(
         } else {
             String::new()
         },
+        skills: String::new(),
     };
+    attach_skills_and_hooks(&app, &mut runner, &mut parts).await;
     attach_subagent_runtime(
         &app,
         &mut runner,

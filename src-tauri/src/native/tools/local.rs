@@ -16,6 +16,13 @@ const BASH_MAX_TIMEOUT: Duration = Duration::from_secs(600);
 const BASH_MODEL_CHARS: usize = 30_000;
 
 #[derive(Debug, Clone)]
+pub struct CommandStatus {
+    pub exit_code: i32,
+    pub output: String,
+    pub timed_out: bool,
+}
+
+#[derive(Debug, Clone)]
 pub struct LocalWorkspace {
     pub root: PathBuf,
 }
@@ -56,6 +63,16 @@ impl LocalWorkspace {
             content.len(),
             resolved.display()
         ))
+    }
+
+    pub fn delete_file(&self, path: &str) -> Result<String, String> {
+        let resolved = self.resolve(path)?;
+        let metadata = fs::metadata(&resolved).map_err(|_| format!("文件不存在: {path}"))?;
+        if metadata.is_dir() {
+            return Err(format!("路径是目录: {path}"));
+        }
+        fs::remove_file(&resolved).map_err(|error| format!("删除失败: {error}"))?;
+        Ok(format!("Deleted {}", resolved.display()))
     }
 
     pub fn glob_files(&self, pattern: &str, search_path: Option<&str>) -> Result<String, String> {
@@ -147,6 +164,33 @@ impl LocalWorkspace {
         timeout_ms: Option<i64>,
         cancel: &CancelFlag,
     ) -> Result<String, String> {
+        let status = self
+            .bash_with_status(command, timeout_ms, cancel, &[])
+            .await?;
+        if status.timed_out {
+            return Err("Bash 超时".to_string());
+        }
+        if status.exit_code != 0 {
+            return Err(if status.output.is_empty() {
+                format!("command failed: {}", status.exit_code)
+            } else {
+                status.output
+            });
+        }
+        if status.output.trim().is_empty() {
+            Ok("(no output)".to_string())
+        } else {
+            Ok(status.output)
+        }
+    }
+
+    pub async fn bash_with_status(
+        &self,
+        command: &str,
+        timeout_ms: Option<i64>,
+        cancel: &CancelFlag,
+        extra_env: &[(&str, String)],
+    ) -> Result<CommandStatus, String> {
         if command.trim().is_empty() {
             return Err("command 不能为空".to_string());
         }
@@ -158,13 +202,17 @@ impl LocalWorkspace {
                 .unwrap_or(BASH_DEFAULT_TIMEOUT.as_millis() as i64)
                 .clamp(1, BASH_MAX_TIMEOUT.as_millis() as i64) as u64,
         );
-        let mut child = Command::new("bash")
-            .arg("-lc")
+        let mut cmd = Command::new("bash");
+        cmd.arg("-lc")
             .arg(command)
             .current_dir(&self.root)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
-            .kill_on_drop(true)
+            .kill_on_drop(true);
+        for (key, value) in extra_env {
+            cmd.env(key, value);
+        }
+        let mut child = cmd
             .spawn()
             .map_err(|error| format!("启动 Bash 失败: {error}"))?;
         let mut stdout = child
@@ -186,7 +234,11 @@ impl LocalWorkspace {
             _ = tokio::time::sleep(timeout) => {
                 let _ = child.start_kill();
                 let _ = child.wait().await;
-                return Err("Bash 超时".to_string());
+                return Ok(CommandStatus {
+                    exit_code: -1,
+                    output: "Bash 超时".to_string(),
+                    timed_out: true,
+                });
             }
             _ = wait_cancel(cancel) => {
                 let _ = child.start_kill();
@@ -202,18 +254,11 @@ impl LocalWorkspace {
             text.push_str(&String::from_utf8_lossy(&stderr_buf));
         }
         let text = cap_model_output(&text, BASH_MODEL_CHARS);
-        if !status.success() {
-            return Err(if text.is_empty() {
-                format!("command failed: {status}")
-            } else {
-                text
-            });
-        }
-        if text.trim().is_empty() {
-            Ok("(no output)".to_string())
-        } else {
-            Ok(text)
-        }
+        Ok(CommandStatus {
+            exit_code: status.code().unwrap_or(-1),
+            output: text,
+            timed_out: false,
+        })
     }
 }
 

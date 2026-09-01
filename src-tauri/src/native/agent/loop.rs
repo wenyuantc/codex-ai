@@ -177,6 +177,8 @@ impl AgentRunner {
                 permission_timeout: std::time::Duration::ZERO,
                 request_question: None,
                 read_only: false,
+                skills: Vec::new(),
+                hooks: Vec::new(),
             },
             messages: Vec::new(),
             max_turns: DEFAULT_NATIVE_MAX_TURNS as u32,
@@ -1135,6 +1137,8 @@ impl AgentRunner {
         child.ctx.request_permission = self.ctx.request_permission.clone();
         child.ctx.expire_permission = self.ctx.expire_permission.clone();
         child.ctx.permission_timeout = self.ctx.permission_timeout;
+        child.ctx.skills = self.ctx.skills.clone();
+        child.ctx.hooks = self.ctx.hooks.clone();
         child.depth = self.depth.saturating_add(1);
         child.event_prefix = format!(
             "{} ",
@@ -1414,6 +1418,8 @@ fn tool_start_line(name: &str, arguments: &str) -> String {
         "Grep" => format!("[工具] Grep {}", json_string(&args, "pattern")),
         "TodoRead" => "[待办] 读取任务清单".to_string(),
         "TodoWrite" => format_todo_write_start(&args),
+        "ApplyPatch" => "[补丁] 应用多文件补丁".to_string(),
+        "Skill" => format!("[技能] {}", json_string(&args, "name")),
         "Agent" => format!("[子 Agent] {}", json_string(&args, "description")),
         other => format!("[工具] {other}"),
     }
@@ -2064,7 +2070,9 @@ mod tests {
         plan.set_plan_mode(true);
         let plan_names = plan.tool_names();
         assert!(plan_names.iter().any(|name| name == "AskQuestion"));
+        assert!(plan_names.iter().any(|name| name == "Skill"));
         assert!(!plan_names.iter().any(|name| name == "Write"));
+        assert!(!plan_names.iter().any(|name| name == "ApplyPatch"));
         plan.set_plan_mode(false);
         assert!(!plan.tool_names().iter().any(|name| name == "AskQuestion"));
         runner.cancel();

@@ -45,8 +45,45 @@ impl SshToolRuntime {
     }
 
     pub async fn bash(&self, command: &str) -> Result<String, String> {
+        let status = self.bash_with_status(command).await?;
+        if status.exit_code != 0 {
+            return Err(if status.output.trim().is_empty() {
+                format!("command failed: {}", status.exit_code)
+            } else {
+                status.output
+            });
+        }
+        if status.output.trim().is_empty() {
+            Ok("(no output)".to_string())
+        } else {
+            Ok(status.output)
+        }
+    }
+
+    pub async fn bash_with_status(
+        &self,
+        command: &str,
+    ) -> Result<super::local::CommandStatus, String> {
         let remote = ssh_bash_command(&self.root, command)?;
-        stdout_or_err(execute_ssh_command(&self.app, &self.config, &remote, true).await?)
+        let output = execute_ssh_command(&self.app, &self.config, &remote, true).await?;
+        let mut text = String::from_utf8_lossy(&output.stdout).into_owned();
+        if !output.stderr.is_empty() {
+            if !text.is_empty() {
+                text.push('\n');
+            }
+            text.push_str(&String::from_utf8_lossy(&output.stderr));
+        }
+        Ok(super::local::CommandStatus {
+            exit_code: output.status.code().unwrap_or(-1),
+            output: text,
+            timed_out: false,
+        })
+    }
+
+    pub async fn delete(&self, path: &str) -> Result<String, String> {
+        let command = ssh_delete_command(&self.root, path)?;
+        stdout_or_err(execute_ssh_command(&self.app, &self.config, &command, true).await?)?;
+        Ok(format!("Deleted {path}"))
     }
 }
 
@@ -108,6 +145,11 @@ pub fn ssh_grep_command(root: &str, pattern: &str, path: Option<&str>) -> Result
     ))
 }
 
+pub fn ssh_delete_command(root: &str, path: &str) -> Result<String, String> {
+    let resolved = resolve_under_workspace_posix(root, path)?;
+    Ok(format!("rm -f {}", shell_escape_single_quoted(&resolved)))
+}
+
 pub fn ssh_bash_command(root: &str, command: &str) -> Result<String, String> {
     let root = resolve_under_workspace_posix(root, ".")?;
     if command.trim().is_empty() {
@@ -135,6 +177,10 @@ mod tests {
         let bash = ssh_bash_command("/proj", "ls").unwrap();
         assert!(bash.contains("cd '/proj'"));
         assert!(bash.contains("bash -lc"));
+        let delete = ssh_delete_command("/proj", "src/a.rs").unwrap();
+        assert!(delete.contains("rm -f"));
+        assert!(delete.contains("/proj/src/a.rs"));
+        assert!(ssh_delete_command("/proj", "../etc/passwd").is_err());
         let glob = ssh_glob_command("/proj").unwrap();
         assert!(glob.contains("find . -type f"));
         let grep = ssh_grep_command("/proj", "TODO", Some("src")).unwrap();

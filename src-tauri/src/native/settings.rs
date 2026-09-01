@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager, Runtime};
 
 use crate::app::{insert_activity_log, sqlite_pool};
-use crate::db::models::{NativeSettings, UpdateNativeSettings};
+use crate::db::models::{NativeHook, NativeSettings, UpdateNativeSettings};
 
 const SETTINGS_FILE_NAME: &str = "native-settings.json";
 pub const DEFAULT_NATIVE_MAX_TURNS: i32 = 40;
@@ -35,6 +35,11 @@ pub const SUBAGENT_POLICY_CONSERVATIVE: &str = "conservative";
 pub const SUBAGENT_POLICY_BALANCED: &str = "balanced";
 pub const SUBAGENT_POLICY_AGGRESSIVE: &str = "aggressive";
 pub const DEFAULT_NATIVE_SUBAGENT_POLICY: &str = SUBAGENT_POLICY_CONSERVATIVE;
+const MAX_NATIVE_HOOKS: usize = 32;
+const DEFAULT_NATIVE_HOOK_TIMEOUT_SECS: i32 = 30;
+const MAX_NATIVE_HOOK_TIMEOUT_SECS: i32 = 120;
+pub const HOOK_EVENT_PRE_TOOL_USE: &str = "pre_tool_use";
+pub const HOOK_EVENT_POST_TOOL_USE: &str = "post_tool_use";
 
 #[derive(Debug, Default, Deserialize, Serialize)]
 struct RawNativeSettings {
@@ -58,6 +63,8 @@ struct RawNativeSettings {
     permission_timeout_secs: Option<i32>,
     #[serde(default)]
     subagent_budget_share_percent: Option<i32>,
+    #[serde(default)]
+    hooks: Option<Vec<NativeHook>>,
 }
 
 pub fn normalize_native_max_turns(value: Option<i32>) -> i32 {
@@ -171,6 +178,7 @@ fn default_settings() -> NativeSettings {
         max_tool_output_tokens: DEFAULT_NATIVE_MAX_TOOL_OUTPUT_TOKENS,
         permission_timeout_secs: DEFAULT_NATIVE_PERMISSION_TIMEOUT_SECS,
         subagent_budget_share_percent: DEFAULT_NATIVE_SUBAGENT_BUDGET_SHARE_PERCENT,
+        hooks: Vec::new(),
     }
 }
 
@@ -192,6 +200,7 @@ fn normalize_settings(raw: RawNativeSettings) -> NativeSettings {
         subagent_budget_share_percent: normalize_native_subagent_budget_share_percent(
             raw.subagent_budget_share_percent,
         ),
+        hooks: normalize_native_hooks(raw.hooks.unwrap_or_default()),
     }
 }
 
@@ -254,6 +263,7 @@ fn save_native_settings<R: Runtime>(
         subagent_budget_share_percent: Some(normalize_native_subagent_budget_share_percent(Some(
             settings.subagent_budget_share_percent,
         ))),
+        hooks: Some(settings.hooks.clone()),
     };
     let json = serde_json::to_string_pretty(&raw)
         .map_err(|error| format!("序列化内置 Agent 设置失败: {error}"))?;
@@ -318,6 +328,9 @@ async fn merge_native_settings<R: Runtime>(
         next.subagent_budget_share_percent =
             normalize_native_subagent_budget_share_percent(Some(subagent_budget_share_percent));
     }
+    if let Some(hooks) = updates.hooks {
+        next.hooks = normalize_native_hooks(hooks);
+    }
     save_native_settings(app, &next)?;
     if previous.max_turns != next.max_turns
         || previous.max_subagent_turns != next.max_subagent_turns
@@ -329,6 +342,7 @@ async fn merge_native_settings<R: Runtime>(
         || previous.max_tool_output_tokens != next.max_tool_output_tokens
         || previous.permission_timeout_secs != next.permission_timeout_secs
         || previous.subagent_budget_share_percent != next.subagent_budget_share_percent
+        || previous.hooks != next.hooks
     {
         if let Ok(pool) = sqlite_pool(app).await {
             let _ = insert_activity_log(
@@ -347,7 +361,7 @@ async fn merge_native_settings<R: Runtime>(
 
 fn native_settings_activity_details(settings: &NativeSettings) -> String {
     format!(
-        "{}；{}；高风险确认：{}；确认超时：{}；同轮子 Agent 上限：{}；子 Agent 策略：{}；子 Agent 预算占比：{}%；上下文窗口：{} token；会话预算：{}；单条工具结果：{} token",
+        "{}；{}；高风险确认：{}；确认超时：{}；同轮子 Agent 上限：{}；子 Agent 策略：{}；子 Agent 预算占比：{}%；上下文窗口：{} token；会话预算：{}；单条工具结果：{} token；钩子：{} 条",
         max_turns_activity_details(settings.max_turns),
         max_subagent_turns_activity_details(settings.max_subagent_turns),
         if settings.confirm_high_risk {
@@ -370,6 +384,7 @@ fn native_settings_activity_details(settings: &NativeSettings) -> String {
             format!("{} token", settings.rollout_token_budget)
         },
         settings.max_tool_output_tokens,
+        settings.hooks.len()
     )
 }
 
@@ -434,6 +449,59 @@ pub fn confirm_high_risk_enabled<R: Runtime>(app: &AppHandle<R>) -> bool {
         .unwrap_or(true)
 }
 
+pub fn hook_matches(matcher: &str, tool_name: &str) -> bool {
+    let matcher = matcher.trim();
+    if matcher.is_empty() || matcher == "*" {
+        return true;
+    }
+    matcher
+        .split(',')
+        .map(str::trim)
+        .filter(|item| !item.is_empty())
+        .any(|item| item.eq_ignore_ascii_case(tool_name))
+}
+
+pub fn normalize_native_hooks(hooks: Vec<NativeHook>) -> Vec<NativeHook> {
+    let mut out = Vec::new();
+    for (index, hook) in hooks.into_iter().take(MAX_NATIVE_HOOKS).enumerate() {
+        let command = hook.command.trim().to_string();
+        if command.is_empty() {
+            continue;
+        }
+        let event = match hook.event.trim() {
+            HOOK_EVENT_POST_TOOL_USE => HOOK_EVENT_POST_TOOL_USE.to_string(),
+            _ => HOOK_EVENT_PRE_TOOL_USE.to_string(),
+        };
+        let matcher = {
+            let matcher = hook.matcher.trim();
+            if matcher.is_empty() {
+                "*".to_string()
+            } else {
+                matcher.to_string()
+            }
+        };
+        let timeout_secs = if (1..=MAX_NATIVE_HOOK_TIMEOUT_SECS).contains(&hook.timeout_secs) {
+            hook.timeout_secs
+        } else {
+            DEFAULT_NATIVE_HOOK_TIMEOUT_SECS
+        };
+        let id = if hook.id.trim().is_empty() {
+            format!("hook-{}", index + 1)
+        } else {
+            hook.id.trim().to_string()
+        };
+        out.push(NativeHook {
+            id,
+            event,
+            matcher,
+            command,
+            timeout_secs,
+            enabled: hook.enabled,
+        });
+    }
+    out
+}
+
 #[tauri::command]
 pub async fn get_native_settings<R: Runtime>(app: AppHandle<R>) -> Result<NativeSettings, String> {
     load_native_settings(&app)
@@ -479,8 +547,10 @@ mod tests {
             max_tool_output_tokens: None,
             permission_timeout_secs: None,
             subagent_budget_share_percent: None,
+            hooks: None,
         });
         assert!(settings.confirm_high_risk);
+        assert!(settings.hooks.is_empty());
         assert_eq!(
             settings.max_subagent_turns,
             DEFAULT_NATIVE_MAX_SUBAGENT_TURNS
@@ -659,5 +729,36 @@ mod tests {
             normalize_native_subagent_budget_share_percent(Some(100)),
             100
         );
+    }
+
+    #[test]
+    fn normalize_hooks_and_matcher() {
+        assert!(hook_matches("*", "Bash"));
+        assert!(hook_matches("Bash, Write", "write"));
+        assert!(!hook_matches("Read", "Bash"));
+        let hooks = normalize_native_hooks(vec![
+            NativeHook {
+                id: String::new(),
+                event: "nope".to_string(),
+                matcher: String::new(),
+                command: " echo hi ".to_string(),
+                timeout_secs: 0,
+                enabled: true,
+            },
+            NativeHook {
+                id: "x".to_string(),
+                event: HOOK_EVENT_POST_TOOL_USE.to_string(),
+                matcher: "ApplyPatch".to_string(),
+                command: String::new(),
+                timeout_secs: 15,
+                enabled: false,
+            },
+        ]);
+        assert_eq!(hooks.len(), 1);
+        assert_eq!(hooks[0].id, "hook-1");
+        assert_eq!(hooks[0].event, HOOK_EVENT_PRE_TOOL_USE);
+        assert_eq!(hooks[0].matcher, "*");
+        assert_eq!(hooks[0].timeout_secs, DEFAULT_NATIVE_HOOK_TIMEOUT_SECS);
+        assert_eq!(hooks[0].command, "echo hi");
     }
 }

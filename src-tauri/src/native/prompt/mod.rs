@@ -37,6 +37,7 @@ pub struct NativePromptParts {
     pub required_subagent_name: String,
     pub required_subagent_description: String,
     pub permission_mode: String,
+    pub skills: String,
 }
 
 pub fn compose_system(parts: &NativePromptParts) -> String {
@@ -62,6 +63,9 @@ pub fn compose_system(parts: &NativePromptParts) -> String {
             "# 项目指令（AGENTS.md / CLAUDE.md）\n{}",
             parts.project_agents.trim()
         ));
+    }
+    if !parts.skills.trim().is_empty() {
+        blocks.push(parts.skills.trim().to_string());
     }
     if !parts.employee_prompt.trim().is_empty() {
         blocks.push(format!("# 员工设定\n{}", parts.employee_prompt.trim()));
@@ -126,7 +130,7 @@ fn environment_block(parts: &NativePromptParts) -> String {
     ];
     if permission_mode == "plan" {
         lines.push(
-            "- Plan mode: only Read/Glob/Grep/TodoRead/TodoWrite/WebFetch/WebSearch/AskQuestion. Do not edit files. If a user decision is required, call AskQuestion; if the plan is ready, output it and stop. The system will start implementation automatically after this plan turn."
+            "- Plan mode: only Read/Glob/Grep/TodoRead/TodoWrite/WebFetch/WebSearch/Skill/AskQuestion. Do not edit files. If a user decision is required, call AskQuestion; if the plan is ready, output it and stop. The system will start implementation automatically after this plan turn."
                 .to_string(),
         );
     }
@@ -181,7 +185,7 @@ pub fn agent_tool_description(
     lines.extend([
         "Available agent types:".to_string(),
         "- general: full tools including MCP; can edit files. (Tools: *)".to_string(),
-        "- explore: read-only research. (Tools: Read, Glob, Grep, TodoRead, TodoWrite, WebFetch, WebSearch)".to_string(),
+        "- explore: read-only research. (Tools: Read, Glob, Grep, TodoRead, TodoWrite, WebFetch, WebSearch, Skill)".to_string(),
     ]);
     for item in custom {
         let tools = if item.tool_mode == TOOL_MODE_ALL {
@@ -354,6 +358,7 @@ mod tests {
             required_subagent_name: String::new(),
             required_subagent_description: String::new(),
             permission_mode: String::new(),
+            skills: String::new(),
         });
         assert!(text.contains("内置编程 Agent"));
         assert!(text.contains("confirm-high-risk"));
@@ -370,6 +375,12 @@ mod tests {
         assert!(text.contains("用 2 空格缩进"));
         assert!(text.contains("角色：reviewer"));
         assert!(!text.contains("任务标题"));
+        let with_skills = compose_system(&NativePromptParts {
+            skills: "# 可用技能\n- `demo`：desc（全局）".to_string(),
+            ..NativePromptParts::default()
+        });
+        assert!(with_skills.contains("可用技能"));
+        assert!(with_skills.contains("`demo`"));
         let overridden = compose_system(&NativePromptParts {
             cwd: "/repo".to_string(),
             identity_override: "你是审查员".to_string(),

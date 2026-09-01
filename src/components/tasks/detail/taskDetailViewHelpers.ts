@@ -54,6 +54,8 @@ export function getLineColor(line: string): string {
     line.startsWith("[读取]") ||
     line.startsWith("[写入]") ||
     line.startsWith("[编辑]") ||
+    line.startsWith("[补丁]") ||
+    line.startsWith("[技能]") ||
     line.startsWith("[工具结果]")
   ) {
     return "text-cyan-400";

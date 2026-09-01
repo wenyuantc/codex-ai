@@ -68,8 +68,8 @@ React (UI) → Tauri IPC commands → Rust service layer → SQLite
 
 - Rust 2021, Tokio async, SQLx 0.8 (compile-time checked queries)
 - Entry: `lib.rs` → `pub fn run()` registers plugins, the five engine managers, tray, and window restoration
-- **258 Tauri commands**, all registered in the single `invoke_handler!` list in `lib.rs`. Full breakdown:
-  - `git_workflow/` (50), `codex/` (30), `app/tasks.rs` (27), `native/` (24), `app/remote.rs` (13), `task_automation` (12), `opencode/` (12), `app/delivery.rs` (12), `claude/` (11), `grok/` (10)
+- **260 Tauri commands**, all registered in the single `invoke_handler!` list in `lib.rs`. Full breakdown:
+  - `git_workflow/` (50), `codex/` (30), `app/tasks.rs` (27), `native/` (26), `app/remote.rs` (13), `task_automation` (12), `opencode/` (12), `app/delivery.rs` (12), `claude/` (11), `grok/` (10)
   - `app/sessions.rs` (10), `app/database.rs` (9), `app/projects.rs` (8), `app/employees.rs` (8), `app/templates.rs` (6), `app/session_events_retention.rs` (4), `notifications` (3), `app/review.rs` (3), `app/notification_sound.rs` (3), `run_queue` (2), `tray` (1)
 - `app/` submodules: `projects`, `employees`, `tasks`, `templates`, `delivery`, `sessions`, `review`, `remote`, `database`, `session_events_retention`, `session_events_policy`, `shared`
 - `app/session_events_retention.rs` — `codex_session_events` retention policy (purge rows older than N days, VACUUM, stats). Wired into the Settings 数据库维护 tab.
@@ -116,9 +116,9 @@ SQLite at `$APPCONFIG/codex-ai.db`, 30 tables:
 
 ### Tests
 
-Rust is the primary suite: **701 test cases**, mostly `#[cfg(test)]` modules colocated with the code they cover. Densest areas include codex process/settings, shared `engine/` kernel, `git_workflow/`, `native/`, and `task_automation`. Non-codex engines (claude/grok/opencode) still have thinner coverage than codex, but share the kernel tests.
+Rust is the primary suite: **728 test cases**, mostly `#[cfg(test)]` modules colocated with the code they cover. Densest areas include codex process/settings, shared `engine/` kernel, `git_workflow/`, `native/`, and `task_automation`. Non-codex engines (claude/grok/opencode) still have thinner coverage than codex, but share the kernel tests.
 
-Frontend has a minimal Vitest net: **219 tests across 31 files** (`src/stores/{task,project,dashboard}Store.test.ts`, `src/lib/{utils,kanbanFilters,projects,taskPrimaryCta,dashboardReport,sessions,reviewFindings,appUpdate}.test.ts`, `src/lib/i18n/locale.test.ts` and related) covering exported pure functions only — store scope filters, SSH host selection, activity label mapping, kanban filters, primary-CTA resolution, dashboard report shaping, session log export, review findings parse, updater payload, locale resolution. No component or e2e tests. `npm run test:ci` is a CI hard gate.
+Frontend has a minimal Vitest net: **256 tests across 35 files** (`src/stores/{task,project,dashboard}Store.test.ts`, `src/lib/{utils,kanbanFilters,projects,taskPrimaryCta,dashboardReport,sessions,reviewFindings,appUpdate}.test.ts`, `src/lib/i18n/locale.test.ts` and related) covering exported pure functions only — store scope filters, SSH host selection, activity label mapping, kanban filters, primary-CTA resolution, dashboard report shaping, session log export, review findings parse, updater payload, locale resolution. No component or e2e tests. `npm run test:ci` is a CI hard gate.
 
 Cross-cutting integration tests live in `src-tauri/src/app/tests/`:
 - `runtime_and_paths.rs` — app runtime setup

@@ -46,7 +46,7 @@ Patterns:
 | Dashboard | `getDashboardStats`, `getDashboardReportSummary` |
 | Notifications | `listNotifications` |
 | Run queue | `listTaskRunQueue`, `cancelQueuedTaskRun`, `onTaskRunQueueChanged` |
-| AI channels | `listAiChannels`, `createAiChannel`, `updateAiChannel`, `deleteAiChannel`, `testAiChannel`, `listAiChannelModels` in `backend.ts`. `listAiChannelModels` returns `{ models, message, truncated?: boolean }` — when `truncated` is true, show `channels.messages.modelsFetchedTruncated` (do not treat 500 ids as a complete catalog). Native session start/stop/send live in `src/lib/native.ts` (same pattern as `grok.ts`), dispatched from `aiEngine.ts` |
+| AI channels | `listAiChannels`, `createAiChannel`, `updateAiChannel`, `deleteAiChannel`, `testAiChannel`, `listAiChannelModels` in `backend.ts`. `listAiChannelModels` returns `{ models, message, truncated?: boolean }` — when `truncated` is true, show `channels.messages.modelsFetchedTruncated` (do not treat 500 ids as a complete catalog). Native session start/stop/send, settings, subagents, and `listNativeGlobalSkills` / `openNativeSkillsDir` live in `src/lib/native.ts` (same pattern as `grok.ts`), dispatched from `aiEngine.ts` |
 
 `listTasks` rules:
 - With `projectId` (or non-empty `projectIds`): full active list for that filter (no forced LIMIT)

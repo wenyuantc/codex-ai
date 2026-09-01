@@ -236,6 +236,15 @@ export async function answerNativePlanQuestion(
 
 export type NativeSubagentPolicy = "conservative" | "balanced" | "aggressive";
 
+export interface NativeHook {
+  id: string;
+  event: "pre_tool_use" | "post_tool_use" | string;
+  matcher: string;
+  command: string;
+  timeout_secs: number;
+  enabled: boolean;
+}
+
 export interface NativeSettings {
   max_turns: number;
   max_subagent_turns: number;
@@ -247,6 +256,7 @@ export interface NativeSettings {
   max_tool_output_tokens: number;
   permission_timeout_secs: number;
   subagent_budget_share_percent: number;
+  hooks?: NativeHook[];
 }
 
 export interface UpdateNativeSettings {
@@ -260,6 +270,7 @@ export interface UpdateNativeSettings {
   max_tool_output_tokens?: number;
   permission_timeout_secs?: number;
   subagent_budget_share_percent?: number;
+  hooks?: NativeHook[];
 }
 
 export async function getNativeSettings(): Promise<NativeSettings> {
@@ -268,6 +279,29 @@ export async function getNativeSettings(): Promise<NativeSettings> {
 
 export async function updateNativeSettings(updates: UpdateNativeSettings): Promise<NativeSettings> {
   return invoke<NativeSettings>("update_native_settings", { updates });
+}
+
+export interface NativeSkill {
+  name: string;
+  description: string;
+  source: "workspace_agents" | "workspace_claude" | "global" | string;
+  dir: string;
+  skill_md_path: string;
+  body: string;
+  extra_files: string[];
+}
+
+export interface NativeGlobalSkills {
+  dir: string;
+  skills: NativeSkill[];
+}
+
+export async function listNativeGlobalSkills(): Promise<NativeGlobalSkills> {
+  return invoke<NativeGlobalSkills>("list_native_global_skills");
+}
+
+export async function openNativeSkillsDir(): Promise<void> {
+  await invoke("open_native_skills_dir");
 }
 
 export const NATIVE_SUBAGENT_CUSTOM_TOOLS = [
@@ -280,6 +314,8 @@ export const NATIVE_SUBAGENT_CUSTOM_TOOLS = [
   "WebFetch",
   "WebSearch",
   "TodoWrite",
+  "ApplyPatch",
+  "Skill",
 ] as const;
 
 export type NativeSubagentCustomTool = (typeof NATIVE_SUBAGENT_CUSTOM_TOOLS)[number];

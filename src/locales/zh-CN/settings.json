@@ -68,6 +68,27 @@
     "subagentPolicyBalanced": "均衡",
     "subagentPolicyAggressive": "积极"
   },
+  "nativeSkills": {
+    "title": "技能",
+    "description": "全局技能目录中的 SKILL.md 会在内置 Agent 会话中列出。工作区 .agents/skills 与 .claude/skills 在启动时自动发现。需要全文时模型会调用 Skill 工具。",
+    "dirUnknown": "尚未解析全局技能目录",
+    "openDir": "打开目录",
+    "refresh": "刷新",
+    "empty": "全局目录还没有技能。在该目录下新建子文件夹并放入 SKILL.md。"
+  },
+  "nativeHooks": {
+    "title": "钩子",
+    "description": "在工具执行前后运行本机或远端工作区命令。匹配器为工具名（逗号分隔）或 *。Pre 退出码 2 会阻断该工具。不会读取仓库里的 hooks 文件。",
+    "add": "添加钩子",
+    "empty": "还没有钩子。",
+    "enabled": "启用",
+    "delete": "删除",
+    "eventPre": "工具前（PreToolUse）",
+    "eventPost": "工具后（PostToolUse）",
+    "matcherPlaceholder": "匹配器（* 或 Bash,Write）",
+    "commandPlaceholder": "命令（工作区目录执行）",
+    "timeoutLabel": "超时（秒）"
+  },
   "about": {
     "title": "关于与更新",
     "description": "查看当前版本，并从 GitHub Releases 检查本机桌面应用的更新。与 SSH 远程项目无关。",
@@ -695,6 +716,7 @@
     },
     "actions": {
       "addServer": "添加服务器",
+      "addPlaywright": "添加 Playwright 预设",
       "save": "保存",
       "exportSnippet": "导出片段",
       "resetExample": "重置示例",
@@ -713,7 +735,13 @@
     "messages": {
       "saved": "MCP 配置已保存到应用配置目录的 mcp-servers.json。",
       "reset": "已重置为默认示例配置。",
-      "exported": "已生成导出片段，并尝试复制到剪贴板。"
+      "exported": "已生成导出片段，并尝试复制到剪贴板。",
+      "playwrightAdded": "已加入 Playwright 预设，保存后生效。默认未启用。",
+      "playwrightExists": "列表里已有 Playwright MCP，未重复添加。"
+    },
+    "browserCapability": "浏览器自动化经 Playwright MCP 提供，Codex 与内置 Agent 可真实执行。本地需已安装 Node；SSH 项目需远端具备 node 与浏览器依赖。",
+    "playwright": {
+      "notes": "Playwright MCP 预设。本地需 Node/npx；SSH 远端需 node 与浏览器依赖。启用后保存才会注入会话。"
     },
     "exampleFilesystem": {
       "name": "示例：Filesystem（请按需启用）",

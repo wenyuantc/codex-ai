@@ -71,6 +71,7 @@ import {
   nativeTokensToK,
   normalizeNativeTokenK,
   updateNativeSettings,
+  type NativeHook,
   type NativeSettings,
 } from "@/lib/native";
 import { changeAppLocale } from "@/lib/i18n";
@@ -201,6 +202,7 @@ export function SettingsPage() {
   const [nativeConfirmHighRisk, setNativeConfirmHighRisk] = useState(true);
   const [nativePermissionTimeoutSecs, setNativePermissionTimeoutSecs] = useState(300);
   const [nativeSubagentBudgetSharePercent, setNativeSubagentBudgetSharePercent] = useState(40);
+  const [nativeHooks, setNativeHooks] = useState<NativeHook[]>([]);
   const [nativeContextWindowK, setNativeContextWindowK] = useState("128");
   const [nativeRolloutTokenBudgetK, setNativeRolloutTokenBudgetK] = useState("10000");
   const [nativeMaxToolOutputK, setNativeMaxToolOutputK] = useState("4.096");
@@ -418,6 +420,7 @@ export function SettingsPage() {
       String(nativeTokensToK(settings.rollout_token_budget ?? 10_000_000)),
     );
     setNativeMaxToolOutputK(String(nativeTokensToK(settings.max_tool_output_tokens ?? 4_096)));
+    setNativeHooks(settings.hooks ?? []);
   }
 
   async function loadNativeMaxTurns() {
@@ -539,6 +542,22 @@ export function SettingsPage() {
       applyNativeSettings(await updateNativeSettings({ max_tool_output_tokens: normalized }));
     } catch (error) {
       console.error("Failed to save native tool output limit:", error);
+      await loadNativeMaxTurns();
+    }
+  }
+
+  async function persistNativeHooks(hooks: NativeHook[]) {
+    setNativeHooks(hooks);
+    const persistable = hooks.filter((hook) => hook.command.trim().length > 0);
+    try {
+      const saved = await updateNativeSettings({ hooks: persistable });
+      const drafts = hooks.filter((hook) => hook.command.trim().length === 0);
+      applyNativeSettings({
+        ...saved,
+        hooks: [...(saved.hooks ?? persistable), ...drafts],
+      });
+    } catch (error) {
+      console.error("Failed to save native hooks:", error);
       await loadNativeMaxTurns();
     }
   }
@@ -1427,6 +1446,8 @@ export function SettingsPage() {
             onNativeSubagentBudgetSharePercentCommit={(value) =>
               void persistNativeSubagentBudgetSharePercent(value)
             }
+            nativeHooks={nativeHooks}
+            onNativeHooksChange={(hooks) => void persistNativeHooks(hooks)}
             onTaskSdkEnabledChange={setTaskSdkEnabled}
             onOneShotSdkEnabledChange={setOneShotSdkEnabled}
             onOneShotPreferredProviderChange={(provider) => {

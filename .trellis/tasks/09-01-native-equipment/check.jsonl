@@ -1,0 +1,7 @@
+{"file": ".trellis/spec/backend/ai-engines.md", "reason": "Native Skills/Hooks/ApplyPatch/Playwright contracts, tool dispatch order, plan-mode and SSH rules"}
+{"file": ".trellis/spec/backend/command-guidelines.md", "reason": "New Tauri commands must be Result<T,String>, generic AppHandle, registered in lib.rs"}
+{"file": ".trellis/spec/frontend/data-access.md", "reason": "Native IPC wrappers stay in native.ts; components must not invoke()"}
+{"file": ".trellis/spec/frontend/component-guidelines.md", "reason": "Select trigger shows name not key; settings cards in components/settings"}
+{"file": ".trellis/spec/frontend/i18n.md", "reason": "zh-CN + en for new settings copy; activity reuses native_settings_updated"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "UI settings -> native.ts -> Tauri -> filesystem/SSH, local+SSH dual path"}
+{"file": ".trellis/spec/backend/testing.md", "reason": "Colocated Rust unit tests; clippy -D warnings"}

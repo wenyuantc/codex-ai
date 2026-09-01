@@ -36,6 +36,7 @@ import type {
 } from "@/lib/opencode";
 import { type AppLocale } from "@/lib/i18n/locale";
 import { mapRuntimeStatusMessage } from "@/lib/i18n/mapRuntimeStatusMessage";
+import type { NativeHook } from "@/lib/native";
 import { type ThemeMode } from "@/lib/theme";
 import { formatDate } from "@/lib/utils";
 
@@ -44,6 +45,8 @@ import {
   selectNativeModel,
 } from "@/components/employees/NativeChannelFields";
 import { AboutUpdateSection } from "./AboutUpdateSection";
+import { NativeHooksSettingsCard } from "./NativeHooksSettingsCard";
+import { NativeSkillsSettingsCard } from "./NativeSkillsSettingsCard";
 
 interface RuntimeSettingsTabProps {
   codexHealth: CodexHealthCheck | RemoteCodexHealthCheck | null;
@@ -103,6 +106,8 @@ interface RuntimeSettingsTabProps {
   nativeSubagentBudgetSharePercent: number;
   onNativeSubagentBudgetSharePercentChange: (value: number) => void;
   onNativeSubagentBudgetSharePercentCommit: (value: number) => void;
+  nativeHooks: NativeHook[];
+  onNativeHooksChange: (hooks: NativeHook[]) => void;
   onTaskSdkEnabledChange: (value: boolean) => void;
   onOneShotSdkEnabledChange: (value: boolean) => void;
   onOneShotPreferredProviderChange: (value: AiProvider) => void;
@@ -263,6 +268,8 @@ export function RuntimeSettingsTab({
   nativeSubagentBudgetSharePercent,
   onNativeSubagentBudgetSharePercentChange,
   onNativeSubagentBudgetSharePercentCommit,
+  nativeHooks,
+  onNativeHooksChange,
   onTaskSdkEnabledChange,
   onOneShotSdkEnabledChange,
   onOneShotPreferredProviderChange,
@@ -858,6 +865,9 @@ export function RuntimeSettingsTab({
           </div>
         </div>
       </div>
+
+      <NativeSkillsSettingsCard />
+      <NativeHooksSettingsCard hooks={nativeHooks} onChange={onNativeHooksChange} />
 
       <div className="space-y-4 rounded-lg border border-border bg-card p-4">
         <div className="flex items-center justify-between gap-4">
