@@ -203,23 +203,15 @@ export function SessionLogDialog({ open, session, onOpenChange }: SessionLogDial
               )}
               <span className="text-xs text-muted-foreground">{matchLabel}</span>
             </div>
-            {trimmedKeyword ? (
-              <CodexTerminal lines={filteredLines} hideClear heightClassName="h-[28rem]" />
-            ) : sessionRecordId ? (
+            {sessionRecordId || session?.taskId ? (
               <CodexTerminal
-                sessionRecordId={sessionRecordId}
+                lines={trimmedKeyword ? filteredLines : undefined}
+                hideClear={Boolean(trimmedKeyword)}
+                sessionRecordId={sessionRecordId ?? undefined}
+                taskId={session?.taskId ?? undefined}
+                sessionKind={session?.sessionKind ?? "execution"}
                 heightClassName="h-[28rem]"
-                showInputBar
-                inputEmployeeId={inputContext.employeeId}
-                inputProvider={inputContext.provider}
-                inputSessionLive={inputContext.live}
-              />
-            ) : session?.taskId ? (
-              <CodexTerminal
-                taskId={session.taskId}
-                sessionKind={session.sessionKind ?? "execution"}
-                heightClassName="h-[28rem]"
-                showInputBar
+                showInputBar={!trimmedKeyword}
                 inputEmployeeId={inputContext.employeeId}
                 inputProvider={inputContext.provider}
                 inputSessionLive={inputContext.live}

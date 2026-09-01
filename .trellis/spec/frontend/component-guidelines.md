@@ -76,6 +76,12 @@ Reference implementations:
 - Gate with `can(provider, "send_input")` + live session presence; fail-closed while capabilities are loading (no false "unsupported" flash).
 - Copy lives in `sessions` i18n namespace (`zh-CN` + `en`); dispatch via `src/lib/{codex,claude,opencode,grok,native}.ts` send helpers — never invent a resume/new-session path from the bar. Unknown provider throws; `native` finish is `finish_native_input` (stop). Do not call it from `useSessionLogAwaitFollowups`.
 
+## Native agent todos in the terminal (`SessionTodoList`)
+
+- Parse the latest native `TodoWrite` snapshot from stdout (`[待办]\n- [status] content (priority)`) in `src/lib/sessionTodos.ts`. Do not add a SQLite table.
+- Render the current list above the log body inside `CodexTerminal` (`SessionTodoList`) so kanban task logs, session logs, and review output stay in sync. Ignore `[待办] 读取任务清单` / `[待办] 更新任务清单`; treat `[待办] (空)` as clear.
+- Cache the latest snapshot on `employeeStore.sessionTodos` when a `TodoWrite` line arrives, so the panel survives `taskLogs`’ 200-line window. Keyword filters still read the unfiltered session/task log.
+
 ## Task primary path (trust UX)
 
 - **One primary CTA per task surface**: resolve with pure `resolveTaskPrimaryCta` in `src/lib/taskPrimaryCta.ts` — do not fork if/else tables in `TaskCard` vs `TaskDetailDialog`.

@@ -3,9 +3,11 @@ import { useTranslation } from "react-i18next";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { Check, Copy, Download, Eraser } from "lucide-react";
 
-import { formatTerminalLine, getLineColor } from "@/components/tasks/detail/taskDetailViewHelpers";
+import { SessionTodoList } from "@/components/codex/SessionTodoList";
 import { SessionInputBar } from "@/components/sessions/SessionInputBar";
+import { formatTerminalLine, getLineColor } from "@/components/tasks/detail/taskDetailViewHelpers";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { extractLatestSessionTodos } from "@/lib/sessionTodos";
 import type { CodexSessionKind } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { buildTaskLogKey, useEmployeeStore } from "@/stores/employeeStore";
@@ -60,6 +62,10 @@ export function CodexTerminal({
   const clearSessionCodexOutput = useEmployeeStore((s) => s.clearSessionCodexOutput);
   const taskLogs = useEmployeeStore((s) => s.taskLogs);
   const sessionLogs = useEmployeeStore((s) => s.sessionLogs);
+  const todoCacheKey = sessionRecordId ?? (taskId ? buildTaskLogKey(taskId, sessionKind) : null);
+  const storedTodos = useEmployeeStore((s) =>
+    todoCacheKey ? s.sessionTodos[todoCacheKey] : undefined,
+  );
   // Live fragments are kept out of `output` so a streaming answer does not
   // re-format the whole backlog on every flush.
   const streamKey = lines
@@ -105,6 +111,26 @@ export function CodexTerminal({
     }
     return [];
   }, [lines, sessionLogs, sessionRecordId, taskId, taskLogs, sessionKind, i18n.language]);
+
+  const todos = useMemo(() => {
+    if (storedTodos !== undefined) {
+      return storedTodos;
+    }
+    if (sessionRecordId) {
+      return (
+        extractLatestSessionTodos(
+          (sessionLogs[sessionRecordId] ?? []).map((entry) => entry.line),
+        ) ?? []
+      );
+    }
+    if (taskId) {
+      return extractLatestSessionTodos(taskLogs[buildTaskLogKey(taskId, sessionKind)] ?? []) ?? [];
+    }
+    if (lines) {
+      return extractLatestSessionTodos(lines) ?? [];
+    }
+    return [];
+  }, [lines, sessionLogs, sessionRecordId, sessionKind, storedTodos, taskId, taskLogs]);
 
   const [logCopied, setLogCopied] = useState(false);
   const copyResetRef = useRef<number | null>(null);
@@ -232,6 +258,7 @@ export function CodexTerminal({
           )}
         </div>
       </div>
+      {todos.length > 0 ? <SessionTodoList todos={todos} /> : null}
       {shouldVirtualize ? (
         <div
           ref={scrollParentRef}

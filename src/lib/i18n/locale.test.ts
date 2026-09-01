@@ -46,6 +46,8 @@ describe("i18n locale preference", () => {
     expect(i18n.t("tasks:card.backgroundFailed")).toBe("后台启动失败");
     expect(i18n.t("tasks:detail.overview.openCoordinatorPlan")).toBe("打开协调员计划");
     expect(i18n.t("sessions:kindCoordinator")).toBe("协调");
+    expect(i18n.t("sessions:terminalTodosTitle")).toBe("待办");
+    expect(i18n.t("sessions:terminalTodosProgress", { completed: 1, total: 3 })).toBe("1/3");
     expect(i18n.t("tasks:detail.chain.role.coordinator")).toBe("协调");
     expect(i18n.t("tasks:detail.overview.viewCoordinatorPlanProgress")).toBe("查看生成进度");
     expect(i18n.t("tasks:nativePlanRunConfirm.continueExisting")).toBe("按已有计划继续");
@@ -133,6 +135,8 @@ describe("i18n locale preference", () => {
     expect(i18n.t("tasks:card.backgroundFailed")).toBe("Background start failed");
     expect(i18n.t("tasks:detail.overview.openCoordinatorPlan")).toBe("Open coordinator plan");
     expect(i18n.t("sessions:kindCoordinator")).toBe("Coordinator");
+    expect(i18n.t("sessions:terminalTodosTitle")).toBe("Todos");
+    expect(i18n.t("sessions:terminalTodosProgress", { completed: 1, total: 3 })).toBe("1/3");
     expect(i18n.t("tasks:detail.chain.role.coordinator")).toBe("Coordinator");
     expect(i18n.t("tasks:detail.overview.viewCoordinatorPlanProgress")).toBe(
       "View generation progress",

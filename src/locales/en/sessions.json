@@ -96,6 +96,8 @@
   "terminalCopy": "Copy log",
   "terminalCopied": "Copied",
   "terminalExport": "Export log file",
+  "terminalTodosTitle": "Todos",
+  "terminalTodosProgress": "{{completed}}/{{total}}",
   "terminalUserInputPrefix": "[User input]",
   "terminalEndSession": "[End session] Closed interactive input; waiting for process exit to continue the task",
   "continueDialog": {

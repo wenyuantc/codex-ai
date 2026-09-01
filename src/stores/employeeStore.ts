@@ -46,6 +46,12 @@ import {
   type OpenCodeOutputEvent as OpenCodeOutput,
   type OpenCodeSessionEvent as OpenCodeSession,
 } from "@/lib/opencode";
+import {
+  applyTodoSnapshotToKeys,
+  extractLatestSessionTodos,
+  parseSessionTodoSnapshot,
+  type SessionTodoItem,
+} from "@/lib/sessionTodos";
 import type {
   AiProvider,
   CodexSessionKind,
@@ -67,6 +73,7 @@ interface EmployeeStore {
   employeeRuntime: Record<string, EmployeeRuntimeStatus>;
   taskLogs: Record<string, string[]>;
   sessionLogs: Record<string, CodexSessionLogLine[]>;
+  sessionTodos: Record<string, SessionTodoItem[]>;
   streamingTexts: Record<string, StreamingText>;
   fetchEmployees: () => Promise<void>;
   refreshEmployeeRuntimeStatus: (employeeId: string) => Promise<EmployeeRuntimeStatus | null>;
@@ -144,6 +151,21 @@ function deriveEmployeeRuntimeStatus(employee: Employee, runtime: EmployeeRuntim
 
 export function buildTaskLogKey(taskId: string, sessionKind: CodexSessionKind = "execution") {
   return `${taskId}::${sessionKind}`;
+}
+
+function todoCacheKeys(
+  taskId?: string | null,
+  sessionKind: CodexSessionKind = "execution",
+  sessionRecordId?: string | null,
+): string[] {
+  const keys: string[] = [];
+  if (sessionRecordId) {
+    keys.push(sessionRecordId);
+  }
+  if (taskId) {
+    keys.push(buildTaskLogKey(taskId, sessionKind));
+  }
+  return keys;
 }
 
 const EMPTY_STREAMING_TEXT: StreamingText = { reasoning: "", text: "" };
@@ -270,6 +292,7 @@ export const useEmployeeStore = create<EmployeeStore>((set, get) => ({
   employeeRuntime: {},
   taskLogs: {},
   sessionLogs: {},
+  sessionTodos: {},
   streamingTexts: {},
 
   fetchEmployees: async () => {
@@ -394,6 +417,11 @@ export const useEmployeeStore = create<EmployeeStore>((set, get) => ({
             ),
           }
         : state.sessionLogs,
+      sessionTodos: applyTodoSnapshotToKeys(
+        state.sessionTodos,
+        todoCacheKeys(taskId, sessionKind, sessionRecordId),
+        parseSessionTodoSnapshot(line),
+      ),
     }));
   },
 
@@ -408,33 +436,42 @@ export const useEmployeeStore = create<EmployeeStore>((set, get) => ({
     const key = buildTaskLogKey(taskId, sessionKind);
     set((state) => {
       const { [key]: _cleared, ...streamingTexts } = state.streamingTexts;
+      const { [key]: _clearedTodos, ...sessionTodos } = state.sessionTodos;
       return {
         taskLogs: {
           ...state.taskLogs,
           [key]: [],
         },
+        sessionTodos,
         streamingTexts,
       };
     });
   },
 
   hydrateSessionLog: (sessionRecordId, lines) => {
-    set((state) => ({
-      sessionLogs: {
-        ...state.sessionLogs,
-        [sessionRecordId]: mergeSessionLogHistory(lines, state.sessionLogs[sessionRecordId] ?? []),
-      },
-    }));
+    set((state) => {
+      const merged = mergeSessionLogHistory(lines, state.sessionLogs[sessionRecordId] ?? []);
+      const snapshot = extractLatestSessionTodos(merged.map((entry) => entry.line));
+      return {
+        sessionLogs: {
+          ...state.sessionLogs,
+          [sessionRecordId]: merged,
+        },
+        sessionTodos: applyTodoSnapshotToKeys(state.sessionTodos, [sessionRecordId], snapshot),
+      };
+    });
   },
 
   clearSessionCodexOutput: (sessionRecordId) => {
     set((state) => {
       const { [sessionRecordId]: _cleared, ...streamingTexts } = state.streamingTexts;
+      const { [sessionRecordId]: _clearedTodos, ...sessionTodos } = state.sessionTodos;
       return {
         sessionLogs: {
           ...state.sessionLogs,
           [sessionRecordId]: [],
         },
+        sessionTodos,
         streamingTexts,
       };
     });
