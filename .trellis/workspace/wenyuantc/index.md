@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 34
+- **Total Sessions**: 35
 - **Last Active**: 2026-09-01
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~1019 | Active |
+| `journal-1.md` | ~1052 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 35 | 2026-09-01 | native 装备补齐：Skills / Hooks / ApplyPatch / Playwright MCP | `8a19c43` | `main` |
 | 34 | 2026-09-01 | 协调员计划支持按意见修订 | `3e44150` | `main` |
 | 33 | 2026-09-01 | 协调员计划弹窗补齐创建并运行终端日志 | `742433e` | `main` |
 | 32 | 2026-09-01 | 终端日志显示内置 Agent 待办列表 | `0f74ea8` | `main` |

@@ -1017,3 +1017,36 @@ i18next zh-CN/en framework, main-path extraction, activity single-source, leftov
 
 - 在看板打开协调员执行计划，用一句话改计划，确认 Markdown 与工作包一起更新
 - 确认重新生成会弹出丢弃确认框
+
+
+## Session 35: native 装备补齐：Skills / Hooks / ApplyPatch / Playwright MCP
+
+**Date**: 2026-09-01
+**Task**: native 装备补齐：Skills / Hooks / ApplyPatch / Playwright MCP
+**Branch**: `main`
+
+### Summary
+
+为内置 Agent 补齐 SKILL.md 发现与 Skill 工具、native-settings hooks（Pre 退出码 2 阻断、SSH 远端执行）、Codex 信封 ApplyPatch（本地+SSH）、以及 Playwright MCP 预设。设置页「界面与运行」可管理技能与钩子；MCP 管理可一键添加 Playwright。门禁 clippy / format:check / test:ci 256 / cargo test 728 已通过。未归档 08-25-native-stop-no-review。
+
+### Main Changes
+
+- ApplyPatch 解析器与本地/SSH 应用；Skills 发现与 Skill 工具；Hooks Pre/Post；Playwright MCP 预设
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `8a19c43` | (see git log) |
+
+### Testing
+
+- [OK] cargo clippy -D warnings；npm run format:check；npm run test:ci；cargo test 728
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 在设置页配置技能目录与钩子，MCP 管理启用 Playwright 后开新会话验证
