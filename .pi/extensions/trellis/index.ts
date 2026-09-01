@@ -1,6 +1,13 @@
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { createHash, randomBytes } from "node:crypto";
-import { delimiter, dirname, isAbsolute, join, relative, resolve } from "node:path";
+import {
+  delimiter,
+  dirname,
+  isAbsolute,
+  join,
+  relative,
+  resolve,
+} from "node:path";
 import { spawn, spawnSync } from "node:child_process";
 import { isUtf8 } from "node:buffer";
 
@@ -159,8 +166,11 @@ const nativeCards = new Map<string, NativeCardHandle>();
 let activeSubagentToolCallId: string | null = null;
 function rememberNativeCard(id: string, card: NativeCardHandle) {
   nativeCards.set(id, card);
-  const active = activeSubagentToolCallId ? nativeCards.get(activeSubagentToolCallId) : undefined;
-  if (!active || card.updatedAt >= active.updatedAt) activeSubagentToolCallId = id;
+  const active = activeSubagentToolCallId
+    ? nativeCards.get(activeSubagentToolCallId)
+    : undefined;
+  if (!active || card.updatedAt >= active.updatedAt)
+    activeSubagentToolCallId = id;
   for (const key of nativeCards.keys()) {
     if (nativeCards.size <= MAX_NATIVE_CARDS) break;
     if (key !== activeSubagentToolCallId) nativeCards.delete(key);
@@ -209,7 +219,9 @@ function isMutationTool(t: ToolTrace) {
 }
 function isValidationCommand(t: ToolTrace) {
   const c = bashCommand(t);
-  return /\b(test|typecheck|lint|build|gofmt|go test|npm run|pnpm|vitest|tsc)\b/.test(c);
+  return /\b(test|typecheck|lint|build|gofmt|go test|npm run|pnpm|vitest|tsc)\b/.test(
+    c,
+  );
 }
 function isInspectionCommand(t: ToolTrace) {
   const c = bashCommand(t);
@@ -231,7 +243,8 @@ function thinkingIntent(text: string) {
 }
 function behaviorSummary(r: RunState) {
   if (r.status === "succeeded") return "Task completed and result returned";
-  if (r.status === "failed") return "Task failed and error details were retained";
+  if (r.status === "failed")
+    return "Task failed and error details were retained";
 
   const runningTool = r.tools.findLast((t) => t.status === "running");
   if (runningTool) {
@@ -241,18 +254,22 @@ function behaviorSummary(r: RunState) {
     if (runningTool.name === "bash" && isInspectionCommand(runningTool))
       return "Inspecting current code state";
     if (isSearchTool(runningTool)) return "Locating relevant code and context";
-    if (runningTool.name === "bash") return "Validating assumptions with commands";
+    if (runningTool.name === "bash")
+      return "Validating assumptions with commands";
     return "Using tools to advance the task";
   }
 
   const recent = r.tools.slice(-5);
-  if (recent.some((t) => t.status === "failed")) return "Investigating tool or command failure";
+  if (recent.some((t) => t.status === "failed"))
+    return "Investigating tool or command failure";
   if (recent.some(isMutationTool)) return "Reviewing recent changes";
   if (recent.some((t) => t.name === "bash" && isValidationCommand(t)))
     return "Analyzing verification results";
   if (
     recent.length >= 2 &&
-    recent.every((t) => isSearchTool(t) || (t.name === "bash" && isInspectionCommand(t)))
+    recent.every(
+      (t) => isSearchTool(t) || (t.name === "bash" && isInspectionCommand(t)),
+    )
   )
     return "Mapping code structure and impact";
 
@@ -264,10 +281,17 @@ function behaviorSummary(r: RunState) {
 function progressState(d: ProgressDetails) {
   const running = d.runs.filter((r) => r.status === "running").length;
   const failed = d.runs.some((r) => r.status === "failed");
-  return failed ? "failed" : d.final ? "completed" : running ? `${running} running` : "pending";
+  return failed
+    ? "failed"
+    : d.final
+      ? "completed"
+      : running
+        ? `${running} running`
+        : "pending";
 }
 function progressDone(d: ProgressDetails) {
-  return d.runs.filter((r) => r.status !== "pending" && r.status !== "running").length;
+  return d.runs.filter((r) => r.status !== "pending" && r.status !== "running")
+    .length;
 }
 function summaryText(text: string) {
   return `${text.trim().replace(/[。.!?…]+$/u, "")}...`;
@@ -291,31 +315,50 @@ function applyRunConfig(r: RunState, cfg: PiRunConfig) {
 }
 function runElapsed(d: ProgressDetails, r: RunState) {
   const start = r.startedAt ?? d.startedAt;
-  const end = r.finishedAt ?? (r.status === "running" ? Date.now() : d.updatedAt);
+  const end =
+    r.finishedAt ?? (r.status === "running" ? Date.now() : d.updatedAt);
   return fmtDur(Math.max(0, end - start));
 }
 function runHeader(d: ProgressDetails, r: RunState) {
   const usage = fmtUsage(r.usage, modelLabel(r)) || fmtUsage(totalUsage(d));
   return `${r.agent} · ${progressDone(d)}/${d.runs.length} done · ${progressState(d)} · ${runElapsed(d, r)}${usage ? ` · ${usage}` : ""}`;
 }
-function renderRunBlock(lines: string[], d: ProgressDetails, run: RunState, expanded: boolean) {
+function renderRunBlock(
+  lines: string[],
+  d: ProgressDetails,
+  run: RunState,
+  expanded: boolean,
+) {
   const step = run.step ? `step ${run.step} · ` : "";
   lines.push(`  - ${step}${runHeader(d, run)}`);
   const summary = behaviorSummary(run);
   if (summary) lines.push(`    › ${summaryText(summary)}`);
   const visibleTools = expanded ? run.tools.slice(-8) : run.tools.slice(-1);
-  for (const t of visibleTools) lines.push(`    ${toolIcon(t.status)} ${toolBrief(t)}`);
+  for (const t of visibleTools)
+    lines.push(`    ${toolIcon(t.status)} ${toolBrief(t)}`);
   if (expanded && run.errorMessage) {
     lines.push(`    ✗ ${oneLine(run.errorMessage, 120)}`);
   }
 }
-function renderProgressCard(d: ProgressDetails, expanded: boolean, w: number): string[] {
+function renderProgressCard(
+  d: ProgressDetails,
+  expanded: boolean,
+  w: number,
+): string[] {
   const r = activeRun(d);
   if (!r) return [];
   const spinner = ["◐", "◓", "◑", "◒"][Math.floor(Date.now() / 250) % 4]!;
-  const icon = d.final ? (d.runs.some((x) => x.status === "failed") ? "✗" : "✓") : spinner;
-  const totalElapsed = fmtDur((d.final ? d.updatedAt : Date.now()) - d.startedAt);
-  const lines: string[] = [`${icon} subagent ${d.mode} · total ${totalElapsed}`];
+  const icon = d.final
+    ? d.runs.some((x) => x.status === "failed")
+      ? "✗"
+      : "✓"
+    : spinner;
+  const totalElapsed = fmtDur(
+    (d.final ? d.updatedAt : Date.now()) - d.startedAt,
+  );
+  const lines: string[] = [
+    `${icon} subagent ${d.mode} · total ${totalElapsed}`,
+  ];
 
   if (!expanded) {
     renderRunBlock(lines, d, r, false);
@@ -328,7 +371,10 @@ function renderProgressCard(d: ProgressDetails, expanded: boolean, w: number): s
   const max = 48;
   const shown =
     lines.length > max
-      ? [...lines.slice(0, max - 1), `  … ${lines.length - max + 1} lines hidden`]
+      ? [
+          ...lines.slice(0, max - 1),
+          `  … ${lines.length - max + 1} lines hidden`,
+        ]
       : lines;
   return shown.map((l) => trunc(l, w));
 }
@@ -386,7 +432,10 @@ function exists(p: string) {
 function shellQuote(v: string) {
   return `'${v.replace(/'/g, `'\\''`)}'`;
 }
-function callStr(cb: (() => string | undefined) | undefined, receiver?: unknown): string | null {
+function callStr(
+  cb: (() => string | undefined) | undefined,
+  receiver?: unknown,
+): string | null {
   if (!cb) return null;
   try {
     return str(cb.call(receiver));
@@ -400,7 +449,13 @@ function lookupStr(data: unknown, keys: string[]): string | null {
     const v = str(data[k]);
     if (v) return v;
   }
-  for (const nk of ["input", "properties", "event", "hook_input", "hookInput"]) {
+  for (const nk of [
+    "input",
+    "properties",
+    "event",
+    "hook_input",
+    "hookInput",
+  ]) {
     const nested = data[nk];
     const v = lookupStr(nested, keys);
     if (v) return v;
@@ -467,14 +522,18 @@ function extractText(content: unknown): string {
   if (typeof content === "string") return content;
   if (!Array.isArray(content)) return "";
   return content
-    .map((b) => (isObj(b) && b.type === "text" && typeof b.text === "string" ? b.text : ""))
+    .map((b) =>
+      isObj(b) && b.type === "text" && typeof b.text === "string" ? b.text : "",
+    )
     .join("");
 }
 function extractThinking(content: unknown): string {
   if (!Array.isArray(content)) return "";
   return content
     .map((b) =>
-      isObj(b) && b.type === "thinking" && typeof b.thinking === "string" ? b.thinking : "",
+      isObj(b) && b.type === "thinking" && typeof b.thinking === "string"
+        ? b.thinking
+        : "",
     )
     .join("\n");
 }
@@ -489,7 +548,12 @@ function newUsage(): Usage {
     turns: 0,
   };
 }
-function newRun(id: string, agent: string, prompt: string, step?: number): RunState {
+function newRun(
+  id: string,
+  agent: string,
+  prompt: string,
+  step?: number,
+): RunState {
   return {
     id,
     agent,
@@ -530,11 +594,16 @@ function summarizeToolArgs(name: string, args: unknown): string {
   if ("pattern" in a) summary.pattern = oneLine(a.pattern, 120);
   if ("limit" in a) summary.limit = a.limit;
   if ("offset" in a) summary.offset = a.offset;
-  if (name === "edit" && Array.isArray(a.edits)) summary.edits = `${a.edits.length} edit(s)`;
+  if (name === "edit" && Array.isArray(a.edits))
+    summary.edits = `${a.edits.length} edit(s)`;
   if (name === "write" && "content" in a)
     summary.content = `<${String(a.content ?? "").length} chars>`;
-  const json = JSON.stringify(Object.keys(summary).length ? summary : { tool: name });
-  return json.length <= MAX_TOOL_ARG_CHARS ? json : json.slice(0, MAX_TOOL_ARG_CHARS);
+  const json = JSON.stringify(
+    Object.keys(summary).length ? summary : { tool: name },
+  );
+  return json.length <= MAX_TOOL_ARG_CHARS
+    ? json
+    : json.slice(0, MAX_TOOL_ARG_CHARS);
 }
 function toolBrief(t: ToolTrace): string {
   const a = toolArgs(t);
@@ -562,8 +631,10 @@ function resolvePiCli(): { command: string; args: string[] } {
   }
   const candidates: string[] = [];
   for (const arg of process.argv)
-    if (/pi-coding-agent[\\/]dist[\\/]cli\.js$/i.test(arg)) candidates.push(resolve(arg));
-  const prefix = str(process.env.npm_config_prefix) ?? str(process.env.NPM_CONFIG_PREFIX);
+    if (/pi-coding-agent[\\/]dist[\\/]cli\.js$/i.test(arg))
+      candidates.push(resolve(arg));
+  const prefix =
+    str(process.env.npm_config_prefix) ?? str(process.env.NPM_CONFIG_PREFIX);
   const appData = str(process.env.APPDATA);
   const pathVal = process.env.PATH ?? process.env.Path ?? "";
   const addBase = (base: string) => {
@@ -630,8 +701,10 @@ function buildPiArgs(cfg: PiRunConfig): string[] {
         ? `${cfg.model}:${cfg.thinking}`
         : cfg.model,
     );
-  else if (cfg.thinking && cfg.thinking !== "off") args.push("--thinking", cfg.thinking);
-  if (cfg.tools && cfg.tools.length > 0) args.push("--tools", cfg.tools.join(","));
+  else if (cfg.thinking && cfg.thinking !== "off")
+    args.push("--thinking", cfg.thinking);
+  if (cfg.tools && cfg.tools.length > 0)
+    args.push("--tools", cfg.tools.join(","));
   return args;
 }
 
@@ -717,7 +790,8 @@ function stripInlineComment(value: string): string {
       inQuote = ch;
       continue;
     }
-    if (ch === "#" && (idx === 0 || /\s/.test(value[idx - 1]!))) return value.slice(0, idx);
+    if (ch === "#" && (idx === 0 || /\s/.test(value[idx - 1]!)))
+      return value.slice(0, idx);
   }
   return value;
 }
@@ -898,7 +972,9 @@ function findRoot(start: string): string {
 }
 function splitFM(c: string) {
   const m = c.replace(/^\uFEFF/, "").match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?/);
-  return m ? { fm: m[1] ?? "", body: c.slice(m[0].length) } : { fm: "", body: c };
+  return m
+    ? { fm: m[1] ?? "", body: c.slice(m[0].length) }
+    : { fm: "", body: c };
 }
 function stripFM(c: string) {
   return splitFM(c).body.trimStart();
@@ -912,9 +988,12 @@ function parseAgentFM(c: string): AgentConfig {
     if (!m) continue;
     const k = m[1] ?? "",
       v = m[2] ?? "";
-    if (k === "model") cfg.model = v.trim().replace(/^["']|["']$/g, "") || undefined;
+    if (k === "model")
+      cfg.model = v.trim().replace(/^["']|["']$/g, "") || undefined;
     else if (k === "thinking")
-      cfg.thinking = (v.trim().replace(/^["']|["']$/g, "") || undefined) as string | undefined;
+      cfg.thinking = (v.trim().replace(/^["']|["']$/g, "") || undefined) as
+        | string
+        | undefined;
     else if (k === "fallbackModels" || k === "fallback_models") {
       if (v.trim()) {
         cfg.fallbackModels = v
@@ -942,12 +1021,7 @@ function parseAgentFM(c: string): AgentConfig {
         cfg.tools = v
           .trim()
           .split(",")
-          .map((s) =>
-            s
-              .trim()
-              .replace(/^["']|["']$/g, "")
-              .toLowerCase(),
-          )
+          .map((s) => s.trim().replace(/^["']|["']$/g, "").toLowerCase())
           .filter(Boolean);
       }
     }
@@ -995,7 +1069,8 @@ function readTaskDir(root: string, key: string | null): string | null {
 }
 
 // ── Workflow State Breadcrumb ─────────────────────────────────────────
-const WF_RE = /\[workflow-state:([A-Za-z0-9_-]+)\]\s*\n([\s\S]*?)\n\s*\[\/workflow-state:\1\]/g;
+const WF_RE =
+  /\[workflow-state:([A-Za-z0-9_-]+)\]\s*\n([\s\S]*?)\n\s*\[\/workflow-state:\1\]/g;
 function workflowBreadcrumb(root: string, key: string | null): string {
   const wf = readText(join(root, ".trellis", "workflow.md"));
   if (!wf) return "";
@@ -1050,11 +1125,20 @@ function sessionOverview(root: string, key: string | null): string {
 }
 
 function workflowOverview(root: string, key: string | null): string {
-  const stdout = runContextScript(root, key, ["--mode", "phase", "--platform", "pi"]);
+  const stdout = runContextScript(root, key, [
+    "--mode",
+    "phase",
+    "--platform",
+    "pi",
+  ]);
   return stdout ? `<trellis-workflow>\n${stdout}\n</trellis-workflow>` : "";
 }
 
-function buildStartupContext(root: string, key: string | null, overview: string): string {
+function buildStartupContext(
+  root: string,
+  key: string | null,
+  overview: string,
+): string {
   const workflow = workflowOverview(root, key);
   return [
     "<session-context>\nTrellis compact SessionStart context. Use it to orient the session; load details on demand.\n</session-context>",
@@ -1069,7 +1153,8 @@ function buildStartupContext(root: string, key: string | null, overview: string)
 
 function buildContext(root: string, agent: string, key: string | null): string {
   const dir = readTaskDir(root, key);
-  if (!dir) return "No active Trellis task found. Read .trellis/ before proceeding.";
+  if (!dir)
+    return "No active Trellis task found. Read .trellis/ before proceeding.";
   const relTaskDir = relative(root, dir).replace(/\\/g, "/");
   const limits = readContextInjectionLimits(root);
   const budget = new ContextBudget(limits.max_total_bytes);
@@ -1136,7 +1221,11 @@ function isTrellisAgent(root: string, agent: string): boolean {
   return existsSync(join(root, ".pi", "agents", `${agent}.md`));
 }
 
-function buildPrompt(root: string, input: SubagentInput, key: string | null): string {
+function buildPrompt(
+  root: string,
+  input: SubagentInput,
+  key: string | null,
+): string {
   const agent = normalizeAgent(input.agent);
   const raw = readText(join(root, ".pi", "agents", `${agent}.md`));
   const def = stripFM(raw);
@@ -1175,7 +1264,9 @@ function applyEvent(r: RunState, evt: JsonObject): boolean {
     return true;
   }
   if (type === "message_update") {
-    const ae = isObj(evt.assistantMessageEvent) ? evt.assistantMessageEvent : null;
+    const ae = isObj(evt.assistantMessageEvent)
+      ? evt.assistantMessageEvent
+      : null;
     if (!ae || typeof ae.delta !== "string") return false;
     if (ae.type === "thinking_delta") {
       r.thinkingTail = appendTail(r.thinkingTail, ae.delta, MAX_TAIL);
@@ -1215,11 +1306,15 @@ function applyEvent(r: RunState, evt: JsonObject): boolean {
     return true;
   }
   if (type === "tool_execution_start") {
-    const id = typeof evt.toolCallId === "string" ? evt.toolCallId : hash(`${Date.now()}`);
+    const id =
+      typeof evt.toolCallId === "string"
+        ? evt.toolCallId
+        : hash(`${Date.now()}`);
     const name = typeof evt.toolName === "string" ? evt.toolName : "tool";
     const args = summarizeToolArgs(name, evt.args);
     const existing = r.tools.findIndex((t) => t.id === id);
-    if (existing >= 0) r.tools[existing] = { ...r.tools[existing]!, args, status: "running" };
+    if (existing >= 0)
+      r.tools[existing] = { ...r.tools[existing]!, args, status: "running" };
     else
       r.tools.push({
         id,
@@ -1228,7 +1323,8 @@ function applyEvent(r: RunState, evt: JsonObject): boolean {
         status: "running",
         startedAt: Date.now(),
       });
-    if (r.tools.length > MAX_TOOLS) r.tools.splice(0, r.tools.length - MAX_TOOLS);
+    if (r.tools.length > MAX_TOOLS)
+      r.tools.splice(0, r.tools.length - MAX_TOOLS);
     return true;
   }
   if (type === "tool_execution_end") {
@@ -1244,7 +1340,8 @@ function applyEvent(r: RunState, evt: JsonObject): boolean {
   }
   if (type === "agent_end") {
     r.finishedAt = Date.now();
-    if (r.status === "running" || r.status === "pending") r.status = "succeeded";
+    if (r.status === "running" || r.status === "pending")
+      r.status = "succeeded";
     return true;
   }
   return false;
@@ -1341,10 +1438,15 @@ function runPi(
     });
     cli.stderr?.on("data", (d: Buffer) => {
       stderr.append(d);
-      state.stderrTail = appendTail(state.stderrTail, d.toString("utf-8"), MAX_TAIL);
+      state.stderrTail = appendTail(
+        state.stderrTail,
+        d.toString("utf-8"),
+        MAX_TAIL,
+      );
     });
     cli.stdin?.on("error", (e: Error & { code?: string }) => {
-      if (!aborted && e.code !== "EPIPE") done({ output: e.message, failed: true });
+      if (!aborted && e.code !== "EPIPE")
+        done({ output: e.message, failed: true });
     });
     cli.on("error", (e) => {
       state.status = aborted ? "cancelled" : "failed";
@@ -1365,7 +1467,8 @@ function runPi(
         return;
       }
       if (code === 0) {
-        if (state.status === "pending" || state.status === "running") state.status = "succeeded";
+        if (state.status === "pending" || state.status === "running")
+          state.status = "succeeded";
         done({
           output: finalize(state, formatPiOutput(out, err)),
           failed: false,
@@ -1393,7 +1496,12 @@ async function runSubagent(
   const agentName = normalizeAgent(input.agent);
   const agentRaw = readText(join(root, ".pi", "agents", `${agentName}.md`));
   const agentCfg = parseAgentFM(agentRaw);
-  const runCfg = resolveRunCfg(input, agentCfg, inheritedThinking, inheritedModel);
+  const runCfg = resolveRunCfg(
+    input,
+    agentCfg,
+    inheritedThinking,
+    inheritedModel,
+  );
   const mode = input.mode ?? "single";
   const startedAt = Date.now();
   const details: ProgressDetails = {
@@ -1495,7 +1603,15 @@ async function runSubagent(
     applyRunConfig(rs, runCfg);
     details.runs = [rs];
     emit(true);
-    const result = await runPi(root, buildPrompt(root, input, key), runCfg, rs, emit, key, signal);
+    const result = await runPi(
+      root,
+      buildPrompt(root, input, key),
+      runCfg,
+      rs,
+      emit,
+      key,
+      signal,
+    );
     return finish(result.output, result.failed);
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
@@ -1519,7 +1635,10 @@ export default function trellisExtension(pi: {
       handler: (ctx: PiExtensionContext) => unknown;
     },
   ) => void;
-  on?: (event: string, handler: (event: unknown, ctx?: PiExtensionContext) => unknown) => void;
+  on?: (
+    event: string,
+    handler: (event: unknown, ctx?: PiExtensionContext) => unknown,
+  ) => void;
   getThinkingLevel?: () => string;
 }): void {
   if (process.env.TRELLIS_SUBAGENT_CHILD === "1") return;
@@ -1542,7 +1661,8 @@ export default function trellisExtension(pi: {
   } | null = null;
   const getTurnCtx = (k: string | null) => {
     const now = Date.now();
-    if (turnCache && turnCache.key === k && now - turnCache.ts < 1500) return turnCache;
+    if (turnCache && turnCache.key === k && now - turnCache.ts < 1500)
+      return turnCache;
     turnCache = {
       key: k,
       ts: now,
@@ -1556,7 +1676,10 @@ export default function trellisExtension(pi: {
   // key and stays byte-identical for the life of the process. Volatile state
   // travels through persisted custom messages instead (append-only history).
   const startupCtxCache = new Map<string, string>();
-  const getStartupCtx = (k: string | null, turn: { ov: string }): string => {
+  const getStartupCtx = (
+    k: string | null,
+    turn: { ov: string },
+  ): string => {
     const key = k ?? "default";
     let startup = startupCtxCache.get(key);
     if (startup === undefined) {
@@ -1601,7 +1724,8 @@ export default function trellisExtension(pi: {
       properties: {
         agent: {
           type: "string",
-          description: "Agent name, such as trellis-implement or trellis-check.",
+          description:
+            "Agent name, such as trellis-implement or trellis-check.",
         },
         prompt: {
           type: "string",
@@ -1615,11 +1739,13 @@ export default function trellisExtension(pi: {
         },
         model: {
           type: "string",
-          description: "Optional Pi model override for the child sub-agent process.",
+          description:
+            "Optional Pi model override for the child sub-agent process.",
         },
         thinking: {
           type: "string",
-          description: "Optional Pi thinking level override for the child sub-agent process.",
+          description:
+            "Optional Pi thinking level override for the child sub-agent process.",
           enum: ["off", "minimal", "low", "medium", "high", "xhigh", "max"],
         },
       },
@@ -1657,10 +1783,22 @@ export default function trellisExtension(pi: {
       const prompts = input.prompts?.map((p) => p.trim()).filter(Boolean);
       if (mode === "single" && !prompt)
         throw new Error("subagent prompt is required for single mode");
-      if ((mode === "parallel" || mode === "chain") && !prompt && !prompts?.length)
-        throw new Error("subagent prompt or prompts are required for parallel/chain mode");
-      if (mode === "parallel" && prompts && prompts.length > MAX_PARALLEL_PROMPTS)
-        throw new Error(`subagent parallel mode supports at most ${MAX_PARALLEL_PROMPTS} prompts`);
+      if (
+        (mode === "parallel" || mode === "chain") &&
+        !prompt &&
+        !prompts?.length
+      )
+        throw new Error(
+          "subagent prompt or prompts are required for parallel/chain mode",
+        );
+      if (
+        mode === "parallel" &&
+        prompts &&
+        prompts.length > MAX_PARALLEL_PROMPTS
+      )
+        throw new Error(
+          `subagent parallel mode supports at most ${MAX_PARALLEL_PROMPTS} prompts`,
+        );
       const cleanInput: SubagentInput = {
         ...input,
         prompt,
@@ -1700,18 +1838,27 @@ export default function trellisExtension(pi: {
       const toolCallId = str(ctxObj?.toolCallId);
       const state = isObj(ctxObj?.state) ? (ctxObj.state as JsonObject) : null;
       const invalidate =
-        typeof ctxObj?.invalidate === "function" ? (ctxObj.invalidate as () => void) : null;
+        typeof ctxObj?.invalidate === "function"
+          ? (ctxObj.invalidate as () => void)
+          : null;
       const isProgress =
-        isObj(result.details) && result.details.kind === "trellis-subagent-progress";
+        isObj(result.details) &&
+        result.details.kind === "trellis-subagent-progress";
       if (toolCallId && state && invalidate) {
-        const updatedAt = isProgress ? (result.details as ProgressDetails).updatedAt : Date.now();
+        const updatedAt = isProgress
+          ? (result.details as ProgressDetails).updatedAt
+          : Date.now();
         rememberNativeCard(toolCallId, { state, invalidate, updatedAt });
       }
       return {
         render(w: number) {
           if (isProgress) {
             const expanded = state?.localExpanded === true;
-            return renderProgressCard(result.details as ProgressDetails, expanded, w);
+            return renderProgressCard(
+              result.details as ProgressDetails,
+              expanded,
+              w,
+            );
           }
           return [trunc(result.content?.[0]?.text ?? "(no output)", w)];
         },
@@ -1752,7 +1899,9 @@ export default function trellisExtension(pi: {
       isObj(ev.details) &&
       ev.details.kind === "trellis-subagent-progress" &&
       Array.isArray(ev.details.runs) &&
-      ev.details.runs.some((r) => isObj(r) && (r.status === "failed" || r.status === "cancelled"))
+      ev.details.runs.some(
+        (r) => isObj(r) && (r.status === "failed" || r.status === "cancelled"),
+      )
     )
       return { isError: true };
     return undefined;
