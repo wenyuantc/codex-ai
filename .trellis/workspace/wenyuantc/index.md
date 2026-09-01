@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 31
+- **Total Sessions**: 32
 - **Last Active**: 2026-09-01
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~929 | Active |
+| `journal-1.md` | ~950 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 32 | 2026-09-01 | 终端日志显示内置 Agent 待办列表 | `0f74ea8` | `main` |
 | 31 | 2026-09-01 | 审核页新建修复任务继承审查员 | `17239ef` | `main` |
 | 30 | 2026-08-31 | Native Agent 缺陷修复 | `adcdd49` | `main` |
 | 29 | 2026-08-28 | Native Agent token budget K 单位 | `e14d63a` | `main` |

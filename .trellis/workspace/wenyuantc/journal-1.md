@@ -927,3 +927,24 @@ i18next zh-CN/en framework, main-path extraction, activity single-source, leftov
 ### Next Steps
 
 - 在桌面应用里对已指定审查员且有审核结果的任务点一次「新建修复任务」确认不再报错
+
+
+## Session 32: 终端日志显示内置 Agent 待办列表
+
+**Date**: 2026-09-01
+**Task**: 终端日志显示内置 Agent 待办列表
+**Branch**: `main`
+
+### Summary
+
+内置 Agent 调用 TodoWrite 后，看板/会话/审核终端在日志上方展示待办列表；完成项打钩更新，并缓存最新快照以免被任务日志 200 行窗口挤掉。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `0f74ea8` | (see git log) |
+
+### Status
+
+[OK] **Completed**
