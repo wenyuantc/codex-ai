@@ -1047,7 +1047,8 @@ function TaskCardComponent({
     }
   };
 
-  const generateCoordinatorPlan = async () => {
+  const generateCoordinatorPlan = async (revisionInstruction?: string) => {
+    const trimmedRevision = revisionInstruction?.trim() ?? "";
     const plan = await generateCoordinatorPlanForTask({
       taskId: task.id,
       coordinatorId: task.coordinator_id,
@@ -1058,6 +1059,8 @@ function TaskCardComponent({
       status: task.status,
       priority: task.priority,
       workingDir: projectRepoPath ?? null,
+      revisionInstruction: trimmedRevision || null,
+      currentMarkdown: trimmedRevision ? coordinatorPlanDraft : null,
     });
     if (plan) {
       await refreshPipelineSteps();
@@ -2125,6 +2128,7 @@ function TaskCardComponent({
             void handlePipelineEmployeeChange(stepId, employeeId)
           }
           onRegenerate={() => void generateCoordinatorPlan()}
+          onRevise={(instruction) => void generateCoordinatorPlan(instruction)}
           onSave={() => void handleSaveCoordinatorPlan()}
           onToggleTerminal={() =>
             patchCoordinatorPlan(task.id, {

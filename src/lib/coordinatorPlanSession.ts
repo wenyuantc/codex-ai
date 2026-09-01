@@ -100,6 +100,8 @@ export interface CoordinatorPlanGenerateParams {
   status: string;
   priority: string;
   workingDir: string | null;
+  revisionInstruction?: string | null;
+  currentMarkdown?: string | null;
 }
 
 export interface CoordinatorPlanGenerateAdapters {
@@ -146,10 +148,17 @@ export async function generateCoordinatorPlanForTask(
   return runExclusiveCoordinatorPlanGenerate(params.taskId, async () => {
     const live = useCoordinatorPlanStore.getState();
     live.patch(params.taskId, { loading: true, terminalVisible: true, error: null });
+    const revisionInstruction = params.revisionInstruction?.trim() || "";
+    const isRevision = Boolean(revisionInstruction);
     append(`[计划] 准备调用协调员：${params.coordinatorName ?? params.coordinatorId}`);
     append(`[计划] 运行配置：${params.runtimeLabel}`);
     append(`[计划] 工作目录：${params.workingDir ?? "未配置"}`);
-    append("[计划] 正在生成协调员执行计划，可能需要一点时间...");
+    if (isRevision) {
+      append(`[计划] 按意见修改当前计划：${revisionInstruction}`);
+      append("[计划] 正在基于当前计划修订，可能需要一点时间...");
+    } else {
+      append("[计划] 正在生成协调员执行计划，可能需要一点时间...");
+    }
     try {
       const plan = await adapters.withLogStream(append, (requestId) =>
         adapters.generatePlan({
@@ -161,6 +170,8 @@ export async function generateCoordinatorPlanForTask(
           priority: params.priority,
           working_dir: params.workingDir,
           request_id: requestId,
+          revision_instruction: isRevision ? revisionInstruction : null,
+          current_markdown: isRevision ? (params.currentMarkdown ?? null) : null,
         }),
       );
       const trimmedPlan = plan.markdown.trim();
@@ -174,7 +185,11 @@ export async function generateCoordinatorPlanForTask(
         append(usageLog);
       }
       append(`[计划] 已收到协调员计划，共 ${trimmedPlan.length} 字。`);
-      append("[计划] 结构化工作包已落库，可在本弹窗「按计划编排」。");
+      append(
+        isRevision
+          ? "[计划] 修订后的结构化工作包已落库，可在本弹窗「按计划编排」。"
+          : "[计划] 结构化工作包已落库，可在本弹窗「按计划编排」。",
+      );
       live.patch(params.taskId, { draft: trimmedPlan, loading: false, error: null });
       await adapters.refreshTasks?.();
       return trimmedPlan;

@@ -677,6 +677,7 @@
       "session_continue": "Session 继续对话",
       "employee_system_prompt": "员工系统提示词生成",
       "coordinator_plan": "协调员任务计划",
+      "coordinator_plan_revise": "协调员计划修订",
       "review": "代码审查",
       "generate_commit": "生成 Commit Message",
       "suggest_assignee": "建议指派人",

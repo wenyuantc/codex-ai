@@ -615,6 +615,15 @@
     "accumulated": "Total: {{duration}}",
     "created": "Created: {{date}}"
   },
+  "coordinatorPlanDialog": {
+    "revisePlaceholder": "Tell the coordinator how to change this plan, e.g. split step 2 into API design and implementation",
+    "revise": "Revise plan",
+    "reviseTitle": "Ask the coordinator to revise the current plan instead of starting over",
+    "revising": "The coordinator is revising the plan from your notes...",
+    "regenerateConfirm": "This will discard the current plan and work packages and plan from scratch. Continue?",
+    "saveDoesNotUpdateSteps": "Saving the markdown does not update work packages. Use Revise plan to change steps with the coordinator.",
+    "emptyInstruction": "Enter a revision note first."
+  },
   "primaryCta": {
     "stop": {
       "label": "Stop",

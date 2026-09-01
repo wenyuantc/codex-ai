@@ -16,6 +16,7 @@ describe("i18n locale preference", () => {
     await changeAppLocale("zh-CN");
     expect(getCurrentAppLocale()).toBe("zh-CN");
     expect(getActivityActionLabel("task_created")).toBe("创建任务");
+    expect(getActivityActionLabel("task_plan_revised")).toBe("修订协调员计划");
     expect(getActivityActionLabel("app_update_installed")).toBe("应用已更新");
     expect(getActivityActionLabel("ai_channel_created")).toBe("新增 AI 渠道");
     expect(getActivityActionLabel("ai_channel_models_fetched")).toBe("拉取 AI 渠道模型");
@@ -83,6 +84,8 @@ describe("i18n locale preference", () => {
       "本地 CLI/SDK 可附带图片",
     );
     expect(i18n.t("settings:prompts.scenes.native_agent_global")).toBe("内置 Agent 全局提示词");
+    expect(i18n.t("settings:prompts.scenes.coordinator_plan_revise")).toBe("协调员计划修订");
+    expect(i18n.t("tasks:coordinatorPlanDialog.revise")).toBe("修改计划");
     expect(i18n.t("settings:channels.fields.thinkingLevels")).toBe("允许的思考等级");
     expect(i18n.t("settings:channels.fields.thinkingLevelsEmpty")).toContain("至少勾选");
     expect(i18n.t("settings:channels.thinkingLevels.none")).toBe("无");
@@ -174,6 +177,11 @@ describe("i18n locale preference", () => {
     expect(i18n.t("settings:prompts.scenes.native_agent_global")).toBe(
       "Built-in Agent global prompt",
     );
+    expect(i18n.t("settings:prompts.scenes.coordinator_plan_revise")).toBe(
+      "Coordinator plan revision",
+    );
+    expect(i18n.t("tasks:coordinatorPlanDialog.revise")).toBe("Revise plan");
+    expect(getActivityActionLabel("task_plan_revised")).toBe("Coordinator revised plan");
     expect(i18n.t("settings:channels.fields.thinkingLevels")).toBe("Allowed thinking levels");
     expect(i18n.t("settings:channels.fields.thinkingLevelsEmpty")).toContain("at least one");
     expect(i18n.t("settings:channels.thinkingLevels.none")).toBe("None");

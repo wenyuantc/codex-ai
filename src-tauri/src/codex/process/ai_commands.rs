@@ -4,9 +4,10 @@ use tauri::{AppHandle, Runtime};
 use super::{
     build_ai_generate_commit_message_prompt, build_ai_generate_plan_prompt,
     build_ai_generate_plan_prompt_with_attachments, build_ai_generate_tester_acceptance_prompt,
-    build_ai_optimize_prompt_prompt, parse_ai_subtasks_response, resolve_one_shot_working_dir,
-    resolve_project_execution_context, resolve_task_project_execution_context, run_ai_command,
-    run_ai_command_with_options, run_native_ai_command, AiCommandOptions, ExecutionContext,
+    build_ai_optimize_prompt_prompt, build_ai_revise_plan_prompt, emit_ai_command_line,
+    parse_ai_subtasks_response, resolve_one_shot_working_dir, resolve_project_execution_context,
+    resolve_task_project_execution_context, run_ai_command, run_ai_command_with_options,
+    run_native_ai_command, AiCommandOptions, ExecutionContext,
 };
 use crate::app::{
     fetch_employee_by_id, fetch_project_by_id, fetch_task_attachments, fetch_task_by_id,
@@ -19,7 +20,7 @@ use crate::codex::{
     find_ai_prompt_template, load_ai_prompt_templates, load_codex_settings,
     load_remote_codex_settings,
 };
-use crate::db::models::Employee;
+use crate::db::models::{Employee, TaskPipelineStep};
 
 /// Process-language phrases that indicate the model is describing git staging
 /// workflow rather than product/code changes. Prefer multi-character phrases
@@ -344,6 +345,10 @@ pub struct GenerateCoordinatorTaskPlanPayload {
     pub working_dir: Option<String>,
     #[serde(default)]
     pub request_id: Option<String>,
+    #[serde(default)]
+    pub revision_instruction: Option<String>,
+    #[serde(default)]
+    pub current_markdown: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -789,6 +794,76 @@ fn extract_json_object_slice(raw: &str) -> Option<&str> {
     Some(trimmed[start..=end].trim())
 }
 
+fn coordinator_revision_instruction(raw: Option<&str>) -> Option<String> {
+    raw.map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+}
+
+fn format_pipeline_steps_for_revision_prompt(steps: &[TaskPipelineStep]) -> String {
+    if steps.is_empty() {
+        return "（暂无工作包）".to_string();
+    }
+    let payload: Vec<serde_json::Value> = steps
+        .iter()
+        .map(|step| {
+            serde_json::json!({
+                "index": step.step_index,
+                "title": step.title,
+                "goal": step.goal,
+                "success_criteria": step.success_criteria,
+                "employee_id": step.employee_id,
+            })
+        })
+        .collect();
+    serde_json::to_string_pretty(&payload).unwrap_or_else(|_| "（暂无工作包）".to_string())
+}
+
+async fn fetch_pipeline_steps_for_plan(
+    pool: &sqlx::SqlitePool,
+    task_id: &str,
+) -> Result<Vec<TaskPipelineStep>, String> {
+    sqlx::query_as::<_, TaskPipelineStep>(
+        r#"
+        SELECT *
+        FROM task_pipeline_steps
+        WHERE task_id = $1
+        ORDER BY step_index ASC
+        "#,
+    )
+    .bind(task_id)
+    .fetch_all(pool)
+    .await
+    .map_err(|error| format!("Failed to load pipeline steps: {}", error))
+}
+
+async fn latest_coordinator_transcript_session_id(
+    pool: &sqlx::SqlitePool,
+    task_id: &str,
+    coordinator_id: &str,
+) -> Option<String> {
+    sqlx::query_scalar::<_, String>(
+        r#"
+        SELECT s.id
+        FROM codex_sessions s
+        INNER JOIN native_session_transcripts t
+            ON t.session_record_id = s.id AND t.deleted_at IS NULL
+        WHERE s.task_id = $1
+          AND s.employee_id = $2
+          AND s.session_kind = 'coordinator'
+          AND s.status = 'exited'
+        ORDER BY s.started_at DESC
+        LIMIT 1
+        "#,
+    )
+    .bind(task_id)
+    .bind(coordinator_id)
+    .fetch_optional(pool)
+    .await
+    .ok()
+    .flatten()
+}
+
 fn parse_coordinator_structured_plan(
     raw: &str,
 ) -> Result<(String, Vec<CoordinatorPlanStepDraft>), String> {
@@ -965,28 +1040,84 @@ pub async fn ai_generate_coordinator_task_plan(
     let task_priority = payload.priority.trim();
     let templates = load_ai_prompt_templates(&app)
         .unwrap_or_else(|_| crate::codex::default_ai_prompt_templates());
-    let plan_template = find_ai_prompt_template(&templates, "coordinator_plan");
-    let base_prompt = build_ai_generate_plan_prompt_with_attachments(
-        if task_title.is_empty() {
-            &task.title
-        } else {
-            task_title
-        },
-        task_description,
-        if task_status.is_empty() {
-            &task.status
-        } else {
-            task_status
-        },
-        if task_priority.is_empty() {
-            &task.priority
-        } else {
-            task_priority
-        },
-        &subtask_titles,
-        &attachment_items,
-        plan_template,
-    );
+    let revision_instruction =
+        coordinator_revision_instruction(payload.revision_instruction.as_deref());
+    let is_revision = revision_instruction.is_some();
+    if is_revision {
+        let has_markdown = payload
+            .current_markdown
+            .as_deref()
+            .map(str::trim)
+            .is_some_and(|value| !value.is_empty())
+            || task
+                .plan_content
+                .as_deref()
+                .map(str::trim)
+                .is_some_and(|value| !value.is_empty());
+        if !has_markdown {
+            return Err("当前没有可修改的计划，请先生成".to_string());
+        }
+    }
+    let plan_scene = if is_revision {
+        "coordinator_plan_revise"
+    } else {
+        "coordinator_plan"
+    };
+    let plan_template = find_ai_prompt_template(&templates, plan_scene);
+    let resolved_title = if task_title.is_empty() {
+        task.title.as_str()
+    } else {
+        task_title
+    };
+    let resolved_status = if task_status.is_empty() {
+        task.status.as_str()
+    } else {
+        task_status
+    };
+    let resolved_priority = if task_priority.is_empty() {
+        task.priority.as_str()
+    } else {
+        task_priority
+    };
+    let base_prompt = if let Some(instruction) = revision_instruction.as_deref() {
+        let current_markdown = payload
+            .current_markdown
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string)
+            .or_else(|| {
+                task.plan_content
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                    .map(str::to_string)
+            })
+            .unwrap_or_default();
+        let steps = fetch_pipeline_steps_for_plan(&pool, &task.id).await?;
+        build_ai_revise_plan_prompt(
+            resolved_title,
+            task_description,
+            resolved_status,
+            resolved_priority,
+            &current_markdown,
+            &format_pipeline_steps_for_revision_prompt(&steps),
+            instruction,
+            &subtask_titles,
+            &attachment_items,
+            plan_template,
+        )
+    } else {
+        build_ai_generate_plan_prompt_with_attachments(
+            resolved_title,
+            task_description,
+            resolved_status,
+            resolved_priority,
+            &subtask_titles,
+            &attachment_items,
+            plan_template,
+        )
+    };
     let file_ref_paths: Vec<String> = file_refs
         .iter()
         .map(|item| item.relative_path.trim().to_string())
@@ -1046,12 +1177,26 @@ pub async fn ai_generate_coordinator_task_plan(
     )
     .await?;
 
+    let resume_session_id = if is_revision && coordinator.ai_provider.trim() == "native" {
+        latest_coordinator_transcript_session_id(&pool, &task.id, &coordinator.id).await
+    } else {
+        None
+    };
     let command_options = AiCommandOptions {
         progress_request_id: payload.request_id.clone(),
         task_id_for_progress: Some(task.id.clone()),
         session_record_id: Some(session.id.clone()),
         read_only_tools: true,
+        resume_session_id: resume_session_id.clone(),
     };
+    if is_revision && resume_session_id.is_none() {
+        emit_ai_command_line(
+            &app,
+            &command_options,
+            "[计划] 未恢复原会话，已基于当前计划修改",
+        )
+        .await;
+    }
     let run_result = if coordinator.ai_provider.trim() == "native" {
         run_native_ai_command(
             &app,
@@ -1114,7 +1259,11 @@ pub async fn ai_generate_coordinator_task_plan(
         );
         insert_activity_log(
             &pool,
-            "task_plan_generated",
+            if is_revision {
+                "task_plan_revised"
+            } else {
+                "task_plan_generated"
+            },
             &details,
             Some(&coordinator.id),
             Some(&task.id),
@@ -1427,10 +1576,13 @@ mod tests {
     use crate::db::models::{CodexSettings, GitPreferences};
 
     use super::{
+        build_ai_revise_plan_prompt, coordinator_revision_instruction,
         format_ai_optimize_prompt_activity_details, format_commit_message_activity_details,
-        format_task_plan_generated_activity_details, resolve_ai_optimize_prompt_scene_label,
-        resolve_commit_message_ai_selection,
+        format_pipeline_steps_for_revision_prompt, format_task_plan_generated_activity_details,
+        resolve_ai_optimize_prompt_scene_label, resolve_commit_message_ai_selection,
     };
+    use crate::codex::find_ai_prompt_template;
+    use crate::db::models::TaskPipelineStep;
 
     fn test_settings(
         one_shot_provider: &str,
@@ -1569,6 +1721,66 @@ mod tests {
         assert_eq!(selection.effective_provider, "claude");
         assert_eq!(selection.effective_model, "sonnet");
         assert_eq!(selection.effective_reasoning_effort, "xhigh");
+    }
+
+    #[test]
+    fn coordinator_revision_instruction_trims_and_rejects_blank() {
+        assert_eq!(coordinator_revision_instruction(None), None);
+        assert_eq!(coordinator_revision_instruction(Some("  ")), None);
+        assert_eq!(
+            coordinator_revision_instruction(Some(" 拆第2步 ")).as_deref(),
+            Some("拆第2步")
+        );
+    }
+
+    #[test]
+    fn format_pipeline_steps_for_revision_prompt_includes_titles() {
+        let steps = vec![TaskPipelineStep {
+            id: "s1".to_string(),
+            task_id: "t1".to_string(),
+            step_index: 0,
+            title: "设计接口".to_string(),
+            goal: Some("写出 API".to_string()),
+            success_criteria: Some("有 OpenAPI".to_string()),
+            employee_id: Some("emp-1".to_string()),
+            status: "pending".to_string(),
+            session_id: None,
+            handoff_summary: None,
+            last_error: None,
+            started_at: None,
+            ended_at: None,
+            created_at: "2026-09-01 00:00:00".to_string(),
+            updated_at: "2026-09-01 00:00:00".to_string(),
+        }];
+        let rendered = format_pipeline_steps_for_revision_prompt(&steps);
+        assert!(rendered.contains("设计接口"));
+        assert!(rendered.contains("emp-1"));
+        assert_eq!(
+            format_pipeline_steps_for_revision_prompt(&[]),
+            "（暂无工作包）"
+        );
+    }
+
+    #[test]
+    fn revise_plan_prompt_includes_current_plan_and_instruction() {
+        let templates = crate::codex::default_ai_prompt_templates();
+        let template = find_ai_prompt_template(&templates, "coordinator_plan_revise");
+        let prompt = build_ai_revise_plan_prompt(
+            "任务 A",
+            "描述",
+            "todo",
+            "high",
+            "# 旧计划",
+            "[{\"title\":\"步骤一\"}]",
+            "把第1步拆成两步",
+            &[],
+            &[],
+            template,
+        );
+        assert!(prompt.contains("# 旧计划"));
+        assert!(prompt.contains("把第1步拆成两步"));
+        assert!(prompt.contains("当前工作包 JSON"));
+        assert!(prompt.contains("用户修改意见"));
     }
 
     #[test]

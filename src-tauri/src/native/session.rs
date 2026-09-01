@@ -911,6 +911,8 @@ pub async fn run_native_read_only_one_shot(
     ssh_config_id: Option<&str>,
     event_tx: mpsc::UnboundedSender<NativeEvent>,
     session_record_id: Option<&str>,
+    resume_session_id: Option<&str>,
+    task_id: Option<&str>,
 ) -> Result<NativeOneShotResult, String> {
     let pool = sqlite_pool(app).await?;
     let mut employee = fetch_employee_by_id(&pool, employee_id).await?;
@@ -1023,6 +1025,30 @@ pub async fn run_native_read_only_one_shot(
     runner
         .messages
         .push(crate::native::model::types::Message::system(system));
+    if let Some(resume_id) = resume_session_id
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        match load_transcript(&pool, resume_id).await {
+            Ok(Some(history)) => {
+                let restored = history.len();
+                runner.messages.extend(history);
+                let _ = event_tx.send(NativeEvent::Line(format!(
+                    "[续聊] 已恢复上一会话 {restored} 条上下文（图片附件不恢复）"
+                )));
+            }
+            Ok(None) => {
+                let _ = event_tx.send(NativeEvent::Line(
+                    "[计划] 未恢复原会话，已基于当前计划修改".to_string(),
+                ));
+            }
+            Err(error) => {
+                let _ = event_tx.send(NativeEvent::Line(format!(
+                    "[计划] 恢复上下文失败：{error}；已基于当前计划修改"
+                )));
+            }
+        }
+    }
     runner.on_event = Some(event_tx);
     let (usage_tx, mut usage_rx) = mpsc::unbounded_channel();
     runner.on_usage = Some(usage_tx);
@@ -1094,6 +1120,23 @@ pub async fn run_native_read_only_one_shot(
     }
     if text.trim().is_empty() {
         return Err("内置 Agent 未返回可用内容".to_string());
+    }
+    if let Some(session_id) = session_record_id
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        persist_native_transcript(
+            app,
+            session_id,
+            &employee.id,
+            task_id,
+            employee.project_id.as_deref(),
+            &run.model,
+            user_turn_count(&runner.messages),
+            &runner.messages,
+            &mut None,
+        )
+        .await;
     }
     Ok(NativeOneShotResult {
         text,

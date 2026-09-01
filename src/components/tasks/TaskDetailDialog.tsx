@@ -952,7 +952,8 @@ export function TaskDetailDialog({
     void fetchTaskAutomationState(task.id);
   }, [coordinatorPlanDialogOpen, task.id, fetchTaskAutomationState]);
 
-  const generateCoordinatorPlan = async () => {
+  const generateCoordinatorPlan = async (revisionInstruction?: string) => {
+    const trimmedRevision = revisionInstruction?.trim() ?? "";
     const plan = await generateCoordinatorPlanForTask({
       taskId: task.id,
       coordinatorId,
@@ -963,6 +964,8 @@ export function TaskDetailDialog({
       status,
       priority,
       workingDir: projectRepoPath ?? null,
+      revisionInstruction: trimmedRevision || null,
+      currentMarkdown: trimmedRevision ? coordinatorPlanDraft : null,
     });
     if (plan) {
       setPlanContent(plan);
@@ -2045,6 +2048,7 @@ export function TaskDetailDialog({
           void handlePipelineEmployeeChange(stepId, employeeId)
         }
         onRegenerate={() => void generateCoordinatorPlan()}
+        onRevise={(instruction) => void generateCoordinatorPlan(instruction)}
         onSave={() => void handleSaveCoordinatorPlan()}
         onToggleTerminal={() =>
           patchCoordinatorPlan(task.id, {

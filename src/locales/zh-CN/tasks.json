@@ -615,6 +615,15 @@
     "accumulated": "累计：{{duration}}",
     "created": "创建：{{date}}"
   },
+  "coordinatorPlanDialog": {
+    "revisePlaceholder": "告诉协调员如何修改当前计划，例如：把第 2 步拆成接口与实现",
+    "revise": "修改计划",
+    "reviseTitle": "基于当前计划让协调员修订，不会从头规划",
+    "revising": "协调员正在按你的意见修改计划...",
+    "regenerateConfirm": "将丢弃当前计划与工作包，从头规划。确定吗？",
+    "saveDoesNotUpdateSteps": "保存正文不会更新工作包；要用协调员改步骤请用「修改计划」。",
+    "emptyInstruction": "请先填写修改意见。"
+  },
   "primaryCta": {
     "stop": {
       "label": "停止",

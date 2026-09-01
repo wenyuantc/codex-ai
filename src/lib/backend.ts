@@ -339,6 +339,8 @@ export interface GenerateCoordinatorTaskPlanInput {
   priority: string;
   working_dir?: string | null;
   request_id?: string | null;
+  revision_instruction?: string | null;
+  current_markdown?: string | null;
 }
 
 export interface AiCommandOutput {

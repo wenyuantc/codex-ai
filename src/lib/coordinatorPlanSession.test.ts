@@ -194,4 +194,48 @@ describe("generateCoordinatorPlanForTask", () => {
     expect(after?.draft).toBe("# 计划");
     expect(after?.logs).toEqual(before?.logs);
   });
+
+  it("sends revision instruction and current markdown when revising", async () => {
+    const captured: {
+      revision_instruction?: string | null;
+      current_markdown?: string | null;
+    } = {};
+    const adapters = {
+      generatePlan: async (input: {
+        revision_instruction?: string | null;
+        current_markdown?: string | null;
+      }) => {
+        captured.revision_instruction = input.revision_instruction;
+        captured.current_markdown = input.current_markdown;
+        return { markdown: "# 新计划", usage_line: null };
+      },
+      withLogStream: async <T>(
+        onLine: (line: string) => void,
+        run: (requestId: string) => Promise<T>,
+      ) => {
+        onLine("[工具] grep");
+        return run("req-2");
+      },
+      refreshTasks: async () => {},
+    };
+    const plan = await generateCoordinatorPlanForTask(
+      {
+        taskId: "task-1",
+        coordinatorId: "coord-1",
+        runtimeLabel: "runtime",
+        title: "任务",
+        status: "todo",
+        priority: "medium",
+        workingDir: null,
+        revisionInstruction: " 拆第2步 ",
+        currentMarkdown: "# 旧计划",
+      },
+      adapters,
+    );
+    expect(plan).toBe("# 新计划");
+    expect(captured.revision_instruction).toBe("拆第2步");
+    expect(captured.current_markdown).toBe("# 旧计划");
+    const logs = useCoordinatorPlanStore.getState().byTaskId["task-1"]?.logs ?? [];
+    expect(logs.some((line) => line.includes("按意见修改当前计划"))).toBe(true);
+  });
 });

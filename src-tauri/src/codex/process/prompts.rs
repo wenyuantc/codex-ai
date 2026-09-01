@@ -307,6 +307,41 @@ pub(super) fn build_ai_generate_plan_prompt_with_attachments(
     )
 }
 
+pub(super) fn build_ai_revise_plan_prompt(
+    task_title: &str,
+    task_description: &str,
+    task_status: &str,
+    task_priority: &str,
+    current_markdown: &str,
+    current_steps_json: &str,
+    instruction: &str,
+    subtasks: &[String],
+    attachments: &[String],
+    template_override: Option<&crate::codex::AiPromptTemplate>,
+) -> String {
+    let base = build_ai_generate_plan_prompt_with_attachments(
+        task_title,
+        task_description,
+        task_status,
+        task_priority,
+        subtasks,
+        attachments,
+        template_override,
+    );
+    format!(
+        "{base}\n\n\
+当前计划 Markdown：\n\
+{}\n\n\
+当前工作包 JSON：\n\
+{}\n\n\
+用户修改意见：\n\
+{}",
+        current_markdown.trim(),
+        current_steps_json.trim(),
+        instruction.trim()
+    )
+}
+
 pub(super) fn build_ai_generate_tester_acceptance_prompt(
     task_title: &str,
     task_description: &str,

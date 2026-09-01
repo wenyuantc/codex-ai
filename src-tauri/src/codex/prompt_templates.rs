@@ -83,6 +83,19 @@ pub fn default_ai_prompt_templates() -> AiPromptTemplatesDocument {
 - 若有任务图片/附件，纳入计划依据".to_string(),
             },
             AiPromptTemplate {
+                scene: "coordinator_plan_revise".to_string(),
+                label: "协调员计划修订".to_string(),
+                output_goal: "你是任务规划与编排助手。请基于已有计划和用户修改意见，输出修订后的可机读串行工作包计划，并附人类可读 Markdown。".to_string(),
+                scene_requirement: "- 只返回一个 JSON 对象，不要 Markdown 围栏外的额外客套文字\n\
+- JSON schema: {\"markdown\":string,\"steps\":[{\"title\":string,\"goal\":string,\"success_criteria\":string,\"employee_id\":string|null}]}\n\
+- markdown 为中文计划正文，需包含：# 标题、## 目标与范围、## 实施步骤、## 验收与验证、## 风险与依赖、## 假设\n\
+- steps 为串行工作包，3-8 步，title/goal/success_criteria 必填且具体可执行\n\
+- 以用户修改意见为准修订；未要求改的步骤尽量保持原 title/goal/success_criteria/employee_id\n\
+- employee_id 必须来自输入的「可用员工」列表 id；若不确定可填 null（运行时回落到任务负责人）\n\
+- 可以用只读工具（Read/Glob/Grep）查看仓库后再修订；禁止改文件、禁止执行会写盘的命令\n\
+- 未读到的缺口写入 markdown 的风险/假设，不要假装已完成验证".to_string(),
+            },
+            AiPromptTemplate {
                 scene: "review".to_string(),
                 label: "代码审查".to_string(),
                 output_goal: "你正在执行一次只读代码审查。".to_string(),

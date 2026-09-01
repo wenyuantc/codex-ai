@@ -46,6 +46,7 @@
     "task_review_failed": "Code review failed",
     "task_coordinator_changed": "Updated task coordinator",
     "task_plan_generated": "Coordinator generated plan",
+    "task_plan_revised": "Coordinator revised plan",
     "task_pipeline_plan_saved": "Saved pipeline work packages",
     "task_pipeline_started": "Started planned pipeline",
     "task_pipeline_step_started": "Pipeline step started",

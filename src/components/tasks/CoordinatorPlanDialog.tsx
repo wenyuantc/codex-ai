@@ -1,10 +1,12 @@
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import {
   ChevronDown,
   ChevronUp,
   Eraser,
   GitBranch,
   Loader2,
+  PencilLine,
   Play,
   RefreshCw,
   Save,
@@ -69,6 +71,7 @@ interface CoordinatorPlanDialogProps {
   onRefreshPipeline?: () => void;
   onPipelineEmployeeChange?: (stepId: string, employeeId: string) => void;
   onRegenerate: () => void;
+  onRevise: (instruction: string) => void;
   onSave: () => void;
   onToggleTerminal: () => void;
   onClearTerminal: () => void;
@@ -122,15 +125,19 @@ export function CoordinatorPlanDialog({
   onRefreshPipeline,
   onPipelineEmployeeChange,
   onRegenerate,
+  onRevise,
   onSave,
   onToggleTerminal,
   onClearTerminal,
 }: CoordinatorPlanDialogProps) {
+  const { t } = useTranslation("tasks");
   const hasPlan = plan.trim().length > 0;
   const busy = loading || saving || executing || pipelineActionLoading;
   const planActionsDisabled = busy || actionsLocked;
   const terminalBottomRef = useRef<HTMLDivElement>(null);
   const [stepLogTarget, setStepLogTarget] = useState<StepLogTarget | null>(null);
+  const [revisionInstruction, setRevisionInstruction] = useState("");
+  const canRevise = hasPlan && revisionInstruction.trim().length > 0 && !planActionsDisabled;
 
   useEffect(() => {
     if (terminalVisible) {
@@ -139,7 +146,9 @@ export function CoordinatorPlanDialog({
   }, [terminalLogs.length, terminalVisible]);
 
   const statusText = loading
-    ? "协调员正在生成计划..."
+    ? hasPlan
+      ? t("coordinatorPlanDialog.revising")
+      : "协调员正在生成计划..."
     : pipelineActionLoading
       ? "正在按计划编排..."
       : executing
@@ -293,6 +302,50 @@ export function CoordinatorPlanDialog({
             </div>
           )}
 
+          {hasPlan && (
+            <div className="shrink-0 space-y-1.5">
+              <p className="text-[11px] text-muted-foreground">
+                {t("coordinatorPlanDialog.saveDoesNotUpdateSteps")}
+              </p>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={revisionInstruction}
+                  disabled={planActionsDisabled}
+                  placeholder={t("coordinatorPlanDialog.revisePlaceholder")}
+                  onChange={(event) => setRevisionInstruction(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" && !event.nativeEvent.isComposing && canRevise) {
+                      event.preventDefault();
+                      onRevise(revisionInstruction.trim());
+                    }
+                  }}
+                  className="min-w-0 flex-1 rounded-md border border-input bg-background px-3 py-1.5 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
+                />
+                <button
+                  type="button"
+                  onClick={() => onRevise(revisionInstruction.trim())}
+                  disabled={!canRevise}
+                  title={
+                    actionsLocked
+                      ? "任务进行中，无法修改计划"
+                      : revisionInstruction.trim()
+                        ? t("coordinatorPlanDialog.reviseTitle")
+                        : t("coordinatorPlanDialog.emptyInstruction")
+                  }
+                  className="flex shrink-0 items-center gap-1 rounded-md border border-input px-3 py-1.5 text-sm hover:bg-accent disabled:opacity-50"
+                >
+                  {loading && hasPlan ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <PencilLine className="h-3.5 w-3.5" />
+                  )}
+                  {t("coordinatorPlanDialog.revise")}
+                </button>
+              </div>
+            </div>
+          )}
+
           <DialogFooter className="relative z-10 shrink-0 flex-wrap">
             <button
               type="button"
@@ -317,7 +370,12 @@ export function CoordinatorPlanDialog({
             </button>
             <button
               type="button"
-              onClick={onRegenerate}
+              onClick={() => {
+                if (!window.confirm(t("coordinatorPlanDialog.regenerateConfirm"))) {
+                  return;
+                }
+                onRegenerate();
+              }}
               disabled={planActionsDisabled}
               title={actionsLocked ? "任务进行中，无法重新生成计划" : undefined}
               className="flex items-center gap-1 rounded-md border border-input px-3 py-1.5 text-sm hover:bg-accent disabled:opacity-50"

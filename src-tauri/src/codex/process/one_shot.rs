@@ -109,6 +109,7 @@ pub(crate) struct AiCommandOptions {
     pub task_id_for_progress: Option<String>,
     pub session_record_id: Option<String>,
     pub read_only_tools: bool,
+    pub resume_session_id: Option<String>,
 }
 
 #[derive(Clone, Debug, serde::Serialize)]
@@ -1238,6 +1239,8 @@ pub(crate) async fn run_native_ai_command(
         execution_context.ssh_config_id.as_deref(),
         event_tx,
         options.session_record_id.as_deref(),
+        options.resume_session_id.as_deref(),
+        task_id.as_deref(),
     )
     .await;
     let _ = drain.await;

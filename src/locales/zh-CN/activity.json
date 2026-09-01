@@ -46,6 +46,7 @@
     "task_review_failed": "代码审核失败",
     "task_coordinator_changed": "更新任务协调员",
     "task_plan_generated": "协调员生成计划",
+    "task_plan_revised": "修订协调员计划",
     "task_pipeline_plan_saved": "保存编排工作包",
     "task_pipeline_started": "开始按计划编排",
     "task_pipeline_step_started": "编排步骤开始",

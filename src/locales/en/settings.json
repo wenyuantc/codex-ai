@@ -677,6 +677,7 @@
       "session_continue": "Continue session conversation",
       "employee_system_prompt": "Employee system prompt generation",
       "coordinator_plan": "Coordinator task plan",
+      "coordinator_plan_revise": "Coordinator plan revision",
       "review": "Code review",
       "generate_commit": "Generate commit message",
       "suggest_assignee": "Suggest assignee",
