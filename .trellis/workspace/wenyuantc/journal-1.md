@@ -948,3 +948,36 @@ i18next zh-CN/en framework, main-path extraction, activity single-source, leftov
 ### Status
 
 [OK] **Completed**
+
+
+## Session 33: 协调员计划弹窗补齐创建并运行终端日志
+
+**Date**: 2026-09-01
+**Task**: 协调员计划弹窗补齐创建并运行终端日志
+**Branch**: `main`
+
+### Summary
+
+创建并运行后台生成计划改为复用 generateCoordinatorPlanForTask，打开协调员执行计划弹窗即可看到实时终端日志。
+
+### Main Changes
+
+- generateAndPersistCoordinatorPlan 委托 generateCoordinatorPlanForTask，过程行写入 coordinatorPlanStore
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `742433e` | (see git log) |
+
+### Testing
+
+- [OK] npm run format:check / lint / test:ci / build 通过；persist 新增 3 个用例
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 看板新建任务（有协调员）创建并运行后打开协调员计划弹窗确认终端有过程日志
