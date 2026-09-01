@@ -45,6 +45,7 @@ Also open the closest existing feature and mirror it.
 | SQL read helper | `select()` in `src/lib/database.ts` |
 | Project scope / env mode | `src/lib/projects.ts` + `projectStore` |
 | Task execution/review actions | `src/components/tasks/hooks/*` |
+| Coordinator plan generate + logs | `generateCoordinatorPlanForTask` / `generateAndPersistCoordinatorPlan` — never raw `aiGenerateCoordinatorTaskPlan` |
 | UI primitives | `src/components/ui/*` |
 | Select whose value is a machine key | `SelectValue` render fn → name (`KanbanPage`, `NativeChannelFields`, Settings 子 Agent 策略). Empty `<SelectValue />` shows `aggressive` / UUID |
 | Icons | `lucide-react` only |

@@ -26,6 +26,8 @@ There is **no** Redux, React Query, or SWR layer.
 | Dashboard | `src/stores/dashboardStore.ts` | dashboard aggregates + activity feed queries |
 | Notification | `src/stores/notificationStore.ts` | sticky/system notifications |
 | Log | `src/stores/logStore.ts` | lightweight log UI state |
+| Coordinator plan | `src/stores/coordinatorPlanStore.ts` | per-task plan draft + live `[计划]`/`[工具]` logs for `CoordinatorPlanDialog` |
+| Task background run | `src/stores/taskBackgroundRunStore.ts` | create-and-run / background-run phase badges |
 
 ## Standard Store Shape
 
@@ -44,6 +46,18 @@ Example (task create path):
 - store → `fetchTasks` via `listTasks` command
 
 Follow-up creates (review → 新建修复任务, template apply, create-and-run) must send `reviewer_id` when the source context already has one. `create_task` does not inherit the parent task's reviewer, and it rejects a missing reviewer when `task_automation_default_enabled` is on. The review-fix path uses `buildReviewFixCreatePayload` (sidebar value first, then the saved source-task field).
+
+### Convention: Coordinator plan generation shares one log path
+
+**What**: Every coordinator plan generate (dialog regenerate, create-and-run, kanban background run) must go through `generateCoordinatorPlanForTask` (dialog) or `generateAndPersistCoordinatorPlan` (background; that wrapper now delegates to the same function). Both write process lines into `coordinatorPlanStore` via `withCoordinatorPlanLogStream` + `request_id`.
+
+**Why**: `CoordinatorPlanDialog` only reads `coordinatorPlanStore.logs`. Calling `aiGenerateCoordinatorTaskPlan` without the stream leaves the terminal on 「等待运行日志...」 even while the IPC is running. Create-and-run used to do that; opening the dialog then looked empty until the user clicked 「重新生成计划」.
+
+**Wrong**: `runExclusiveCoordinatorPlanGenerate` + raw `aiGenerateCoordinatorTaskPlan` (no `request_id`, no store logs). That also holds the exclusive lock so a later dialog generate can only join the silent promise.
+
+**Correct**: `generateAndPersistCoordinatorPlan` → `generateCoordinatorPlanForTask` → `withCoordinatorPlanLogStream` → `aiGenerateCoordinatorTaskPlan({ request_id })`. Backend `ai_generate_coordinator_task_plan` already persists `plan_content` / pipeline steps; do not add a second frontend `updateTask({ plan_content })` unless you intend a `task_plan_saved` rewrite.
+
+**Tests**: `src/lib/coordinatorPlanPersist.test.ts` (background generate fills store logs; opening the viewer does not hydrate-wipe them) and `src/lib/coordinatorPlanSession.test.ts`.
 
 ## Read vs Write (Critical)
 
