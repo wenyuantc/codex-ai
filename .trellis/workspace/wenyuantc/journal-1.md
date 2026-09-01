@@ -981,3 +981,39 @@ i18next zh-CN/en framework, main-path extraction, activity single-source, leftov
 ### Next Steps
 
 - 看板新建任务（有协调员）创建并运行后打开协调员计划弹窗确认终端有过程日志
+
+
+## Session 34: 协调员计划支持按意见修订
+
+**Date**: 2026-09-01
+**Task**: 协调员计划支持按意见修订
+**Branch**: `main`
+
+### Summary
+
+协调员计划生成后可在弹窗用一句话基于当前计划和工作包修订，不必整份重新生成。
+
+### Main Changes
+
+- 弹窗增加修改计划输入条；重新生成需确认
+- ai_generate_coordinator_task_plan 支持 revision_instruction；native 规划会话保存/恢复 transcript
+- 活动日志 task_plan_revised（修订协调员计划）
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `3e44150` | (see git log) |
+
+### Testing
+
+- [OK] vitest 256 通过；clippy -D warnings 通过；npm run build 通过
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 在看板打开协调员执行计划，用一句话改计划，确认 Markdown 与工作包一起更新
+- 确认重新生成会弹出丢弃确认框
