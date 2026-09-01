@@ -893,3 +893,37 @@ i18next zh-CN/en framework, main-path extraction, activity single-source, leftov
 ### Status
 
 [OK] **Completed**
+
+
+## Session 31: 审核页新建修复任务继承审查员
+
+**Date**: 2026-09-01
+**Task**: 审核页新建修复任务继承审查员
+**Branch**: `main`
+
+### Summary
+
+修复审核页「新建修复任务」未传 reviewer_id，开启默认自动质控时误报未指定审查员。新建修复任务会继承侧栏/原任务的审查员、协调员和 Native 子代理。
+
+### Main Changes
+
+- 抽出 buildReviewFixCreatePayload，审核页创建修复任务时带上 reviewer_id（侧栏优先）
+- 同步带上 coordinator_id 与 native_subagent_id
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `17239ef` | (see git log) |
+
+### Testing
+
+- [OK] vitest：有审查员、侧栏覆盖、无审查员不伪造 id；npm run test:ci / format:check / build 通过
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 在桌面应用里对已指定审查员且有审核结果的任务点一次「新建修复任务」确认不再报错
