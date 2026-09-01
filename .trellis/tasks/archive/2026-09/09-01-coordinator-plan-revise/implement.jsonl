@@ -1,0 +1,8 @@
+{"file": ".trellis/spec/backend/ai-engines.md", "reason": "Coordinator stays read-only one-shot; no NativeAgentManager or run-queue"}
+{"file": ".trellis/spec/backend/command-guidelines.md", "reason": "Extend existing payload; Result<T,String> Chinese errors"}
+{"file": ".trellis/spec/backend/testing.md", "reason": "Pure prompt/parse tests colocated in ai_commands"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "Activity key + local/SSH + no new session_kind"}
+{"file": ".trellis/spec/guides/code-reuse-thinking-guide.md", "reason": "Reuse generateCoordinatorPlanForTask; do not invoke raw"}
+{"file": ".trellis/spec/frontend/i18n.md", "reason": "New UI strings and task_plan_revised activity key"}
+{"file": ".trellis/spec/frontend/data-access.md", "reason": "Only backend.ts wrappers"}
+{"file": ".trellis/spec/frontend/component-guidelines.md", "reason": "Dialog composition; do not fork SessionInputBar for planning"}

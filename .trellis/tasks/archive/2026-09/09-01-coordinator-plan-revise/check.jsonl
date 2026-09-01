@@ -1,0 +1,6 @@
+{"file": ".trellis/spec/backend/ai-engines.md", "reason": "Planning must not start live sessions or handle_session_exit"}
+{"file": ".trellis/spec/backend/testing.md", "reason": "clippy -D warnings and colocated tests"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "Activity zh-CN label; SSH same entry"}
+{"file": ".trellis/spec/frontend/i18n.md", "reason": "zh-CN+en activity and tasks keys"}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "format:check test:ci build"}
+{"file": ".trellis/spec/frontend/data-access.md", "reason": "No frontend SQLite writes"}
