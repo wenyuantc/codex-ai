@@ -3,7 +3,6 @@ use std::collections::{hash_map::DefaultHasher, HashMap};
 use std::fs;
 use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 use chrono::{Duration, Utc};
 use serde::{Deserialize, Serialize};

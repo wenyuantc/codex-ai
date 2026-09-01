@@ -751,7 +751,7 @@ impl OpenCodeRuntimeConfigBackup {
 }
 
 fn git_command_status(run_cwd: &str, args: &[&str]) -> Option<std::process::ExitStatus> {
-    std::process::Command::new("git")
+    crate::process_spawn::std_command("git")
         .arg("-C")
         .arg(run_cwd)
         .args(args)
@@ -760,7 +760,7 @@ fn git_command_status(run_cwd: &str, args: &[&str]) -> Option<std::process::Exit
 }
 
 fn git_command_output(run_cwd: &str, args: &[&str]) -> Option<std::process::Output> {
-    std::process::Command::new("git")
+    crate::process_spawn::std_command("git")
         .arg("-C")
         .arg(run_cwd)
         .args(args)

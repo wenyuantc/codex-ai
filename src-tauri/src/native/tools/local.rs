@@ -4,7 +4,8 @@ use std::process::Stdio;
 use std::time::Duration;
 
 use tokio::io::AsyncReadExt;
-use tokio::process::Command;
+
+use crate::process_spawn::tokio_command;
 
 use super::cancel::CancelFlag;
 use super::glob::glob_match;
@@ -202,7 +203,7 @@ impl LocalWorkspace {
                 .unwrap_or(BASH_DEFAULT_TIMEOUT.as_millis() as i64)
                 .clamp(1, BASH_MAX_TIMEOUT.as_millis() as i64) as u64,
         );
-        let mut cmd = Command::new("bash");
+        let mut cmd = tokio_command("bash");
         cmd.arg("-lc")
             .arg(command)
             .current_dir(&self.root)

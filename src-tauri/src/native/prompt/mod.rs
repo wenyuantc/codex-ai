@@ -1,6 +1,5 @@
 use std::collections::HashSet;
 use std::fs;
-use std::process::Command;
 
 use tauri::{AppHandle, Runtime};
 
@@ -10,6 +9,7 @@ use crate::native::settings::{
 };
 use crate::native::subagents::{NativeSubagent, TOOL_MODE_ALL};
 use crate::native::tools::ssh::SshToolRuntime;
+use crate::process_spawn::std_command;
 
 const IDENTITY: &str = include_str!("identity.md");
 const AGENTS_FILE_CAP: usize = 32_768;
@@ -281,7 +281,7 @@ pub async fn read_ssh_project_agents(ssh: &SshToolRuntime) -> String {
 pub fn detect_local_git(cwd: &str) -> Option<NativeGitInfo> {
     let root = std::path::Path::new(cwd);
     if !root.join(".git").exists() {
-        let ok = Command::new("git")
+        let ok = std_command("git")
             .args(["rev-parse", "--is-inside-work-tree"])
             .current_dir(root)
             .output()
@@ -294,7 +294,7 @@ pub fn detect_local_git(cwd: &str) -> Option<NativeGitInfo> {
         }
     }
     let run = |args: &[&str]| -> String {
-        Command::new("git")
+        std_command("git")
             .args(args)
             .current_dir(root)
             .output()

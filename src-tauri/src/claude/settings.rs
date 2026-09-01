@@ -342,7 +342,7 @@ pub async fn read_claude_cli_version(
     sdk_install_dir: Option<&str>,
 ) -> Result<String, String> {
     let cli_path = resolve_claude_cli_executable(cli_path_override, sdk_install_dir).await?;
-    let output = tokio::process::Command::new(&cli_path)
+    let output = crate::process_spawn::tokio_command(&cli_path)
         .arg("--version")
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())

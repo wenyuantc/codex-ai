@@ -96,6 +96,17 @@ src-tauri/
 | Auto review/fix state machine | `task_automation` (+ `task_automation/*` slices) |
 | Sticky/transient notifications | `notifications.rs` |
 | Notification sound pref + OS play | `app/notification_sound.rs` (see [notification-sound.md](./notification-sound.md)) |
+| Local subprocess spawn | `process_spawn.rs` (`std_command` / `tokio_command` / `configure_*`) |
+
+## Process Spawn (Windows console)
+
+All **local** child processes must go through `src-tauri/src/process_spawn.rs`:
+
+- Prefer `std_command(program)` / `tokio_command(program)` as the default constructors.
+- Existing helpers that already call `configure_std_command` / `configure_tokio_command` (e.g. `new_node_command`, `new_npm_command`, `new_ssh_command`) may keep that pattern.
+- Do **not** `Command::new(...).spawn()` / `.output()` / `.status()` without configuring first.
+
+On Windows the helper sets `CREATE_NO_WINDOW` so GUI builds (`windows_subsystem = "windows"`) do not flash a CMD console. Do **not** add `DETACHED_PROCESS`: it breaks piped stdin/stdout used by health checks and session logs. Test-only process fixtures may stay as raw `Command::new`.
 
 ## Adding A New Command
 

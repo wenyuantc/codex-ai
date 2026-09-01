@@ -654,7 +654,7 @@ async fn run_claude_one_shot_via_cli<R: Runtime>(
 ) -> Result<String, String> {
     let claude_settings = crate::claude::load_claude_settings(app)?;
     let claude_bin = resolve_claude_binary_path(&claude_settings).await?;
-    let mut command = tokio::process::Command::new(&claude_bin);
+    let mut command = crate::process_spawn::tokio_command(&claude_bin);
     command
         .args(build_claude_one_shot_cli_args(model, reasoning_effort))
         .stdin(std::process::Stdio::piped())
@@ -752,7 +752,7 @@ async fn run_grok_one_shot_via_cli<R: Runtime>(
 ) -> Result<String, String> {
     let grok_settings = crate::grok::load_grok_settings(app)?;
     let grok_bin = crate::grok::resolve_grok_executable_path(&grok_settings).await?;
-    let mut command = tokio::process::Command::new(&grok_bin);
+    let mut command = crate::process_spawn::tokio_command(&grok_bin);
     let mut args = crate::grok::build_grok_one_shot_cli_args(model, reasoning_effort);
     // prompt 通过 -p 传入，避免依赖 stdin 的 headless 行为差异
     if let Some(p_index) = args.iter().position(|arg| arg == "-p") {

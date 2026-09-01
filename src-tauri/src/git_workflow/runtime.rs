@@ -47,7 +47,7 @@ fn parse_token(token: &str) -> Result<(&str, &str), String> {
 }
 
 fn run_git_text(repo_path: &str, args: &[&str]) -> Result<String, String> {
-    let output = Command::new("git")
+    let output = crate::process_spawn::std_command("git")
         .arg("-C")
         .arg(repo_path)
         .args(args)
@@ -66,7 +66,7 @@ fn run_git_text(repo_path: &str, args: &[&str]) -> Result<String, String> {
 
 #[cfg(test)]
 fn run_git_command(repo_path: &str, args: &[&str]) -> Result<(), String> {
-    let output = Command::new("git")
+    let output = crate::process_spawn::std_command("git")
         .arg("-C")
         .arg(repo_path)
         .args(args)
@@ -85,7 +85,7 @@ fn run_git_command(repo_path: &str, args: &[&str]) -> Result<(), String> {
 
 #[cfg(test)]
 fn git_ref_exists_local(repo_path: &str, full_ref: &str) -> bool {
-    Command::new("git")
+    crate::process_spawn::std_command("git")
         .arg("-C")
         .arg(repo_path)
         .args(["show-ref", "--verify", "--quiet", full_ref])

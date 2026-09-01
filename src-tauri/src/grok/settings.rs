@@ -344,7 +344,7 @@ async fn resolve_from_shell(binary_name: &str) -> Option<PathBuf> {
     ];
 
     for (shell, args) in lookups {
-        let output = tokio::process::Command::new(shell)
+        let output = crate::process_spawn::tokio_command(shell)
             .args(&args)
             .stdout(Stdio::piped())
             .stderr(Stdio::null())
@@ -401,7 +401,7 @@ pub async fn resolve_grok_executable_path(settings: &GrokSettings) -> Result<Pat
 }
 
 pub async fn read_grok_cli_version(cli_path: &Path) -> Result<String, String> {
-    let output = tokio::process::Command::new(cli_path)
+    let output = crate::process_spawn::tokio_command(cli_path)
         .arg("--version")
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -427,7 +427,7 @@ pub async fn read_grok_cli_version(cli_path: &Path) -> Result<String, String> {
 }
 
 async fn run_grok_models_command(cli_path: &Path) -> Result<String, String> {
-    let output = tokio::process::Command::new(cli_path)
+    let output = crate::process_spawn::tokio_command(cli_path)
         .arg("models")
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -537,7 +537,7 @@ pub async fn inspect_grok_runtime<R: Runtime>(
 
 async fn run_official_grok_cli_install() -> Result<(), String> {
     let output = if cfg!(target_os = "windows") {
-        tokio::process::Command::new("powershell")
+        crate::process_spawn::tokio_command("powershell")
             .args([
                 "-NoProfile",
                 "-ExecutionPolicy",
@@ -551,7 +551,7 @@ async fn run_official_grok_cli_install() -> Result<(), String> {
             .await
             .map_err(|error| format!("启动 Grok CLI 安装失败: {error}"))?
     } else {
-        tokio::process::Command::new("/bin/bash")
+        crate::process_spawn::tokio_command("/bin/bash")
             .args(["-lc", "curl -fsSL https://x.ai/cli/install.sh | bash"])
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())

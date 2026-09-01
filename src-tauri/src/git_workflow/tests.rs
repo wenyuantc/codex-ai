@@ -3,6 +3,7 @@
 use super::*;
 
 use std::path::PathBuf;
+use std::process::Command;
 
 use sqlx::SqlitePool;
 

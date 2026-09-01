@@ -350,7 +350,7 @@ pub(crate) fn cleanup_ssh_mux_masters() {
 
         let path_str = path.to_string_lossy();
         // Best-effort master shutdown. BatchMode/ConnectTimeout avoid hang on quit.
-        let _ = Command::new("ssh")
+        let _ = crate::process_spawn::std_command("ssh")
             .args([
                 "-o",
                 "BatchMode=yes",

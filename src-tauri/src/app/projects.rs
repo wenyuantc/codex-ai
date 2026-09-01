@@ -368,7 +368,7 @@ pub async fn list_trashed_projects<R: Runtime>(app: AppHandle<R>) -> Result<Vec<
 }
 
 fn run_local_git_capture(repo_path: &str, args: &[&str]) -> Result<String, String> {
-    let output = Command::new("git")
+    let output = crate::process_spawn::std_command("git")
         .args(args)
         .current_dir(repo_path)
         .output()

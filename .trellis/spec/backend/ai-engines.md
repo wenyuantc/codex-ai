@@ -24,6 +24,7 @@ Rules:
 - `start_*` / `stop_*` remain engine-specific Tauri commands; do not introduce a single `dyn AiEngine::start` dispatcher unless product scope expands.
 - Task-execution `start_*` returns tagged `StartSessionOutcome` (`started` \| `queued`). Gate/queue rules live in [run-queue.md](./run-queue.md), not in five engine copies.
 - **`native` is not a CLI engine.** Do not wrap it in `EngineChild` / `ProcessManager`. Live sessions live in `NativeAgentManager` (HashMap of cancel + followup mpsc + `JoinHandle`). Count those sessions in `run_queue` live total.
+- **Local CLI / git / ssh / bash / powershell spawns** must use `process_spawn::{std_command, tokio_command}` (or `configure_*` on an existing `Command`). Windows needs `CREATE_NO_WINDOW`; never spawn a console binary from a GUI session without it (settings health checks and engine launch both flash CMD otherwise).
 
 ## Engine Modules
 

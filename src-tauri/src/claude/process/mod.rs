@@ -1268,7 +1268,7 @@ pub async fn start_claude_with_manager(
                     return Err(error);
                 }
             };
-            let mut command = tokio::process::Command::new(&claude_bin);
+            let mut command = crate::process_spawn::tokio_command(&claude_bin);
             command
                 .args(&cli_args)
                 .current_dir(&run_cwd)
@@ -1313,7 +1313,7 @@ pub async fn start_claude_with_manager(
                 return Err(error);
             }
         };
-        let mut command = tokio::process::Command::new(&claude_bin);
+        let mut command = crate::process_spawn::tokio_command(&claude_bin);
         command
             .args(&cli_args)
             .current_dir(&run_cwd)

@@ -1063,7 +1063,7 @@ pub async fn start_grok_with_manager(
                 return Err(error);
             }
         };
-        let mut command = tokio::process::Command::new(&grok_bin);
+        let mut command = crate::process_spawn::tokio_command(&grok_bin);
         command
             .args(&cli_args)
             .current_dir(&run_cwd)
