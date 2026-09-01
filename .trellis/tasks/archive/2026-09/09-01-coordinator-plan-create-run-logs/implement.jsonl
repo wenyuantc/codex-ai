@@ -1,0 +1,5 @@
+{"_example": "Fill with {\"file\": \"<path>\", \"reason\": \"<why>\"}. Put spec/research files only — no code paths. Run `python3 .trellis/scripts/get_context.py --mode packages` to list available specs. Delete this line once real entries are added."}
+{"file": ".trellis/spec/frontend/state-management.md", "reason": "Coordinator plan logs live in Zustand, not taskLogs"}
+{"file": ".trellis/spec/guides/code-reuse-thinking-guide.md", "reason": "Reuse generateCoordinatorPlanForTask instead of a second IPC path"}
+{"file": "src/lib/coordinatorPlanSession.ts", "reason": "Canonical generate + log-stream path for the plan dialog"}
+{"file": "src/lib/coordinatorPlanPersist.ts", "reason": "Create-and-run currently skips the log stream"}
